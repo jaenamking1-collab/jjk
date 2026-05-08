@@ -541,6 +541,7 @@ async function loadHoldings() {
   const data = await api({ action:'getHoldings', account_id: accountId === 'ALL' ? '' : accountId });
   state.holdings = data || [];
   renderHoldingsTable(data || []);
+  loadHoldingPrices(data || []);
 }
 
 function renderHoldingsTable(holdings) {
@@ -552,11 +553,21 @@ function renderHoldingsTable(holdings) {
   const showAccount = accountId === 'ALL';
   document.getElementById('holdingsTable').innerHTML = `
     <div class="table-wrap">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;justify-content:flex-end">
+      <span style="font-size:12px;color:var(--text3)">추세선</span>
+      <select id="trendDays" onchange="reloadTrend()" style="padding:4px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;">
+        <option value="3">3일</option>
+        <option value="5" selected>5일</option>
+        <option value="30">30일</option>
+      </select>
+    </div>
     <table>
       <thead><tr>
         ${showAccount ? '<th>계좌</th>' : ''}
-        <th>티커</th><th>종목명</th><th>통화</th><th class="text-right">평균단가</th>
+        <th>티커</th><th>종목명</th><th class="text-right">평균단가</th>
         <th class="text-right">수량</th><th class="text-right">투자금액</th>
+        <th class="text-right">현재가</th><th class="text-right">전일가</th>
+        <th style="width:100px">추세</th>
         <th>배당주기</th><th>관리</th>
       </tr></thead>
       <tbody>
@@ -566,14 +577,17 @@ function renderHoldingsTable(holdings) {
         const invest = avg * qty;
         const investKrw = h.currency === 'USD' ? invest * state.exchangeRate : invest;
         const acc = state.accounts.find(a => a.id === h.account_id);
-        return `<tr>
+        const curr = h.currency === 'USD' ? '$' : '';
+        return `<tr data-id="${h.id}" data-ticker="${h.ticker}" data-currency="${h.currency}">
           ${showAccount ? `<td style="font-size:12px;color:var(--text3)">${acc?.name||''}</td>` : ''}
           <td><span class="ticker">${h.ticker}</span></td>
           <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h.name}</td>
-          <td><span class="badge badge-${h.currency.toLowerCase()}">${h.currency}</span></td>
-          <td class="num">${h.currency==='USD'?'$':''} ${avg.toLocaleString()}</td>
+          <td class="num">${curr}${avg.toLocaleString()}</td>
           <td class="num">${qty.toLocaleString()}</td>
           <td class="num">₩${Math.round(investKrw).toLocaleString()}</td>
+          <td class="num" id="price-${h.id}"><span style="color:var(--text3);font-size:11px">-</span></td>
+          <td class="num" id="prev-${h.id}"><span style="color:var(--text3);font-size:11px">-</span></td>
+          <td id="trend-${h.id}" style="padding:4px 8px;"></td>
           <td style="font-size:12px;color:var(--text3)">${h.div_cycle||'-'}</td>
           <td>
             <div class="gap-8">
@@ -590,6 +604,64 @@ function renderHoldingsTable(holdings) {
 }
 
 // ── DIVIDENDS ────────────────────────────
+// ── STOCK PRICES & TREND ─────────────────
+async function loadHoldingPrices(holdings) {
+  if (!holdings.length) return;
+  const days = document.getElementById('trendDays')?.value || 5;
+  for (const h of holdings) {
+    try {
+      const [priceData, histData] = await Promise.all([
+        api({ action:'getStockPrice', ticker:h.ticker, currency:h.currency }),
+        api({ action:'getStockHistory', ticker:h.ticker, currency:h.currency, days })
+      ]);
+      const curr = h.currency === 'USD' ? '$' : '₩';
+
+      // 현재가
+      const priceEl = document.getElementById(`price-${h.id}`);
+      if (priceEl && priceData.success) {
+        const chg = parseFloat(priceData.change);
+        const color = chg > 0 ? 'var(--red)' : chg < 0 ? 'var(--green)' : 'var(--text2)';
+        const arrow = chg > 0 ? '▲' : chg < 0 ? '▼' : '';
+        priceEl.innerHTML = `<span style="font-family:var(--mono);font-size:12px">${curr}${parseFloat(priceData.current).toLocaleString()}</span>
+          <span style="font-size:10px;color:${color};margin-left:4px">${arrow}${Math.abs(chg).toFixed(2)}%</span>`;
+      }
+
+      // 전일가
+      const prevEl = document.getElementById(`prev-${h.id}`);
+      if (prevEl && priceData.success) {
+        prevEl.innerHTML = `<span style="font-family:var(--mono);font-size:12px;color:var(--text2)">${curr}${parseFloat(priceData.prev).toLocaleString()}</span>`;
+      }
+
+      // 추세선
+      const trendEl = document.getElementById(`trend-${h.id}`);
+      if (trendEl && histData.success && histData.prices.length > 1) {
+        trendEl.innerHTML = drawSparkline(histData.prices);
+      }
+    } catch(e) {}
+  }
+}
+
+function drawSparkline(prices) {
+  const w = 90, h = 30, pad = 3;
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  const range = max - min || 1;
+  const points = prices.map((p, i) => {
+    const x = pad + (i / (prices.length - 1)) * (w - pad * 2);
+    const y = pad + (1 - (p - min) / range) * (h - pad * 2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  const isUp = prices[prices.length-1] >= prices[0];
+  const color = isUp ? '#ef4444' : '#10b981';
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+    <polyline points="${points}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+  </svg>`;
+}
+
+function reloadTrend() {
+  if (state.holdings.length) loadHoldingPrices(state.holdings);
+}
+
 function setupYearSelects() {
   const cur = new Date().getFullYear();
   const years = Array.from({length:5}, (_,i) => cur - 2 + i);
