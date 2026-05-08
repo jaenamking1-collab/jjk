@@ -118,8 +118,8 @@
   /* ── TABLE ── */
   .table-wrap { overflow-x:auto; }
   table { width:100%; border-collapse:collapse; font-size:13px; }
-  th { padding:10px 12px; text-align:left; font-size:11px; font-weight:600; color:var(--text3); text-transform:uppercase; letter-spacing:.5px; border-bottom:1px solid var(--border); }
-  td { padding:10px 12px; border-bottom:1px solid var(--border)22; }
+  th { padding:8px 10px; text-align:left; font-size:11px; font-weight:600; color:var(--text3); text-transform:uppercase; letter-spacing:.5px; border-bottom:2px solid var(--border); }
+  td { padding:6px 10px; border-bottom:1px solid var(--border); }
   tr:hover td { background:var(--bg3); }
   tr:last-child td { border-bottom:none; }
   .ticker { font-family:var(--mono); font-size:12px; color:var(--accent2); font-weight:500; }
@@ -456,8 +456,6 @@ async function apiPost(data) {
 async function init() {
   await Promise.all([loadExchangeRate(), loadAccounts(), loadStockList()]);
   setupYearSelects();
-  document.getElementById('holdingAccountFilter').value = 'ALL';
-  loadHoldings();
 }
 
 async function loadExchangeRate() {
@@ -553,8 +551,10 @@ function selectAccount(id) {
 function updateAccountSelects() {
   const opts = state.accounts.map(a => `<option value="${a.id}">${a.name}</option>`).join('');
   document.getElementById('holdingAccountFilter').innerHTML = '<option value="">계좌 선택</option><option value="ALL">전체 계좌</option>' + opts;
+  document.getElementById('holdingAccountFilter').value = 'ALL';
   document.getElementById('holdingAccount').innerHTML = opts;
   document.getElementById('divAccountFilter').innerHTML = '<option value="">전체 계좌</option>' + opts;
+  loadHoldings();
 }
 
 // ── HOLDINGS ─────────────────────────────
@@ -595,7 +595,7 @@ function renderHoldingsTable(holdings) {
     <div class="table-wrap">
     <table>
       <thead><tr>
-        ${showAccount ? '<th>계좌</th>' : ''}
+        <th>계좌</th>
         <th>티커</th><th>종목명</th><th class="text-right">평균단가</th>
         <th class="text-right">수량</th><th class="text-right">투자금액</th>
         <th class="text-right">현재가</th><th class="text-right">전일가</th>
@@ -610,8 +610,8 @@ function renderHoldingsTable(holdings) {
         const investKrw = h.currency === 'USD' ? invest * state.exchangeRate : invest;
         const acc = state.accounts.find(a => a.id === h.account_id);
         const curr = h.currency === 'USD' ? '$' : '';
-        return `<tr>
-          ${showAccount ? `<td style="font-size:12px;color:var(--text3)">${acc?.name||''}</td>` : ''}
+        return `<tr style="border-bottom:1px solid var(--border)">
+          <td style="font-size:11px;color:var(--text3);white-space:nowrap">${acc?.name||''}</td>
           <td><span class="ticker">${h.ticker}</span></td>
           <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h.name}</td>
           <td class="num">${curr}${avg.toLocaleString()}</td>
@@ -619,7 +619,7 @@ function renderHoldingsTable(holdings) {
           <td class="num">₩${Math.round(investKrw).toLocaleString()}</td>
           <td class="num" id="price-${h.id}"><span style="color:var(--text3);font-size:11px">-</span></td>
           <td class="num" id="prev-${h.id}"><span style="color:var(--text3);font-size:11px">-</span></td>
-          <td id="trend-${h.id}" style="padding:4px 8px;"></td>
+          <td id="trend-${h.id}" style="padding:2px 8px;"></td>
           <td style="font-size:12px;color:var(--text3)">${h.div_cycle||'-'}</td>
           <td>
             <div class="gap-8">
