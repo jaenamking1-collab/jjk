@@ -165,18 +165,18 @@
   .div-controls select { padding:7px 12px; background:var(--bg3); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:13px; }
   .div-grid-wrap { overflow-x:auto; }
   .div-grid { border-collapse:collapse; font-size:12px; min-width:1400px; width:100%; }
-  .div-grid th { padding:5px 8px; background:var(--bg3); border:1px solid var(--border); color:var(--text3); font-size:11px; white-space:nowrap; text-align:center; }
-  .div-grid td { border:1px solid var(--border); padding:2px 4px; vertical-align:middle; }
+  .div-grid th { padding:3px 5px; background:var(--bg3); border:1px solid var(--border); color:var(--text3); font-size:10px; white-space:nowrap; text-align:center; }
+  .div-grid td { border:1px solid var(--border); padding:0 2px; vertical-align:middle; }
   .div-cell {
-    width:100%; height:22px; background:transparent;
+    width:100%; height:16px; background:transparent;
     border:none; outline:none; color:var(--text);
-    font-family:var(--mono); font-size:12px; text-align:right;
-    padding:0 6px; cursor:pointer; vertical-align:middle;
+    font-family:var(--mono); font-size:11px; text-align:right;
+    padding:0 4px; cursor:pointer; vertical-align:middle;
   }
   .div-cell:focus { background:var(--bg4); border-radius:4px; }
   .div-cell.has-value { color:var(--green); }
-  .div-total { background:var(--bg3); font-family:var(--mono); font-size:11px; color:var(--accent2); font-weight:600; text-align:right; padding:3px 6px; }
-  .div-ticker-cell { padding:3px 6px; min-width:280px; width:280px; }
+  .div-total { background:var(--bg3); font-family:var(--mono); font-size:11px; color:var(--accent2); font-weight:600; text-align:right; padding:2px 5px; }
+  .div-ticker-cell { padding:2px 6px; min-width:280px; width:280px; }
   .div-name { font-size:11px; color:var(--text3); }
 
   /* ── DASHBOARD ── */
@@ -752,7 +752,7 @@ async function loadDividendGrid() {
           data-currency="${h.currency}"
           onchange="saveDividendCell(this)"
           onkeydown="if(event.key==='Enter')this.blur()">
-        ${monthRate ? `<div style="font-size:10px;color:var(--text3);text-align:right;padding:0 6px">${monthRate}%</div>` : '<div style="height:10px"></div>'}
+        ${monthRate ? `<div style="font-size:9px;color:var(--text3);text-align:right;padding:0 4px;line-height:1">${monthRate}%</div>` : '<div style="height:0px"></div>'}
       </td>`;
     }).join('');
     const realRate = (investKrw > 0 && rowTotal > 0) ? (rowTotal / investKrw * 100).toFixed(2) : '-';
