@@ -164,8 +164,8 @@
   .div-controls select { padding:7px 12px; background:var(--bg3); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:13px; }
   .div-grid-wrap { overflow-x:auto; }
   .div-grid { border-collapse:collapse; font-size:12px; min-width:900px; width:100%; }
-  .div-grid th { padding:8px 10px; background:var(--bg3); border:1px solid var(--border); color:var(--text3); font-size:11px; white-space:nowrap; }
-  .div-grid td { border:1px solid var(--border)44; padding:4px; }
+  .div-grid th { padding:7px 10px; background:var(--bg3); border:1px solid var(--border); color:var(--text3); font-size:11px; white-space:nowrap; }
+  .div-grid td { border:1px solid var(--border); padding:2px 4px; }
   .div-cell {
     width:100%; height:32px; background:transparent;
     border:none; outline:none; color:var(--text);
@@ -698,9 +698,9 @@ async function loadDividendGrid() {
     const filledMonths = months.filter(m => { const key=`${h.id}_${m}`; return divMap[key] && parseFloat(divMap[key].amount) > 0; }).length;
     const annualRate = (investKrw > 0 && filledMonths > 0 && rowTotal > 0) ? (rowTotal * (12/filledMonths) / investKrw * 100).toFixed(2) : '-';
     return `<tr>
+      <td style="padding:6px 10px;font-size:11px;color:var(--text3);white-space:nowrap;min-width:80px">${acc?.name||''}</td>
       <td class="div-ticker-cell" title="${h.ticker}">
-        <div style="font-size:10px;color:var(--text3);margin-bottom:2px">${acc?.name||''}</div>
-        <span class="ticker" style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px">${h.name || h.ticker}</span>
+        <span class="ticker" style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px">${h.name || h.ticker}</span>
       </td>
       ${cells}
       <td class="div-total">${rowTotal ? '₩'+Math.round(rowTotal).toLocaleString() : '-'}</td>
@@ -710,6 +710,7 @@ async function loadDividendGrid() {
   }).join('');
 
   const totalRow = `<tr style="background:var(--bg3)">
+    <td style="padding:8px 10px;font-size:12px;font-weight:600;color:var(--text2)"></td>
     <td style="padding:8px 10px;font-size:12px;font-weight:600;color:var(--text2)">월 합계</td>
     ${monthTotals.map(t => `<td class="div-total">${t?'₩'+Math.round(t).toLocaleString():''}</td>`).join('')}
     <td class="div-total" style="color:var(--yellow)">₩${Math.round(monthTotals.reduce((a,b)=>a+b,0)).toLocaleString()}</td>
@@ -721,6 +722,7 @@ async function loadDividendGrid() {
     <div class="div-grid-wrap">
     <table class="div-grid">
       <thead><tr>
+        <th>계좌</th>
         <th>종목</th>
         ${months.map(m=>`<th>${m}월</th>`).join('')}
         <th>합계</th>
