@@ -164,14 +164,14 @@
   .div-controls { display:flex; align-items:center; gap:12px; margin-bottom:20px; flex-wrap:wrap; }
   .div-controls select { padding:7px 12px; background:var(--bg3); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:13px; }
   .div-grid-wrap { overflow-x:auto; }
-  .div-grid { border-collapse:collapse; font-size:12px; min-width:900px; width:100%; }
-  .div-grid th { padding:4px 6px; background:var(--bg3); border:1px solid var(--border); color:var(--text3); font-size:11px; white-space:nowrap; }
-  .div-grid td { border:1px solid var(--border); padding:1px 3px; }
+  .div-grid { border-collapse:collapse; font-size:12px; min-width:1400px; width:100%; }
+  .div-grid th { padding:5px 8px; background:var(--bg3); border:1px solid var(--border); color:var(--text3); font-size:11px; white-space:nowrap; text-align:center; }
+  .div-grid td { border:1px solid var(--border); padding:2px 4px; vertical-align:middle; }
   .div-cell {
-    width:100%; height:18px; background:transparent;
+    width:100%; height:22px; background:transparent;
     border:none; outline:none; color:var(--text);
-    font-family:var(--mono); font-size:11px; text-align:right;
-    padding:0 4px; cursor:pointer;
+    font-family:var(--mono); font-size:12px; text-align:right;
+    padding:0 6px; cursor:pointer; vertical-align:middle;
   }
   .div-cell:focus { background:var(--bg4); border-radius:4px; }
   .div-cell.has-value { color:var(--green); }
@@ -765,8 +765,8 @@ async function loadDividendGrid() {
       <thead><tr>
         <th>계좌</th>
         <th>종목</th>
-        ${months.map(m=>`<th>${m}월</th>`).join('')}
-        <th>합계</th>
+        ${months.map(m=>`<th style="min-width:75px">${m}월</th>`).join('')}
+        <th style="min-width:90px">합계</th>
         <th style="color:var(--green)">실분배율</th>
         <th style="color:var(--accent)">환산분배율</th>
       </tr></thead>
