@@ -800,7 +800,11 @@ async function saveDividendCell(input) {
   const holdingId = input.dataset.holding;
   const month = input.dataset.month;
   const currency = input.dataset.currency;
-  let val = input.value.replace(/[^0-9.]/g, '');
+  let val = input.value.trim();
+  if (/^[\d.\s+\-]+$/.test(val)) {
+    try { val = String(eval(val.replace(/[^0-9.+\-]/g, ''))); } catch(e) {}
+  }
+  val = val.replace(/[^0-9.]/g, '');
   if (!val) val = '0';
 
   const amount = parseFloat(val);
