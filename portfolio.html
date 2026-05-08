@@ -66,7 +66,8 @@
   .tab.active { color:var(--accent2); border-bottom-color:var(--accent); }
 
   /* ── CONTENT ── */
-  .content { padding:24px; max-width:1200px; margin:0 auto; }
+  .content { padding:24px; max-width:1400px; margin:0 auto; }
+  #tab-dividends { max-width:100%; }
   .page { display:none; }
   .page.active { display:block; }
 
@@ -284,7 +285,7 @@
       <select id="divYear" onchange="loadDividendGrid()"></select>
       <span style="font-size:12px;color:var(--text3)">셀 클릭 후 금액 입력 → Enter로 저장</span>
     </div>
-    <div class="card">
+    <div class="card" style="padding:12px;overflow:hidden">
       <div id="dividendGrid" class="loading"><span class="spinner"></span>불러오는 중...</div>
     </div>
   </div>
