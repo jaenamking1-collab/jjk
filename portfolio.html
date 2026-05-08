@@ -645,14 +645,11 @@ async function loadDividendGrid() {
           data-currency="${h.currency}"
           onchange="saveDividendCell(this)"
           onkeydown="if(event.key==='Enter')this.blur()">
-        ${monthRate ? `<div style="font-size:10px;color:#6b8cba;text-align:right;padding:0 6px;line-height:1.4">${monthRate}%</div>` : '<div style="height:14px"></div>'}
+        ${monthRate ? `<div style="font-size:10px;color:var(--text3);text-align:right;padding:0 6px">${monthRate}%</div>` : '<div style="height:14px"></div>'}
       </td>`;
     }).join('');
 
-    // 실분배율
     const realRate = (investKrw > 0 && rowTotal > 0) ? (rowTotal / investKrw * 100).toFixed(2) : '-';
-
-    // 환산분배율 (입력된 개월 수 기준 12개월 환산)
     const filledMonths = months.filter(m => {
       const key = `${h.id}_${m}`;
       return divMap[key] && parseFloat(divMap[key].amount) > 0;
@@ -669,8 +666,8 @@ async function loadDividendGrid() {
       </td>
       ${cells}
       <td class="div-total">${rowTotal ? '₩'+Math.round(rowTotal).toLocaleString() : '-'}</td>
-      <td class="div-total" style="color:#059669">${realRate !== '-' ? realRate+'%' : '-'}</td>
-      <td class="div-total" style="color:#2563eb">${annualRate !== '-' ? annualRate+'%' : '-'}</td>
+      <td class="div-total" style="color:var(--green)">${realRate !== '-' ? realRate+'%' : '-'}</td>
+      <td class="div-total" style="color:var(--accent2)">${annualRate !== '-' ? annualRate+'%' : '-'}</td>
     </tr>`;
   }).join('');
 
@@ -689,8 +686,8 @@ async function loadDividendGrid() {
         <th>종목</th>
         ${months.map(m=>`<th>${m}월</th>`).join('')}
         <th>합계</th>
-        <th>실분배율</th>
-        <th>환산분배율</th>
+        <th style="color:var(--green)">실분배율</th>
+        <th style="color:var(--accent2)">환산분배율</th>
       </tr></thead>
       <tbody>${rows}${totalRow}</tbody>
     </table>
