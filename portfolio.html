@@ -576,7 +576,17 @@ async function loadHoldings() {
   loadHoldingPrices(data || []);
 }
 
+function sortHoldings(holdings) {
+  return [...holdings].sort((a, b) => {
+    const accA = state.accounts.find(x => x.id === a.account_id)?.name || '';
+    const accB = state.accounts.find(x => x.id === b.account_id)?.name || '';
+    if (accA !== accB) return accA.localeCompare(accB, 'ko');
+    return (a.name || a.ticker).localeCompare(b.name || b.ticker, 'ko');
+  });
+}
+
 function renderHoldingsTable(holdings) {
+  holdings = sortHoldings(holdings);
   if (!holdings.length) {
     document.getElementById('holdingsTable').innerHTML = '<div class="empty"><div class="empty-icon">📦</div><p>종목이 없습니다</p></div>';
     return;
@@ -657,6 +667,7 @@ async function loadDividendGrid() {
 
   let holdings = allHoldings || [];
   if (accountId) holdings = holdings.filter(h => h.account_id === accountId);
+  holdings = sortHoldings(holdings);
 
   const divMap = {};
   (allDivs || []).forEach(d => {
