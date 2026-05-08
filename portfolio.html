@@ -5,22 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>포트폴리오 관리</title>
 <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root {
-    --bg: #f0f4f8;
-    --bg2: #ffffff;
-    --bg3: #e8eef5;
-    --bg4: #dde6f0;
-    --border: #c5d0de;
-    --text: #1a2535;
-    --text2: #4a6080;
-    --text3: #8a9bb0;
-    --accent: #2563eb;
-    --accent2: #3b82f6;
-    --green: #059669;
-    --red: #dc2626;
-    --yellow: #d97706;
-    --purple: #7c3aed;
+    --bg: #0a0e1a;
+    --bg2: #111827;
+    --bg3: #1a2235;
+    --bg4: #1e2a3e;
+    --border: #2a3650;
+    --text: #e2e8f0;
+    --text2: #94a3b8;
+    --text3: #64748b;
+    --accent: #3b82f6;
+    --accent2: #60a5fa;
+    --green: #10b981;
+    --red: #ef4444;
+    --yellow: #f59e0b;
+    --purple: #8b5cf6;
     --mono: 'JetBrains Mono', monospace;
     --sans: 'Pretendard', sans-serif;
   }
@@ -163,9 +164,8 @@
   .div-controls select { padding:7px 12px; background:var(--bg3); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:13px; }
   .div-grid-wrap { overflow-x:auto; }
   .div-grid { border-collapse:collapse; font-size:12px; min-width:900px; width:100%; }
-  .div-grid th { padding:8px 10px; background:var(--bg3); border:1px solid var(--border); color:var(--text2); font-size:11px; white-space:nowrap; }
-  .div-grid td { border:1px solid var(--border); padding:4px; background:var(--bg2); }
-  .div-grid tr:hover td { background:var(--bg3); }
+  .div-grid th { padding:8px 10px; background:var(--bg3); border:1px solid var(--border); color:var(--text3); font-size:11px; white-space:nowrap; }
+  .div-grid td { border:1px solid var(--border)44; padding:4px; }
   .div-cell {
     width:100%; height:32px; background:transparent;
     border:none; outline:none; color:var(--text);
@@ -173,9 +173,9 @@
     padding:0 6px; cursor:pointer;
   }
   .div-cell:focus { background:var(--bg4); border-radius:4px; }
-  .div-cell.has-value { color:var(--green); font-weight:600; }
-  .div-total { background:var(--bg3); font-family:var(--mono); font-size:12px; color:var(--accent); font-weight:600; text-align:right; padding:6px 10px; }
-  .div-ticker-cell { padding:6px 10px; min-width:240px; width:240px; background:var(--bg3) !important; }
+  .div-cell.has-value { color:var(--green); }
+  .div-total { background:var(--bg3); font-family:var(--mono); font-size:12px; color:var(--accent2); font-weight:600; text-align:right; padding:6px 10px; }
+  .div-ticker-cell { padding:6px 10px; }
   .div-name { font-size:11px; color:var(--text3); }
 
   /* ── DASHBOARD ── */
@@ -224,6 +224,7 @@
   <button class="tab" onclick="showTab('holdings')">📊 종목관리</button>
   <button class="tab" onclick="showTab('dividends')">💰 분배금</button>
   <button class="tab" onclick="showTab('dashboard')">📈 대시보드</button>
+  <button class="tab" onclick="showTab('excel')">📁 엑셀</button>
 </div>
 
 <div class="content">
@@ -306,6 +307,50 @@
     <div class="card mt-16">
       <div class="card-header"><div class="card-title">계좌별 분배금</div></div>
       <div id="accountChart"></div>
+    </div>
+  </div>
+
+  <!-- ── 엑셀 탭 ── -->
+  <div id="tab-excel" class="page">
+    <div style="font-size:20px;font-weight:700;margin-bottom:24px">📁 엑셀 가져오기 / 내보내기</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+
+      <!-- 다운로드 -->
+      <div class="card">
+        <div class="card-header"><div class="card-title">📥 데이터 내보내기</div></div>
+        <p style="font-size:13px;color:var(--text2);margin-bottom:16px">현재 보유 종목을 엑셀 파일로 다운로드합니다.</p>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:16px">
+          포함 항목: 계좌명 · 티커 · 종목명 · 평균단가 · 수량 · 통화 · 배당주기
+        </div>
+        <button class="btn btn-primary" onclick="downloadExcel()">📥 엑셀 다운로드</button>
+      </div>
+
+      <!-- 업로드 -->
+      <div class="card">
+        <div class="card-header"><div class="card-title">📤 데이터 가져오기</div></div>
+        <p style="font-size:13px;color:var(--text2);margin-bottom:8px">엑셀 파일을 업로드하면 기존 데이터를 삭제 후 덮어씁니다.</p>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:16px;padding:10px;background:var(--bg3);border-radius:8px;border-left:3px solid var(--yellow)">
+          ⚠️ 기존 종목 데이터가 모두 삭제됩니다
+        </div>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:12px">
+          필수 컬럼: <code style="background:var(--bg3);padding:2px 6px;border-radius:4px">계좌명 · 티커 · 평균단가 · 수량</code><br>
+          선택 컬럼: 종목명 · 통화(KRW/USD) · 배당주기
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="file" id="excelFile" accept=".xlsx,.xls,.csv" style="display:none" onchange="uploadExcel(this)">
+          <button class="btn btn-ghost" onclick="document.getElementById('excelFile').click()">📤 파일 선택</button>
+          <span id="excelFileName" style="font-size:12px;color:var(--text3)">선택된 파일 없음</span>
+        </div>
+        <div id="excelPreview" style="margin-top:16px"></div>
+      </div>
+
+    </div>
+
+    <!-- 업로드 양식 다운로드 -->
+    <div class="card mt-16">
+      <div class="card-header"><div class="card-title">📋 양식 다운로드</div></div>
+      <p style="font-size:13px;color:var(--text2);margin-bottom:16px">업로드용 빈 양식 파일을 다운로드합니다.</p>
+      <button class="btn btn-ghost" onclick="downloadTemplate()">📋 양식 다운로드</button>
     </div>
   </div>
 
@@ -541,7 +586,6 @@ async function loadHoldings() {
   const data = await api({ action:'getHoldings', account_id: accountId === 'ALL' ? '' : accountId });
   state.holdings = data || [];
   renderHoldingsTable(data || []);
-  loadHoldingPrices(data || []);
 }
 
 function renderHoldingsTable(holdings) {
@@ -553,21 +597,11 @@ function renderHoldingsTable(holdings) {
   const showAccount = accountId === 'ALL';
   document.getElementById('holdingsTable').innerHTML = `
     <div class="table-wrap">
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;justify-content:flex-end">
-      <span style="font-size:12px;color:var(--text3)">추세선</span>
-      <select id="trendDays" onchange="reloadTrend()" style="padding:4px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;">
-        <option value="3">3일</option>
-        <option value="5" selected>5일</option>
-        <option value="30">30일</option>
-      </select>
-    </div>
     <table>
       <thead><tr>
         ${showAccount ? '<th>계좌</th>' : ''}
-        <th>티커</th><th>종목명</th><th class="text-right">평균단가</th>
+        <th>티커</th><th>종목명</th><th>통화</th><th class="text-right">평균단가</th>
         <th class="text-right">수량</th><th class="text-right">투자금액</th>
-        <th class="text-right">현재가</th><th class="text-right">전일가</th>
-        <th style="width:100px">추세</th>
         <th>배당주기</th><th>관리</th>
       </tr></thead>
       <tbody>
@@ -577,17 +611,14 @@ function renderHoldingsTable(holdings) {
         const invest = avg * qty;
         const investKrw = h.currency === 'USD' ? invest * state.exchangeRate : invest;
         const acc = state.accounts.find(a => a.id === h.account_id);
-        const curr = h.currency === 'USD' ? '$' : '';
-        return `<tr data-id="${h.id}" data-ticker="${h.ticker}" data-currency="${h.currency}">
+        return `<tr>
           ${showAccount ? `<td style="font-size:12px;color:var(--text3)">${acc?.name||''}</td>` : ''}
           <td><span class="ticker">${h.ticker}</span></td>
           <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h.name}</td>
-          <td class="num">${curr}${avg.toLocaleString()}</td>
+          <td><span class="badge badge-${h.currency.toLowerCase()}">${h.currency}</span></td>
+          <td class="num">${h.currency==='USD'?'$':''} ${avg.toLocaleString()}</td>
           <td class="num">${qty.toLocaleString()}</td>
           <td class="num">₩${Math.round(investKrw).toLocaleString()}</td>
-          <td class="num" id="price-${h.id}"><span style="color:var(--text3);font-size:11px">-</span></td>
-          <td class="num" id="prev-${h.id}"><span style="color:var(--text3);font-size:11px">-</span></td>
-          <td id="trend-${h.id}" style="padding:4px 8px;"></td>
           <td style="font-size:12px;color:var(--text3)">${h.div_cycle||'-'}</td>
           <td>
             <div class="gap-8">
@@ -604,64 +635,6 @@ function renderHoldingsTable(holdings) {
 }
 
 // ── DIVIDENDS ────────────────────────────
-// ── STOCK PRICES & TREND ─────────────────
-async function loadHoldingPrices(holdings) {
-  if (!holdings.length) return;
-  const days = document.getElementById('trendDays')?.value || 5;
-  for (const h of holdings) {
-    try {
-      const [priceData, histData] = await Promise.all([
-        api({ action:'getStockPrice', ticker:h.ticker, currency:h.currency }),
-        api({ action:'getStockHistory', ticker:h.ticker, currency:h.currency, days })
-      ]);
-      const curr = h.currency === 'USD' ? '$' : '₩';
-
-      // 현재가
-      const priceEl = document.getElementById(`price-${h.id}`);
-      if (priceEl && priceData.success) {
-        const chg = parseFloat(priceData.change);
-        const color = chg > 0 ? 'var(--red)' : chg < 0 ? 'var(--green)' : 'var(--text2)';
-        const arrow = chg > 0 ? '▲' : chg < 0 ? '▼' : '';
-        priceEl.innerHTML = `<span style="font-family:var(--mono);font-size:12px">${curr}${parseFloat(priceData.current).toLocaleString()}</span>
-          <span style="font-size:10px;color:${color};margin-left:4px">${arrow}${Math.abs(chg).toFixed(2)}%</span>`;
-      }
-
-      // 전일가
-      const prevEl = document.getElementById(`prev-${h.id}`);
-      if (prevEl && priceData.success) {
-        prevEl.innerHTML = `<span style="font-family:var(--mono);font-size:12px;color:var(--text2)">${curr}${parseFloat(priceData.prev).toLocaleString()}</span>`;
-      }
-
-      // 추세선
-      const trendEl = document.getElementById(`trend-${h.id}`);
-      if (trendEl && histData.success && histData.prices.length > 1) {
-        trendEl.innerHTML = drawSparkline(histData.prices);
-      }
-    } catch(e) {}
-  }
-}
-
-function drawSparkline(prices) {
-  const w = 90, h = 30, pad = 3;
-  const min = Math.min(...prices);
-  const max = Math.max(...prices);
-  const range = max - min || 1;
-  const points = prices.map((p, i) => {
-    const x = pad + (i / (prices.length - 1)) * (w - pad * 2);
-    const y = pad + (1 - (p - min) / range) * (h - pad * 2);
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(' ');
-  const isUp = prices[prices.length-1] >= prices[0];
-  const color = isUp ? '#ef4444' : '#10b981';
-  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
-    <polyline points="${points}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
-  </svg>`;
-}
-
-function reloadTrend() {
-  if (state.holdings.length) loadHoldingPrices(state.holdings);
-}
-
 function setupYearSelects() {
   const cur = new Date().getFullYear();
   const years = Array.from({length:5}, (_,i) => cur - 2 + i);
@@ -718,9 +691,9 @@ async function loadDividendGrid() {
     }).join('');
 
     return `<tr>
-      <td class="div-ticker-cell" title="${h.ticker}">
-        <div style="font-size:10px;color:var(--text3);margin-bottom:2px">${acc?.name||''}</div>
-        <span class="ticker" style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px">${h.name || h.ticker}</span>
+      <td class="div-ticker-cell">
+        <span class="ticker">${h.name || h.ticker}</span>
+        <div class="div-name">${h.ticker} · ${acc?.name||''}</div>
       </td>
       ${cells}
       <td class="div-total">${rowTotal ? '₩'+Math.round(rowTotal).toLocaleString() : '-'}</td>
@@ -942,6 +915,7 @@ function showTab(name) {
   event.target.classList.add('active');
   if (name === 'dividends') loadDividendGrid();
   if (name === 'dashboard') loadDashboard();
+  if (name === 'excel') { if (!state.holdings.length) loadAccountStats(); }
 }
 
 // ── 티커 자동완성 ─────────────────────────
@@ -1000,6 +974,109 @@ document.addEventListener('click', e => {
 document.querySelectorAll('.modal-overlay').forEach(m => {
   m.addEventListener('click', e => { if(e.target === m) m.classList.remove('open'); });
 });
+
+// ── EXCEL ────────────────────────────────
+function downloadExcel() {
+  if (!state.holdings.length) { alert('종목 데이터가 없습니다'); return; }
+  const rows = state.holdings.map(h => {
+    const acc = state.accounts.find(a => a.id.toString() === h.account_id.toString());
+    return {
+      '계좌명': acc?.name || '',
+      '티커': h.ticker,
+      '종목명': h.name,
+      '평균단가': h.avg_price,
+      '수량': h.quantity,
+      '통화': h.currency,
+      '배당주기': h.div_cycle
+    };
+  });
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '종목');
+  ws['!cols'] = [20,12,40,12,10,8,10].map(w => ({wch:w}));
+  XLSX.writeFile(wb, `portfolio_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+
+function downloadTemplate() {
+  const rows = [{ '계좌명':'', '티커':'', '종목명':'', '평균단가':'', '수량':'', '통화':'KRW', '배당주기':'월배당' }];
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '종목');
+  ws['!cols'] = [20,12,40,12,10,8,10].map(w => ({wch:w}));
+  XLSX.writeFile(wb, 'portfolio_template.xlsx');
+}
+
+async function uploadExcel(input) {
+  const file = input.files[0];
+  if (!file) return;
+  document.getElementById('excelFileName').textContent = file.name;
+
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      const wb = XLSX.read(e.target.result, { type:'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws);
+
+      if (!rows.length) { alert('데이터가 없습니다'); return; }
+
+      // 미리보기
+      document.getElementById('excelPreview').innerHTML = `
+        <div style="font-size:12px;color:var(--text2);margin-bottom:8px">${rows.length}개 종목 인식됨</div>
+        <div style="overflow-x:auto;max-height:200px;overflow-y:auto">
+        <table style="font-size:11px;width:100%;border-collapse:collapse">
+          <thead><tr>${Object.keys(rows[0]).map(k=>`<th style="padding:4px 8px;background:var(--bg3);border:1px solid var(--border);color:var(--text3)">${k}</th>`).join('')}</tr></thead>
+          <tbody>${rows.slice(0,5).map(r=>`<tr>${Object.values(r).map(v=>`<td style="padding:4px 8px;border:1px solid var(--border)44">${v||''}</td>`).join('')}</tr>`).join('')}</tbody>
+        </table>
+        </div>
+        <div style="margin-top:12px;display:flex;gap:8px">
+          <button class="btn btn-danger" onclick="confirmUpload(${JSON.stringify(rows).replace(/"/g,'&quot;')})">⚠️ 덮어쓰기 실행</button>
+          <button class="btn btn-ghost" onclick="document.getElementById('excelPreview').innerHTML=''">취소</button>
+        </div>
+      `;
+    } catch(err) {
+      alert('파일 읽기 실패: ' + err.message);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+async function confirmUpload(rows) {
+  if (!confirm(`기존 종목 ${state.holdings.length}개가 모두 삭제되고 ${rows.length}개로 교체됩니다. 계속할까요?`)) return;
+
+  document.getElementById('excelPreview').innerHTML = '<div class="loading"><span class="spinner"></span>업로드 중...</div>';
+
+  // 기존 holdings 전체 삭제
+  const allH = await api({ action:'getHoldings' });
+  for (const h of (allH||[])) {
+    await apiPost({ action:'deleteHolding', id: h.id });
+  }
+
+  // 새 데이터 추가
+  let success = 0;
+  for (const row of rows) {
+    const accName = row['계좌명'] || '';
+    const acc = state.accounts.find(a => a.name === accName);
+    if (!acc) { console.log('계좌 없음:', accName); continue; }
+    await apiPost({
+      action: 'addHolding',
+      account_id: acc.id,
+      ticker: (row['티커']||'').toString().toUpperCase(),
+      name: row['종목명'] || row['티커'] || '',
+      avg_price: parseFloat(row['평균단가']) || 0,
+      quantity: parseFloat(row['수량']) || 0,
+      currency: row['통화'] || 'KRW',
+      div_cycle: row['배당주기'] || '월배당'
+    });
+    success++;
+  }
+
+  document.getElementById('excelPreview').innerHTML = `
+    <div style="padding:12px;background:var(--bg3);border-radius:8px;color:var(--green);font-size:13px">
+      ✅ ${success}개 종목 업로드 완료
+    </div>`;
+  await loadAccounts();
+}
 
 init();
 </script>
