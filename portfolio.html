@@ -93,7 +93,8 @@
   .btn-ghost:hover { background:var(--bg3); color:var(--text); }
   .btn-danger { background:transparent; color:var(--red); border:1px solid #ef444433; }
   .btn-danger:hover { background:#ef444422; }
-  .btn-sm { padding:2px 8px; font-size:11px; }
+  .gap-8 { display:flex; gap:4px; flex-wrap:nowrap; align-items:center; }
+  .btn-sm { padding:2px 8px; font-size:11px; white-space:nowrap; }
 
   /* ── ACCOUNT CARDS ── */
   .accounts-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(280px,1fr)); gap:16px; }
@@ -480,7 +481,8 @@ function renderAccounts() {
     grid.innerHTML = `<div class="empty"><div class="empty-icon">🏦</div><p>계좌가 없습니다.<br>계좌를 추가해주세요.</p></div>`;
     return;
   }
-  grid.innerHTML = state.accounts.map(a => `
+  const sorted = sortAccounts(state.accounts);
+  grid.innerHTML = sorted.map(a => `
     <div class="account-card" onclick="selectAccount('${a.id}')">
       <div class="account-name">${a.name}</div>
       <div class="account-type">${a.type}</div>
@@ -495,6 +497,8 @@ function renderAccounts() {
         </div>
       </div>
       <div class="account-actions">
+        <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();moveAccount('${a.id}',-1)" title="위로">↑</button>
+        <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();moveAccount('${a.id}',1)" title="아래로">↓</button>
         <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();editAccount('${a.id}')">수정</button>
         <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteAccount('${a.id}')">삭제</button>
       </div>
@@ -577,10 +581,20 @@ async function loadHoldings() {
 }
 
 function sortHoldings(holdings) {
+  const order = getAccountOrder();
   return [...holdings].sort((a, b) => {
-    const accA = state.accounts.find(x => x.id === a.account_id)?.name || '';
-    const accB = state.accounts.find(x => x.id === b.account_id)?.name || '';
-    if (accA !== accB) return accA.localeCompare(accB, 'ko');
+    const accA = state.accounts.find(x => x.id === a.account_id);
+    const accB = state.accounts.find(x => x.id === b.account_id);
+    const nameA = accA?.name || '';
+    const nameB = accB?.name || '';
+    const ia = order.indexOf((accA?.id||'').toString());
+    const ib = order.indexOf((accB?.id||'').toString());
+    if (ia !== ib) {
+      if (ia === -1) return 1;
+      if (ib === -1) return -1;
+      return ia - ib;
+    }
+    if (nameA !== nameB) return nameA.localeCompare(nameB, 'ko');
     return (a.name || a.ticker).localeCompare(b.name || b.ticker, 'ko');
   });
 }
@@ -878,6 +892,36 @@ function openModal(type) {
 function closeModal(type) {
   document.getElementById(`modal-${type}`).classList.remove('open');
 }
+function getAccountOrder() {
+  try { return JSON.parse(localStorage.getItem('acc_order') || '[]'); } catch(e) { return []; }
+}
+function saveAccountOrder(order) {
+  localStorage.setItem('acc_order', JSON.stringify(order));
+}
+function sortAccounts(accounts) {
+  const order = getAccountOrder();
+  if (!order.length) return accounts;
+  return [...accounts].sort((a, b) => {
+    const ia = order.indexOf(a.id.toString());
+    const ib = order.indexOf(b.id.toString());
+    if (ia === -1 && ib === -1) return 0;
+    if (ia === -1) return 1;
+    if (ib === -1) return -1;
+    return ia - ib;
+  });
+}
+function moveAccount(id, dir) {
+  const sorted = sortAccounts(state.accounts);
+  const idx = sorted.findIndex(a => a.id.toString() === id.toString());
+  const newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= sorted.length) return;
+  [sorted[idx], sorted[newIdx]] = [sorted[newIdx], sorted[idx]];
+  saveAccountOrder(sorted.map(a => a.id.toString()));
+  state.accounts = sortAccounts(state.accounts);
+  renderAccounts();
+  updateAccountSelects();
+}
+
 function editAccount(id) {
   const a = state.accounts.find(x => x.id === id);
   if (!a) return;
