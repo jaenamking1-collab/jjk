@@ -163,19 +163,20 @@
   .div-controls select { padding:7px 12px; background:var(--bg3); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:13px; }
   .div-grid-wrap { overflow-x:auto; }
   .div-grid { border-collapse:collapse; font-size:12px; min-width:900px; width:100%; }
-  .div-grid th { padding:8px 10px; background:var(--bg3); border:1px solid var(--border); color:var(--text3); font-size:11px; white-space:nowrap; }
-  .div-grid td { border:1px solid var(--border)44; padding:4px; }
+  .div-grid th { padding:8px 10px; background:#1e3a5f; border:1px solid #2a4a72; color:#a8c4e0; font-size:11px; white-space:nowrap; }
+  .div-grid td { border:1px solid #2a4a7244; padding:4px; background:#f0f5ff; }
+  .div-grid tr:hover td { background:#e0eaff; }
   .div-cell {
     width:100%; height:32px; background:transparent;
-    border:none; outline:none; color:var(--text);
+    border:none; outline:none; color:#1a2a4a;
     font-family:var(--mono); font-size:12px; text-align:right;
     padding:0 6px; cursor:pointer;
   }
-  .div-cell:focus { background:var(--bg4); border-radius:4px; }
-  .div-cell.has-value { color:var(--green); }
-  .div-total { background:var(--bg3); font-family:var(--mono); font-size:12px; color:var(--accent2); font-weight:600; text-align:right; padding:6px 10px; }
-  .div-ticker-cell { padding:6px 10px; }
-  .div-name { font-size:11px; color:var(--text3); }
+  .div-cell:focus { background:#d0e0ff; border-radius:4px; }
+  .div-cell.has-value { color:#0a7a50; font-weight:600; }
+  .div-total { background:#dde8ff; font-family:var(--mono); font-size:12px; color:#2a5298; font-weight:600; text-align:right; padding:6px 10px; }
+  .div-ticker-cell { padding:6px 10px; min-width:180px; background:#e8f0ff !important; }
+  .div-name { font-size:11px; color:#5a7a9a; }
 
   /* ── DASHBOARD ── */
   .stats-row { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:16px; margin-bottom:24px; }
@@ -345,26 +346,28 @@
       <label>계좌</label>
       <select id="holdingAccount"></select>
     </div>
-    <div class="form-group" style="position:relative">
-      <label>티커 / 종목코드</label>
-      <input type="text" id="holdingTicker" placeholder="예: JEPQ 또는 480040"
-         oninput="onTickerInput(this)" autocomplete="off">
-      <div id="tickerDropdown" style="
-        position:absolute; z-index:200; background:var(--bg3);
-        border:1px solid var(--border); border-radius:8px;
-        max-height:200px; overflow-y:auto; display:none; width:100%;
-      "></div>
+    <div class="form-row">
+      <div class="form-group" style="position:relative">
+        <label>티커 / 종목코드</label>
+        <input type="text" id="holdingTicker" placeholder="예: JEPQ 또는 480040"
+           oninput="onTickerInput(this)" autocomplete="off">
+        <div id="tickerDropdown" style="
+          position:absolute; z-index:200; background:var(--bg3);
+          border:1px solid var(--border); border-radius:8px;
+          max-height:200px; overflow-y:auto; display:none; width:100%;
+        "></div>
+     </div>
+      <div class="form-group">
+        <label>통화</label>
+        <select id="holdingCurrency">
+          <option value="KRW">KRW (원화)</option>
+          <option value="USD">USD (달러)</option>
+        </select>
+      </div>
     </div>
     <div class="form-group">
       <label>종목명</label>
       <input type="text" id="holdingName" placeholder="예: JPMorgan Nasdaq ETF">
-    </div>
-    <div class="form-group">
-      <label>통화</label>
-      <select id="holdingCurrency">
-        <option value="KRW">KRW (원화)</option>
-        <option value="USD">USD (달러)</option>
-      </select>
     </div>
     <div class="form-row">
       <div class="form-group">
