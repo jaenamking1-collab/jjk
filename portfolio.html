@@ -7,20 +7,20 @@
 <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0a0e1a;
-    --bg2: #111827;
-    --bg3: #1a2235;
-    --bg4: #1e2a3e;
-    --border: #2a3650;
-    --text: #e2e8f0;
-    --text2: #94a3b8;
-    --text3: #64748b;
-    --accent: #3b82f6;
-    --accent2: #60a5fa;
-    --green: #10b981;
-    --red: #ef4444;
-    --yellow: #f59e0b;
-    --purple: #8b5cf6;
+    --bg: #f0f4f8;
+    --bg2: #ffffff;
+    --bg3: #e8eef5;
+    --bg4: #dde6f0;
+    --border: #c5d0de;
+    --text: #1a2535;
+    --text2: #4a6080;
+    --text3: #8a9bb0;
+    --accent: #2563eb;
+    --accent2: #3b82f6;
+    --green: #059669;
+    --red: #dc2626;
+    --yellow: #d97706;
+    --purple: #7c3aed;
     --mono: 'JetBrains Mono', monospace;
     --sans: 'Pretendard', sans-serif;
   }
@@ -163,20 +163,20 @@
   .div-controls select { padding:7px 12px; background:var(--bg3); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:13px; }
   .div-grid-wrap { overflow-x:auto; }
   .div-grid { border-collapse:collapse; font-size:12px; min-width:900px; width:100%; }
-  .div-grid th { padding:8px 10px; background:#1e3a5f; border:1px solid #2a4a72; color:#a8c4e0; font-size:11px; white-space:nowrap; }
-  .div-grid td { border:1px solid #2a4a7244; padding:4px; background:#f0f5ff; }
-  .div-grid tr:hover td { background:#e0eaff; }
+  .div-grid th { padding:8px 10px; background:var(--bg3); border:1px solid var(--border); color:var(--text2); font-size:11px; white-space:nowrap; }
+  .div-grid td { border:1px solid var(--border); padding:4px; background:var(--bg2); }
+  .div-grid tr:hover td { background:var(--bg3); }
   .div-cell {
     width:100%; height:32px; background:transparent;
-    border:none; outline:none; color:#1a2a4a;
+    border:none; outline:none; color:var(--text);
     font-family:var(--mono); font-size:12px; text-align:right;
     padding:0 6px; cursor:pointer;
   }
-  .div-cell:focus { background:#d0e0ff; border-radius:4px; }
-  .div-cell.has-value { color:#0a7a50; font-weight:600; }
-  .div-total { background:#dde8ff; font-family:var(--mono); font-size:12px; color:#2a5298; font-weight:600; text-align:right; padding:6px 10px; }
-  .div-ticker-cell { padding:6px 10px; min-width:180px; background:#e8f0ff !important; }
-  .div-name { font-size:11px; color:#5a7a9a; }
+  .div-cell:focus { background:var(--bg4); border-radius:4px; }
+  .div-cell.has-value { color:var(--green); font-weight:600; }
+  .div-total { background:var(--bg3); font-family:var(--mono); font-size:12px; color:var(--accent); font-weight:600; text-align:right; padding:6px 10px; }
+  .div-ticker-cell { padding:6px 10px; min-width:240px; width:240px; background:var(--bg3) !important; }
+  .div-name { font-size:11px; color:var(--text3); }
 
   /* ── DASHBOARD ── */
   .stats-row { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:16px; margin-bottom:24px; }
@@ -647,7 +647,7 @@ async function loadDividendGrid() {
 
     return `<tr>
       <td class="div-ticker-cell">
-        <span class="ticker">${h.name || h.ticker}</span>
+        <span class="ticker" style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px">${h.name || h.ticker}</span>
         <div class="div-name">${h.ticker} · ${acc?.name||''}</div>
       </td>
       ${cells}
