@@ -596,7 +596,7 @@ function renderHoldingsTable(holdings) {
     <table>
       <thead><tr>
         <th>계좌</th>
-        <th>티커</th><th>종목명</th><th class="text-right">평균단가</th>
+        <th>티커</th><th style="min-width:280px">종목명</th><th class="text-right">평균단가</th>
         <th class="text-right">수량</th><th class="text-right">투자금액</th>
         <th class="text-right">현재가</th><th class="text-right">전일가</th>
         <th style="width:100px">추세</th>
@@ -613,7 +613,7 @@ function renderHoldingsTable(holdings) {
         return `<tr style="border-bottom:1px solid var(--border)">
           <td style="font-size:11px;color:var(--text3);white-space:nowrap">${acc?.name||''}</td>
           <td><span class="ticker">${h.ticker}</span></td>
-          <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h.name}</td>
+          <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:300px;text-align:left">${h.name}</td>
           <td class="num">${curr}${avg.toLocaleString()}</td>
           <td class="num">${qty.toLocaleString()}</td>
           <td class="num">₩${Math.round(investKrw).toLocaleString()}</td>
@@ -700,7 +700,7 @@ async function loadDividendGrid() {
     return `<tr>
       <td style="padding:6px 10px;font-size:11px;color:var(--text3);white-space:nowrap;min-width:80px">${acc?.name||''}</td>
       <td class="div-ticker-cell" title="${h.ticker}">
-        <span class="ticker" style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px">${h.name || h.ticker}</span>
+        <span class="ticker" style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px;text-align:left">${h.name || h.ticker}</span>
       </td>
       ${cells}
       <td class="div-total">${rowTotal ? '₩'+Math.round(rowTotal).toLocaleString() : '-'}</td>
