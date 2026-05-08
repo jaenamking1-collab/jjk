@@ -585,16 +585,19 @@ function sortHoldings(holdings) {
   return [...holdings].sort((a, b) => {
     const accA = state.accounts.find(x => x.id === a.account_id);
     const accB = state.accounts.find(x => x.id === b.account_id);
-    const nameA = accA?.name || '';
-    const nameB = accB?.name || '';
     const ia = order.indexOf((accA?.id||'').toString());
     const ib = order.indexOf((accB?.id||'').toString());
+    // 1. 계좌 순서
     if (ia !== ib) {
       if (ia === -1) return 1;
       if (ib === -1) return -1;
       return ia - ib;
     }
-    if (nameA !== nameB) return nameA.localeCompare(nameB, 'ko');
+    // 2. 같은 계좌면 KRW → USD
+    const ca = a.currency === 'USD' ? 1 : 0;
+    const cb = b.currency === 'USD' ? 1 : 0;
+    if (ca !== cb) return ca - cb;
+    // 3. 같은 통화면 종목명 오름차순
     return (a.name || a.ticker).localeCompare(b.name || b.ticker, 'ko');
   });
 }
@@ -643,14 +646,16 @@ function renderHoldingsTable(holdings) {
         <th>배당주기</th><th>관리</th>
       </tr></thead>
       <tbody>
-      ${holdings.map(h => {
+      ${holdings.map((h, idx) => {
         const avg = parseFloat(h.avg_price) || 0;
         const qty = parseFloat(h.quantity) || 0;
         const invest = avg * qty;
         const investKrw = h.currency === 'USD' ? invest * state.exchangeRate : invest;
         const acc = state.accounts.find(a => a.id === h.account_id);
         const curr = h.currency === 'USD' ? '$' : '';
-        return `<tr style="border-bottom:1px solid var(--border);background:${getAccColor(h.account_id)}">
+        const prevH = idx > 0 ? holdings[idx-1] : null;
+        const isUsdBorder = h.currency === 'USD' && (!prevH || prevH.account_id === h.account_id) && prevH?.currency === 'KRW';
+        return `<tr style="border-bottom:1px solid var(--border);background:${getAccColor(h.account_id)};${isUsdBorder ? 'border-top:2px solid var(--accent)44' : ''}">`
           <td style="font-size:11px;color:var(--text3);white-space:nowrap">${acc?.name||''}</td>
           <td><span class="ticker">${h.ticker}</span></td>
           <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:300px;text-align:left">${h.name}</td>
@@ -712,9 +717,11 @@ async function loadDividendGrid() {
   const months = Array.from({length:12}, (_,i) => i+1);
   const monthTotals = Array(12).fill(0);
 
-  const rows = holdings.map(h => {
+  const rows = holdings.map((h, idx) => {
     const acc = state.accounts.find(a => a.id === h.account_id);
     let rowTotal = 0;
+    const prevH = idx > 0 ? holdings[idx-1] : null;
+    const isUsdBorder = h.currency === 'USD' && prevH?.account_id === h.account_id && prevH?.currency === 'KRW';
     const invest = (parseFloat(h.avg_price)||0) * (parseFloat(h.quantity)||0);
     const investKrw = h.currency === 'USD' ? invest * state.exchangeRate : invest;
     const cells = months.map(m => {
@@ -738,7 +745,7 @@ async function loadDividendGrid() {
     const realRate = (investKrw > 0 && rowTotal > 0) ? (rowTotal / investKrw * 100).toFixed(2) : '-';
     const filledMonths = months.filter(m => { const key=`${h.id}_${m}`; return divMap[key] && parseFloat(divMap[key].amount) > 0; }).length;
     const annualRate = (investKrw > 0 && filledMonths > 0 && rowTotal > 0) ? (rowTotal * (12/filledMonths) / investKrw * 100).toFixed(2) : '-';
-    return `<tr style="background:${getAccColor(h.account_id)}">
+    return `<tr style="background:${getAccColor(h.account_id)};${isUsdBorder ? 'border-top:2px solid var(--accent)55' : ''}">
       <td style="padding:6px 10px;font-size:11px;color:var(--text3);white-space:nowrap;min-width:80px">${acc?.name||''}</td>
       <td class="div-ticker-cell" title="${h.ticker}">
         <span class="ticker" style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px;text-align:left">${h.name || h.ticker}</span>
