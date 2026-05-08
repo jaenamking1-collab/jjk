@@ -585,6 +585,22 @@ function sortHoldings(holdings) {
   });
 }
 
+const ACC_COLORS = [
+  '#eef4ff', // 연파랑
+  '#f0fdf4', // 연초록
+  '#fff7ed', // 연주황
+  '#fdf4ff', // 연보라
+  '#fef9c3', // 연노랑
+  '#f0fdfa', // 연민트
+  '#fff1f2', // 연핑크
+  '#f8fafc', // 연회색
+];
+
+function getAccColor(accountId) {
+  const idx = state.accounts.findIndex(a => a.id.toString() === accountId.toString());
+  return ACC_COLORS[idx % ACC_COLORS.length] || '#ffffff';
+}
+
 function renderHoldingsTable(holdings) {
   holdings = sortHoldings(holdings);
   if (!holdings.length) {
@@ -620,7 +636,7 @@ function renderHoldingsTable(holdings) {
         const investKrw = h.currency === 'USD' ? invest * state.exchangeRate : invest;
         const acc = state.accounts.find(a => a.id === h.account_id);
         const curr = h.currency === 'USD' ? '$' : '';
-        return `<tr style="border-bottom:1px solid var(--border)">
+        return `<tr style="border-bottom:1px solid var(--border);background:${getAccColor(h.account_id)}">
           <td style="font-size:11px;color:var(--text3);white-space:nowrap">${acc?.name||''}</td>
           <td><span class="ticker">${h.ticker}</span></td>
           <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:300px;text-align:left">${h.name}</td>
@@ -708,7 +724,7 @@ async function loadDividendGrid() {
     const realRate = (investKrw > 0 && rowTotal > 0) ? (rowTotal / investKrw * 100).toFixed(2) : '-';
     const filledMonths = months.filter(m => { const key=`${h.id}_${m}`; return divMap[key] && parseFloat(divMap[key].amount) > 0; }).length;
     const annualRate = (investKrw > 0 && filledMonths > 0 && rowTotal > 0) ? (rowTotal * (12/filledMonths) / investKrw * 100).toFixed(2) : '-';
-    return `<tr>
+    return `<tr style="background:${getAccColor(h.account_id)}">
       <td style="padding:6px 10px;font-size:11px;color:var(--text3);white-space:nowrap;min-width:80px">${acc?.name||''}</td>
       <td class="div-ticker-cell" title="${h.ticker}">
         <span class="ticker" style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px;text-align:left">${h.name || h.ticker}</span>
