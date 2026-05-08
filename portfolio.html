@@ -646,9 +646,9 @@ async function loadDividendGrid() {
     }).join('');
 
     return `<tr>
-      <td class="div-ticker-cell">
+      <td class="div-ticker-cell" title="${h.ticker}">
+        <div style="font-size:10px;color:var(--text3);margin-bottom:2px">${acc?.name||''}</div>
         <span class="ticker" style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px">${h.name || h.ticker}</span>
-        <div class="div-name">${h.ticker} · ${acc?.name||''}</div>
       </td>
       ${cells}
       <td class="div-total">${rowTotal ? '₩'+Math.round(rowTotal).toLocaleString() : '-'}</td>
