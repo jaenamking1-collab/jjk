@@ -1023,11 +1023,16 @@ async function confirmUpload(rows) {
   for (const h of (allH||[])) await apiPost({ action:'deleteHolding', id: h.id });
   let success = 0;
   for (const row of rows) {
-    const acc = state.accounts.find(a => a.name === (row['계좌명']||''));
-    if (!acc) continue;
+    let acc = state.accounts.find(a => a.name.trim() === (row['계좌명']||'').toString().trim());
+    if (!acc) {
+      await apiPost({ action:'addAccount', name:(row['계좌명']||'').toString().trim(), type:'일반' });
+      await loadAccounts();
+      acc = state.accounts.find(a => a.name.trim() === (row['계좌명']||'').toString().trim());
+      if (!acc) continue;
+    }
     await apiPost({ action:'addHolding', account_id:acc.id, ticker:(row['티커']||'').toString().toUpperCase(),
       name:row['종목명']||row['티커']||'', avg_price:parseFloat(row['평균단가'])||0,
-      quantity:parseFloat(row['수량'])||0, currency:row['통화']||'KRW', div_cycle:row['배당주기']||'월배당' });
+      quantity:parseFloat(row['수량'])||0, currency:(row['통화']||'KRW').toString().toUpperCase(), div_cycle:row['배당주기']||'월배당' });
     success++;
   }
   document.getElementById('excelPreview').innerHTML = `<div style="padding:12px;background:var(--bg3);border-radius:8px;color:var(--green);font-size:13px">✅ ${success}개 종목 업로드 완료</div>`;
