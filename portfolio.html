@@ -743,7 +743,7 @@ async function loadDividendGrid() {
       const amt = div ? parseFloat(div.amount) : 0;
       const amtKrw = h.currency === 'USD' ? amt * state.exchangeRate : amt;
       if (amtKrw) { rowTotal += amtKrw; monthTotals[m-1] += amtKrw; }
-      const displayVal = amt ? (h.currency === 'USD' ? '$' + amt : amt.toLocaleString()) : '';
+      const displayVal = amt ? (h.currency === 'USD' ? '$' + parseFloat(amt).toFixed(2) : Math.round(amt).toLocaleString()) : '';
       const monthRate = (investKrw > 0 && amtKrw > 0) ? (amtKrw / investKrw * 100).toFixed(2) : '';
       return `<td>
         <input class="div-cell ${amt?'has-value':''}" 
