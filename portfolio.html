@@ -1067,16 +1067,17 @@ async function loadHoldingPrices(holdings) {
         api({ action:'getStockHistory', ticker:h.ticker, currency:h.currency, days })
       ]);
       const curr = h.currency === 'USD' ? '$' : '₩';
+      const fmt = (v) => h.currency === 'USD' ? parseFloat(v).toFixed(2) : Math.round(parseFloat(v)).toLocaleString();
       const priceEl = document.getElementById(`price-${h.id}`);
       if (priceEl && priceData.success) {
         const chg = parseFloat(priceData.change);
         const color = chg > 0 ? 'var(--red)' : chg < 0 ? 'var(--green)' : 'var(--text2)';
         const arrow = chg > 0 ? '▲' : chg < 0 ? '▼' : '';
-        priceEl.innerHTML = `<span style="font-family:var(--mono);font-size:12px">${curr}${parseFloat(priceData.current).toLocaleString()}</span><span style="font-size:10px;color:${color};margin-left:4px">${arrow}${Math.abs(chg).toFixed(2)}%</span>`;
+        priceEl.innerHTML = `<span style="font-family:var(--mono);font-size:12px">${curr}${fmt(priceData.current)}</span><span style="font-size:10px;color:${color};margin-left:4px">${arrow}${Math.abs(chg).toFixed(2)}%</span>`;
       }
       const prevEl = document.getElementById(`prev-${h.id}`);
       if (prevEl && priceData.success) {
-        prevEl.innerHTML = `<span style="font-family:var(--mono);font-size:12px;color:var(--text2)">${curr}${parseFloat(priceData.prev).toLocaleString()}</span>`;
+        prevEl.innerHTML = `<span style="font-family:var(--mono);font-size:12px;color:var(--text2)">${curr}${fmt(priceData.prev)}</span>`;
       }
       const trendEl = document.getElementById(`trend-${h.id}`);
       if (trendEl && histData.success && histData.prices.length > 1) {
