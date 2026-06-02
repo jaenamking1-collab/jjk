@@ -738,7 +738,7 @@ function renderHoldingsTable(holdings) {
         <option value="30">30일</option>
       </select>
       <button class="btn btn-ghost btn-sm" onclick="openAccountOrderModal()" style="margin-left:8px">⚙️ 계좌 순서 변경</button>
-      <button class="btn btn-primary btn-sm" onclick="loadHoldingPrices(state.holdings)" style="margin-left:4px">📈 시세 불러오기</button>
+      <button class="btn btn-primary btn-sm" onclick="loadPricesAll()" style="margin-left:4px">📈 시세 불러오기</button>
     </div>
     <div class="table-wrap">
     <table>
@@ -838,7 +838,7 @@ async function loadDividendGrid() {
       const amt = div ? parseFloat(div.amount) : 0;
       const amtKrw = h.currency === 'USD' ? amt * state.exchangeRate : amt;
       if (amtKrw) { rowTotal += amtKrw; monthTotals[m-1] += amtKrw; }
-      const displayVal = amt ? (h.currency === 'USD' ? '$' + parseFloat(amt).toFixed(2) : Math.round(amt).toLocaleString()) : '';
+      const displayVal = amt ? Math.round(amt).toLocaleString() : '';
       const monthRate = (investKrw > 0 && amtKrw > 0) ? (amtKrw / investKrw * 100).toFixed(2) : '';
       return `<td>
         <input class="div-cell ${amt?'has-value':''}" 
@@ -847,7 +847,7 @@ async function loadDividendGrid() {
           data-currency="${h.currency}"
           onchange="saveDividendCell(this)"
           onkeydown="if(event.key==='Enter')this.blur()">
-        ${monthRate ? `<div style="font-size:9px;color:var(--text3);text-align:right;padding:0 4px;line-height:1">${monthRate}%</div>` : '<div style="height:0px"></div>'}
+        ${monthRate ? `<div style="font-size:9px;color:#2563eb;text-align:right;padding:0 4px;line-height:1">${monthRate}%</div>` : '<div style="height:0px"></div>'}
       </td>`;
     }).join('');
     const realRate = (investKrw > 0 && rowTotal > 0) ? (rowTotal / investKrw * 100).toFixed(2) : '-';
@@ -863,8 +863,8 @@ async function loadDividendGrid() {
       </td>
       ${cells}
       <td class="div-total" style="color:#111827;font-weight:600">${rowTotal ? '₩'+Math.round(rowTotal).toLocaleString() : '-'}</td>
-      <td class="div-total" style="color:var(--green)">${realRate !== '-' ? realRate+'%' : '-'}</td>
-      <td class="div-total" style="color:var(--accent)">${annualRate !== '-' ? annualRate+'%' : '-'}</td>
+      <td class="div-total" style="color:#2563eb">${realRate !== '-' ? realRate+'%' : '-'}</td>
+      <td class="div-total" style="color:#2563eb">${annualRate !== '-' ? annualRate+'%' : '-'}</td>
     </tr>`;
   }).join('');
 
@@ -1169,9 +1169,16 @@ async function loadHoldingPrices(holdings) {
       const priceEl = document.getElementById(`price-${h.id}`);
       if (priceEl && priceData.success) {
         const chg = parseFloat(priceData.change);
-        const color = chg > 0 ? 'var(--red)' : chg < 0 ? 'var(--green)' : 'var(--text2)';
+        const chgColor = chg > 0 ? 'var(--red)' : chg < 0 ? 'var(--green)' : 'var(--text2)';
         const arrow = chg > 0 ? '▲' : chg < 0 ? '▼' : '';
-        priceEl.innerHTML = `<span style="font-family:var(--mono);font-size:12px">${curr}${fmt(priceData.current)}</span><span style="font-size:10px;color:${color};margin-left:4px">${arrow}${Math.abs(chg).toFixed(2)}%</span>`;
+        // 현재가 vs 평균단가 비교 배경색
+        const avgPrice = parseFloat(h.avg_price) || 0;
+        const curPrice = parseFloat(priceData.current) || 0;
+        const bgColor = avgPrice > 0
+          ? curPrice > avgPrice ? '#fef2f2' : curPrice < avgPrice ? '#eff6ff' : 'transparent'
+          : 'transparent';
+        priceEl.style.background = bgColor;
+        priceEl.innerHTML = `<span style="font-family:var(--mono);font-size:12px;font-weight:600">${curr}${fmt(priceData.current)}</span><span style="font-size:10px;color:${chgColor};margin-left:4px">${arrow}${Math.abs(chg).toFixed(2)}%</span>`;
       }
       const prevEl = document.getElementById(`prev-${h.id}`);
       if (prevEl && priceData.success) {
@@ -1187,6 +1194,15 @@ async function loadHoldingPrices(holdings) {
       }
     } catch(e) {}
   }
+}
+
+async function loadPricesAll() {
+  if (!state.holdings.length) {
+    const all = await api({ action:'getHoldings' });
+    state.holdings = all || [];
+    renderHoldingsTable(state.holdings);
+  }
+  loadHoldingPrices(state.holdings);
 }
 
 function reloadTrend() {
