@@ -1359,7 +1359,7 @@ async function confirmDividendUpload(rows) {
     // 계좌명+티커로 정확히 매칭, 계좌명 없으면 티커만으로 매칭
     const matched = allHoldings.filter(h => {
       const acc = state.accounts.find(a => a.id === h.account_id);
-      const tickerMatch = h.ticker.toUpperCase() === ticker;
+      const tickerMatch = h.ticker.toString().toUpperCase() === ticker;
       if (accName) return tickerMatch && (acc?.name||'').trim() === accName;
       return tickerMatch;
     });
