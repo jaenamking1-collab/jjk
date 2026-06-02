@@ -760,8 +760,10 @@ function renderHoldingsTable(holdings) {
         const curr = h.currency === 'USD' ? '$' : '';
         const prevH = idx > 0 ? holdings[idx-1] : null;
         const isUsdBorder = h.currency === 'USD' && (!prevH || prevH.account_id === h.account_id) && prevH?.currency === 'KRW';
+        const isAccBorder = !prevH || prevH.account_id !== h.account_id;
         const rowBg = h.currency === 'USD' ? '#fffbeb' : getAccColor(h.account_id);
-        return `<tr style="border-bottom:1px solid var(--border);background:${rowBg};${isUsdBorder ? 'border-top:2px solid #f59e0b88' : ''}">
+        const topBorder = isUsdBorder ? 'border-top:2px solid #f59e0b88' : isAccBorder ? 'border-top:2px solid #94a3b8' : '';
+        return `<tr style="border-bottom:1px solid var(--border);background:${rowBg};${topBorder}">
           <td style="font-size:11px;color:#374151;font-weight:600;white-space:nowrap">${acc?.name||''}</td>
           <td><span class="ticker">${h.ticker}</span></td>
           <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:300px;text-align:left;color:#111827;font-weight:500">${h.name}</td>
@@ -852,7 +854,9 @@ async function loadDividendGrid() {
     const filledMonths = months.filter(m => { const key=`${h.id}_${m}`; return divMap[key] && parseFloat(divMap[key].amount) > 0; }).length;
     const annualRate = (investKrw > 0 && filledMonths > 0 && rowTotal > 0) ? (rowTotal * (12/filledMonths) / investKrw * 100).toFixed(2) : '-';
     const divRowBg = h.currency === 'USD' ? '#fffbeb' : getAccColor(h.account_id);
-    return `<tr style="background:${divRowBg};${isUsdBorder ? 'border-top:2px solid #f59e0b88' : ''}">
+    const isDivAccBorder = !prevH || prevH.account_id !== h.account_id;
+    const divTopBorder = isUsdBorder ? 'border-top:2px solid #f59e0b88' : isDivAccBorder ? 'border-top:2px solid #94a3b8' : '';
+    return `<tr style="background:${divRowBg};${divTopBorder}">
       <td style="padding:6px 10px;font-size:11px;color:#374151;font-weight:600;white-space:nowrap;min-width:80px">${acc?.name||''}</td>
       <td class="div-ticker-cell" title="${h.ticker}">
         <span class="ticker" style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px;text-align:left;color:#111827;font-weight:500">${h.name || h.ticker}</span>
