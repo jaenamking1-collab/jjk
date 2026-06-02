@@ -1345,18 +1345,18 @@ async function uploadDividendExcel(input) {
 }
 
 async function confirmDividendUpload(rows) {
-  const rate = state.exchangeRate || 1450;
   const allHoldings = await api({ action:'getHoldings' });
   if (!allHoldings) { alert('종목 데이터를 불러올 수 없습니다'); return; }
 
-  let total = 0, success = 0, skip = 0;
   const preview = document.getElementById('divExcelPreview');
+  const year = new Date().getFullYear();
 
+  // 업로드할 작업 목록 전체 수집
+  const tasks = [];
+  let skip = 0;
   for (const row of rows) {
     const ticker = (row['티커']||'').toString().toUpperCase().trim();
     const accName = (row['계좌명']||'').toString().trim();
-    const currency = (row['통화']||'KRW').toString().toUpperCase().trim();
-    // 계좌명+티커로 정확히 매칭, 계좌명 없으면 티커만으로 매칭
     const matched = allHoldings.filter(h => {
       const acc = state.accounts.find(a => a.id === h.account_id);
       const tickerMatch = h.ticker.toString().toUpperCase() === ticker;
@@ -1364,34 +1364,27 @@ async function confirmDividendUpload(rows) {
       return tickerMatch;
     });
     if (!matched.length) { skip++; continue; }
-
     for (let month = 1; month <= 12; month++) {
       const val = parseFloat(row[`${month}월`]) || 0;
       if (!val) continue;
-      let monthTotal = val;
-      let hasData = true;
-
-      // 달러면 원화 환산
-      const amountKrw = Math.round(monthTotal);
-
       for (const h of matched) {
-        await apiPost({
-          action: 'saveDividend',
-          holding_id: h.id,
-          year: new Date().getFullYear(),
-          month,
-          amount: amountKrw,
-          currency: 'KRW'
-        });
-        total++;
+        tasks.push({ holding_id: h.id, year, month, amount: Math.round(val), currency: 'KRW' });
       }
     }
-    success++;
-    preview.innerHTML = `<div style="padding:12px;background:var(--bg3);border-radius:8px;font-size:13px;color:var(--text2)">업로드 중... ${success}/${rows.length} 종목</div>`;
+  }
+
+  // 10개씩 배치 병렬 처리
+  const BATCH = 10;
+  let done = 0;
+  for (let i = 0; i < tasks.length; i += BATCH) {
+    const batch = tasks.slice(i, i + BATCH);
+    await Promise.all(batch.map(t => apiPost({ action: 'saveDividend', ...t })));
+    done += batch.length;
+    preview.innerHTML = `<div style="padding:12px;background:var(--bg3);border-radius:8px;font-size:13px;color:var(--text2)">업로드 중... ${done}/${tasks.length}건</div>`;
   }
 
   preview.innerHTML = `<div style="padding:12px;background:var(--bg3);border-radius:8px;color:var(--green);font-size:13px">
-    ✅ ${success}개 종목 / ${total}건 분배금 업로드 완료 ${skip ? `(${skip}개 티커 미매칭 건너뜀)` : ''}
+    ✅ ${tasks.length}건 분배금 업로드 완료 ${skip ? `(${skip}개 티커 미매칭 건너뜀)` : ''}
   </div>`;
 }
 
