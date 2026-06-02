@@ -836,7 +836,8 @@ async function loadDividendGrid() {
       const key = `${h.id}_${m}`;
       const div = divMap[key];
       const amt = div ? parseFloat(div.amount) : 0;
-      const amtKrw = h.currency === 'USD' ? amt * state.exchangeRate : amt;
+      // 분배금은 항상 원화로 저장됨 (환산 불필요)
+      const amtKrw = amt;
       if (amtKrw) { rowTotal += amtKrw; monthTotals[m-1] += amtKrw; }
       const displayVal = amt ? Math.round(amt).toLocaleString() : '';
       const monthRate = (investKrw > 0 && amtKrw > 0) ? (amtKrw / investKrw * 100).toFixed(2) : '';
@@ -938,7 +939,7 @@ async function loadDashboard() {
   divs.forEach(d => {
     const h = holdings.find(x => x.id === d.holding_id);
     const amt = parseFloat(d.amount) || 0;
-    const amtKrw = h?.currency === 'USD' ? amt * state.exchangeRate : amt;
+    const amtKrw = amt; // 분배금은 항상 원화로 저장됨
     if (d.month >= 1 && d.month <= 12) monthTotals[d.month-1] += amtKrw;
   });
 
