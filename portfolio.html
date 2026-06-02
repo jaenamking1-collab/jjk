@@ -168,14 +168,13 @@
   .div-grid th { padding:3px 5px; background:var(--bg3); border:1px solid var(--border); color:var(--text3); font-size:10px; white-space:nowrap; text-align:center; }
   .div-grid td { border:1px solid var(--border); padding:0 2px; vertical-align:middle; }
   .div-cell {
-    width:100%; height:18px; background:transparent;
-    border:none; outline:none; color:#374151;
-    font-family:'Pretendard','Apple SD Gothic Neo','Malgun Gothic',sans-serif;
-    font-size:12px; font-weight:500; text-align:right;
+    width:100%; height:16px; background:transparent;
+    border:none; outline:none; color:var(--text);
+    font-family:var(--mono); font-size:11px; text-align:right;
     padding:0 4px; cursor:pointer; vertical-align:middle;
   }
-  .div-cell:focus { background:var(--bg4); border-radius:4px; color:#111827; }
-  .div-cell.has-value { color:#111827; font-weight:600; }
+  .div-cell:focus { background:var(--bg4); border-radius:4px; }
+  .div-cell.has-value { color:var(--green); }
   .div-total { background:var(--bg3); font-family:var(--mono); font-size:11px; color:var(--accent2); font-weight:600; text-align:right; padding:2px 5px; }
   .div-ticker-cell { padding:2px 6px; min-width:280px; width:280px; }
   .div-name { font-size:11px; color:var(--text3); }
@@ -399,20 +398,10 @@
       <div class="card-header"><div class="card-title">💰 분배금 엑셀 업로드</div></div>
       <p style="font-size:13px;color:var(--text2);margin-bottom:8px">분배금 양식을 작성 후 업로드하면 분배금 탭에 자동 반영됩니다.</p>
       <div style="font-size:12px;color:var(--text3);margin-bottom:12px;padding:10px;background:var(--bg3);border-radius:8px;border-left:3px solid var(--blue)">
-        ℹ️ 모든 금액은 원화(₩)로 입력하세요 · 달러 종목도 원화 환산 후 입력
+        ℹ️ 주배당 종목(TSLY 등)은 월 4회까지 입력 가능 · 달러는 자동으로 원화 환산
       </div>
       <div style="display:flex;gap:8px;align-items:center">
         <input type="file" id="divExcelFile" accept=".xlsx,.xls,.csv" style="display:none" onchange="uploadDividendExcel(this)">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-          <span style="font-size:12px;color:var(--text2)">업로드 연도:</span>
-          <select id="divUploadYear" style="padding:4px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;">
-            <option value="2023">2023년</option>
-            <option value="2024">2024년</option>
-            <option value="2025">2025년</option>
-            <option value="2026" selected>2026년</option>
-            <option value="2027">2027년</option>
-          </select>
-        </div>
         <button class="btn btn-ghost" onclick="document.getElementById('divExcelFile').click()">📤 분배금 파일 선택</button>
         <span id="divExcelFileName" style="font-size:12px;color:var(--text3)">선택된 파일 없음</span>
       </div>
@@ -738,7 +727,7 @@ function renderHoldingsTable(holdings) {
         <option value="30">30일</option>
       </select>
       <button class="btn btn-ghost btn-sm" onclick="openAccountOrderModal()" style="margin-left:8px">⚙️ 계좌 순서 변경</button>
-      <button class="btn btn-primary btn-sm" onclick="loadPricesAll()" style="margin-left:4px">📈 시세 불러오기</button>
+      <button class="btn btn-primary btn-sm" onclick="loadHoldingPrices(state.holdings)" style="margin-left:4px">📈 시세 불러오기</button>
     </div>
     <div class="table-wrap">
     <table>
@@ -760,10 +749,8 @@ function renderHoldingsTable(holdings) {
         const curr = h.currency === 'USD' ? '$' : '';
         const prevH = idx > 0 ? holdings[idx-1] : null;
         const isUsdBorder = h.currency === 'USD' && (!prevH || prevH.account_id === h.account_id) && prevH?.currency === 'KRW';
-        const isAccBorder = !prevH || prevH.account_id !== h.account_id;
         const rowBg = h.currency === 'USD' ? '#fffbeb' : getAccColor(h.account_id);
-        const topBorder = isUsdBorder ? 'border-top:2px solid #f59e0b88' : isAccBorder ? 'border-top:2px solid #94a3b8' : '';
-        return `<tr style="border-bottom:1px solid var(--border);background:${rowBg};${topBorder}">
+        return `<tr style="border-bottom:1px solid var(--border);background:${rowBg};${isUsdBorder ? 'border-top:2px solid #f59e0b88' : ''}">
           <td style="font-size:11px;color:#374151;font-weight:600;white-space:nowrap">${acc?.name||''}</td>
           <td><span class="ticker">${h.ticker}</span></td>
           <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:300px;text-align:left;color:#111827;font-weight:500">${h.name}</td>
@@ -836,10 +823,9 @@ async function loadDividendGrid() {
       const key = `${h.id}_${m}`;
       const div = divMap[key];
       const amt = div ? parseFloat(div.amount) : 0;
-      // 분배금은 항상 원화로 저장됨 (환산 불필요)
-      const amtKrw = amt;
+      const amtKrw = h.currency === 'USD' ? amt * state.exchangeRate : amt;
       if (amtKrw) { rowTotal += amtKrw; monthTotals[m-1] += amtKrw; }
-      const displayVal = amt ? Math.round(amt).toLocaleString() : '';
+      const displayVal = amt ? (h.currency === 'USD' ? '$' + parseFloat(amt).toFixed(2) : Math.round(amt).toLocaleString()) : '';
       const monthRate = (investKrw > 0 && amtKrw > 0) ? (amtKrw / investKrw * 100).toFixed(2) : '';
       return `<td>
         <input class="div-cell ${amt?'has-value':''}" 
@@ -848,24 +834,22 @@ async function loadDividendGrid() {
           data-currency="${h.currency}"
           onchange="saveDividendCell(this)"
           onkeydown="if(event.key==='Enter')this.blur()">
-        ${monthRate ? `<div style="font-size:9px;color:#2563eb;text-align:right;padding:0 4px;line-height:1">${monthRate}%</div>` : '<div style="height:0px"></div>'}
+        ${monthRate ? `<div style="font-size:9px;color:var(--text3);text-align:right;padding:0 4px;line-height:1">${monthRate}%</div>` : '<div style="height:0px"></div>'}
       </td>`;
     }).join('');
     const realRate = (investKrw > 0 && rowTotal > 0) ? (rowTotal / investKrw * 100).toFixed(2) : '-';
     const filledMonths = months.filter(m => { const key=`${h.id}_${m}`; return divMap[key] && parseFloat(divMap[key].amount) > 0; }).length;
     const annualRate = (investKrw > 0 && filledMonths > 0 && rowTotal > 0) ? (rowTotal * (12/filledMonths) / investKrw * 100).toFixed(2) : '-';
     const divRowBg = h.currency === 'USD' ? '#fffbeb' : getAccColor(h.account_id);
-    const isDivAccBorder = !prevH || prevH.account_id !== h.account_id;
-    const divTopBorder = isUsdBorder ? 'border-top:2px solid #f59e0b88' : isDivAccBorder ? 'border-top:2px solid #94a3b8' : '';
-    return `<tr style="background:${divRowBg};${divTopBorder}">
+    return `<tr style="background:${divRowBg};${isUsdBorder ? 'border-top:2px solid #f59e0b88' : ''}">
       <td style="padding:6px 10px;font-size:11px;color:#374151;font-weight:600;white-space:nowrap;min-width:80px">${acc?.name||''}</td>
       <td class="div-ticker-cell" title="${h.ticker}">
         <span class="ticker" style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px;text-align:left;color:#111827;font-weight:500">${h.name || h.ticker}</span>
       </td>
       ${cells}
       <td class="div-total" style="color:#111827;font-weight:600">${rowTotal ? '₩'+Math.round(rowTotal).toLocaleString() : '-'}</td>
-      <td class="div-total" style="color:#2563eb">${realRate !== '-' ? realRate+'%' : '-'}</td>
-      <td class="div-total" style="color:#2563eb">${annualRate !== '-' ? annualRate+'%' : '-'}</td>
+      <td class="div-total" style="color:var(--green)">${realRate !== '-' ? realRate+'%' : '-'}</td>
+      <td class="div-total" style="color:var(--accent)">${annualRate !== '-' ? annualRate+'%' : '-'}</td>
     </tr>`;
   }).join('');
 
@@ -939,7 +923,7 @@ async function loadDashboard() {
   divs.forEach(d => {
     const h = holdings.find(x => x.id === d.holding_id);
     const amt = parseFloat(d.amount) || 0;
-    const amtKrw = amt; // 분배금은 항상 원화로 저장됨
+    const amtKrw = h?.currency === 'USD' ? amt * state.exchangeRate : amt;
     if (d.month >= 1 && d.month <= 12) monthTotals[d.month-1] += amtKrw;
   });
 
@@ -1170,16 +1154,9 @@ async function loadHoldingPrices(holdings) {
       const priceEl = document.getElementById(`price-${h.id}`);
       if (priceEl && priceData.success) {
         const chg = parseFloat(priceData.change);
-        const chgColor = chg > 0 ? 'var(--red)' : chg < 0 ? 'var(--green)' : 'var(--text2)';
+        const color = chg > 0 ? 'var(--red)' : chg < 0 ? 'var(--green)' : 'var(--text2)';
         const arrow = chg > 0 ? '▲' : chg < 0 ? '▼' : '';
-        // 현재가 vs 평균단가 비교 배경색
-        const avgPrice = parseFloat(h.avg_price) || 0;
-        const curPrice = parseFloat(priceData.current) || 0;
-        const bgColor = avgPrice > 0
-          ? curPrice > avgPrice ? '#fef2f2' : curPrice < avgPrice ? '#eff6ff' : 'transparent'
-          : 'transparent';
-        priceEl.style.background = bgColor;
-        priceEl.innerHTML = `<span style="font-family:var(--mono);font-size:12px;font-weight:600">${curr}${fmt(priceData.current)}</span><span style="font-size:10px;color:${chgColor};margin-left:4px">${arrow}${Math.abs(chg).toFixed(2)}%</span>`;
+        priceEl.innerHTML = `<span style="font-family:var(--mono);font-size:12px">${curr}${fmt(priceData.current)}</span><span style="font-size:10px;color:${color};margin-left:4px">${arrow}${Math.abs(chg).toFixed(2)}%</span>`;
       }
       const prevEl = document.getElementById(`prev-${h.id}`);
       if (prevEl && priceData.success) {
@@ -1195,15 +1172,6 @@ async function loadHoldingPrices(holdings) {
       }
     } catch(e) {}
   }
-}
-
-async function loadPricesAll() {
-  if (!state.holdings.length) {
-    const all = await api({ action:'getHoldings' });
-    state.holdings = all || [];
-    renderHoldingsTable(state.holdings);
-  }
-  loadHoldingPrices(state.holdings);
 }
 
 function reloadTrend() {
@@ -1347,38 +1315,26 @@ async function uploadDividendExcel(input) {
       if (!rows.length) { alert('데이터가 없습니다'); return; }
 
       // 미리보기
-      const previewRows = rows.slice(0, 3).map(r => {
-        const months = [1,2,3,4,5,6,7,8,9,10,11,12];
-        const filledMonths = months.filter(m => parseFloat(r[`${m}월`]) > 0).map(m => `${m}월`).join(', ');
-        return `<tr>
-          <td style="padding:4px 8px;border:1px solid var(--border)44">${r['계좌명']||''}</td>
-          <td style="padding:4px 8px;border:1px solid var(--border)44;font-weight:600">${r['티커']||''}</td>
-          <td style="padding:4px 8px;border:1px solid var(--border)44">${r['종목명']||''}</td>
-          <td style="padding:4px 8px;border:1px solid var(--border)44">${r['통화']||''}</td>
-          <td style="padding:4px 8px;border:1px solid var(--border)44;color:var(--text3)">${filledMonths || '데이터 없음'}</td>
-        </tr>`;
-      }).join('');
-
-      // 데이터 있는 종목 수 파악
-      const filledCount = rows.filter(r => [1,2,3,4,5,6,7,8,9,10,11,12].some(m => parseFloat(r[`${m}월`]) > 0)).length;
+      const preview = rows.slice(0, 3).map(r =>
+        `<tr><td style="padding:4px 8px;border:1px solid var(--border)44;font-weight:600">${r['티커']||''}</td>`+
+        `<td style="padding:4px 8px;border:1px solid var(--border)44">${r['종목명']||''}</td>`+
+        `<td style="padding:4px 8px;border:1px solid var(--border)44">${r['통화']||''}</td>`+
+        `<td style="padding:4px 8px;border:1px solid var(--border)44;color:var(--text3)">월별 데이터...</td></tr>`
+      ).join('');
 
       document.getElementById('divExcelPreview').innerHTML = `
-        <div style="font-size:12px;color:var(--text2);margin-bottom:8px">
-          ${rows.length}개 종목 인식됨 · <span style="color:var(--accent)">${filledCount}개 분배금 데이터 있음</span>
-        </div>
+        <div style="font-size:12px;color:var(--text2);margin-bottom:8px">${rows.length}개 종목 인식됨</div>
         <div style="overflow-x:auto;margin-bottom:12px">
-          <table style="font-size:11px;border-collapse:collapse;width:100%">
+          <table style="font-size:11px;border-collapse:collapse">
             <thead><tr>
-              <th style="padding:4px 8px;background:var(--bg3);border:1px solid var(--border)">계좌명</th>
               <th style="padding:4px 8px;background:var(--bg3);border:1px solid var(--border)">티커</th>
               <th style="padding:4px 8px;background:var(--bg3);border:1px solid var(--border)">종목명</th>
               <th style="padding:4px 8px;background:var(--bg3);border:1px solid var(--border)">통화</th>
-              <th style="padding:4px 8px;background:var(--bg3);border:1px solid var(--border)">입력된 월</th>
+              <th style="padding:4px 8px;background:var(--bg3);border:1px solid var(--border)">내용</th>
             </tr></thead>
-            <tbody>${previewRows}</tbody>
+            <tbody>${preview}</tbody>
           </table>
         </div>
-        ${filledCount === 0 ? '<div style="padding:10px;background:#fef9c3;border-radius:8px;font-size:12px;color:#854d0e;margin-bottom:12px">⚠️ 분배금 데이터가 없습니다. 엑셀에 금액을 입력했는지 확인해주세요.</div>' : ''}
         <div style="display:flex;gap:8px">
           <button class="btn btn-primary" onclick="confirmDividendUpload(${JSON.stringify(rows).replace(/"/g,'&quot;')})">💰 분배금 업로드</button>
           <button class="btn btn-ghost" onclick="document.getElementById('divExcelPreview').innerHTML=''">취소</button>
@@ -1403,7 +1359,7 @@ async function confirmDividendUpload(rows) {
     // 계좌명+티커로 정확히 매칭, 계좌명 없으면 티커만으로 매칭
     const matched = allHoldings.filter(h => {
       const acc = state.accounts.find(a => a.id === h.account_id);
-      const tickerMatch = h.ticker.toString().toUpperCase() === ticker;
+      const tickerMatch = h.ticker.toUpperCase() === ticker;
       if (accName) return tickerMatch && (acc?.name||'').trim() === accName;
       return tickerMatch;
     });
@@ -1415,14 +1371,14 @@ async function confirmDividendUpload(rows) {
       let monthTotal = val;
       let hasData = true;
 
-      // USD면 환율 환산, KRW면 그대로
-      const amountKrw = currency === 'USD' ? Math.round(monthTotal * rate) : Math.round(monthTotal);
+      // 달러면 원화 환산
+      const amountKrw = Math.round(monthTotal);
 
       for (const h of matched) {
         await apiPost({
           action: 'saveDividend',
           holding_id: h.id,
-          year: parseInt(document.getElementById('divUploadYear')?.value) || new Date().getFullYear(),
+          year: new Date().getFullYear(),
           month,
           amount: amountKrw,
           currency: 'KRW'
