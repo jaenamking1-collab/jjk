@@ -1157,8 +1157,9 @@ async function loadHoldingPrices(holdings) {
       const ticker = h.ticker.toString().toUpperCase();
       const sheetItem = priceMap[ticker];
       const histData = await api({ action:'getStockHistory', ticker:h.ticker, currency:h.currency, days });
+      // change는 소수(0.1669) → % 변환
       const priceData = sheetItem
-        ? { success:true, current:sheetItem.current, prev:0, change:sheetItem.change }
+        ? { success:true, current:sheetItem.current, prev:0, change:(parseFloat(sheetItem.change)||0) * 100 }
         : { success:false };
       const curr = h.currency === 'USD' ? '$' : '₩';
       const fmt = (v) => h.currency === 'USD' ? parseFloat(v).toFixed(2) : Math.round(parseFloat(v)).toLocaleString();
