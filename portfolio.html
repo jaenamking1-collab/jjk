@@ -615,7 +615,7 @@ async function loadAccountStats() {
       .reduce((sum, d) => {
         const amt = parseFloat(d.amount) || 0;
         const h2 = state.holdings.find(x => x.id === d.holding_id);
-        return sum + (h2?.currency === 'USD' ? amt * state.exchangeRate : amt);
+        return sum + amt;
       }, 0);
 
     const divEl = document.getElementById(`ac-div-${a.id}`);
@@ -823,9 +823,9 @@ async function loadDividendGrid() {
       const key = `${h.id}_${m}`;
       const div = divMap[key];
       const amt = div ? parseFloat(div.amount) : 0;
-      const amtKrw = h.currency === 'USD' ? amt * state.exchangeRate : amt;
+      const amtKrw = amt;
       if (amtKrw) { rowTotal += amtKrw; monthTotals[m-1] += amtKrw; }
-      const displayVal = amt ? (h.currency === 'USD' ? '$' + parseFloat(amt).toFixed(2) : Math.round(amt).toLocaleString()) : '';
+      const displayVal = amt ? Math.round(amt).toLocaleString() : '';
       const monthRate = (investKrw > 0 && amtKrw > 0) ? (amtKrw / investKrw * 100).toFixed(2) : '';
       return `<td>
         <input class="div-cell ${amt?'has-value':''}" 
@@ -923,7 +923,7 @@ async function loadDashboard() {
   divs.forEach(d => {
     const h = holdings.find(x => x.id === d.holding_id);
     const amt = parseFloat(d.amount) || 0;
-    const amtKrw = h?.currency === 'USD' ? amt * state.exchangeRate : amt;
+    const amtKrw = amt;
     if (d.month >= 1 && d.month <= 12) monthTotals[d.month-1] += amtKrw;
   });
 
@@ -956,7 +956,7 @@ async function loadDashboard() {
     const h = holdings.find(x => x.id === d.holding_id);
     if (!h) return;
     const amt = parseFloat(d.amount) || 0;
-    const amtKrw = h.currency === 'USD' ? amt * state.exchangeRate : amt;
+    const amtKrw = amt;
     if (accTotals[h.account_id]) accTotals[h.account_id].total += amtKrw;
   });
 
@@ -1345,46 +1345,53 @@ async function uploadDividendExcel(input) {
 }
 
 async function confirmDividendUpload(rows) {
+  const rate = state.exchangeRate || 1450;
   const allHoldings = await api({ action:'getHoldings' });
   if (!allHoldings) { alert('종목 데이터를 불러올 수 없습니다'); return; }
 
+  let total = 0, success = 0, skip = 0;
   const preview = document.getElementById('divExcelPreview');
-  const year = new Date().getFullYear();
 
-  // 업로드할 작업 목록 전체 수집
-  const tasks = [];
-  let skip = 0;
   for (const row of rows) {
     const ticker = (row['티커']||'').toString().toUpperCase().trim();
     const accName = (row['계좌명']||'').toString().trim();
+    const currency = (row['통화']||'KRW').toString().toUpperCase().trim();
+    // 계좌명+티커로 정확히 매칭, 계좌명 없으면 티커만으로 매칭
     const matched = allHoldings.filter(h => {
       const acc = state.accounts.find(a => a.id === h.account_id);
-      const tickerMatch = h.ticker.toString().toUpperCase() === ticker;
+      const tickerMatch = h.ticker.toUpperCase() === ticker;
       if (accName) return tickerMatch && (acc?.name||'').trim() === accName;
       return tickerMatch;
     });
     if (!matched.length) { skip++; continue; }
+
     for (let month = 1; month <= 12; month++) {
       const val = parseFloat(row[`${month}월`]) || 0;
       if (!val) continue;
+      let monthTotal = val;
+      let hasData = true;
+
+      // 달러면 원화 환산
+      const amountKrw = currency === 'USD' ? Math.round(monthTotal * rate) : Math.round(monthTotal);
+
       for (const h of matched) {
-        tasks.push({ holding_id: h.id, year, month, amount: Math.round(val), currency: 'KRW' });
+        await apiPost({
+          action: 'saveDividend',
+          holding_id: h.id,
+          year: new Date().getFullYear(),
+          month,
+          amount: amountKrw,
+          currency: 'KRW'
+        });
+        total++;
       }
     }
-  }
-
-  // 10개씩 배치 병렬 처리
-  const BATCH = 10;
-  let done = 0;
-  for (let i = 0; i < tasks.length; i += BATCH) {
-    const batch = tasks.slice(i, i + BATCH);
-    await Promise.all(batch.map(t => apiPost({ action: 'saveDividend', ...t })));
-    done += batch.length;
-    preview.innerHTML = `<div style="padding:12px;background:var(--bg3);border-radius:8px;font-size:13px;color:var(--text2)">업로드 중... ${done}/${tasks.length}건</div>`;
+    success++;
+    preview.innerHTML = `<div style="padding:12px;background:var(--bg3);border-radius:8px;font-size:13px;color:var(--text2)">업로드 중... ${success}/${rows.length} 종목</div>`;
   }
 
   preview.innerHTML = `<div style="padding:12px;background:var(--bg3);border-radius:8px;color:var(--green);font-size:13px">
-    ✅ ${tasks.length}건 분배금 업로드 완료 ${skip ? `(${skip}개 티커 미매칭 건너뜀)` : ''}
+    ✅ ${success}개 종목 / ${total}건 분배금 업로드 완료 ${skip ? `(${skip}개 티커 미매칭 건너뜀)` : ''}
   </div>`;
 }
 
