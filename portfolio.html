@@ -666,7 +666,7 @@ async function loadHoldings() {
   const data = await api({ action:'getHoldings', account_id: accountId === 'ALL' ? '' : accountId });
   state.holdings = data || [];
   renderHoldingsTable(data || []);
-  // 시세는 버튼 클릭 시에만 로드 (UrlFetch 절약)
+  loadHoldingPrices(state.holdings); // 자동 시세 로드
 }
 
 function sortHoldings(holdings) {
@@ -1152,11 +1152,17 @@ async function loadHoldingPrices(holdings) {
     });
   }
 
-  for (const h of holdings) {
+  // 추세선 병렬 호출
+  const histResults = await Promise.all(
+    holdings.map(h => api({ action:'getStockHistory', ticker:h.ticker, currency:h.currency, days }).catch(()=>({success:false,prices:[]})))
+  );
+
+  for (let idx = 0; idx < holdings.length; idx++) {
+    const h = holdings[idx];
     try {
       const ticker = h.ticker.toString().toUpperCase();
       const sheetItem = priceMap[ticker];
-      const histData = await api({ action:'getStockHistory', ticker:h.ticker, currency:h.currency, days });
+      const histData = histResults[idx];
       // change는 소수(0.1669) → % 변환
       const priceData = sheetItem
         ? { success:true, current:sheetItem.current, prev:0, change:(parseFloat(sheetItem.change)||0) * 100 }
@@ -1166,9 +1172,13 @@ async function loadHoldingPrices(holdings) {
       const priceEl = document.getElementById(`price-${h.id}`);
       if (priceEl && priceData.success) {
         const chg = parseFloat(priceData.change);
-        const color = chg > 0 ? 'var(--red)' : chg < 0 ? 'var(--green)' : 'var(--text2)';
+        const avg = parseFloat(h.avg_price) || 0;
+        const cur = parseFloat(priceData.current) || 0;
+        // 평단 대비 색상
+        const priceColor = avg > 0 ? (cur >= avg ? 'var(--red)' : 'var(--accent)') : 'var(--text)';
+        const chgColor = chg > 0 ? 'var(--red)' : chg < 0 ? 'var(--accent)' : 'var(--text2)';
         const arrow = chg > 0 ? '▲' : chg < 0 ? '▼' : '';
-        priceEl.innerHTML = `<span style="font-family:var(--mono);font-size:12px">${curr}${fmt(priceData.current)}</span><span style="font-size:10px;color:${color};margin-left:4px">${arrow}${Math.abs(chg).toFixed(2)}%</span>`;
+        priceEl.innerHTML = `<span style="font-family:var(--mono);font-size:12px;font-weight:600;color:${priceColor}">${curr}${fmt(priceData.current)}</span><span style="font-size:10px;color:${chgColor};margin-left:4px">${arrow}${Math.abs(chg).toFixed(2)}%</span>`;
       }
       const prevEl = document.getElementById(`prev-${h.id}`);
       if (prevEl && priceData.success) {
