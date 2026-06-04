@@ -1143,12 +1143,24 @@ function showTab(name) {
 async function loadHoldingPrices(holdings) {
   if (!holdings.length) return;
   const days = document.getElementById('trendDays')?.value || 5;
+
+  // 스프레드시트에서 시세 일괄 로드
+  const sheetData = await api({ action:'getSheetData' });
+  const priceMap = {};
+  if (sheetData?.success) {
+    sheetData.items.forEach(item => {
+      priceMap[item.ticker.toString().toUpperCase()] = item;
+    });
+  }
+
   for (const h of holdings) {
     try {
-      const [priceData, histData] = await Promise.all([
-        api({ action:'getStockPrice', ticker:h.ticker, currency:h.currency }),
-        api({ action:'getStockHistory', ticker:h.ticker, currency:h.currency, days })
-      ]);
+      const ticker = h.ticker.toString().toUpperCase();
+      const sheetItem = priceMap[ticker];
+      const histData = await api({ action:'getStockHistory', ticker:h.ticker, currency:h.currency, days });
+      const priceData = sheetItem
+        ? { success:true, current:sheetItem.current, prev:0, change:sheetItem.change }
+        : { success:false };
       const curr = h.currency === 'USD' ? '$' : '₩';
       const fmt = (v) => h.currency === 'USD' ? parseFloat(v).toFixed(2) : Math.round(parseFloat(v)).toLocaleString();
       const priceEl = document.getElementById(`price-${h.id}`);
