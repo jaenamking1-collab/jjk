@@ -174,7 +174,7 @@
     padding:0 4px; cursor:pointer; vertical-align:middle;
   }
   .div-cell:focus { background:var(--bg4); border-radius:4px; }
-  .div-cell.has-value { color:var(--green); }
+  .div-cell.has-value { color:var(--accent); }
   .div-total { background:var(--bg3); font-family:var(--mono); font-size:11px; color:var(--accent2); font-weight:600; text-align:right; padding:2px 5px; }
   .div-ticker-cell { padding:2px 6px; min-width:280px; width:280px; }
   .div-name { font-size:11px; color:var(--text3); }
@@ -848,7 +848,7 @@ async function loadDividendGrid() {
       </td>
       ${cells}
       <td class="div-total" style="color:#111827;font-weight:600">${rowTotal ? '₩'+Math.round(rowTotal).toLocaleString() : '-'}</td>
-      <td class="div-total" style="color:var(--green)">${realRate !== '-' ? realRate+'%' : '-'}</td>
+      <td class="div-total" style="color:var(--accent)">${realRate !== '-' ? realRate+'%' : '-'}</td>
       <td class="div-total" style="color:var(--accent)">${annualRate !== '-' ? annualRate+'%' : '-'}</td>
     </tr>`;
   }).join('');
@@ -870,7 +870,7 @@ async function loadDividendGrid() {
         <th style="color:#374151">종목</th>
         ${months.map(m=>`<th style="min-width:56px;color:#374151">${m}월</th>`).join('')}
         <th style="min-width:80px;color:#374151">합계</th>
-        <th style="color:var(--green)">실분배율</th>
+        <th style="color:var(--accent)">실분배율</th>
         <th style="color:var(--accent)">환산분배율</th>
       </tr></thead>
       <tbody>${rows}${totalRow}</tbody>
