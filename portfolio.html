@@ -1142,33 +1142,80 @@ function showTab(name) {
   if (name === 'excel' && !state.holdings.length) loadAccountStats();
 }
 
+// ── 브라우저 직접 시세 호출 (GAS urlfetch 우회) ──
+async function fetchPriceDirect(ticker, currency) {
+  try {
+    if (currency === 'KRW') {
+      const res = await fetch(`https://polling.finance.naver.com/api/realtime/domestic/stock/${ticker}`);
+      const json = await res.json();
+      if (json.datas && json.datas[0]) {
+        const d = json.datas[0];
+        return {
+          success: true,
+          current: parseFloat(d.closePrice || d.tradePrice || 0),
+          prev: parseFloat(d.basePrice || 0),
+          change: parseFloat(d.fluctuationsRatio || 0)
+        };
+      }
+    } else {
+      const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`, {
+        headers: { 'User-Agent': 'Mozilla/5.0' }
+      });
+      const json = await res.json();
+      if (json.chart?.result?.[0]) {
+        const meta = json.chart.result[0].meta;
+        return {
+          success: true,
+          current: meta.regularMarketPrice,
+          prev: meta.chartPreviousClose,
+          change: ((meta.regularMarketPrice - meta.chartPreviousClose) / meta.chartPreviousClose * 100)
+        };
+      }
+    }
+  } catch(e) {}
+  return { success: false };
+}
+
+async function fetchHistDirect(ticker, currency, days) {
+  try {
+    if (currency === 'KRW') {
+      const res = await fetch(`https://fchart.stock.naver.com/siseJson.naver?symbol=${ticker}&requestType=1&count=${days}&timeframe=day`);
+      const text = await res.text();
+      const matches = text.match(/\[([^\]]+)\]/g) || [];
+      const prices = matches.slice(1).map(m => {
+        const parts = m.replace(/[[\]]/g,'').split(',');
+        return parseFloat(parts[4]) || 0;
+      }).filter(p => p > 0);
+      return { success: true, prices };
+    } else {
+      const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=${days}d`);
+      const json = await res.json();
+      if (json.chart?.result?.[0]) {
+        const closes = json.chart.result[0].indicators.quote[0].close || [];
+        return { success: true, prices: closes.filter(p => p != null) };
+      }
+    }
+  } catch(e) {}
+  return { success: false, prices: [] };
+}
+
 async function loadHoldingPrices(holdings) {
   if (!holdings.length) return;
   const days = document.getElementById('trendDays')?.value || 5;
 
-  const sheetData = await api({ action:'getSheetData' });
-  const priceMap = {};
-  if (sheetData?.success) {
-    sheetData.items.forEach(item => {
-      priceMap[item.ticker.toString().toUpperCase()] = item;
-    });
-  }
-
-  // 추세선 + 전일가 병렬 호출
-  const [histResults, priceResults] = await Promise.all([
-    Promise.all(holdings.map(h => api({ action:'getStockHistory', ticker:h.ticker, currency:h.currency, days }).catch(()=>({success:false,prices:[]})))),
-    Promise.all(holdings.map(h => api({ action:'getStockPrice', ticker:h.ticker, currency:h.currency }).catch(()=>({success:false}))))
+  // 현재가+전일가+추세선 모두 브라우저에서 직접 병렬 호출 (GAS urlfetch 0회)
+  const [priceResults, histResults] = await Promise.all([
+    Promise.all(holdings.map(h => fetchPriceDirect(h.ticker, h.currency))),
+    Promise.all(holdings.map(h => fetchHistDirect(h.ticker, h.currency, days)))
   ]);
 
   for (let idx = 0; idx < holdings.length; idx++) {
     const h = holdings[idx];
     try {
-      const ticker = h.ticker.toString().toUpperCase();
-      const sheetItem = priceMap[ticker];
-      const histData = histResults[idx];
       const priceResult = priceResults[idx];
-      const priceData = sheetItem
-        ? { success:true, current:sheetItem.current, prev:priceResult?.prev||0, change:(parseFloat(sheetItem.change)||0) * 100 }
+      const histData = histResults[idx];
+      const priceData = priceResult?.success
+        ? { success:true, current:priceResult.current, prev:priceResult.prev, change:priceResult.change }
         : { success:false };
       const curr = h.currency === 'USD' ? '$' : '₩';
       const fmt = (v) => h.currency === 'USD' ? parseFloat(v).toFixed(2) : Math.round(parseFloat(v)).toLocaleString();
