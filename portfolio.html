@@ -1146,6 +1146,7 @@ function showTab(name) {
 async function fetchPriceDirect(ticker, currency) {
   try {
     if (currency === 'KRW') {
+      // 국내: 브라우저 직접 (CORS OK)
       const res = await fetch(`https://polling.finance.naver.com/api/realtime/domestic/stock/${ticker}`);
       const json = await res.json();
       if (json.datas && json.datas[0]) {
@@ -1158,19 +1159,8 @@ async function fetchPriceDirect(ticker, currency) {
         };
       }
     } else {
-      const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`, {
-        headers: { 'User-Agent': 'Mozilla/5.0' }
-      });
-      const json = await res.json();
-      if (json.chart?.result?.[0]) {
-        const meta = json.chart.result[0].meta;
-        return {
-          success: true,
-          current: meta.regularMarketPrice,
-          prev: meta.chartPreviousClose,
-          change: ((meta.regularMarketPrice - meta.chartPreviousClose) / meta.chartPreviousClose * 100)
-        };
-      }
+      // 미국: GAS 프록시 경유 (Yahoo CORS 차단)
+      return await api({ action:'getStockPrice', ticker, currency });
     }
   } catch(e) {}
   return { success: false };
@@ -1179,21 +1169,18 @@ async function fetchPriceDirect(ticker, currency) {
 async function fetchHistDirect(ticker, currency, days) {
   try {
     if (currency === 'KRW') {
+      // 국내: 브라우저 직접
       const res = await fetch(`https://fchart.stock.naver.com/siseJson.naver?symbol=${ticker}&requestType=1&count=${days}&timeframe=day`);
       const text = await res.text();
       const matches = text.match(/\[([^\]]+)\]/g) || [];
       const prices = matches.slice(1).map(m => {
-        const parts = m.replace(/[[\]]/g,'').split(',');
+        const parts = m.replace(/[\[\]]/g,'').split(',');
         return parseFloat(parts[4]) || 0;
       }).filter(p => p > 0);
       return { success: true, prices };
     } else {
-      const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=${days}d`);
-      const json = await res.json();
-      if (json.chart?.result?.[0]) {
-        const closes = json.chart.result[0].indicators.quote[0].close || [];
-        return { success: true, prices: closes.filter(p => p != null) };
-      }
+      // 미국: GAS 프록시 경유
+      return await api({ action:'getStockHistory', ticker, currency, days });
     }
   } catch(e) {}
   return { success: false, prices: [] };
