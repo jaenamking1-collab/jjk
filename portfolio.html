@@ -492,10 +492,12 @@
     <div class="form-group">
       <label>배당 주기</label>
       <select id="holdingDivCycle">
-        <option value="월배당">월배당</option>
+        <option value="월초">월초</option>
+        <option value="월말">월말</option>
         <option value="분기배당">분기배당</option>
         <option value="반기배당">반기배당</option>
-        <option value="연배당">연배당</option>
+        <option value="무배당">무배당</option>
+        <option value="주배당">주배당</option>
         <option value="비정기">비정기</option>
       </select>
     </div>
@@ -1152,10 +1154,11 @@ async function loadHoldingPrices(holdings) {
     });
   }
 
-  // 추세선 병렬 호출
-  const histResults = await Promise.all(
-    holdings.map(h => api({ action:'getStockHistory', ticker:h.ticker, currency:h.currency, days }).catch(()=>({success:false,prices:[]})))
-  );
+  // 추세선 + 전일가 병렬 호출
+  const [histResults, priceResults] = await Promise.all([
+    Promise.all(holdings.map(h => api({ action:'getStockHistory', ticker:h.ticker, currency:h.currency, days }).catch(()=>({success:false,prices:[]})))),
+    Promise.all(holdings.map(h => api({ action:'getStockPrice', ticker:h.ticker, currency:h.currency }).catch(()=>({success:false}))))
+  ]);
 
   for (let idx = 0; idx < holdings.length; idx++) {
     const h = holdings[idx];
@@ -1163,9 +1166,9 @@ async function loadHoldingPrices(holdings) {
       const ticker = h.ticker.toString().toUpperCase();
       const sheetItem = priceMap[ticker];
       const histData = histResults[idx];
-      // change는 소수(0.1669) → % 변환
+      const priceResult = priceResults[idx];
       const priceData = sheetItem
-        ? { success:true, current:sheetItem.current, prev:0, change:(parseFloat(sheetItem.change)||0) * 100 }
+        ? { success:true, current:sheetItem.current, prev:priceResult?.prev||0, change:(parseFloat(sheetItem.change)||0) * 100 }
         : { success:false };
       const curr = h.currency === 'USD' ? '$' : '₩';
       const fmt = (v) => h.currency === 'USD' ? parseFloat(v).toFixed(2) : Math.round(parseFloat(v)).toLocaleString();
