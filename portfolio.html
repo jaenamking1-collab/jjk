@@ -224,6 +224,7 @@
   .notice-card.ace::before   { background:#059669; }
   .notice-card.plus::before  { background:#7c3aed; }
   .notice-card.rise::before  { background:#dc2626; }
+  .notice-card.sol::before   { background:#0891b2; }
   .notice-brand {
     font-size:11px; font-weight:700; letter-spacing:.5px;
     margin-bottom:10px; display:flex; align-items:center; gap:6px;
@@ -233,6 +234,7 @@
   .notice-brand.ace   { color:#059669; }
   .notice-brand.plus  { color:#7c3aed; }
   .notice-brand.rise  { color:#dc2626; }
+  .notice-brand.sol   { color:#0891b2; }
   .notice-item {
     padding:7px 0; border-bottom:1px solid var(--border);
     display:flex; justify-content:space-between; align-items:flex-start; gap:8px;
@@ -1525,6 +1527,22 @@ const NOTICE_SOURCES = [
   {
     id: 'ace', name: 'ACE', label: '한국투자신탁운용',
     fetch: async () => {
+      // ACE: JSON API 직접 호출 시도 → 실패 시 GAS 프록시
+      try {
+        const res = await fetch('https://www.aceetf.co.kr/api/v1/notice/list?page=0&size=20&keyword=%EB%B6%84%EB%B0%B0%EA%B8%88', {
+          headers: { 'Accept': 'application/json', 'Referer': 'https://www.aceetf.co.kr/' }
+        });
+        if (res.ok) {
+          const json = await res.json();
+          const list = json.data?.content || json.content || json.list || [];
+          return list.filter(n => (n.title||n.noticeTitle||'').includes('분배금')).slice(0,5).map(n => ({
+            title: n.title || n.noticeTitle || '',
+            date:  (n.regDt || n.createdAt || '').slice(0,10).replace(/-/g,'.'),
+            url:   `https://www.aceetf.co.kr/ko/cs/notice/${n.id || n.noticeId || ''}`
+          }));
+        }
+      } catch(e) {}
+      // fallback: GAS 프록시
       const data = await api({ action:'getEtfNotices', source:'ace' });
       return data.items || [];
     }
@@ -1552,8 +1570,65 @@ const NOTICE_SOURCES = [
   {
     id: 'rise', name: 'RISE', label: 'KB자산운용',
     fetch: async () => {
+      // RISE: JSON API 직접 시도 → 실패 시 GAS 프록시
+      try {
+        const res = await fetch('https://www.riseetf.co.kr/api/board/list?boardType=NOTICE&page=1&pageSize=20&searchText=%EB%B6%84%EB%B0%B0%EA%B8%88', {
+          headers: { 'Accept': 'application/json', 'Referer': 'https://www.riseetf.co.kr/' }
+        });
+        if (res.ok) {
+          const json = await res.json();
+          const list = json.data?.list || json.list || json.items || [];
+          return list.filter(n => (n.title||n.boardTitle||'').includes('분배금')).slice(0,5).map(n => ({
+            title: n.title || n.boardTitle || '',
+            date:  (n.regDt || n.createDt || '').slice(0,10).replace(/-/g,'.'),
+            url:   `https://www.riseetf.co.kr/cust/notice/${n.id || n.boardId || ''}`
+          }));
+        }
+      } catch(e) {}
+      // fallback: GAS 프록시
       const data = await api({ action:'getEtfNotices', source:'rise' });
       return data.items || [];
+    }
+  },
+  {
+    id: 'sol', name: 'SOL', label: '신한자산운용',
+    fetch: async () => {
+      try {
+        const res = await fetch('https://www.soletf.com/ko/cs/notice', {
+          headers: { 'Accept': 'text/html', 'Referer': 'https://www.soletf.com/' }
+        });
+        const html = await res.text();
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        // 공지사항 링크 파싱 (분배금 포함)
+        const anchors = [...doc.querySelectorAll('a[href*="notice"]')]
+          .filter(a => a.textContent.includes('분배금')).slice(0,5);
+        if (anchors.length) {
+          return anchors.map(a => {
+            const txt = a.textContent.trim().replace(/\s+/g,' ');
+            const date = (txt.match(/\d{4}[.\-]\d{2}[.\-]\d{2}/) || [''])[0].replace(/-/g,'.');
+            return {
+              title: txt.replace(date,'').trim(),
+              date,
+              url: a.href.startsWith('http') ? a.href : 'https://www.soletf.com' + a.getAttribute('href')
+            };
+          });
+        }
+        // tr 행 방식 파싱
+        const rows = [...doc.querySelectorAll('tr, li')]
+          .filter(el => el.textContent.includes('분배금')).slice(0,5);
+        return rows.map(el => {
+          const a = el.querySelector('a');
+          const txt = (a?.textContent || el.textContent).trim().replace(/\s+/g,' ');
+          const date = (txt.match(/\d{4}[.\-]\d{2}[.\-]\d{2}/) || [''])[0].replace(/-/g,'.');
+          return {
+            title: txt.replace(date,'').trim().slice(0,60),
+            date,
+            url: a?.href || 'https://www.soletf.com/ko/cs/notice'
+          };
+        });
+      } catch(e) {
+        return [];
+      }
     }
   }
 ];
