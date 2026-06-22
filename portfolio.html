@@ -181,8 +181,8 @@
   .div-controls select { padding:7px 12px; background:var(--bg3); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:13px; }
   .div-grid-wrap { overflow-x:auto; }
   .div-grid { border-collapse:collapse; font-size:12px; min-width:1400px; width:100%; }
-  .div-grid th { padding:3px 5px; background:var(--bg3); border:1px solid var(--border); color:var(--text3); font-size:10px; white-space:nowrap; text-align:center; }
-  .div-grid td { border:1px solid var(--border); padding:0 2px; vertical-align:middle; }
+  .div-grid th { padding:3px 5px; background:var(--bg3); border:1px solid #94a3b8; color:var(--text3); font-size:10px; white-space:nowrap; text-align:center; }
+  .div-grid td { border:1px solid #cbd5e1; padding:0 2px; vertical-align:middle; }
   .div-cell {
     width:100%; height:16px; background:transparent;
     border:none; outline:none; color:var(--text);
@@ -190,7 +190,7 @@
     padding:0 4px; cursor:pointer; vertical-align:middle;
   }
   .div-cell:focus { background:var(--bg4); border-radius:4px; }
-  .div-cell.has-value { color:var(--accent); }
+  .div-cell.has-value { color:#111827; font-weight:600; }
   .div-total { background:var(--bg3); font-family:var(--mono); font-size:11px; color:var(--accent2); font-weight:600; text-align:right; padding:2px 5px; }
   .div-ticker-cell { padding:2px 6px; min-width:280px; width:280px; }
   .div-name { font-size:11px; color:var(--text3); }
@@ -1030,10 +1030,10 @@ function sortHoldings(holdings) {
 
 // 재남=파랑계열, 은경=분홍계열 / ISA=진하게, 연금=중간, 일반=연하게
 const ACC_COLOR_MAP = {
-  '재남_ISA':  '#dbeafe',
+  '재남_ISA':  '#bfdbfe',
   '재남_연금': '#e0f2fe',
   '재남_일반': '#f0f9ff',
-  '은경_ISA':  '#fce7f3',
+  '은경_ISA':  '#fbcfe8',
   '은경_연금': '#fdf2f8',
   '은경_일반': '#fff0f6',
 };
@@ -1242,7 +1242,7 @@ async function loadDividendGrid() {
           data-currency="${isUsd ? 'USD' : 'KRW'}"
           onchange="saveDividendCell(this)"
           onkeydown="if(event.key==='Enter')this.blur()">
-        ${monthRate ? `<div style="font-size:9px;color:#f59e0b;font-weight:600;text-align:right;padding:0 4px;line-height:1">${monthRate}%</div>` : '<div style="height:0px"></div>'}
+        ${monthRate ? `<div style="font-size:9px;color:#2563eb;font-weight:600;text-align:right;padding:0 4px;line-height:1">${monthRate}%</div>` : '<div style="height:0px"></div>'}
       </td>`;
     }).join('');
     accSumKrw += rowTotalKrw;
