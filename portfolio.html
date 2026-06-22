@@ -1234,9 +1234,10 @@ async function loadDividendGrid() {
       if (amtKrw) { rowTotalKrw += amtKrw; monthTotalsKrw[m-1] += amtKrw; accMonthKrw[m-1] += amtKrw; }
       // 표시: USD종목은 달러, KRW는 원화
       const displayVal = amt ? (isUsd ? amt.toFixed(2) : Math.round(amt).toLocaleString()) : '';
+      const cellPrefix = isUsd && amt ? `<div style="font-size:9px;color:#92400e;font-weight:700;text-align:left;padding:0 4px;line-height:1.2">$</div>` : '';
       const monthRate = (investKrw > 0 && amtKrw > 0) ? (amtKrw / investKrw * 100).toFixed(2) : '';
       return `<td>
-        <input class="div-cell ${amt?'has-value':''}"
+        ${cellPrefix}<input class="div-cell ${amt?'has-value':''}"
           type="text" value="${displayVal}"
           data-holding="${h.id}" data-month="${m}"
           data-currency="${isUsd ? 'USD' : 'KRW'}"
