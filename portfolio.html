@@ -1469,25 +1469,8 @@ async function loadDashboard() {
   const annualActual = monthActual.reduce((a,b)=>a+b,0);
   const monthlyAvg = annualProj / 12;
 
-  // 세후 — 종목별로 계산 (ISA/연금=0%, 일반/국내=0%, 일반/해외추종=15.4%)
-  let afterAnnual = 0;
-  holdings.forEach(h => {
-    const acc = state.accounts.find(a => a.id === h.account_id);
-    const accName = acc ? acc.name : '';
-    const cat = (h.div_cycle || '').split('|')[1] || '';
-    const tax = holdingTaxRate(accName, h.currency, cat);
-    if (tax === 0) return; // 비과세면 세전=세후
-    const hDivs = (byHolding[h.id] && byHolding[h.id][year]) || {};
-    const hTotal = Object.values(hDivs).reduce((s, v) => s + (v || 0), 0);
-    if (!hTotal) return;
-    const hMs = Object.keys(hDivs).filter(m => hDivs[m] > 0).length;
-    if (!hMs) return;
-    const cyc = (h.div_cycle || '').split('|')[0];
-    const cnt = /주배당/.test(cyc)?52:/월/.test(cyc)?12:/분기/.test(cyc)?4:/반기/.test(cyc)?2:hMs>0?(12/hMs):0;
-    const proj = cnt > 0 ? hTotal / hMs * cnt : hTotal;
-    afterAnnual -= proj * tax; // 세금만큼 차감
-  });
-  afterAnnual = annualProj + afterAnnual; // 전체 투영 - 과세분 세금
+  // 세후 — 입력값 자체가 세후 금액이므로 그대로 사용
+  const afterAnnual = annualProj;
   const afterMonthly = afterAnnual / 12;
 
   // ① 목표 진척도
@@ -1551,16 +1534,6 @@ function acctTaxRate(name){
   if (name.includes('연금')) return 0.055;
   if (name.includes('ISA'))  return 0.099;
   return 0.154;
-}
-
-// 종목별 실효 세율
-// ISA/연금 → 0%  일반/국내ETF → 0%  일반/해외추종 → 15.4%
-const OVERSEAS_CATS = new Set(['나스닥100','나스닥/테크','S&P500','미국배당','테마','원자재']);
-function holdingTaxRate(accName, currency, cat) {
-  accName = accName || '';
-  if (accName.includes('ISA') || accName.includes('연금')) return 0;
-  if (currency === 'USD' || OVERSEAS_CATS.has(cat)) return 0.154;
-  return 0;
 }
 
 function setPlMode(m) {
