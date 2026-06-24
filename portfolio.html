@@ -2832,6 +2832,22 @@ async function loadHoldingPrices(holdings) {
       const curr = h.currency === 'USD' ? '$' : '';
       const fmt = (v) => h.currency === 'USD' ? parseFloat(v).toFixed(2) : Math.round(parseFloat(v)).toLocaleString();
       const priceEl = document.getElementById(`price-${h.id}`);
+
+      // 시트에 현재가 없으면 API 직접 조회
+      if (!priceData.success && tk) {
+        try {
+          // KRW 티커 6자리 leading zero 보정
+          const padTicker = (h.currency === 'KRW' && h.ticker && h.ticker.length < 6)
+            ? h.ticker.padStart(6, '0') : h.ticker;
+          const apiData = await api({ action:'getStockPrice', ticker: padTicker, currency: h.currency });
+          if (apiData && apiData.success) {
+            priceData.success = true;
+            priceData.current = parseFloat(apiData.current) || 0;
+            priceData.prev    = parseFloat(apiData.prev) || 0;
+            priceData.change  = parseFloat(apiData.change) || 0;
+          }
+        } catch(e2) {}
+      }
       if (priceEl && priceData.success) {
         const chg = parseFloat(priceData.change);
         const avg = parseFloat(h.avg_price) || 0;
