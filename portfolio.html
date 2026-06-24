@@ -1704,7 +1704,7 @@ function renderPlChart() {
     return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;overflow:visible">${yLines}${xSvg}${path}</svg>`;
   };
 
-  const jnAccs=['재남 키움 일반계좌','재남 미래에셋 일반계좌','재남 키움 ISA','재남 키움 연금저축'];
+  const jnAccs=['재남 키움 일반계좌','재남 키움 ISA','재남 키움 연금저축'];
   const ekAccs=['은경 미래에셋 일반계좌','은경 키움 일반계좌','은경 미래에셋 ISA','은경 미래에셋 연금저축'];
   const jnCards=jnAccs.filter(a=>byAcc[a]).map(a=>makeOneChart(a,COLORS[a],'#eff6ff'));
   const ekCards=ekAccs.filter(a=>byAcc[a]).map(a=>makeOneChart(a,COLORS[a],'#fdf2f8'));
