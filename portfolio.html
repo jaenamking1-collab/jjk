@@ -1569,21 +1569,39 @@ function renderPlChart() {
     return;
   }
 
-  const getKey = d => _plMode === 'day' ? d.slice(0,10) : _plMode === 'month' ? d.slice(0,7) : d.slice(0,4);
+  // 날짜 정규화: "2026-04-22" / "Wed Apr 22 2026..." / Date 객체 → "yyyy-MM-dd"
+  const toISO = d => {
+    if (!d) return '';
+    const s = d.toString().trim();
+    // 이미 yyyy-MM-dd 형식
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
+    // Date 문자열 파싱
+    try { const dt = new Date(s); if (!isNaN(dt)) return dt.toISOString().slice(0,10); } catch(e) {}
+    return s;
+  };
+
+  const getKey = d => {
+    const iso = toISO(d);
+    if (_plMode === 'day')   return iso.slice(0,10);
+    if (_plMode === 'month') return iso.slice(0,7);
+    return iso.slice(0,4);
+  };
+
   const fmt억 = v => v >= 1e8 ? (v/1e8).toFixed(2)+'억' : v >= 1e4 ? Math.round(v/1e4)+'만' : Math.round(v).toLocaleString();
+
   const fmtX = k => {
     if (!k || typeof k !== 'string') return '';
     if (_plMode === 'day') {
-      // yyyy-MM-dd → dd
+      // yyyy-MM-dd → dd (숫자만)
       const p = k.split('-');
-      return p[2] ? p[2] : k;
+      return p[2] ? String(parseInt(p[2])) : '';
     }
     if (_plMode === 'month') {
-      // yyyy-MM → MM월
+      // yyyy-MM → M월
       const p = k.split('-');
-      return p[1] ? (parseInt(p[1])+'월') : k;
+      return p[1] ? parseInt(p[1])+'월' : '';
     }
-    return k; // 연
+    return k;
   };
 
   const byAcc = {};
