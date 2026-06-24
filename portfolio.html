@@ -1629,7 +1629,7 @@ function renderPlChart() {
     '은경 미래에셋 연금저축':'#be185d',
   };
 
-  const makeOneChart = (acc, color) => {
+  const makeOneChart = (acc, color, bgColor='var(--bg2)', bdColor='') => {
     const dataMap = byAcc[acc] || {};
     const pts = keys.map(k => dataMap[k] ? dataMap[k].v : null);
     const valid = pts.filter(v => v != null);
@@ -1661,7 +1661,7 @@ function renderPlChart() {
     if(li!=null)path+=`<circle cx="${toX(li).toFixed(1)}" cy="${toY(lv).toFixed(1)}" r="3" fill="${color}"/>`;
     const diff=lv-valid[0], dc=diff>=0?'var(--red)':'var(--accent)';
     const label=acc.replace('재남 ','').replace('은경 ','');
-    return `<div style="background:var(--bg);border:1px solid ${color}33;border-radius:8px;padding:10px">
+    return `<div style="background:${bgColor};border:1px solid ${color}33;border-radius:8px;padding:10px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:1px">
         <span style="font-size:10px;font-weight:600;color:${color};white-space:nowrap">${label}</span>
         <span style="font-family:var(--mono);font-size:12px;font-weight:700;color:var(--text)">${fmt억(lv)}</span>
@@ -1706,8 +1706,8 @@ function renderPlChart() {
 
   const jnAccs=['재남 키움 일반계좌','재남 미래에셋 일반계좌','재남 키움 ISA','재남 키움 연금저축'];
   const ekAccs=['은경 미래에셋 일반계좌','은경 키움 일반계좌','은경 미래에셋 ISA','은경 미래에셋 연금저축'];
-  const jnCards=jnAccs.filter(a=>byAcc[a]).map(a=>makeOneChart(a,COLORS[a]));
-  const ekCards=ekAccs.filter(a=>byAcc[a]).map(a=>makeOneChart(a,COLORS[a]));
+  const jnCards=jnAccs.filter(a=>byAcc[a]).map(a=>makeOneChart(a,COLORS[a],'#eff6ff'));
+  const ekCards=ekAccs.filter(a=>byAcc[a]).map(a=>makeOneChart(a,COLORS[a],'#fdf2f8'));
 
   // 재남2 + 은경2 씩 한 줄 (총 2줄)
   const maxRows = Math.ceil(Math.max(jnCards.length, ekCards.length) / 2);
@@ -1715,16 +1715,12 @@ function renderPlChart() {
   for (let i = 0; i < maxRows; i++) {
     const jn2 = jnCards.slice(i*2, i*2+2);
     const ek2 = ekCards.slice(i*2, i*2+2);
-    // 빈칸 채우기
-    while (jn2.length < 2) jn2.push('<div></div>');
-    while (ek2.length < 2) ek2.push('<div></div>');
-    gridRows.push(`
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-bottom:10px">
-        <div style="grid-column:1;background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:2px">${jn2[0]}</div>
-        <div style="grid-column:2;background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:2px">${jn2[1]}</div>
-        <div style="grid-column:3;background:#fdf2f8;border:1.5px solid #fbcfe8;border-radius:10px;padding:2px">${ek2[0]}</div>
-        <div style="grid-column:4;background:#fdf2f8;border:1.5px solid #fbcfe8;border-radius:10px;padding:2px">${ek2[1]}</div>
+    while (jn2.length < 2) jn2.push('<div style="visibility:hidden"></div>');
+    while (ek2.length < 2) ek2.push('<div style="visibility:hidden"></div>');
+    gridRows.push(`<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-bottom:10px">
+        ${jn2[0]}${jn2[1]}${ek2[0]}${ek2[1]}
       </div>`);
+  }
   }
 
   el.innerHTML = `
