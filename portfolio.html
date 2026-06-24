@@ -490,6 +490,17 @@
         <div id="goalBar" style="height:100%;width:0%;background:linear-gradient(90deg,var(--accent),var(--green));border-radius:7px;transition:width .6s"></div>
       </div>
       <div id="goalGap" style="font-size:11px;color:var(--text3);margin-top:6px"></div>
+      <!-- 목표일 D-Day -->
+      <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <span style="font-size:11px;color:var(--text3)">🗓 목표일 <b style="color:var(--text2)">2029년 2월 28일</b></span>
+          <span id="goalDday" style="font-size:13px;font-weight:700;color:var(--accent2)"></span>
+        </div>
+        <div style="height:8px;background:var(--bg3);border-radius:4px;overflow:hidden">
+          <div id="goalTimeBar" style="height:100%;width:0%;background:linear-gradient(90deg,var(--purple),var(--accent2));border-radius:4px;transition:width .6s"></div>
+        </div>
+        <div id="goalTimeSub" style="font-size:10px;color:var(--text3);margin-top:4px"></div>
+      </div>
     </div>
 
     <div class="stats-row" id="dashStats">
@@ -1484,6 +1495,21 @@ async function loadDashboard() {
     ? `목표까지 월 ₩${Math.round(gap).toLocaleString()} 부족`
     : `목표 달성 (+₩${Math.round(-gap).toLocaleString()})`)
     + ` · 세후 추정 월평균 ₩${Math.round(afterMonthly).toLocaleString()} (건보료 별도)`;
+
+  // D-Day: 2029년 2월 28일
+  const TARGET_DATE = new Date('2029-02-28');
+  const START_DATE  = new Date('2024-01-01');
+  const todayD      = new Date();
+  const totalDays   = Math.ceil((TARGET_DATE - START_DATE) / 86400000);
+  const passedDays  = Math.ceil((todayD - START_DATE) / 86400000);
+  const remainDays  = Math.ceil((TARGET_DATE - todayD) / 86400000);
+  const timePct     = Math.min(Math.max(passedDays / totalDays * 100, 0), 100);
+  const ddEl = document.getElementById('goalDday');
+  const tbEl = document.getElementById('goalTimeBar');
+  const tsEl = document.getElementById('goalTimeSub');
+  if (ddEl) ddEl.textContent = remainDays > 0 ? `D-${remainDays.toLocaleString()}` : 'D-Day!';
+  if (tbEl) tbEl.style.width = timePct.toFixed(1) + '%';
+  if (tsEl) tsEl.textContent = `시작 후 ${passedDays.toLocaleString()}일 경과 · 전체 ${totalDays.toLocaleString()}일 중 ${timePct.toFixed(1)}% 진행`;
 
   // ②③ 스탯
   document.getElementById('ds-cost').textContent = '₩'+Math.round(costAll).toLocaleString();
