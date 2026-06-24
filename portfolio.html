@@ -1572,9 +1572,18 @@ function renderPlChart() {
   const getKey = d => _plMode === 'day' ? d.slice(0,10) : _plMode === 'month' ? d.slice(0,7) : d.slice(0,4);
   const fmt억 = v => v >= 1e8 ? (v/1e8).toFixed(2)+'억' : v >= 1e4 ? Math.round(v/1e4)+'만' : Math.round(v).toLocaleString();
   const fmtX = k => {
-    if (_plMode === 'day') { const p=k.split('-'); return p[0].slice(2)+'.'+p[1]+'.'+p[2]; }
-    if (_plMode === 'month') return k.slice(2).replace('-','.');
-    return k;
+    if (!k || typeof k !== 'string') return '';
+    if (_plMode === 'day') {
+      // yyyy-MM-dd → dd
+      const p = k.split('-');
+      return p[2] ? p[2] : k;
+    }
+    if (_plMode === 'month') {
+      // yyyy-MM → MM월
+      const p = k.split('-');
+      return p[1] ? (parseInt(p[1])+'월') : k;
+    }
+    return k; // 연
   };
 
   const byAcc = {};
@@ -1587,7 +1596,7 @@ function renderPlChart() {
   });
 
   const allKeys = [...new Set(_plLog.items.map(it => getKey(it.date)))].sort();
-  const maxN = _plMode === 'day' ? 90 : _plMode === 'month' ? 24 : 10;
+  const maxN = _plMode === 'day' ? 7 : _plMode === 'month' ? 24 : 10;
   const keys = allKeys.slice(-maxN);
   if (!keys.length) { el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:20px;text-align:center">데이터 없음</div>'; return; }
 
