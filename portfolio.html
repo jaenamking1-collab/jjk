@@ -1642,7 +1642,7 @@ function renderPlChart() {
     const toY=v=>P.t+cH-((v-minV)/range)*cH;
     const yTicks=Array.from({length:6},(_,i)=>minV+(maxV-minV)*i/5);
     // x축: 최대 7개 레이블, 첫/끝 포함
-    const xStep=Math.max(1,Math.ceil(keys.length/7));
+    const xStep=Math.max(1,Math.ceil(keys.length/10));
     const xLbls=keys.map((k,i)=>(i%xStep===0||i===keys.length-1)?fmtX(k):'');
     const yLines=yTicks.map(v=>`
       <line x1="${P.l}" y1="${toY(v).toFixed(1)}" x2="${W-P.r}" y2="${toY(v).toFixed(1)}" stroke="var(--border)" stroke-width=".5" stroke-dasharray="3,3"/>
