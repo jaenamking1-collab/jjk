@@ -1709,6 +1709,24 @@ function renderPlChart() {
   const jnCards=jnAccs.filter(a=>byAcc[a]).map(a=>makeOneChart(a,COLORS[a]));
   const ekCards=ekAccs.filter(a=>byAcc[a]).map(a=>makeOneChart(a,COLORS[a]));
 
+  // 재남2 + 은경2 씩 한 줄 (총 2줄)
+  const maxRows = Math.ceil(Math.max(jnCards.length, ekCards.length) / 2);
+  const gridRows = [];
+  for (let i = 0; i < maxRows; i++) {
+    const jn2 = jnCards.slice(i*2, i*2+2);
+    const ek2 = ekCards.slice(i*2, i*2+2);
+    // 빈칸 채우기
+    while (jn2.length < 2) jn2.push('<div></div>');
+    while (ek2.length < 2) ek2.push('<div></div>');
+    gridRows.push(`
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-bottom:10px">
+        <div style="grid-column:1;background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:2px">${jn2[0]}</div>
+        <div style="grid-column:2;background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:2px">${jn2[1]}</div>
+        <div style="grid-column:3;background:#fdf2f8;border:1.5px solid #fbcfe8;border-radius:10px;padding:2px">${ek2[0]}</div>
+        <div style="grid-column:4;background:#fdf2f8;border:1.5px solid #fbcfe8;border-radius:10px;padding:2px">${ek2[1]}</div>
+      </div>`);
+  }
+
   el.innerHTML = `
     <!-- 총합계 -->
     <div style="background:var(--bg2);border:1.5px solid #7c3aed55;border-radius:12px;padding:14px 16px;margin-bottom:14px">
@@ -1720,23 +1738,12 @@ function renderPlChart() {
       </div>
       ${makeTotalChart()}
     </div>
-    <!-- 재남(좌) / 은경(우) 2열 -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      <!-- 재남 -->
-      <div style="background:#eff6ff;border:2px solid #bfdbfe;border-radius:14px;padding:14px">
-        <div style="font-size:13px;font-weight:700;color:#1d4ed8;margin-bottom:10px">👤 재남</div>
-        <div style="display:grid;grid-template-columns:repeat(${jnCards.length},1fr);gap:10px">
-          ${jnCards.join('')}
-        </div>
-      </div>
-      <!-- 은경 -->
-      <div style="background:#fdf2f8;border:2px solid #fbcfe8;border-radius:14px;padding:14px">
-        <div style="font-size:13px;font-weight:700;color:#9d174d;margin-bottom:10px">👤 은경</div>
-        <div style="display:grid;grid-template-columns:repeat(${ekCards.length},1fr);gap:10px">
-          ${ekCards.join('')}
-        </div>
-      </div>
-    </div>`;
+    <!-- 헤더 -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-bottom:6px">
+      <div style="grid-column:1/3;text-align:center;font-size:13px;font-weight:700;color:#1d4ed8;background:#dbeafe;border-radius:8px;padding:5px">👤 재남</div>
+      <div style="grid-column:3/5;text-align:center;font-size:13px;font-weight:700;color:#9d174d;background:#fce7f3;border-radius:8px;padding:5px">👤 은경</div>
+    </div>
+    ${gridRows.join('')}`;
 }
 
 // ── MODAL ────────────────────────────────
