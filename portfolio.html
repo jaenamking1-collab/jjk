@@ -1565,116 +1565,111 @@ function renderPlChart() {
   const el = document.getElementById('plChart');
   if (!el) return;
   if (!_plLog || !_plLog.items || !_plLog.items.length) {
-    el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:20px;text-align:center">데이터 없음</div>';
+    el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:20px;text-align:center">데이터 없음 — GAS 트리거 실행 후 확인</div>';
     return;
   }
 
   const getKey = d => _plMode === 'day' ? d.slice(0,10) : _plMode === 'month' ? d.slice(0,7) : d.slice(0,4);
+  const fmt억 = v => v >= 1e8 ? (v/1e8).toFixed(2)+'억' : v >= 1e4 ? Math.round(v/1e4)+'만' : Math.round(v).toLocaleString();
+  const fmtX = k => _plMode === 'day' ? k.slice(5) : _plMode === 'month' ? k.slice(2) : k;
 
-  // 계좌별 { key → value } 맵
+  // 계좌별 집계
   const byAcc = {};
   _plLog.items.forEach(it => {
     const acc = it.account_name || it.account_id;
     if (!byAcc[acc]) byAcc[acc] = {};
     const k = getKey(it.date);
     const v = parseFloat(it.value) || 0;
-    // 같은 key면 마지막(최신) 값으로
-    if (!byAcc[acc][k] || it.date > (byAcc[acc][k]._date||'')) byAcc[acc][k] = { v, _date: it.date };
+    if (!byAcc[acc][k] || it.date > (byAcc[acc][k]._d||'')) byAcc[acc][k] = { v, _d: it.date };
   });
 
-  // 전체 합산 계열 추가
   const allKeys = [...new Set(_plLog.items.map(it => getKey(it.date)))].sort();
   const maxN = _plMode === 'day' ? 90 : _plMode === 'month' ? 24 : 10;
   const keys = allKeys.slice(-maxN);
   if (!keys.length) { el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:20px;text-align:center">데이터 없음</div>'; return; }
 
   // 총합 계열
-  const totalByKey = {};
-  keys.forEach(k => {
-    totalByKey[k] = Object.values(byAcc).reduce((s, m) => s + (m[k] ? m[k].v : 0), 0);
-  });
-  byAcc['📊 합계'] = Object.fromEntries(keys.map(k => [k, { v: totalByKey[k] }]));
+  const totalPts = keys.map(k => Object.values(byAcc).reduce((s, m) => s + (m[k] ? m[k].v : 0), 0));
 
   const COLORS = {
-    '재남 키움 일반계좌': '#3b82f6',
-    '재남 미래에셋 일반계좌': '#60a5fa',
-    '재남 키움 ISA': '#2563eb',
-    '재남 키움 연금저축': '#93c5fd',
-    '은경 미래에셋 일반계좌': '#db2777',
-    '은경 키움 일반계좌': '#f472b6',
-    '은경 미래에셋 ISA': '#be185d',
-    '은경 미래에셋 연금저축': '#fbcfe8',
-    '📊 합계': '#7c3aed',
+    '재남 키움 일반계좌':    '#3b82f6',
+    '재남 미래에셋 일반계좌':'#60a5fa',
+    '재남 키움 ISA':        '#1d4ed8',
+    '재남 키움 연금저축':    '#93c5fd',
+    '은경 미래에셋 일반계좌':'#db2777',
+    '은경 키움 일반계좌':    '#f472b6',
+    '은경 미래에셋 ISA':     '#9d174d',
+    '은경 미래에셋 연금저축':'#fbcfe8',
   };
-  const DEF_COLORS = ['#10b981','#f59e0b','#06b6d4','#ef4444','#8b5cf6'];
+  const DEF = ['#10b981','#f59e0b','#8b5cf6','#06b6d4','#ef4444'];
 
-  const accNames = Object.keys(byAcc);
-  const series = accNames.map((acc, i) => ({
-    acc,
-    color: COLORS[acc] || DEF_COLORS[i % DEF_COLORS.length],
-    bold: acc === '📊 합계',
-    pts: keys.map(k => byAcc[acc][k] ? byAcc[acc][k].v : null)
-  }));
-
-  const fmt억 = v => v >= 1e8 ? (v/1e8).toFixed(1)+'억' : v >= 1e4 ? Math.round(v/1e4)+'만' : Math.round(v).toLocaleString();
-
-  const W=640, H=160, P={t:12,r:12,b:24,l:56};
-  const cW=W-P.l-P.r, cH=H-P.t-P.b;
-  const allV = series.flatMap(s=>s.pts.filter(v=>v!=null));
-  if (!allV.length) { el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:20px;text-align:center">데이터 없음</div>'; return; }
-
-  const minV = Math.min(...allV) * 0.998;
-  const maxV = Math.max(...allV) * 1.002;
-  const range = (maxV - minV) || 1;
-  const toX = i => P.l + (i / (keys.length - 1 || 1)) * cW;
-  const toY = v => P.t + cH - ((v - minV) / range) * cH;
-
-  // x축 레이블
-  const step = Math.ceil(keys.length / 8);
-  const xLabels = keys.map((k, i) => {
-    if (i % step !== 0 && i !== keys.length - 1) return '';
-    return _plMode === 'day' ? k.slice(5) : _plMode === 'month' ? k.slice(2) : k;
-  });
-
-  // y축 눈금 (4개)
-  const yTicks = Array.from({length:4}, (_,i) => minV + (maxV-minV)*i/3);
-
-  const lines = series.map(s => {
-    let out = ''; let seg = [];
-    s.pts.forEach((v, i) => {
-      if (v == null) {
-        if (seg.length > 1) out += `<polyline points="${seg.join(' ')}" fill="none" stroke="${s.color}" stroke-width="${s.bold?2.5:1.5}" stroke-linejoin="round" stroke-dasharray="${s.bold?'':''}"/>`;
-        seg = [];
-      } else seg.push(`${toX(i).toFixed(1)},${toY(v).toFixed(1)}`);
+  // 미니 SVG 생성 함수
+  const makeMiniChart = (pts, color, W=260, H=60) => {
+    const P = {t:6, r:6, b:18, l:38};
+    const cW = W-P.l-P.r, cH = H-P.t-P.b;
+    const valid = pts.filter(v => v != null);
+    if (valid.length < 2) return '<div style="color:var(--text3);font-size:10px;padding:8px">데이터 부족</div>';
+    const minV = Math.min(...valid)*0.999, maxV = Math.max(...valid)*1.001, range=(maxV-minV)||1;
+    const toX = i => P.l + (i/(keys.length-1||1))*cW;
+    const toY = v => P.t + cH - ((v-minV)/range)*cH;
+    const step = Math.ceil(keys.length/5);
+    const xLbls = keys.map((k,i) => (i%step===0||i===keys.length-1) ? fmtX(k) : '');
+    let seg = [], path = '';
+    pts.forEach((v,i) => {
+      if (v==null) { if(seg.length>1) path+=`<polyline points="${seg.join(' ')}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linejoin="round"/>`; seg=[]; }
+      else seg.push(`${toX(i).toFixed(1)},${toY(v).toFixed(1)}`);
     });
-    if (seg.length > 1) out += `<polyline points="${seg.join(' ')}" fill="none" stroke="${s.color}" stroke-width="${s.bold?2.5:1.5}" stroke-linejoin="round"/>`;
-    const last = s.pts.reduceRight((f,v,i) => f ?? (v!=null?{v,i}:null), null);
-    if (last) out += `<circle cx="${toX(last.i).toFixed(1)}" cy="${toY(last.v).toFixed(1)}" r="${s.bold?4:2.5}" fill="${s.color}"/>`;
-    return out;
-  }).join('');
+    if (seg.length>1) path+=`<polyline points="${seg.join(' ')}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linejoin="round"/>`;
+    const lastV = pts.reduceRight((f,v)=>f??v, null);
+    const lastI = pts.reduceRight((f,v,i)=>f!=null?f:(v!=null?i:null), null);
+    if (lastI!=null) path+=`<circle cx="${toX(lastI).toFixed(1)}" cy="${toY(lastV).toFixed(1)}" r="3" fill="${color}"/>`;
+    // y 눈금 2개
+    const yT = [minV, maxV];
+    const yLines = yT.map(v=>`
+      <line x1="${P.l}" y1="${toY(v).toFixed(1)}" x2="${W-P.r}" y2="${toY(v).toFixed(1)}" stroke="var(--border)" stroke-width=".5" stroke-dasharray="2,2"/>
+      <text x="${(P.l-3).toFixed(1)}" y="${(toY(v)+3).toFixed(1)}" text-anchor="end" font-size="8" fill="var(--text3)">${fmt억(v)}</text>
+    `).join('');
+    const xLblsSvg = keys.map((k,i)=>xLbls[i]?`<text x="${toX(i).toFixed(1)}" y="${(H-3).toFixed(1)}" text-anchor="middle" font-size="8" fill="var(--text3)">${xLbls[i]}</text>`:'').join('');
+    return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px;display:block">${yLines}${xLblsSvg}${path}</svg>`;
+  };
 
-  const legend = series.map(s => {
-    const last = s.pts.reduceRight((f,v) => f ?? v, null);
-    const lbl = last != null ? fmt억(last) : '-';
-    return `<span style="display:inline-flex;align-items:center;gap:3px;margin-right:8px;margin-bottom:2px;font-size:10px">
-      <span style="display:inline-block;width:12px;height:${s.bold?3:2}px;background:${s.color};border-radius:2px"></span>
-      <span style="color:var(--text2);${s.bold?'font-weight:700':''}">${s.acc}</span>
-      <span style="font-family:var(--mono);color:${s.bold?'var(--purple)':'var(--text3)'};font-weight:600">${lbl}</span>
-    </span>`;
-  }).join('');
+  // 총합 카드 (전체 너비)
+  const totalLast = totalPts.reduceRight((f,v)=>f??v, null);
+  const totalFirst = totalPts.find(v=>v!=null);
+  const totalDiff = (totalLast&&totalFirst) ? totalLast-totalFirst : 0;
+  const totalDiffColor = totalDiff >= 0 ? 'var(--red)' : 'var(--accent)';
 
-  el.innerHTML = `
-    <div style="overflow-x:auto">
-      <svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;height:${H}px;display:block">
-        ${yTicks.map(v=>`
-          <line x1="${P.l}" y1="${toY(v).toFixed(1)}" x2="${W-P.r}" y2="${toY(v).toFixed(1)}" stroke="var(--border)" stroke-width=".6" stroke-dasharray="3,3"/>
-          <text x="${(P.l-4).toFixed(1)}" y="${(toY(v)+3.5).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--text3)">${fmt억(v)}</text>
-        `).join('')}
-        ${keys.map((k,i)=>xLabels[i]?`<text x="${toX(i).toFixed(1)}" y="${(H-5).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--text3)">${xLabels[i]}</text>`:'').join('')}
-        ${lines}
-      </svg>
+  let html = `<div style="margin-bottom:12px;background:var(--bg2);border:1.5px solid #7c3aed44;border-radius:12px;padding:12px 16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <span style="font-size:13px;font-weight:700;color:#7c3aed">📊 총합계</span>
+      <span style="font-family:var(--mono);font-size:16px;font-weight:700;color:#7c3aed">${totalLast!=null?fmt억(totalLast):'-'}</span>
     </div>
-    <div style="display:flex;flex-wrap:wrap;margin-top:6px;padding:0 2px">${legend}</div>`;
+    <div style="font-size:10px;color:${totalDiffColor};margin-bottom:6px;font-family:var(--mono)">${totalDiff>=0?'+':''}${fmt억(totalDiff)} (기간 중)</div>
+    ${makeMiniChart(totalPts, '#7c3aed', 600, 70)}
+  </div>`;
+
+  // 계좌별 카드 그리드
+  const accEntries = Object.entries(byAcc);
+  html += `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px">`;
+  accEntries.forEach(([acc, dataMap], i) => {
+    const color = COLORS[acc] || DEF[i % DEF.length];
+    const pts = keys.map(k => dataMap[k] ? dataMap[k].v : null);
+    const last = pts.reduceRight((f,v)=>f??v, null);
+    const first = pts.find(v=>v!=null);
+    const diff = (last&&first) ? last-first : 0;
+    const diffColor = diff >= 0 ? 'var(--red)' : 'var(--accent)';
+    html += `<div style="background:var(--bg2);border:1px solid ${color}44;border-radius:10px;padding:10px 12px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px">
+        <span style="font-size:11px;font-weight:600;color:${color};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:55%">${acc}</span>
+        <span style="font-family:var(--mono);font-size:13px;font-weight:700;color:var(--text)">${last!=null?fmt억(last):'-'}</span>
+      </div>
+      <div style="font-size:9px;color:${diffColor};margin-bottom:4px;font-family:var(--mono)">${diff>=0?'+':''}${fmt억(diff)}</div>
+      ${makeMiniChart(pts, color)}
+    </div>`;
+  });
+  html += '</div>';
+
+  el.innerHTML = html;
 }
 
 // ── MODAL ────────────────────────────────
