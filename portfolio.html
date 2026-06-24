@@ -1607,36 +1607,36 @@ function renderPlChart() {
     const pts = keys.map(k => dataMap[k] ? dataMap[k].v : null);
     const valid = pts.filter(v => v != null);
     if (!valid.length) return '';
-    const W=320, H=260, P={t:12,r:12,b:36,l:52};
+    const W=300, H=160, P={t:10,r:8,b:28,l:48};
     const cW=W-P.l-P.r, cH=H-P.t-P.b;
     const minV=Math.min(...valid)*0.998, maxV=Math.max(...valid)*1.002, range=(maxV-minV)||1;
     const toX=i=>P.l+(i/(keys.length-1||1))*cW;
     const toY=v=>P.t+cH-((v-minV)/range)*cH;
-    const yTicks=Array.from({length:10},(_,i)=>minV+(maxV-minV)*i/9);
-    const step=Math.ceil(keys.length/8);
+    const yTicks=Array.from({length:6},(_,i)=>minV+(maxV-minV)*i/5);
+    const step=Math.ceil(keys.length/6);
     const xLbls=keys.map((k,i)=>(i%step===0||i===keys.length-1)?fmtX(k):'');
     const yLines=yTicks.map(v=>`
       <line x1="${P.l}" y1="${toY(v).toFixed(1)}" x2="${W-P.r}" y2="${toY(v).toFixed(1)}" stroke="var(--border)" stroke-width=".5" stroke-dasharray="3,3"/>
-      <text x="${(P.l-4).toFixed(1)}" y="${(toY(v)+3.5).toFixed(1)}" text-anchor="end" font-size="8.5" fill="var(--text3)">${fmt억(v)}</text>
+      <text x="${(P.l-4).toFixed(1)}" y="${(toY(v)+3.5).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--text3)">${fmt억(v)}</text>
     `).join('');
-    const xSvg=keys.map((k,i)=>xLbls[i]?`<text x="${toX(i).toFixed(1)}" y="${(H-4).toFixed(1)}" text-anchor="end" font-size="8" fill="var(--text3)" transform="rotate(-40,${toX(i).toFixed(1)},${(H-4).toFixed(1)})">${xLbls[i]}</text>`:'').join('');
+    const xSvg=keys.map((k,i)=>xLbls[i]?`<text x="${toX(i).toFixed(1)}" y="${(H-4).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--text3)">${xLbls[i]}</text>`:'').join('');
     let seg=[],path='';
     pts.forEach((v,i)=>{
-      if(v==null){if(seg.length>1)path+=`<polyline points="${seg.join(' ')}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>`;seg=[];}
+      if(v==null){if(seg.length>1)path+=`<polyline points="${seg.join(' ')}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linejoin="round"/>`;seg=[];}
       else seg.push(`${toX(i).toFixed(1)},${toY(v).toFixed(1)}`);
     });
-    if(seg.length>1)path+=`<polyline points="${seg.join(' ')}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>`;
+    if(seg.length>1)path+=`<polyline points="${seg.join(' ')}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linejoin="round"/>`;
     const li=pts.reduceRight((f,v,i)=>f!=null?f:(v!=null?i:null),null);
     const lv=pts.reduceRight((f,v)=>f??v,null);
-    if(li!=null)path+=`<circle cx="${toX(li).toFixed(1)}" cy="${toY(lv).toFixed(1)}" r="3.5" fill="${color}"/>`;
+    if(li!=null)path+=`<circle cx="${toX(li).toFixed(1)}" cy="${toY(lv).toFixed(1)}" r="3" fill="${color}"/>`;
     const diff=lv-valid[0], dc=diff>=0?'var(--red)':'var(--accent)';
     const label=acc.replace('재남 ','').replace('은경 ','');
-    return `<div style="background:var(--bg2);border:1px solid ${color}44;border-radius:10px;padding:12px">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px">
-        <span style="font-size:11px;font-weight:600;color:${color}">${label}</span>
-        <span style="font-family:var(--mono);font-size:14px;font-weight:700;color:var(--text)">${fmt억(lv)}</span>
+    return `<div style="background:var(--bg2);border:1px solid ${color}44;border-radius:10px;padding:10px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:1px">
+        <span style="font-size:10px;font-weight:600;color:${color};white-space:nowrap">${label}</span>
+        <span style="font-family:var(--mono);font-size:12px;font-weight:700;color:var(--text)">${fmt억(lv)}</span>
       </div>
-      <div style="font-size:10px;color:${dc};margin-bottom:6px;font-family:var(--mono)">${diff>=0?'+':''}${fmt억(diff)}</div>
+      <div style="font-size:9px;color:${dc};margin-bottom:4px;font-family:var(--mono)">${diff>=0?'+':''}${fmt억(diff)}</div>
       <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">${yLines}${xSvg}${path}</svg>
     </div>`;
   };
@@ -1676,9 +1676,21 @@ function renderPlChart() {
 
   const jnAccs=['재남 키움 일반계좌','재남 미래에셋 일반계좌','재남 키움 ISA','재남 키움 연금저축'];
   const ekAccs=['은경 미래에셋 일반계좌','은경 키움 일반계좌','은경 미래에셋 ISA','은경 미래에셋 연금저축'];
+  const jnCards=jnAccs.filter(a=>byAcc[a]).map(a=>makeOneChart(a,COLORS[a]));
+  const ekCards=ekAccs.filter(a=>byAcc[a]).map(a=>makeOneChart(a,COLORS[a]));
+  // 재남2 은경2씩 한 줄에 4개
+  const rows=[];
+  const total=Math.max(jnCards.length,ekCards.length);
+  for(let i=0;i<total;i+=2){
+    const jn2=jnCards.slice(i,i+2);
+    const ek2=ekCards.slice(i,i+2);
+    rows.push(`<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-bottom:10px">
+      ${jn2.join('')}${ek2.join('')}
+    </div>`);
+  }
 
   el.innerHTML = `
-    <div style="background:var(--bg2);border:1.5px solid #7c3aed55;border-radius:12px;padding:14px 16px;margin-bottom:16px">
+    <div style="background:var(--bg2);border:1.5px solid #7c3aed55;border-radius:12px;padding:14px 16px;margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <span style="font-size:13px;font-weight:700;color:#7c3aed">📊 총합계</span>
         <span style="font-family:var(--mono);font-size:18px;font-weight:700;color:#7c3aed">${fmt억(tLast)}
@@ -1687,16 +1699,12 @@ function renderPlChart() {
       </div>
       ${makeTotalChart()}
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-      <div style="display:flex;flex-direction:column;gap:12px">
-        <div style="font-size:13px;font-weight:700;color:#3b82f6;padding:0 2px">👤 재남</div>
-        ${jnAccs.filter(a=>byAcc[a]).map(a=>makeOneChart(a,COLORS[a])).join('')}
-      </div>
-      <div style="display:flex;flex-direction:column;gap:12px">
-        <div style="font-size:13px;font-weight:700;color:#db2777;padding:0 2px">👤 은경</div>
-        ${ekAccs.filter(a=>byAcc[a]).map(a=>makeOneChart(a,COLORS[a])).join('')}
-      </div>
-    </div>`;
+    <div style="display:flex;gap:8px;margin-bottom:6px">
+      <span style="font-size:12px;font-weight:700;color:#3b82f6">👤 재남</span>
+      <span style="font-size:12px;color:var(--text3)">|</span>
+      <span style="font-size:12px;font-weight:700;color:#db2777">👤 은경</span>
+    </div>
+    ${rows.join('')}`;
 }
 
 // ── MODAL ────────────────────────────────
