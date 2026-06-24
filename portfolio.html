@@ -1720,18 +1720,21 @@ function renderPlChart() {
       </div>
       ${makeTotalChart()}
     </div>
-    <!-- 재남 섹션 -->
-    <div style="background:#eff6ff;border:2px solid #bfdbfe;border-radius:14px;padding:14px;margin-bottom:12px">
-      <div style="font-size:13px;font-weight:700;color:#1d4ed8;margin-bottom:10px">👤 재남</div>
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
-        ${jnCards.join('')}
+    <!-- 재남(좌) / 은경(우) 2열 -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <!-- 재남 -->
+      <div style="background:#eff6ff;border:2px solid #bfdbfe;border-radius:14px;padding:14px">
+        <div style="font-size:13px;font-weight:700;color:#1d4ed8;margin-bottom:10px">👤 재남</div>
+        <div style="display:grid;grid-template-columns:repeat(${jnCards.length},1fr);gap:10px">
+          ${jnCards.join('')}
+        </div>
       </div>
-    </div>
-    <!-- 은경 섹션 -->
-    <div style="background:#fdf2f8;border:2px solid #fbcfe8;border-radius:14px;padding:14px">
-      <div style="font-size:13px;font-weight:700;color:#9d174d;margin-bottom:10px">👤 은경</div>
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
-        ${ekCards.join('')}
+      <!-- 은경 -->
+      <div style="background:#fdf2f8;border:2px solid #fbcfe8;border-radius:14px;padding:14px">
+        <div style="font-size:13px;font-weight:700;color:#9d174d;margin-bottom:10px">👤 은경</div>
+        <div style="display:grid;grid-template-columns:repeat(${ekCards.length},1fr);gap:10px">
+          ${ekCards.join('')}
+        </div>
       </div>
     </div>`;
 }
