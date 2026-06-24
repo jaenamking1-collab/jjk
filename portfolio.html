@@ -1614,7 +1614,7 @@ function renderPlChart() {
   });
 
   const allKeys = [...new Set(_plLog.items.map(it => getKey(it.date)))].sort();
-  const maxN = _plMode === 'day' ? 7 : _plMode === 'month' ? 24 : 10;
+  const maxN = _plMode === 'day' ? 14 : _plMode === 'month' ? 24 : 10;
   const keys = allKeys.slice(-maxN);
   if (!keys.length) { el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:20px;text-align:center">데이터 없음</div>'; return; }
 
@@ -1634,19 +1634,22 @@ function renderPlChart() {
     const pts = keys.map(k => dataMap[k] ? dataMap[k].v : null);
     const valid = pts.filter(v => v != null);
     if (!valid.length) return '';
-    const W=300, H=160, P={t:10,r:8,b:28,l:48};
+    // x축 글자 잘림 방지: 왼쪽 패딩 넓게, 하단 패딩 20px 확보
+    const W=300, H=170, P={t:10,r:10,b:22,l:50};
     const cW=W-P.l-P.r, cH=H-P.t-P.b;
     const minV=Math.min(...valid)*0.998, maxV=Math.max(...valid)*1.002, range=(maxV-minV)||1;
     const toX=i=>P.l+(i/(keys.length-1||1))*cW;
     const toY=v=>P.t+cH-((v-minV)/range)*cH;
     const yTicks=Array.from({length:6},(_,i)=>minV+(maxV-minV)*i/5);
-    const step=Math.ceil(keys.length/6);
-    const xLbls=keys.map((k,i)=>(i%step===0||i===keys.length-1)?fmtX(k):'');
+    // x축: 최대 7개 레이블, 첫/끝 포함
+    const xStep=Math.max(1,Math.ceil(keys.length/7));
+    const xLbls=keys.map((k,i)=>(i%xStep===0||i===keys.length-1)?fmtX(k):'');
     const yLines=yTicks.map(v=>`
       <line x1="${P.l}" y1="${toY(v).toFixed(1)}" x2="${W-P.r}" y2="${toY(v).toFixed(1)}" stroke="var(--border)" stroke-width=".5" stroke-dasharray="3,3"/>
       <text x="${(P.l-4).toFixed(1)}" y="${(toY(v)+3.5).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--text3)">${fmt억(v)}</text>
     `).join('');
-    const xSvg=keys.map((k,i)=>xLbls[i]?`<text x="${toX(i).toFixed(1)}" y="${(H-4).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--text3)">${xLbls[i]}</text>`:'').join('');
+    // x축 레이블: clipPath 대신 viewBox 여백으로 잘림 방지, font-size 올리고 y위치 여유있게
+    const xSvg=keys.map((k,i)=>xLbls[i]?`<text x="${toX(i).toFixed(1)}" y="${(H-5).toFixed(1)}" text-anchor="middle" font-size="10" fill="var(--text3)">${xLbls[i]}</text>`:'').join('');
     let seg=[],path='';
     pts.forEach((v,i)=>{
       if(v==null){if(seg.length>1)path+=`<polyline points="${seg.join(' ')}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linejoin="round"/>`;seg=[];}
@@ -1658,13 +1661,13 @@ function renderPlChart() {
     if(li!=null)path+=`<circle cx="${toX(li).toFixed(1)}" cy="${toY(lv).toFixed(1)}" r="3" fill="${color}"/>`;
     const diff=lv-valid[0], dc=diff>=0?'var(--red)':'var(--accent)';
     const label=acc.replace('재남 ','').replace('은경 ','');
-    return `<div style="background:var(--bg2);border:1px solid ${color}44;border-radius:10px;padding:10px">
+    return `<div style="background:var(--bg);border:1px solid ${color}33;border-radius:8px;padding:10px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:1px">
         <span style="font-size:10px;font-weight:600;color:${color};white-space:nowrap">${label}</span>
         <span style="font-family:var(--mono);font-size:12px;font-weight:700;color:var(--text)">${fmt억(lv)}</span>
       </div>
       <div style="font-size:9px;color:${dc};margin-bottom:4px;font-family:var(--mono)">${diff>=0?'+':''}${fmt억(diff)}</div>
-      <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">${yLines}${xSvg}${path}</svg>
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;overflow:visible">${yLines}${xSvg}${path}</svg>
     </div>`;
   };
 
@@ -1677,19 +1680,19 @@ function renderPlChart() {
   const makeTotalChart = () => {
     const pts=totalPts, valid=tValid;
     if(!valid.length) return '';
-    const W=700,H=200,P={t:12,r:16,b:36,l:56};
+    const W=700,H=160,P={t:10,r:16,b:22,l:56};
     const cW=W-P.l-P.r,cH=H-P.t-P.b;
     const minV=Math.min(...valid)*0.998,maxV=Math.max(...valid)*1.002,range=(maxV-minV)||1;
     const toX=i=>P.l+(i/(keys.length-1||1))*cW;
     const toY=v=>P.t+cH-((v-minV)/range)*cH;
-    const yTicks=Array.from({length:10},(_,i)=>minV+(maxV-minV)*i/9);
-    const step=Math.ceil(keys.length/10);
-    const xLbls=keys.map((k,i)=>(i%step===0||i===keys.length-1)?fmtX(k):'');
+    const yTicks=Array.from({length:6},(_,i)=>minV+(maxV-minV)*i/5);
+    const xStep=Math.max(1,Math.ceil(keys.length/10));
+    const xLbls=keys.map((k,i)=>(i%xStep===0||i===keys.length-1)?fmtX(k):'');
     const yLines=yTicks.map(v=>`
       <line x1="${P.l}" y1="${toY(v).toFixed(1)}" x2="${W-P.r}" y2="${toY(v).toFixed(1)}" stroke="var(--border)" stroke-width=".5" stroke-dasharray="3,3"/>
       <text x="${(P.l-4).toFixed(1)}" y="${(toY(v)+3.5).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--text3)">${fmt억(v)}</text>
     `).join('');
-    const xSvg=keys.map((k,i)=>xLbls[i]?`<text x="${toX(i).toFixed(1)}" y="${(H-4).toFixed(1)}" text-anchor="end" font-size="8" fill="var(--text3)" transform="rotate(-40,${toX(i).toFixed(1)},${(H-4).toFixed(1)})">${xLbls[i]}</text>`:'').join('');
+    const xSvg=keys.map((k,i)=>xLbls[i]?`<text x="${toX(i).toFixed(1)}" y="${(H-4).toFixed(1)}" text-anchor="middle" font-size="10" fill="var(--text3)">${xLbls[i]}</text>`:'').join('');
     let seg=[],path='';
     pts.forEach((v,i)=>{
       if(!v){if(seg.length>1)path+=`<polyline points="${seg.join(' ')}" fill="none" stroke="#7c3aed" stroke-width="2.5" stroke-linejoin="round"/>`;seg=[];}
@@ -1698,25 +1701,16 @@ function renderPlChart() {
     if(seg.length>1)path+=`<polyline points="${seg.join(' ')}" fill="none" stroke="#7c3aed" stroke-width="2.5" stroke-linejoin="round"/>`;
     const li=pts.reduceRight((f,v,i)=>f!=null?f:(v?i:null),null);
     if(li!=null)path+=`<circle cx="${toX(li).toFixed(1)}" cy="${toY(pts[li]).toFixed(1)}" r="4" fill="#7c3aed"/>`;
-    return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">${yLines}${xSvg}${path}</svg>`;
+    return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;overflow:visible">${yLines}${xSvg}${path}</svg>`;
   };
 
   const jnAccs=['재남 키움 일반계좌','재남 미래에셋 일반계좌','재남 키움 ISA','재남 키움 연금저축'];
   const ekAccs=['은경 미래에셋 일반계좌','은경 키움 일반계좌','은경 미래에셋 ISA','은경 미래에셋 연금저축'];
   const jnCards=jnAccs.filter(a=>byAcc[a]).map(a=>makeOneChart(a,COLORS[a]));
   const ekCards=ekAccs.filter(a=>byAcc[a]).map(a=>makeOneChart(a,COLORS[a]));
-  // 재남2 은경2씩 한 줄에 4개
-  const rows=[];
-  const total=Math.max(jnCards.length,ekCards.length);
-  for(let i=0;i<total;i+=2){
-    const jn2=jnCards.slice(i,i+2);
-    const ek2=ekCards.slice(i,i+2);
-    rows.push(`<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-bottom:10px">
-      ${jn2.join('')}${ek2.join('')}
-    </div>`);
-  }
 
   el.innerHTML = `
+    <!-- 총합계 -->
     <div style="background:var(--bg2);border:1.5px solid #7c3aed55;border-radius:12px;padding:14px 16px;margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <span style="font-size:13px;font-weight:700;color:#7c3aed">📊 총합계</span>
@@ -1726,12 +1720,20 @@ function renderPlChart() {
       </div>
       ${makeTotalChart()}
     </div>
-    <div style="display:flex;gap:8px;margin-bottom:6px">
-      <span style="font-size:12px;font-weight:700;color:#3b82f6">👤 재남</span>
-      <span style="font-size:12px;color:var(--text3)">|</span>
-      <span style="font-size:12px;font-weight:700;color:#db2777">👤 은경</span>
+    <!-- 재남 섹션 -->
+    <div style="background:#eff6ff;border:2px solid #bfdbfe;border-radius:14px;padding:14px;margin-bottom:12px">
+      <div style="font-size:13px;font-weight:700;color:#1d4ed8;margin-bottom:10px">👤 재남</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+        ${jnCards.join('')}
+      </div>
     </div>
-    ${rows.join('')}`;
+    <!-- 은경 섹션 -->
+    <div style="background:#fdf2f8;border:2px solid #fbcfe8;border-radius:14px;padding:14px">
+      <div style="font-size:13px;font-weight:700;color:#9d174d;margin-bottom:10px">👤 은경</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+        ${ekCards.join('')}
+      </div>
+    </div>`;
 }
 
 // ── MODAL ────────────────────────────────
