@@ -388,13 +388,13 @@
     <div id="accountsGrid" style="display:none"></div>
 
     <!-- 카테고리별 비중 -->
-    <div id="categorySection" style="display:none;margin-top:24px;">
-      <div class="card" style="margin-bottom:16px;">
-        <div style="font-size:14px;font-weight:700;margin-bottom:14px;color:var(--text)">📊 전체 추종 카테고리별 비중</div>
+    <div id="categorySection" style="display:none;margin-top:16px;">
+      <div class="card" style="margin-bottom:12px;padding:12px 16px;">
+        <div style="font-size:12px;font-weight:700;margin-bottom:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">전체 추종 비중</div>
         <div id="catGlobalTable"></div>
       </div>
-      <div class="card">
-        <div style="font-size:14px;font-weight:700;margin-bottom:14px;color:var(--text)">📋 계좌별 카테고리 비중</div>
+      <div class="card" style="padding:12px 16px;">
+        <div style="font-size:12px;font-weight:700;margin-bottom:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">계좌별 추종 비중</div>
         <div id="catAccountTable"></div>
       </div>
     </div>
@@ -1970,34 +1970,50 @@ function renderCategoryTables(holdings, accounts) {
     totalGlobal += val;
   });
 
-  const catBadge = c => `<span style="background:${(CAT_COLOR[c]||'#9ca3af')}22;color:${CAT_COLOR[c]||'#9ca3af'};border-radius:6px;padding:2px 8px;font-size:12px;font-weight:600;">${c}</span>`;
+  const catBadge = (c, color) => `<span style="background:${color};color:#fff;border-radius:5px;padding:1px 6px;font-size:11px;font-weight:700;white-space:nowrap;">${c}</span>`;
   const pct = (v, t) => t > 0 ? (v/t*100).toFixed(1) : '0.0';
+  const fmtW = v => (Math.round(v/10000)).toLocaleString() + '만';
 
-  // 전체 카테고리 표
+  // 전체 카테고리 — 가로 바 + 컴팩트 행
   const sorted = Object.entries(globalMap).sort((a,b) => b[1]-a[1]);
-  let gHtml = `<table style="width:100%;border-collapse:collapse;font-size:13px;">
-    <thead><tr style="background:var(--bg3);"><th style="padding:8px;text-align:left;">카테고리</th>
-    <th style="padding:8px;text-align:right;">평가금액</th>
-    <th style="padding:8px;text-align:right;">비중</th>
-    <th style="padding:8px;">비중 바</th></tr></thead><tbody>`;
+  let gHtml = `<div style="display:flex;gap:16px;align-items:flex-start;">`;
+
+  // 왼쪽: 전체 비중 바 (한 줄 누적 바)
+  gHtml += `<div style="flex:1;min-width:0;">`;
+  // 누적 가로바
+  gHtml += `<div style="display:flex;height:14px;border-radius:8px;overflow:hidden;margin-bottom:10px;">`;
   sorted.forEach(([cat, val]) => {
     const p = pct(val, totalGlobal);
     const color = CAT_COLOR[cat] || '#9ca3af';
-    gHtml += `<tr style="border-bottom:1px solid var(--border);">
-      <td style="padding:8px;">${catBadge(cat)}</td>
-      <td style="padding:8px;text-align:right;font-family:var(--mono);">${Math.round(val).toLocaleString()}</td>
-      <td style="padding:8px;text-align:right;font-weight:700;color:${color};">${p}%</td>
-      <td style="padding:8px;"><div style="background:var(--bg3);border-radius:4px;height:10px;width:100%;"><div style="background:${color};width:${p}%;height:10px;border-radius:4px;"></div></div></td>
-    </tr>`;
+    gHtml += `<div title="${cat} ${p}%" style="width:${p}%;background:${color};"></div>`;
   });
-  gHtml += `<tr style="font-weight:700;background:var(--bg3);">
-    <td style="padding:8px;">합계</td>
-    <td style="padding:8px;text-align:right;font-family:var(--mono);">${Math.round(totalGlobal).toLocaleString()}</td>
-    <td style="padding:8px;text-align:right;">100%</td><td></td></tr></tbody></table>`;
+  gHtml += `</div>`;
+
+  // 컴팩트 행 목록
+  gHtml += `<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:3px 12px;">`;
+  sorted.forEach(([cat, val]) => {
+    const p = pct(val, totalGlobal);
+    const color = CAT_COLOR[cat] || '#9ca3af';
+    gHtml += `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid var(--border)33;">
+      <div style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;"></div>
+      <span style="font-size:11px;color:var(--text2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${cat}</span>
+      <span style="font-size:11px;font-weight:700;color:${color};flex-shrink:0;">${p}%</span>
+      <span style="font-size:10px;color:var(--text3);flex-shrink:0;font-family:var(--mono);">${fmtW(val)}</span>
+    </div>`;
+  });
+  gHtml += `</div></div>`;
+
+  // 오른쪽: 총액
+  gHtml += `<div style="flex-shrink:0;text-align:right;padding-left:12px;border-left:1px solid var(--border);">
+    <div style="font-size:10px;color:var(--text3);margin-bottom:2px;">총 평가</div>
+    <div style="font-size:16px;font-weight:800;color:var(--text);font-family:var(--mono);">${Math.round(totalGlobal/10000).toLocaleString()}<span style="font-size:11px;font-weight:400;color:var(--text3);">만</span></div>
+    <div style="font-size:10px;color:var(--text3);margin-top:8px;">${sorted.length}개 카테고리</div>
+  </div>`;
+  gHtml += `</div>`;
   document.getElementById('catGlobalTable').innerHTML = gHtml;
 
-  // 계좌별 카테고리 표
-  let aHtml = '';
+  // 계좌별 — 카드 그리드
+  let aHtml = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">`;
   accounts.forEach(acc => {
     const accH = holdings.filter(h => h.account_id === acc.id);
     if (!accH.length) return;
@@ -2010,28 +2026,33 @@ function renderCategoryTables(holdings, accounts) {
       accMap[key] = (accMap[key] || 0) + val;
       accTotal += val;
     });
-    aHtml += `<div style="margin-bottom:20px;">
-      <div style="font-size:13px;font-weight:700;color:var(--text2);margin-bottom:8px;padding:6px 10px;background:${getAccColor(acc.id)};border-radius:8px;">${acc.name}</div>
-      <table style="width:100%;border-collapse:collapse;font-size:12px;">
-        <thead><tr style="background:var(--bg3);">
-          <th style="padding:6px;text-align:left;">카테고리</th>
-          <th style="padding:6px;text-align:right;">평가금액</th>
-          <th style="padding:6px;text-align:right;">비중</th>
-          <th style="padding:6px;">비중 바</th>
-        </tr></thead><tbody>`;
-    Object.entries(accMap).sort((a,b)=>b[1]-a[1]).forEach(([cat, val]) => {
+    const accSorted = Object.entries(accMap).sort((a,b)=>b[1]-a[1]);
+    aHtml += `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <span style="font-size:12px;font-weight:700;color:var(--text2);">${acc.name}</span>
+        <span style="font-size:11px;color:var(--text3);font-family:var(--mono);">${Math.round(accTotal/10000).toLocaleString()}만</span>
+      </div>
+      <div style="display:flex;height:8px;border-radius:4px;overflow:hidden;margin-bottom:8px;">`;
+    accSorted.forEach(([cat, val]) => {
+      const p = pct(val, accTotal);
+      aHtml += `<div title="${cat} ${p}%" style="width:${p}%;background:${CAT_COLOR[cat]||'#9ca3af'};"></div>`;
+    });
+    aHtml += `</div><div style="display:flex;flex-direction:column;gap:2px;">`;
+    accSorted.forEach(([cat, val]) => {
       const p = pct(val, accTotal);
       const color = CAT_COLOR[cat] || '#9ca3af';
-      aHtml += `<tr style="border-bottom:1px solid var(--border);">
-        <td style="padding:6px;">${catBadge(cat)}</td>
-        <td style="padding:6px;text-align:right;font-family:var(--mono);">${Math.round(val).toLocaleString()}</td>
-        <td style="padding:6px;text-align:right;font-weight:700;color:${color};">${p}%</td>
-        <td style="padding:6px;"><div style="background:var(--bg3);border-radius:4px;height:8px;width:100%;"><div style="background:${color};width:${p}%;height:8px;border-radius:4px;"></div></div></td>
-      </tr>`;
+      aHtml += `<div style="display:flex;align-items:center;gap:5px;">
+        <div style="width:6px;height:6px;border-radius:50%;background:${color};flex-shrink:0;"></div>
+        <span style="font-size:11px;color:var(--text2);flex:1;">${cat}</span>
+        <span style="font-size:11px;font-weight:700;color:${color};">${p}%</span>
+        <span style="font-size:10px;color:var(--text3);font-family:var(--mono);">${fmtW(val)}</span>
+      </div>`;
     });
-    aHtml += `</tbody></table></div>`;
+    aHtml += `</div></div>`;
   });
-  document.getElementById('catAccountTable').innerHTML = aHtml || '<div style="color:var(--text3);font-size:13px;">카테고리 설정된 종목이 없습니다.</div>';
+  aHtml += `</div>`;
+  document.getElementById('catAccountTable').innerHTML = accSorted => aHtml || '<div style="color:var(--text3);font-size:13px;">카테고리 설정된 종목이 없습니다.</div>';
+  document.getElementById('catAccountTable').innerHTML = aHtml;
 }
 
 // ── 스프레드시트 동기화 ───────────────────
