@@ -1139,6 +1139,7 @@ async function renderHoldingsTable(holdings) {
       </select>
       <button class="btn btn-ghost btn-sm" onclick="openAccountOrderModal()" style="margin-left:8px">⚙️ 계좌 순서 변경</button>
       <button class="btn btn-primary btn-sm" onclick="loadHoldingPrices(state.holdings)" style="margin-left:4px">📈 시세 불러오기</button>
+      <button class="btn btn-ghost btn-sm" onclick="applyAllCategories()" style="margin-left:4px">🏷️ 추종 일괄적용</button>
     </div>
     <div class="table-wrap">
     <table class="holdings-compact">
@@ -3189,6 +3190,28 @@ function etfCategoryFromName(n) {
   if (/반도체|AI|엔비디아|팔란티어|테슬라/.test(n)) return '테마/섹터';
   if (/국제금|골드|천연가스/.test(n)) return '원자재';
   return '';
+}
+
+async function applyAllCategories() {
+  const holdings = state.holdings;
+  if (!holdings || !holdings.length) { alert('종목이 없습니다.'); return; }
+  if (!confirm(`전체 ${holdings.length}개 종목에 추종 카테고리를 자동 적용합니다.\n기존에 카테고리가 있는 종목은 덮어씁니다. 계속할까요?`)) return;
+  let updated = 0, skipped = 0;
+  for (const h of holdings) {
+    const cat = etfCategoryFromName(h.name);
+    const [cyc] = (h.div_cycle || '').split('|');
+    const newDivCycle = cyc + (cat ? '|' + cat : '');
+    if (newDivCycle === (h.div_cycle || '')) { skipped++; continue; }
+    try {
+      await apiPost({ action: 'updateHolding', id: h.id, account_id: h.account_id,
+        ticker: h.ticker, name: h.name, avg_price: h.avg_price,
+        quantity: h.quantity, currency: h.currency, div_cycle: newDivCycle });
+      h.div_cycle = newDivCycle;
+      updated++;
+    } catch(e) { skipped++; }
+  }
+  alert(`완료: ${updated}개 적용, ${skipped}개 변경없음`);
+  await loadHoldings();
 }
 
 // ── ETF 분배금 공지 ─────────────────────────
