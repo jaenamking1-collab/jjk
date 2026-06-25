@@ -3195,13 +3195,15 @@ function etfCategoryFromName(n) {
 async function applyAllCategories() {
   const holdings = state.holdings;
   if (!holdings || !holdings.length) { alert('종목이 없습니다.'); return; }
-  if (!confirm(`전체 ${holdings.length}개 종목에 추종 카테고리를 자동 적용합니다.\n기존에 카테고리가 있는 종목은 덮어씁니다. 계속할까요?`)) return;
+  const needUpdate = holdings.filter(h => !(h.div_cycle || '').includes('|'));
+  if (!needUpdate.length) { alert('모든 종목에 이미 추종이 설정되어 있습니다.'); return; }
+  if (!confirm(`추종 미설정 종목 ${needUpdate.length}개에만 자동 적용합니다. 계속할까요?`)) return;
   let updated = 0, skipped = 0;
-  for (const h of holdings) {
+  for (const h of needUpdate) {
     const cat = etfCategoryFromName(h.name);
     const [cyc] = (h.div_cycle || '').split('|');
     const newDivCycle = cyc + (cat ? '|' + cat : '');
-    if (newDivCycle === (h.div_cycle || '')) { skipped++; continue; }
+    if (!cat) { skipped++; continue; }
     try {
       await apiPost({ action: 'updateHolding', id: h.id, account_id: h.account_id,
         ticker: h.ticker, name: h.name, avg_price: h.avg_price,
