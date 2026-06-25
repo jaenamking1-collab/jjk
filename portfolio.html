@@ -1182,7 +1182,7 @@ async function renderHoldingsTable(holdings) {
           <td id="trend-${h.id}" style="padding:2px 8px;"></td>
           <td class="num" style="color:var(--accent);font-weight:600">${annual !== '-' ? annual+'%' : '-'}</td>
           <td style="font-size:12px;color:#374151">${cycOnly||'-'}</td>
-          <td style="font-size:11px;">${catOnly ? `<span style="background:${catColor}22;color:${catColor};border-radius:6px;padding:2px 7px;font-weight:600;white-space:nowrap;">${catOnly}</span>` : '<span style="color:var(--text3)">-</span>'}</td>
+          <td style="font-size:11px;">${catOnly && h.currency === 'KRW' ? `<span style="background:${catColor};color:#fff;border-radius:6px;padding:2px 7px;font-weight:600;white-space:nowrap;">${catOnly}</span>` : '<span style="color:var(--text3)">-</span>'}</td>
           <td>
             <div class="gap-8">
               <button class="btn btn-ghost btn-sm" onclick="editHolding('${h.id}')">수정</button>
