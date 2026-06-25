@@ -3168,7 +3168,27 @@ function selectTicker(ticker) {
   document.getElementById('holdingName').value = s.name;
   document.getElementById('holdingCurrency').value = s.currency;
   if (s.div_cycle) document.getElementById('holdingDivCycle').value = s.div_cycle;
+  // 추종 카테고리 자동입력
+  const catEl = document.getElementById('holdingCategory');
+  if (catEl && !catEl.value) {
+    const autoCat = etfCategoryFromName(s.name);
+    if (autoCat) catEl.value = autoCat;
+  }
   document.getElementById('tickerDropdown').style.display = 'none';
+}
+
+function etfCategoryFromName(n) {
+  if (!n) return '';
+  if (/나스닥|테크100|미국테크|빅테크|AI테크|AI빅테크/.test(n)) return '나스닥100';
+  if (/S&P500|미국500|미국S&P/.test(n)) return 'S&P500';
+  if (/200|코스피/.test(n)) return '코스피200';
+  if (/미국배당|배당퀄리티|배당귀족|배당킹|캐시카우|미국고배당|배당100|배당증가/.test(n)) return '미국배당';
+  if (/고배당|배당성장|주주환원|배당주|은행|금융지주|K고배당|코리아고배당/.test(n)) return '한국고배당';
+  if (/국채|국고채|회사채|크레딧|하이일드|금융채/.test(n)) return '채권';
+  if (/리츠|부동산|오피스|인프라/.test(n)) return '리츠/부동산';
+  if (/반도체|AI|엔비디아|팔란티어|테슬라/.test(n)) return '테마/섹터';
+  if (/국제금|골드|천연가스/.test(n)) return '원자재';
+  return '';
 }
 
 // ── ETF 분배금 공지 ─────────────────────────
