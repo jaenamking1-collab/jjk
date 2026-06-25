@@ -2905,8 +2905,13 @@ async function loadHoldingPrices(holdings) {
         const days = parseInt(document.getElementById('trendDays')?.value) || 5;
         const w=90,h2=16,pad=2,prices=hist.slice(-days);
         if (prices.length < 2) continue;
-        const min=Math.min(...prices),max=Math.max(...prices),range=max-min||1;
-        const pts=prices.map((p,i)=>`${(pad+(i/(prices.length-1))*(w-pad*2)).toFixed(1)},${(pad+(1-(p-min)/range)*(h2-pad*2)).toFixed(1)}`).join(' ');
+        const avg=prices.reduce((a,b)=>a+b,0)/prices.length;
+        const minRange=avg*0.015;
+        const min=Math.min(...prices),max=Math.max(...prices);
+        const range=Math.max(max-min,minRange)||1;
+        const mid=(max+min)/2;
+        const lo=mid-range/2, hi=mid+range/2;
+        const pts=prices.map((p,i)=>`${(pad+(i/(prices.length-1))*(w-pad*2)).toFixed(1)},${(pad+(1-(p-lo)/(hi-lo))*(h2-pad*2)).toFixed(1)}`).join(' ');
         const color=prices[prices.length-1]>=prices[0]?'#dc2626':'#059669';
         trendEl.innerHTML=`<svg width="${w}" height="${h2}" viewBox="0 0 ${w} ${h2}" style="display:block"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.2" stroke-linejoin="round"/></svg>`;
       }
