@@ -2663,22 +2663,9 @@ function renderMasterCalendar(allData) {
     rangeStart.setTime(earliestMark.getTime());
     rangeStart.setDate(rangeStart.getDate() - rangeStart.getDay()); // 그 주 일요일
   }
+  // 5주 고정: rangeStart(일요일)부터 34일 후(5번째 주 토요일)까지
   const rangeEnd = new Date(rangeStart);
-  rangeEnd.setDate(rangeEnd.getDate() + 41); // 약 6주 (마킹 최댓값까지 포함되게 넉넉히)
-  // 마킹 최댓값이 rangeEnd보다 늦으면 거기까지 연장
-  let latestMark = null;
-  Object.keys(marks).forEach(k => {
-    const [mm, dd] = k.split('-').map(Number);
-    let yr = year;
-    if (month === 12 && mm === 1) yr = year + 1;
-    else if (month === 1 && mm === 12) yr = year - 1;
-    const dt = new Date(yr, mm - 1, dd);
-    if (!latestMark || dt > latestMark) latestMark = dt;
-  });
-  if (latestMark && latestMark > rangeEnd) {
-    rangeEnd.setTime(latestMark.getTime());
-    rangeEnd.setDate(rangeEnd.getDate() + (6 - rangeEnd.getDay())); // 그 주 토요일까지
-  }
+  rangeEnd.setDate(rangeEnd.getDate() + 34);
 
   const cells = [];
   const cur = new Date(rangeStart);
