@@ -594,8 +594,8 @@
     </div>
     <div id="distCalendarWrap" style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:20px">
       <div id="distCalTitle" style="display:none"></div>
-      <div style="display:flex;gap:14px;align-items:stretch;flex-wrap:wrap">
-        <div style="flex:1;min-width:420px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px">
+      <div style="display:flex;gap:14px;align-items:stretch;flex-wrap:wrap;justify-content:center">
+        <div style="flex:0 1 720px;min-width:420px;max-width:720px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px">
           <div style="font-size:12px;font-weight:700;color:#64748b;margin-bottom:8px">📅 분배 일정 달력</div>
           <div id="distMasterCalendar"><div style="color:var(--text3);font-size:13px">불러오는 중...</div></div>
         </div>
@@ -2750,7 +2750,7 @@ function renderMasterCalendar(allData) {
     </div>`;
   }).filter(Boolean).join('');
 
-  // ── 운용사별 일정: 표(B안) — 열=공시/락/기준/지급, 행=회차별 ──
+  // ── 운용사별 일정: 표(A안) — 회사별 1행, 셀에 월중/월말 2줄 ──
   const rowsData = [];
   allData.forEach(c => {
     const repSched = (c.data && c.data.schedule) || {};
@@ -2767,40 +2767,49 @@ function renderMasterCalendar(allData) {
       }
       return { sched: null, hasHolding: false, hasNotice: false };
     };
-    [['월중', pickCycle('월중')], ['월말', pickCycle('월말')]].forEach(([cyc, info]) => {
-      if (!info.hasNotice) return;
-      rowsData.push({ name: c.name, color: c.color, cyc, info });
-    });
+    const mid = pickCycle('월중'), end = pickCycle('월말');
+    if (!mid.hasNotice && !end.hasNotice) return;
+    rowsData.push({ name: c.name, color: c.color, mid, end });
   });
 
   const dcell = (info, key) => {
+    if (!info || !info.hasNotice) return '';
     const v = info.sched && info.sched[key];
-    if (!v) return '<span style="color:var(--border)">·</span>';
+    if (!v) return '';
     const p = parseDay(v);
     return p ? `${p.m}/${p.d}` : v;
+  };
+  // 한 셀에 월중/월말 2줄 (월중=파랑, 월말=핑크). 없으면 빈 줄로 정렬 유지.
+  const cell2 = (r, key) => {
+    const mv = dcell(r.mid, key), ev = dcell(r.end, key);
+    return `<td style="text-align:center;padding:3px 2px;font-family:var(--mono);line-height:1.5">
+      <div style="color:#2563eb">${mv || '<span style=\'color:var(--border)\'>·</span>'}</div>
+      <div style="color:#db2777">${ev || '<span style=\'color:var(--border)\'>·</span>'}</div>
+    </td>`;
   };
   const tableHtml = rowsData.length ? `
     <table style="width:100%;border-collapse:collapse;font-size:11px">
       <thead><tr style="color:var(--text3)">
         <th style="text-align:left;padding:3px 4px;font-weight:600">운용사</th>
         <th style="text-align:center;padding:3px 2px;font-weight:600;color:#f59e0b">공시</th>
-        <th style="text-align:center;padding:3px 2px;font-weight:600;color:#22c55e">락</th>
+        <th style="text-align:center;padding:3px 2px;font-weight:600;color:#22c55e">분배락</th>
         <th style="text-align:center;padding:3px 2px;font-weight:600;color:#3b82f6">기준</th>
         <th style="text-align:center;padding:3px 2px;font-weight:600;color:#ef4444">지급</th>
       </tr></thead>
       <tbody>${rowsData.map(r => {
-        const cycColor = r.cyc === '월중' ? '#2563eb' : '#db2777';
-        const dim = r.info.hasHolding ? '' : 'opacity:.55';
-        return `<tr style="border-top:1px solid #f0e2f5;${dim}">
-          <td style="padding:3px 4px;white-space:nowrap">
-            <span style="font-weight:700;color:${r.color}">${r.name}</span>
-            <span style="font-size:8px;font-weight:700;color:#fff;background:${cycColor};padding:0 4px;border-radius:6px;margin-left:3px">${r.cyc}</span>
-            ${r.info.hasHolding ? '' : '<span style="color:#b8a8cc;font-size:8px;margin-left:2px">보유X</span>'}
+        const noHold = m => (m.hasNotice && !m.hasHolding) ? '<span style="color:#b8a8cc;font-size:8px">보유X</span>' : '';
+        return `<tr style="border-top:2px solid #d8c9ec">
+          <td style="padding:3px 4px;white-space:nowrap;line-height:1.5">
+            <div><span style="font-weight:700;color:${r.color}">${r.name}</span></div>
+            <div style="font-size:8px">
+              ${r.mid.hasNotice ? `<span style="color:#2563eb;font-weight:700">월중</span> ${noHold(r.mid)}` : ''}
+              ${r.end.hasNotice ? `<span style="color:#db2777;font-weight:700">월말</span> ${noHold(r.end)}` : ''}
+            </div>
           </td>
-          <td style="text-align:center;padding:3px 2px;font-family:var(--mono);color:var(--text2)">${dcell(r.info,'공시일')}</td>
-          <td style="text-align:center;padding:3px 2px;font-family:var(--mono);color:var(--text2)">${dcell(r.info,'분배락일')}</td>
-          <td style="text-align:center;padding:3px 2px;font-family:var(--mono);color:var(--text2)">${dcell(r.info,'기준일')}</td>
-          <td style="text-align:center;padding:3px 2px;font-family:var(--mono);color:var(--text2)">${dcell(r.info,'지급일')}</td>
+          ${cell2(r,'공시일')}
+          ${cell2(r,'분배락일')}
+          ${cell2(r,'기준일')}
+          ${cell2(r,'지급일')}
         </tr>`;
       }).join('')}</tbody>
     </table>` : '<div style="font-size:12px;color:var(--text3)">이번 달 일정 정보가 없습니다</div>';
