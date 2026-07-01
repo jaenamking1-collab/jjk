@@ -2801,9 +2801,9 @@ function renderMasterCalendar(allData) {
         return `<tr style="border-top:2px solid #d8c9ec">
           <td style="padding:3px 4px;white-space:nowrap;line-height:1.5">
             <div><span style="font-weight:700;color:${r.color}">${r.name}</span></div>
-            <div style="font-size:8px">
-              ${r.mid.hasNotice ? `<span style="color:#2563eb;font-weight:700">월중</span> ${noHold(r.mid)}` : ''}
-              ${r.end.hasNotice ? `<span style="color:#db2777;font-weight:700">월말</span> ${noHold(r.end)}` : ''}
+            <div style="font-size:8px;line-height:1.5">
+              <div>${r.mid.hasNotice ? `<span style="color:#2563eb;font-weight:700">월중</span> ${noHold(r.mid)}` : '<span style="color:var(--border)">·</span>'}</div>
+              <div>${r.end.hasNotice ? `<span style="color:#db2777;font-weight:700">월말</span> ${noHold(r.end)}` : '<span style="color:var(--border)">·</span>'}</div>
             </div>
           </td>
           ${cell2(r,'공시일')}
