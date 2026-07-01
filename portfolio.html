@@ -3360,15 +3360,14 @@ function etfCategoryFromName(n, ticker) {
 async function applyAllCategories() {
   const holdings = state.holdings;
   if (!holdings || !holdings.length) { alert('종목이 없습니다.'); return; }
-  const needUpdate = holdings.filter(h => !(h.div_cycle || '').includes('|'));
-  if (!needUpdate.length) { alert('모든 종목에 이미 추종이 설정되어 있습니다.'); return; }
-  if (!confirm(`추종 미설정 종목 ${needUpdate.length}개에만 자동 적용합니다. 계속할까요?`)) return;
+  if (!confirm(`전체 ${holdings.length}개 종목의 섹터를 TICKER_SECTOR 기준으로 재적용(덮어쓰기)합니다. 계속할까요?`)) return;
   let updated = 0, skipped = 0;
-  for (const h of needUpdate) {
+  for (const h of holdings) {
     const cat = etfCategoryFromName(h.name, h.ticker);
+    if (!cat) { skipped++; continue; }                    // 매핑 없으면 건너뜀(기존 유지)
     const [cyc] = (h.div_cycle || '').split('|');
-    const newDivCycle = cyc + (cat ? '|' + cat : '');
-    if (!cat) { skipped++; continue; }
+    const newDivCycle = cyc + '|' + cat;
+    if (newDivCycle === h.div_cycle) { skipped++; continue; } // 동일하면 API 호출 생략(쿼터 절약)
     try {
       await apiPost({ action: 'updateHolding', id: h.id, account_id: h.account_id,
         ticker: h.ticker, name: h.name, avg_price: h.avg_price,
@@ -3377,7 +3376,7 @@ async function applyAllCategories() {
       updated++;
     } catch(e) { skipped++; }
   }
-  alert(`완료: ${updated}개 적용, ${skipped}개 변경없음`);
+  alert(`완료: ${updated}개 재적용, ${skipped}개 변경없음`);
   await loadHoldings();
 }
 
