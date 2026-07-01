@@ -595,11 +595,11 @@
     <div id="distCalendarWrap" style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:20px">
       <div id="distCalTitle" style="display:none"></div>
       <div style="display:flex;gap:14px;align-items:stretch;flex-wrap:wrap">
-        <div style="flex:1;min-width:500px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px">
+        <div style="flex:1;min-width:420px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px">
           <div style="font-size:12px;font-weight:700;color:#64748b;margin-bottom:8px">📅 분배 일정 달력</div>
           <div id="distMasterCalendar"><div style="color:var(--text3);font-size:13px">불러오는 중...</div></div>
         </div>
-        <div style="width:250px;flex-shrink:0;background:#fdf4ff;border:1px solid #f0e2f5;border-radius:10px;padding:14px">
+        <div style="width:340px;flex-shrink:0;background:#fdf4ff;border:1px solid #f0e2f5;border-radius:10px;padding:14px">
           <div style="font-size:12px;font-weight:700;color:#a855a8;margin-bottom:8px">🏢 운용사별 일정</div>
           <div id="distScheduleList"></div>
         </div>
@@ -2744,70 +2744,61 @@ function renderMasterCalendar(allData) {
     </div>`;
   }).filter(Boolean).join('');
 
-  const cards = allData.map(c => {
+  // ── 운용사별 일정: 표(B안) — 열=공시/락/기준/지급, 행=회차별 ──
+  const rowsData = [];
+  allData.forEach(c => {
     const repSched = (c.data && c.data.schedule) || {};
     const items = (c.data && c.data.items) || [];
     const heldItems = items.filter(held);
-
-    // 회차별 상태: 공지 존재(전체 items 기준) + 보유 여부(heldItems 기준)
-    // sch는 보유종목 우선, 없으면 공지된 아무 종목의 일정(참고용 회색 표시)
     const pickCycle = (cyc) => {
-      // 1) 보유 종목 중 해당 cycle
       for (const it of heldItems) {
         const c2 = cycleOf(fillRakil((it.sched && Object.keys(it.sched).length) ? {...it.sched} : {...repSched}, repSched), it);
         if (c2 === cyc) return { sched: fillRakil((it.sched && Object.keys(it.sched).length) ? {...it.sched} : {...repSched}, repSched), hasHolding: true, hasNotice: true };
       }
-      // 2) 보유 없지만 공지 존재 → 전체 items에서 해당 cycle 종목의 일정
       for (const it of items) {
         const c2 = cycleOf(fillRakil((it.sched && Object.keys(it.sched).length) ? {...it.sched} : {...repSched}, repSched), it);
         if (c2 === cyc) return { sched: fillRakil((it.sched && Object.keys(it.sched).length) ? {...it.sched} : {...repSched}, repSched), hasHolding: false, hasNotice: true };
       }
-      // 3) 공지 자체 없음
       return { sched: null, hasHolding: false, hasNotice: false };
     };
-    const midInfo = pickCycle('월중');
-    const endInfo = pickCycle('월말');
+    [['월중', pickCycle('월중')], ['월말', pickCycle('월말')]].forEach(([cyc, info]) => {
+      if (!info.hasNotice) return;
+      rowsData.push({ name: c.name, color: c.color, cyc, info });
+    });
+  });
 
-    // miniRow: info = {sched, hasHolding, hasNotice}
-    const miniRow = (info, cycColor, cycLabel) => {
-      const sch = info.sched;
-      const pick = k => { const v = sch && sch[k]; if (!v) return ''; const p = parseDay(v); return p ? `${p.m}/${p.d}` : v; };
-      let fullLabel = cycLabel + '배당';
-      if (sch) {
-        const base = parseDay(sch['기준일'] || sch['지급일'] || sch['공시일']);
-        if (base) fullLabel = base.m + '월 ' + cycLabel + '배당';
-      }
-      const parts = sch ? [
-        ['공시', pick('공시일'), '#f59e0b'],
-        ['락', pick('분배락일'), '#22c55e'],
-        ['기준', pick('기준일'), '#3b82f6'],
-        ['지급', pick('지급일'), '#ef4444'],
-      ].filter(p => p[1]) : [];
-      // A안: 공지 있으면 무조건 컬러(회색 제거). 미보유는 "보유없음" 글자만 유지
-      let inner;
-      if (!info.hasNotice) {
-        inner = `<span style="color:var(--text3)">미공지</span>`;
-      } else if (parts.length) {
-        inner = parts.map(([lb,v,col]) => `<span style="white-space:nowrap"><span style="color:${col};font-weight:700">${lb}</span> <span style="color:var(--text2)">${v}</span></span>`).join('<span style="color:var(--border)">·</span> ');
-        if (!info.hasHolding) inner += ` <span style="color:#b8a8cc;font-size:9px">· 보유없음</span>`;
-      } else {
-        inner = `<span style="color:var(--text3)">공지됨</span>`;
-      }
-      const badgeBg = info.hasNotice ? cycColor : '#d1d5db';
-      return `<div style="display:flex;align-items:center;gap:5px;font-size:10px;margin-top:2px">
-        <span style="font-size:8px;font-weight:700;color:#fff;background:${badgeBg};padding:1px 6px;border-radius:7px;flex-shrink:0;white-space:nowrap">${fullLabel}</span>
-        <span style="display:flex;gap:4px;flex-wrap:wrap">${inner}</span>
-      </div>`;
-    };
-    if (!midInfo.hasNotice && !endInfo.hasNotice) return '';
-    const inner = miniRow(midInfo, '#2563eb', '월중') + miniRow(endInfo, '#db2777', '월말');
-    return `<div style="padding:5px 8px;border-left:3px solid ${c.color};background:#fff;border:1px solid #f0e2f5;border-radius:5px">
-      <div style="font-weight:700;color:${c.color};font-size:11px">${c.name}</div>${inner}
-    </div>`;
-  }).filter(Boolean).join('');
-  document.getElementById('distScheduleList').innerHTML = cards ?
-    `<div style="display:flex;flex-direction:column;gap:4px">${cards}</div>` :
-    '<div style="font-size:12px;color:var(--text3)">이번 달 일정 정보가 없습니다</div>';
+  const dcell = (info, key) => {
+    const v = info.sched && info.sched[key];
+    if (!v) return '<span style="color:var(--border)">·</span>';
+    const p = parseDay(v);
+    return p ? `${p.m}/${p.d}` : v;
+  };
+  const tableHtml = rowsData.length ? `
+    <table style="width:100%;border-collapse:collapse;font-size:11px">
+      <thead><tr style="color:var(--text3)">
+        <th style="text-align:left;padding:3px 4px;font-weight:600">운용사</th>
+        <th style="text-align:center;padding:3px 2px;font-weight:600;color:#f59e0b">공시</th>
+        <th style="text-align:center;padding:3px 2px;font-weight:600;color:#22c55e">락</th>
+        <th style="text-align:center;padding:3px 2px;font-weight:600;color:#3b82f6">기준</th>
+        <th style="text-align:center;padding:3px 2px;font-weight:600;color:#ef4444">지급</th>
+      </tr></thead>
+      <tbody>${rowsData.map(r => {
+        const cycColor = r.cyc === '월중' ? '#2563eb' : '#db2777';
+        const dim = r.info.hasHolding ? '' : 'opacity:.55';
+        return `<tr style="border-top:1px solid #f0e2f5;${dim}">
+          <td style="padding:3px 4px;white-space:nowrap">
+            <span style="font-weight:700;color:${r.color}">${r.name}</span>
+            <span style="font-size:8px;font-weight:700;color:#fff;background:${cycColor};padding:0 4px;border-radius:6px;margin-left:3px">${r.cyc}</span>
+            ${r.info.hasHolding ? '' : '<span style="color:#b8a8cc;font-size:8px;margin-left:2px">보유X</span>'}
+          </td>
+          <td style="text-align:center;padding:3px 2px;font-family:var(--mono);color:var(--text2)">${dcell(r.info,'공시일')}</td>
+          <td style="text-align:center;padding:3px 2px;font-family:var(--mono);color:var(--text2)">${dcell(r.info,'분배락일')}</td>
+          <td style="text-align:center;padding:3px 2px;font-family:var(--mono);color:var(--text2)">${dcell(r.info,'기준일')}</td>
+          <td style="text-align:center;padding:3px 2px;font-family:var(--mono);color:var(--text2)">${dcell(r.info,'지급일')}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>` : '<div style="font-size:12px;color:var(--text3)">이번 달 일정 정보가 없습니다</div>';
+  document.getElementById('distScheduleList').innerHTML = tableHtml;
 }
 
 function renderDistGrid(allData) {
