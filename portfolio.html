@@ -2798,12 +2798,12 @@ function renderMasterCalendar(allData) {
         <th style="text-align:center;padding:3px 2px;font-weight:600;color:#ef4444">지급</th>
       </tr></thead>
       <tbody>${rowsData.map(r => {
-        const noHold = m => (m.hasNotice && !m.hasHolding) ? '<span style="color:#b8a8cc;font-size:8px">보유X</span>' : '';
+        const noHold = m => (m.hasNotice && !m.hasHolding) ? '<span style="color:#b8a8cc;font-size:9px">보유X</span>' : '';
         return `<tr style="border-top:2px solid #d8c9ec">
           <td style="padding:3px 4px;white-space:nowrap;vertical-align:middle">
             <span style="font-weight:700;color:${r.color}">${r.name}</span>
           </td>
-          <td style="padding:3px 4px;white-space:nowrap;font-size:8px;line-height:1.5;border-left:1px solid #ede0f5">
+          <td style="padding:3px 6px;white-space:nowrap;font-size:10px;line-height:1.5;border-left:1px solid #ede0f5;border-right:1px solid #d8c9ec">
             <div>${r.mid.hasNotice ? `<span style="color:#2563eb;font-weight:700">월중</span> ${noHold(r.mid)}` : '<span style="color:var(--border)">·</span>'}</div>
             <div>${r.end.hasNotice ? `<span style="color:#db2777;font-weight:700">월말</span> ${noHold(r.end)}` : '<span style="color:var(--border)">·</span>'}</div>
           </td>
