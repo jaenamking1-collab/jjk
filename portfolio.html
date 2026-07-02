@@ -432,7 +432,17 @@
       </div>
     </div>
     <div class="card">
+      <div style="display:flex;gap:6px;margin-bottom:14px;border-bottom:1px solid var(--border);padding-bottom:10px">
+        <button id="subtab-byacc" class="btn btn-primary" style="font-size:12px;padding:6px 14px" onclick="switchHoldingSub('byacc')">계좌별 종목</button>
+        <button id="subtab-byticker" class="btn" style="font-size:12px;padding:6px 14px" onclick="switchHoldingSub('byticker')">티커별 집계</button>
+        <div style="flex:1"></div>
+        <select id="tickerSortSel" onchange="renderTickerSummary()" style="display:none;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px">
+          <option value="value">평가금액순</option>
+          <option value="name">종목명순</option>
+        </select>
+      </div>
       <div id="holdingsTable" class="loading"><span class="spinner"></span>계좌를 선택하세요</div>
+      <div id="tickerSummary" style="display:none"></div>
     </div>
 
     <!-- 동기화 결과 모달 -->
@@ -1090,6 +1100,88 @@ function updateAccountSelects() {
 }
 
 // ── HOLDINGS ─────────────────────────────
+function switchHoldingSub(which) {
+  const acc = document.getElementById('subtab-byacc');
+  const tic = document.getElementById('subtab-byticker');
+  const accBox = document.getElementById('holdingsTable');
+  const ticBox = document.getElementById('tickerSummary');
+  const sortSel = document.getElementById('tickerSortSel');
+  const isTic = which === 'byticker';
+  acc.className = isTic ? 'btn' : 'btn btn-primary';
+  tic.className = isTic ? 'btn btn-primary' : 'btn';
+  accBox.style.display = isTic ? 'none' : '';
+  ticBox.style.display = isTic ? '' : 'none';
+  sortSel.style.display = isTic ? '' : 'none';
+  if (isTic) renderTickerSummary();
+}
+
+function renderTickerSummary() {
+  const box = document.getElementById('tickerSummary');
+  const holdings = state.holdings || [];
+  if (!holdings.length) { box.innerHTML = '<div style="padding:12px;color:var(--text3);font-size:13px">종목이 없습니다.</div>'; return; }
+  const er = state.exchangeRate || 1400;
+  const fmtNum = v => (parseFloat(v)||0).toLocaleString(undefined,{maximumFractionDigits:2});
+  const fmtW = v => (Math.round(v/10000)).toLocaleString() + '만';
+  const valOf = h => {
+    const qty = parseFloat(h.quantity) || 0;
+    const priceEl = document.getElementById('price-' + h.id);
+    let price = parseFloat(h.avg_price) || 0;
+    if (priceEl) {
+      const txt = priceEl.textContent.replace(/[₩$,↑↓▲▼+\s]/g,'').split('\n')[0];
+      const p = parseFloat(txt);
+      if (p > 0) price = p;
+    }
+    return h.currency === 'USD' ? qty * price * er : qty * price;
+  };
+  const accById = {};
+  (state.accounts || []).forEach(a => accById[a.id] = a);
+  const g = {};
+  holdings.forEach(h => {
+    let t = (h.ticker || '').toString().trim().toUpperCase();
+    if (!t) return;
+    if (/^\d+$/.test(t) && t.length < 6) t = t.padStart(6, '0');
+    if (!g[t]) g[t] = { ticker: t, name: h.name || t, currency: h.currency || 'KRW', rows: [], qty: 0, value: 0 };
+    const qty = parseFloat(h.quantity) || 0;
+    g[t].rows.push({ acc: (accById[h.account_id] || {}).name || '?', avg: parseFloat(h.avg_price) || 0, qty });
+    g[t].qty += qty;
+    g[t].value += valOf(h);
+  });
+  let arr = Object.values(g);
+  const sort = document.getElementById('tickerSortSel').value;
+  arr.sort(sort === 'name' ? (a,b)=>a.name.localeCompare(b.name,'ko') : (a,b)=>b.value-a.value);
+
+  const rowsHtml = arr.map(x => {
+    const accList = x.rows.map(r => r.acc).join(', ');
+    const avgList = x.rows.map(r => `<div style="white-space:nowrap">${r.acc} <b>${fmtNum(r.avg)}</b> × ${fmtNum(r.qty)}</div>`).join('');
+    return `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:8px 6px;font-family:var(--mono);font-size:11px;color:var(--text3)">${x.ticker}</td>
+      <td style="padding:8px 6px;font-weight:700">${x.name}</td>
+      <td style="padding:8px 6px;font-size:11px;color:var(--text2)">${accList}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono)">${fmtNum(x.qty)}</td>
+      <td style="padding:8px 6px;font-size:10px;color:var(--text2);line-height:1.6">${avgList}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono);font-weight:700">${fmtW(x.value)}</td>
+    </tr>`;
+  }).join('');
+  const total = arr.reduce((s,x)=>s+x.value,0);
+
+  box.innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="border-bottom:2px solid var(--border);color:var(--text3);font-size:11px">
+        <th style="padding:6px;text-align:left">티커</th>
+        <th style="padding:6px;text-align:left">종목</th>
+        <th style="padding:6px;text-align:left">보유계좌</th>
+        <th style="padding:6px;text-align:right">수량합</th>
+        <th style="padding:6px;text-align:left">계좌별 매입가×수량</th>
+        <th style="padding:6px;text-align:right">평가금액</th>
+      </tr></thead>
+      <tbody>${rowsHtml}</tbody>
+      <tfoot><tr style="border-top:2px solid var(--border);font-weight:700">
+        <td colspan="5" style="padding:8px 6px;text-align:right">합계</td>
+        <td style="padding:8px 6px;text-align:right;font-family:var(--mono);color:var(--accent)">${fmtW(total)}</td>
+      </tr></tfoot>
+    </table>`;
+}
+
 async function loadHoldings() {
   const accountId = document.getElementById('holdingAccountFilter').value;
   const acc = state.accounts.find(a => a.id === accountId);
