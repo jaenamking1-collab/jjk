@@ -1230,14 +1230,14 @@ function sortHoldings(holdings) {
   });
 }
 
-// 재남=파랑계열, 은경=분홍계열 / ISA=진하게, 연금=중간, 일반=연하게
+// 재남=한색(청록·파랑·남색), 은경=난색(자주·분홍·산호) / 유형별 채도 차등
 const ACC_COLOR_MAP = {
-  '재남_ISA':  '#bfdbfe',
-  '재남_연금': '#e0f2fe',
-  '재남_일반': '#f0f9ff',
-  '은경_ISA':  '#fbcfe8',
-  '은경_연금': '#fdf2f8',
-  '은경_일반': '#fff0f6',
+  '재남_ISA':  '#93c5fd',
+  '재남_연금': '#a5f3fc',
+  '재남_일반': '#c7d2fe',
+  '은경_ISA':  '#f9a8d4',
+  '은경_연금': '#fed7aa',
+  '은경_일반': '#ddd6fe',
 };
 const ACC_COLORS_FALLBACK = ['#f8fafc','#f1f5f9','#f0fdf4','#fff7ed','#fdf4ff'];
 
@@ -1315,8 +1315,8 @@ async function renderHoldingsTable(holdings) {
       <button class="btn btn-primary btn-sm" onclick="loadHoldingPrices(state.holdings)" style="margin-left:4px">📈 시세 불러오기</button>
       <button class="btn btn-ghost btn-sm" onclick="applyAllCategories()" style="margin-left:4px">🏷️ 추종 일괄적용</button>
     </div>
-    <div class="table-wrap">
-    <table class="holdings-compact">
+    <div class="table-wrap" style="text-align:center">
+    <table class="holdings-compact" style="width:auto;margin:0 auto">
       <thead><tr>
         <th>계좌</th>
         <th>티커</th><th style="min-width:280px">종목명</th>
@@ -1342,7 +1342,7 @@ async function renderHoldingsTable(holdings) {
           ? `<td rowspan="${acctSpan[idx]}" style="font-size:11px;color:#374151;font-weight:600;white-space:nowrap;vertical-align:middle;text-align:center;background:${getAccColor(h.account_id)}">${acc?.name||''}</td>`
           : '';
         const groupBorder = (acctSpan[idx] && idx > 0) ? 'border-top:2px solid #334155;' : '';
-        const catColor = {'나스닥100':'#6366f1','S&P500':'#3b82f6','코스피200':'#10b981','미국배당':'#f59e0b','한국고배당':'#f97316','채권':'#64748b','리츠/부동산':'#8b5cf6','테마/섹터':'#ec4899','원자재':'#ca8a04','개별주':'#ef4444','기타':'#9ca3af'}[catOnly] || '#9ca3af';
+        const catColor = {'나스닥100':'#6366f1','S&P500':'#3b82f6','코스피200':'#10b981','IT':'#0ea5e9','반도체':'#8b5cf6','AI':'#d946ef','2차전지':'#14b8a6','방산':'#475569','조선':'#0891b2','금융':'#f59e0b','바이오':'#22c55e','전력·원자력':'#eab308','자동차':'#ef4444','리츠':'#a855f7','채권':'#64748b','필수소비재':'#f97316','현금성':'#94a3b8'}[catOnly] || '#9ca3af';
         return `<tr style="border-bottom:1px solid #d1d5db;background:${rowBg};${groupBorder}${isUsdBorder ? 'border-top:2px solid #f59e0b88' : ''}">
           ${acctCell}
           <td><span class="ticker">${h.ticker}</span></td>
@@ -1356,7 +1356,7 @@ async function renderHoldingsTable(holdings) {
           <td id="trend-${h.id}" style="padding:2px 8px;"></td>
           <td class="num" style="color:var(--accent);font-weight:600">${annual !== '-' ? annual+'%' : '-'}</td>
           <td style="font-size:12px;color:#374151">${cycOnly||'-'}</td>
-          <td style="font-size:11px;">${catOnly && h.currency === 'KRW' ? `<span style="background:${catColor};color:#fff;border-radius:6px;padding:2px 7px;font-weight:600;white-space:nowrap;">${catOnly}</span>` : '<span style="color:var(--text3)">-</span>'}</td>
+          <td style="font-size:11px;">${catOnly ? `<span style="background:${catColor};color:#fff;border-radius:6px;padding:2px 7px;font-weight:600;white-space:nowrap;">${catOnly}</span>` : '<span style="color:var(--text3)">-</span>'}</td>
           <td>
             <div class="gap-8">
               <button class="btn btn-ghost btn-sm" onclick="editHolding('${h.id}')">수정</button>
@@ -3115,7 +3115,7 @@ async function loadHoldingPrices(holdings) {
         const priceColor = '#111827';
         const chgColor = diff > 0 ? 'var(--red)' : diff < 0 ? 'var(--accent)' : 'var(--text2)';
         const sign = diff > 0 ? '+' : diff < 0 ? '-' : '';
-        priceEl.innerHTML = `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:1px"><span style="font-family:var(--mono);font-size:12px;font-weight:600;color:${priceColor}">${curr}${fmt(priceData.current)}</span><span style="font-size:9px;color:${chgColor}">${sign}${curr}${fmt(Math.abs(diff))}</span></div>`;
+        priceEl.innerHTML = `<span style="font-family:var(--mono);font-size:12px;font-weight:600;color:${priceColor}">${curr}${fmt(priceData.current)}</span>`;
         const valEl = document.getElementById(`valuation-${h.id}`);
         if (valEl) {
           const qty2 = parseFloat(h.quantity) || 0;
@@ -3129,7 +3129,12 @@ async function loadHoldingPrices(holdings) {
       }
       const prevEl = document.getElementById(`prev-${h.id}`);
       if (prevEl && priceData.prev != null && priceData.prev > 0) {
-        prevEl.innerHTML = `<span style="font-family:var(--mono);font-size:12px;color:var(--text2)">${curr}${fmt(priceData.prev)}</span>`;
+        const pc = parseFloat(priceData.current) || 0;
+        const pp = parseFloat(priceData.prev) || 0;
+        const d = pc - pp;
+        const dColor = d > 0 ? 'var(--red)' : d < 0 ? 'var(--accent)' : 'var(--text2)';
+        const dSign = d > 0 ? '+' : d < 0 ? '-' : '';
+        prevEl.innerHTML = `<span style="white-space:nowrap"><span style="font-size:10px;color:${dColor}">${dSign}${curr}${fmt(Math.abs(d))}</span> <span style="font-family:var(--mono);font-size:12px;font-weight:700;color:${dColor}">${curr}${fmt(priceData.prev)}</span></span>`;
       }
       const trendEl = document.getElementById(`trend-${h.id}`);
       if (trendEl && hist.length > 1) {
@@ -3145,9 +3150,58 @@ async function loadHoldingPrices(holdings) {
         const pts=prices.map((p,i)=>`${(pad+(i/(prices.length-1))*(w-pad*2)).toFixed(1)},${(pad+(1-(p-lo)/(hi-lo))*(h2-pad*2)).toFixed(1)}`).join(' ');
         const color=prices[prices.length-1]>=prices[0]?'#dc2626':'#059669';
         trendEl.innerHTML=`<svg width="${w}" height="${h2}" viewBox="0 0 ${w} ${h2}" style="display:block"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.2" stroke-linejoin="round"/></svg>`;
+        // 호버 팝업용: 전체 hist를 셀에 저장 + 이벤트 바인딩
+        trendEl.style.cursor = 'pointer';
+        trendEl.dataset.hist = JSON.stringify(hist.slice(-30));
+        trendEl.dataset.name = h.name;
+        trendEl.dataset.cur = h.currency;
+        trendEl.onmouseenter = (ev) => showTrendPopup(ev, trendEl);
+        trendEl.onmouseleave = hideTrendPopup;
       }
     } catch(e) {}
   }
+}
+
+function hideTrendPopup() {
+  const p = document.getElementById('trendPopup');
+  if (p) p.style.display = 'none';
+}
+function showTrendPopup(ev, el) {
+  let hist;
+  try { hist = JSON.parse(el.dataset.hist || '[]'); } catch(e) { return; }
+  if (!hist || hist.length < 2) return;
+  let p = document.getElementById('trendPopup');
+  if (!p) {
+    p = document.createElement('div');
+    p.id = 'trendPopup';
+    p.style.cssText = 'position:fixed;z-index:2000;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:10px 12px;pointer-events:none;';
+    document.body.appendChild(p);
+  }
+  const W=280,H=120,pad=24;
+  const min=Math.min(...hist),max=Math.max(...hist),range=(max-min)||1;
+  const cur=el.dataset.cur==='USD'?'$':'';
+  const fmt=v=>el.dataset.cur==='USD'?parseFloat(v).toFixed(2):Math.round(v).toLocaleString();
+  const pts=hist.map((v,i)=>`${(pad+(i/(hist.length-1))*(W-pad*2)).toFixed(1)},${(pad+(1-(v-min)/range)*(H-pad*2)).toFixed(1)}`).join(' ');
+  const up=hist[hist.length-1]>=hist[0];
+  const color=up?'#dc2626':'#059669';
+  const last=hist[hist.length-1], first=hist[0];
+  const chgPct=((last-first)/first*100).toFixed(2);
+  p.innerHTML = `
+    <div style="font-size:12px;font-weight:700;margin-bottom:2px">${el.dataset.name||''}</div>
+    <div style="font-size:11px;color:${color};margin-bottom:6px">${hist.length}일 · ${up?'+':''}${chgPct}% · 최근 ${cur}${fmt(last)}</div>
+    <svg width="${W}" height="${H}" style="display:block">
+      <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linejoin="round"/>
+      <text x="${pad}" y="12" font-size="9" fill="#9ca3af">${cur}${fmt(max)}</text>
+      <text x="${pad}" y="${H-6}" font-size="9" fill="#9ca3af">${cur}${fmt(min)}</text>
+    </svg>`;
+  p.style.display = 'block';
+  const r = el.getBoundingClientRect();
+  let left = r.left - 150, top = r.bottom + 8;
+  if (left < 8) left = 8;
+  if (left + W + 24 > window.innerWidth) left = window.innerWidth - W - 24;
+  if (top + H + 60 > window.innerHeight) top = r.top - H - 60;
+  p.style.left = left + 'px';
+  p.style.top = top + 'px';
 }
 
 function reloadTrend() {
