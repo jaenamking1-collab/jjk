@@ -464,7 +464,7 @@
   <!-- ── 분배금 탭 ── -->
   <div id="tab-dividends" class="page">
     <div class="card-header" style="margin-bottom:20px">
-      <div class="page-title">💰 분배금 관리</div>
+      
     </div>
     <div class="div-controls">
       <select id="divAccountFilter" onchange="loadDividendGrid()">
@@ -1172,7 +1172,7 @@ function renderTickerSummary() {
 
   box.innerHTML = `
     <div style="text-align:center">
-    <table style="width:auto;border-collapse:collapse;font-size:12px;margin:0 auto">
+    <table style="width:auto;border-collapse:collapse;font-size:11px;margin:0 auto">
       <thead>
         <tr>
           <th style="border:${B};padding:2px 5px;background:#1e40af;color:#fff">티커</th>
@@ -1366,7 +1366,7 @@ async function renderHoldingsTable(holdings) {
           <td class="num" id="valuation-${h.id}"><span style="color:var(--text3);font-size:11px">-</span></td>
           <td id="trend-${h.id}" style="padding:2px 8px;"></td>
           <td class="num" style="color:var(--accent);font-weight:600">${annual !== '-' ? annual+'%' : '-'}</td>
-          <td style="font-size:12px;color:#374151">${cycOnly||'-'}</td>
+          <td style="font-size:11px">${cycOnly ? `<span style="background:${({'월배당':'#2563eb','월중':'#3b82f6','월말':'#8b5cf6','분기배당':'#059669','반기배당':'#d97706','연배당':'#dc2626','무배당':'#94a3b8'}[cycOnly]||'#64748b')};color:#fff;border-radius:6px;padding:2px 7px;font-weight:600;white-space:nowrap">${cycOnly}</span>` : '-'}</td>
           <td style="font-size:11px;">${catOnly ? `<span style="background:${catColor};color:#fff;border-radius:6px;padding:2px 7px;font-weight:600;white-space:nowrap;">${catOnly}</span>` : '<span style="color:var(--text3)">-</span>'}</td>
           <td>
             <div class="gap-8">
@@ -2983,7 +2983,7 @@ function renderDistGrid(allData) {
           <td style="padding:5px 8px"><span class="ticker" style="font-size:11px">${it.ticker||''}</span></td>
           <td style="padding:5px 8px;font-size:11px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${it.name||''}</td>
           <td class="num" style="padding:5px 8px;font-size:12px;font-weight:600">${it.amount!=null?Number(it.amount).toLocaleString():'-'}</td>
-          <td class="num" style="padding:5px 8px;font-size:11px;color:${c.color}">${it.rate!=null&&it.rate>0?Number(it.rate).toFixed(2)+'%':'-'}</td>
+          <td style="padding:5px 8px;font-size:11px;font-weight:600;text-align:left;color:${c.color}">${it.rate!=null&&it.rate>0?Number(it.rate).toFixed(2)+'%':'-'}</td>
         </tr>`}).join('')}</tbody>
       </table>`;
     } else if (d.noticeUrl) {
@@ -3145,7 +3145,7 @@ async function loadHoldingPrices(holdings) {
         const d = pc - pp;
         const dColor = d > 0 ? 'var(--red)' : d < 0 ? 'var(--accent)' : 'var(--text2)';
         const dSign = d > 0 ? '+' : d < 0 ? '-' : '';
-        prevEl.innerHTML = `<span style="white-space:nowrap"><span style="font-size:10px;color:${dColor}">${dSign}${curr}${fmt(Math.abs(d))}</span> <span style="font-family:var(--mono);font-size:12px;font-weight:700;color:${dColor}">${curr}${fmt(priceData.prev)}</span></span>`;
+        prevEl.innerHTML = `<span style="display:flex;justify-content:space-between;align-items:baseline;gap:6px;white-space:nowrap"><span style="font-size:10px;color:${dColor}">${dSign}${curr}${fmt(Math.abs(d))}</span><span style="font-family:var(--mono);font-size:12px;font-weight:700;color:${dColor}">${curr}${fmt(priceData.prev)}</span></span>`;
       }
       const trendEl = document.getElementById(`trend-${h.id}`);
       if (trendEl && hist.length > 1) {
