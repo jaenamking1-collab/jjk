@@ -180,7 +180,7 @@
   .div-controls { display:flex; align-items:center; gap:12px; margin-bottom:20px; flex-wrap:wrap; }
   .div-controls select { padding:7px 12px; background:var(--bg3); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:13px; }
   .div-grid-wrap { overflow-x:auto; }
-  .div-grid { border-collapse:collapse; font-size:14px; min-width:1400px; width:100%; }
+  .div-grid { border-collapse:collapse; font-size:12px; min-width:1100px; width:100%; }
   .div-grid th { padding:3px 5px; background:#e2e8f0; border:1px solid #111827; color:#111827; font-size:1em; white-space:nowrap; text-align:center; font-weight:700; }
   .div-grid td { border:1px solid #111827; padding:0 2px; vertical-align:middle; }
   .div-cell {
@@ -476,7 +476,10 @@
         <option value="">전체 계좌</option>
       </select>
       <select id="divYear" onchange="loadDividendGrid()"></select>
-      <span style="font-size:12px;color:var(--text3)">셀 클릭 후 금액 입력 → Enter로 저장 (USD종목은 달러로 입력)</span>
+      <span style="font-size:12px;color:var(--text2)">셀 클릭 후 금액 입력 → Enter로 저장 (USD종목은 달러로 입력)</span>
+      <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);margin-left:12px">글자
+        <input type="range" id="divFontSize" min="9" max="18" value="12" oninput="applyDivFont()" style="width:90px">
+      </label>
       <button class="btn" style="background:#f0fdf4;border:1px solid #86efac;color:#166534;margin-left:8px;" onclick="syncDividendsFromSheet()">🔄 스프레드시트 동기화</button>
       <button class="btn btn-ghost btn-sm" onclick="openAccountOrderModal()" style="margin-left:auto">⚙️ 계좌 순서 변경</button>
     </div>
@@ -1400,6 +1403,12 @@ function setupYearSelects() {
   document.getElementById('dashYear').textContent = cur + '년';
 }
 
+function applyDivFont() {
+  const fs = parseInt(document.getElementById('divFontSize')?.value) || 12;
+  const grid = document.querySelector('.div-grid');
+  if (grid) grid.style.fontSize = fs + 'px';
+}
+
 async function loadDividendGrid() {
   const year = document.getElementById('divYear').value;
   const accountId = document.getElementById('divAccountFilter').value;
@@ -1532,9 +1541,9 @@ async function loadDividendGrid() {
     <table class="div-grid">
       <thead><tr>
         <th style="color:#374151">계좌</th>
-        <th style="color:#374151">종목</th>
-        ${months.map(m=>`<th style="min-width:56px;color:#374151">${m}월</th>`).join('')}
-        <th style="min-width:80px;color:#374151">합계</th>
+        <th style="color:#111827">종목</th>
+        ${months.map(m=>`<th style="min-width:56px;color:#111827">${m}월</th>`).join('')}
+        <th style="min-width:80px;color:#111827">합계</th>
         <th style="color:var(--accent)">실분배율</th>
         <th style="color:var(--accent)">환산분배율</th>
       </tr></thead>
@@ -1542,6 +1551,7 @@ async function loadDividendGrid() {
     </table>
     </div>
   `;
+  applyDivFont();
 }
 
 async function saveDividendCell(input) {
