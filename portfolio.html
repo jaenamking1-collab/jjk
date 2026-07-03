@@ -1159,49 +1159,70 @@ function renderTickerSummary() {
   });
   let arr = Object.values(g);
   const sort = document.getElementById('tickerSortSel').value;
-  arr.sort(sort === 'name' ? (a,b)=>a.name.localeCompare(b.name,'ko') : (a,b)=>b.value-a.value);
+  const sortFn = sort === 'name' ? (a,b)=>a.name.localeCompare(b.name,'ko') : (a,b)=>b.value-a.value;
+  arr.sort(sortFn);
 
-  // 계좌명 축약: "재남 키움 ISA" → "재남키움ISA"
+  // 계좌명 축약
   const abbr = n => (n||'').replace(/\s+/g,'').replace('미래에셋','미래').replace('연금저축','연저').replace('일반계좌','일반');
   const ownColor = n => (n||'').includes('재남') ? '#2563eb' : (n||'').includes('은경') ? '#db2777' : '#334155';
   const B = '1px solid #111827';
 
-  const rowsHtml = arr.map((x, gi) => {
-    const n = x.rows.length;
-    const zebra = gi % 2 ? '#eef2f7' : '#ffffff';
-    return x.rows.map((r,i) => `<tr style="background:${zebra}">
-      ${i===0?`<td rowspan="${n}" style="border:${B};padding:2px 6px;font-family:var(--mono);font-weight:700;color:#111827;vertical-align:middle">${x.ticker}</td>`:''}
-      ${i===0?`<td rowspan="${n}" style="border:${B};padding:2px 8px;font-weight:700;color:#111827;white-space:nowrap;vertical-align:middle;text-align:left">${x.name}</td>`:''}
-      ${i===0?`<td rowspan="${n}" style="border:${B};padding:2px 8px;text-align:right;font-family:var(--mono);font-weight:700;color:#111827;vertical-align:middle;background:#fef9c3">${fmtNum(x.qty)}</td>`:''}
-      <td style="border:${B};padding:1px 6px;font-weight:700;color:${ownColor(r.acc)};white-space:nowrap">${abbr(r.acc)}</td>
-      <td style="border:${B};padding:1px 8px;text-align:right;font-family:var(--mono);font-weight:700;color:#111827">${fmtNum(r.avg)}</td>
-      <td style="border:${B};padding:1px 8px;text-align:right;font-family:var(--mono);color:#111827">${fmtNum(r.qty)}</td>
-      ${i===0?`<td rowspan="${n}" style="border:${B};padding:2px 10px;text-align:right;font-family:var(--mono);font-weight:800;color:#1e3a8a;vertical-align:middle;background:#dbeafe">${fmtW(x.value)}</td>`:''}
-    </tr>`).join('');
-  }).join('');
-  const total = arr.reduce((s,x)=>s+x.value,0);
+  // 통화별 분리 (미국=USD, 국내=KRW)
+  const krList = arr.filter(x => x.currency !== 'USD');
+  const usList = arr.filter(x => x.currency === 'USD');
+  // 미국주 매입가/평가금액은 달러 기준 재계산 (원화환산 값 대신)
+  usList.forEach(x => {
+    x.usdValue = x.rows.reduce((s,r)=>s + r.avg * r.qty, 0);   // $ 평가(매입가×수량)
+  });
 
-  box.innerHTML = `
-    <div style="text-align:center;overflow-x:auto">
-    <table style="width:auto;border-collapse:collapse;font-size:${fs}px;margin:0 auto">
-      <thead>
-        <tr>
-          <th style="border:${B};padding:2px 5px;background:#1e40af;color:#fff">티커</th>
-          <th style="border:${B};padding:2px 5px;background:#1e40af;color:#fff">종목</th>
-          <th style="border:${B};padding:2px 5px;background:#1e40af;color:#fff">수량합</th>
-          <th style="border:${B};padding:2px 5px;background:#0f766e;color:#fff">계좌</th>
-          <th style="border:${B};padding:2px 5px;background:#0f766e;color:#fff">매입가</th>
-          <th style="border:${B};padding:2px 5px;background:#0f766e;color:#fff">수량</th>
-          <th style="border:${B};padding:2px 5px;background:#1e40af;color:#fff">평가금액</th>
-        </tr>
-      </thead>
-      <tbody>${rowsHtml}</tbody>
-      <tfoot><tr style="background:#e2e8f0">
-        <td colspan="6" style="border:${B};padding:2px 6px;text-align:right;font-weight:800;color:#111827">합계</td>
-        <td style="border:${B};padding:2px 6px;text-align:right;font-family:var(--mono);font-weight:800;color:#1d4ed8">${fmtW(total)}</td>
-      </tr></tfoot>
-    </table>
-    </div>`;
+  const buildTable = (list, isUsd) => {
+    if (!list.length) return '';
+    const cur = isUsd ? '$' : '';
+    const money = v => cur + Math.round(isUsd ? v : v).toLocaleString();
+    const price = v => cur + fmtNum(v);
+    const headBg = isUsd ? '#92400e' : '#1e40af';
+    const subBg = isUsd ? '#b45309' : '#0f766e';
+    const rows = list.map((x, gi) => {
+      const n = x.rows.length;
+      const zebra = gi % 2 ? '#eef2f7' : '#ffffff';
+      const val = isUsd ? x.usdValue : x.value;
+      return x.rows.map((r,i) => `<tr style="background:${zebra}">
+        ${i===0?`<td rowspan="${n}" style="border:${B};padding:2px 6px;font-family:var(--mono);font-weight:700;color:#111827;vertical-align:middle">${x.ticker}</td>`:''}
+        ${i===0?`<td rowspan="${n}" style="border:${B};padding:2px 8px;font-weight:700;color:#111827;white-space:nowrap;vertical-align:middle;text-align:left">${x.name}</td>`:''}
+        ${i===0?`<td rowspan="${n}" style="border:${B};padding:2px 8px;text-align:right;font-family:var(--mono);font-weight:700;color:#111827;vertical-align:middle;background:#fef9c3">${fmtNum(x.qty)}</td>`:''}
+        <td style="border:${B};padding:1px 6px;font-weight:700;color:${ownColor(r.acc)};white-space:nowrap">${abbr(r.acc)}</td>
+        <td style="border:${B};padding:1px 8px;text-align:right;font-family:var(--mono);font-weight:700;color:#111827">${price(r.avg)}</td>
+        <td style="border:${B};padding:1px 8px;text-align:right;font-family:var(--mono);color:#111827">${fmtNum(r.qty)}</td>
+        ${i===0?`<td rowspan="${n}" style="border:${B};padding:2px 10px;text-align:right;font-family:var(--mono);font-weight:800;color:${isUsd?'#92400e':'#1e3a8a'};vertical-align:middle;background:${isUsd?'#fef3c7':'#dbeafe'}">${money(val)}</td>`:''}
+      </tr>`).join('');
+    }).join('');
+    const tot = list.reduce((s,x)=>s+(isUsd?x.usdValue:x.value),0);
+    return `
+      <div style="flex:1;min-width:0;overflow-x:auto">
+        <div style="font-weight:800;color:${headBg};margin-bottom:4px">${isUsd?'🇺🇸 미국 ($)':'🇰🇷 국내 (원)'}</div>
+        <table style="width:auto;border-collapse:collapse;font-size:${fs}px;margin:0 auto">
+          <thead><tr>
+            <th style="border:${B};padding:2px 5px;background:${headBg};color:#fff">티커</th>
+            <th style="border:${B};padding:2px 5px;background:${headBg};color:#fff">종목</th>
+            <th style="border:${B};padding:2px 5px;background:${headBg};color:#fff">수량합</th>
+            <th style="border:${B};padding:2px 5px;background:${subBg};color:#fff">계좌</th>
+            <th style="border:${B};padding:2px 5px;background:${subBg};color:#fff">매입가</th>
+            <th style="border:${B};padding:2px 5px;background:${subBg};color:#fff">수량</th>
+            <th style="border:${B};padding:2px 5px;background:${headBg};color:#fff">평가금액</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+          <tfoot><tr style="background:#e2e8f0">
+            <td colspan="6" style="border:${B};padding:2px 6px;text-align:right;font-weight:800;color:#111827">합계</td>
+            <td style="border:${B};padding:2px 6px;text-align:right;font-family:var(--mono);font-weight:800;color:${headBg}">${money(tot)}</td>
+          </tr></tfoot>
+        </table>
+      </div>`;
+  };
+
+  box.innerHTML = `<div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+    ${buildTable(krList, false)}
+    ${buildTable(usList, true)}
+  </div>`;
 }
 
 async function loadHoldings() {
