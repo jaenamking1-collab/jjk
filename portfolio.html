@@ -1150,36 +1150,50 @@ function renderTickerSummary() {
   const sort = document.getElementById('tickerSortSel').value;
   arr.sort(sort === 'name' ? (a,b)=>a.name.localeCompare(b.name,'ko') : (a,b)=>b.value-a.value);
 
+  // 계좌명 축약: "재남 키움 ISA" → "재남키움ISA", "은경 미래에셋 연금저축" → "은경미래연저"
+  const abbr = n => (n||'').replace(/\s+/g,'').replace('미래에셋','미래').replace('연금저축','연저').replace('일반계좌','일반');
+  const ownColor = n => (n||'').includes('재남') ? '#2563eb' : (n||'').includes('은경') ? '#db2777' : '#334155';
+
   const rowsHtml = arr.map(x => {
-    const accList = x.rows.map(r => r.acc).join(', ');
-    const avgList = x.rows.map(r => `<div style="white-space:nowrap">${r.acc} <b>${fmtNum(r.avg)}</b> × ${fmtNum(r.qty)}</div>`).join('');
-    return `<tr style="border-bottom:1px solid var(--border)">
-      <td style="padding:8px 6px;font-family:var(--mono);font-size:11px;color:var(--text3)">${x.ticker}</td>
-      <td style="padding:8px 6px;font-weight:700">${x.name}</td>
-      <td style="padding:8px 6px;font-size:11px;color:var(--text2)">${accList}</td>
-      <td style="padding:8px 6px;text-align:right;font-family:var(--mono)">${fmtNum(x.qty)}</td>
-      <td style="padding:8px 6px;font-size:10px;color:var(--text2);line-height:1.6">${avgList}</td>
-      <td style="padding:8px 6px;text-align:right;font-family:var(--mono);font-weight:700">${fmtW(x.value)}</td>
+    // 보유계좌: 소유자색 칩(체크 대용)
+    const accChips = x.rows.map(r =>
+      `<span style="display:inline-block;background:${ownColor(r.acc)};color:#fff;font-size:10px;font-weight:700;border-radius:5px;padding:1px 6px;margin:1px 2px 1px 0;white-space:nowrap">${abbr(r.acc)}</span>`).join('');
+    // 계좌별 매입가: 셀 분리 서브표 (계좌|매입가|수량), 진한 선
+    const avgTable = `<table style="border-collapse:collapse;margin:0 auto">${x.rows.map(r =>
+      `<tr>
+        <td style="border:1px solid #94a3b8;padding:1px 5px;font-size:10px;font-weight:700;color:${ownColor(r.acc)};white-space:nowrap">${abbr(r.acc)}</td>
+        <td style="border:1px solid #94a3b8;padding:1px 5px;font-size:11px;font-family:var(--mono);font-weight:700;color:#111827;text-align:right">${fmtNum(r.avg)}</td>
+        <td style="border:1px solid #94a3b8;padding:1px 5px;font-size:11px;font-family:var(--mono);color:#111827;text-align:right">${fmtNum(r.qty)}</td>
+      </tr>`).join('')}</table>`;
+    return `<tr>
+      <td style="border:1px solid #64748b;padding:2px 6px;font-family:var(--mono);font-size:11px;font-weight:700;color:#111827">${x.ticker}</td>
+      <td style="border:1px solid #64748b;padding:2px 6px;font-weight:700;color:#111827;white-space:nowrap">${x.name}</td>
+      <td style="border:1px solid #64748b;padding:2px 6px;max-width:180px">${accChips}</td>
+      <td style="border:1px solid #64748b;padding:2px 6px;text-align:right;font-family:var(--mono);font-weight:700;color:#111827">${fmtNum(x.qty)}</td>
+      <td style="border:1px solid #64748b;padding:2px 4px">${avgTable}</td>
+      <td style="border:1px solid #64748b;padding:2px 8px;text-align:right;font-family:var(--mono);font-weight:800;font-size:13px;color:#111827">${fmtW(x.value)}</td>
     </tr>`;
   }).join('');
   const total = arr.reduce((s,x)=>s+x.value,0);
 
   box.innerHTML = `
-    <table style="width:100%;border-collapse:collapse;font-size:13px">
-      <thead><tr style="border-bottom:2px solid var(--border);color:var(--text3);font-size:11px">
-        <th style="padding:6px;text-align:left">티커</th>
-        <th style="padding:6px;text-align:left">종목</th>
-        <th style="padding:6px;text-align:left">보유계좌</th>
-        <th style="padding:6px;text-align:right">수량합</th>
-        <th style="padding:6px;text-align:left">계좌별 매입가×수량</th>
-        <th style="padding:6px;text-align:right">평가금액</th>
+    <div style="text-align:center">
+    <table style="border-collapse:collapse;font-size:12px;margin:0 auto">
+      <thead><tr style="background:#e2e8f0">
+        <th style="border:1px solid #64748b;padding:4px 8px;color:#111827">티커</th>
+        <th style="border:1px solid #64748b;padding:4px 8px;color:#111827">종목</th>
+        <th style="border:1px solid #64748b;padding:4px 8px;color:#111827">보유계좌</th>
+        <th style="border:1px solid #64748b;padding:4px 8px;color:#111827">수량합</th>
+        <th style="border:1px solid #64748b;padding:4px 8px;color:#111827">계좌 · 매입가 · 수량</th>
+        <th style="border:1px solid #64748b;padding:4px 8px;color:#111827">평가금액</th>
       </tr></thead>
       <tbody>${rowsHtml}</tbody>
-      <tfoot><tr style="border-top:2px solid var(--border);font-weight:700">
-        <td colspan="5" style="padding:8px 6px;text-align:right">합계</td>
-        <td style="padding:8px 6px;text-align:right;font-family:var(--mono);color:var(--accent)">${fmtW(total)}</td>
+      <tfoot><tr style="background:#e2e8f0">
+        <td colspan="5" style="border:1px solid #64748b;padding:4px 8px;text-align:right;font-weight:800;color:#111827">합계</td>
+        <td style="border:1px solid #64748b;padding:4px 8px;text-align:right;font-family:var(--mono);font-weight:800;color:#1d4ed8">${fmtW(total)}</td>
       </tr></tfoot>
-    </table>`;
+    </table>
+    </div>`;
 }
 
 async function loadHoldings() {
