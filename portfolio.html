@@ -180,11 +180,11 @@
   .div-controls { display:flex; align-items:center; gap:12px; margin-bottom:20px; flex-wrap:wrap; }
   .div-controls select { padding:7px 12px; background:var(--bg3); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:13px; }
   .div-grid-wrap { overflow-x:auto; }
-  .div-grid { border-collapse:collapse; font-size:12px; min-width:1100px; width:100%; }
+  .div-grid { border-collapse:collapse; font-size:12px; width:auto; margin:0 auto; }
   .div-grid th { padding:3px 5px; background:#e2e8f0; border:1px solid #111827; color:#111827; font-size:1em; white-space:nowrap; text-align:center; font-weight:700; }
   .div-grid td { border:1px solid #111827; padding:0 2px; vertical-align:middle; }
   .div-cell {
-    width:auto; flex:1; min-width:40px; height:auto; background:transparent;
+    width:auto; flex:1; min-width:28px; height:auto; background:transparent;
     border:none; outline:none; color:var(--text);
     font-family:var(--mono); font-size:1em; text-align:right;
     padding:0 4px; cursor:pointer; vertical-align:middle;
@@ -192,7 +192,7 @@
   .div-cell:focus { background:var(--bg4); border-radius:4px; }
   .div-cell.has-value { color:#111827; font-weight:600; }
   .div-total { background:var(--bg3); font-family:var(--mono); font-size:1em; color:#1d4ed8; font-weight:700; text-align:right; padding:2px 5px; }
-  .div-ticker-cell { padding:1px 6px; min-width:280px; width:280px; }
+  .div-ticker-cell { padding:1px 6px; min-width:180px; width:180px; }
   .div-grid td, .div-grid th { padding-top:0; padding-bottom:0; line-height:1.15; }
   .div-name { font-size:1em; color:#111827; }
 
@@ -1563,8 +1563,8 @@ async function loadDividendGrid() {
       <thead><tr>
         <th style="color:#374151">계좌</th>
         <th style="color:#111827">종목</th>
-        ${months.map(m=>`<th style="min-width:56px;color:#111827">${m}월</th>`).join('')}
-        <th style="min-width:80px;color:#111827">합계</th>
+        ${months.map(m=>`<th style="min-width:40px;color:#111827">${m}월</th>`).join('')}
+        <th style="min-width:60px;color:#111827">합계</th>
         <th style="color:var(--accent)">실분배율</th>
         <th style="color:var(--accent)">환산분배율</th>
       </tr></thead>
