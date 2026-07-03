@@ -420,7 +420,7 @@
   <div id="tab-holdings" class="page">
     <div class="card-header" style="margin-bottom:20px">
       <div>
-        <div class="page-title">📊 종목 관리</div>
+        
         <div style="font-size:13px;color:var(--text3);margin-top:4px" id="selectedAccountName">계좌를 선택하세요</div>
       </div>
       <div class="gap-8">
@@ -2303,6 +2303,8 @@ const SHEET_ACC_MAP = {
 };
 
 let _pendingSyncChanges = [];
+let _pendingSyncAdds = [];
+let _pendingSyncRemoves = [];
 
 async function syncFromSheet() {
   const modal = document.getElementById('modal-sync');
@@ -2382,12 +2384,33 @@ async function syncFromSheet() {
     }
   }
 
+  // 시트에 없는 앱 종목 = 삭제 대상 (시트 티커 집합 대조)
+  const sheetKeySet = new Set();
+  for (const it of sheetItems) {
+    let rt = (it.ticker || '').toString().toUpperCase();
+    if (/^\d{1,5}$/.test(rt) && it.currency !== 'USD') rt = rt.padStart(6, '0');
+    sheetKeySet.add(SHEET_ACC_MAP[it.account] + '|' + rt);
+  }
+  const removed = [];
+  for (const h of state.holdings) {
+    const acc = state.accounts.find(a => a.id === h.account_id);
+    if (!acc) continue;
+    // 시트 동기화 대상 계좌만 (SHEET_ACC_MAP 값에 존재하는 계좌)
+    if (!Object.values(SHEET_ACC_MAP).includes(acc.name)) continue;
+    let key = (h.ticker || '').toString().toUpperCase();
+    if (/^\d{1,5}$/.test(key)) key = key.padStart(6, '0');
+    if (!sheetKeySet.has(acc.name + '|' + key)) {
+      removed.push({ id: h.id, accName: acc.name, ticker: key, name: h.name, quantity: h.quantity, checked: true });
+    }
+  }
+  _pendingSyncRemoves = removed;
+
   _pendingSyncChanges = changes;
 
   // UI 렌더
   let html = '';
 
-  if (changes.length === 0 && missing.length === 0) {
+  if (changes.length === 0 && missing.length === 0 && removed.length === 0) {
     html = '<div style="text-align:center;padding:32px;color:#166534;font-size:15px;">✅ 모든 종목이 일치합니다.</div>';
   }
 
@@ -2420,42 +2443,86 @@ async function syncFromSheet() {
     html += '</tbody></table>';
   }
 
+  _pendingSyncAdds = missing;
   if (missing.length > 0) {
-    html += `<div style="font-weight:700;font-size:14px;margin-bottom:10px;color:#1e40af;">ℹ️ 앱에 없는 종목 ${missing.length}건 (참고)</div>`;
-    html += `<div style="font-size:12px;color:var(--text3);margin-bottom:6px;">아래 종목은 스프레드시트에 있지만 앱에 미등록입니다. 직접 추가하세요.</div>`;
-    html += `<table style="width:100%;border-collapse:collapse;font-size:12px;">
-      <thead><tr style="background:var(--bg3);">
-        <th style="padding:6px;text-align:left;border-bottom:1px solid var(--border);">계좌</th>
-        <th style="padding:6px;text-align:left;border-bottom:1px solid var(--border);">티커</th>
-        <th style="padding:6px;text-align:left;border-bottom:1px solid var(--border);">종목명</th>
-        <th style="padding:6px;text-align:right;border-bottom:1px solid var(--border);">수량</th>
-        <th style="padding:6px;text-align:right;border-bottom:1px solid var(--border);">평단가</th>
+    html += `<div style="font-weight:700;font-size:14px;margin:16px 0 10px;color:#166534;">➕ 앱에 없는 신규 종목 ${missing.length}건 (추가)</div>`;
+    html += `<table style="width:auto;margin:0 auto;border-collapse:collapse;font-size:12px;">
+      <thead><tr style="background:#e2e8f0;">
+        <th style="padding:6px;border:1px solid #64748b;color:#111827">선택</th>
+        <th style="padding:6px;border:1px solid #64748b;color:#111827">계좌</th>
+        <th style="padding:6px;border:1px solid #64748b;color:#111827">티커</th>
+        <th style="padding:6px;border:1px solid #64748b;color:#111827">종목명</th>
+        <th style="padding:6px;border:1px solid #64748b;color:#111827">수량</th>
+        <th style="padding:6px;border:1px solid #64748b;color:#111827">평단가</th>
       </tr></thead><tbody>`;
-    missing.forEach(m => {
+    missing.forEach((m, i) => {
+      m.checked = true;
       const cur = m.currency === 'USD' ? '$' : '₩';
-      html += `<tr style="border-bottom:1px solid var(--border);">
-        <td style="padding:6px;font-size:11px;">${m.appAccName}</td>
-        <td style="padding:6px;font-weight:600;">${m.ticker}</td>
-        <td style="padding:6px;">${m.name||''}</td>
-        <td style="padding:6px;text-align:right;">${(m.quantity||0).toLocaleString()}</td>
-        <td style="padding:6px;text-align:right;">${cur}${(m.avg_price||0).toLocaleString()}</td>
+      html += `<tr>
+        <td style="padding:6px;border:1px solid #64748b;text-align:center"><input type="checkbox" data-add-idx="${i}" checked onchange="_pendingSyncAdds[${i}].checked=this.checked"></td>
+        <td style="padding:6px;border:1px solid #64748b;color:#111827">${m.appAccName}</td>
+        <td style="padding:6px;border:1px solid #64748b;font-weight:700;color:#111827">${m.ticker}</td>
+        <td style="padding:6px;border:1px solid #64748b;color:#111827">${m.name||''}</td>
+        <td style="padding:6px;border:1px solid #64748b;text-align:right;color:#111827">${(m.quantity||0).toLocaleString()}</td>
+        <td style="padding:6px;border:1px solid #64748b;text-align:right;color:#111827">${cur}${(m.avg_price||0).toLocaleString()}</td>
+      </tr>`;
+    });
+    html += '</tbody></table>';
+  }
+
+  if (removed.length > 0) {
+    html += `<div style="font-weight:700;font-size:14px;margin:16px 0 10px;color:#dc2626;">➖ 시트에서 사라진 종목 ${removed.length}건 (삭제)</div>`;
+    html += `<table style="width:auto;margin:0 auto;border-collapse:collapse;font-size:12px;">
+      <thead><tr style="background:#e2e8f0;">
+        <th style="padding:6px;border:1px solid #64748b;color:#111827">선택</th>
+        <th style="padding:6px;border:1px solid #64748b;color:#111827">계좌</th>
+        <th style="padding:6px;border:1px solid #64748b;color:#111827">티커</th>
+        <th style="padding:6px;border:1px solid #64748b;color:#111827">종목명</th>
+        <th style="padding:6px;border:1px solid #64748b;color:#111827">수량</th>
+      </tr></thead><tbody>`;
+    removed.forEach((m, i) => {
+      html += `<tr>
+        <td style="padding:6px;border:1px solid #64748b;text-align:center"><input type="checkbox" data-rm-idx="${i}" checked onchange="_pendingSyncRemoves[${i}].checked=this.checked"></td>
+        <td style="padding:6px;border:1px solid #64748b;color:#111827">${m.accName}</td>
+        <td style="padding:6px;border:1px solid #64748b;font-weight:700;color:#111827">${m.ticker}</td>
+        <td style="padding:6px;border:1px solid #64748b;color:#111827">${m.name||''}</td>
+        <td style="padding:6px;border:1px solid #64748b;text-align:right;color:#111827">${(m.quantity||0).toLocaleString()}</td>
       </tr>`;
     });
     html += '</tbody></table>';
   }
 
   body.innerHTML = html;
-  if (changes.length > 0) document.getElementById('syncApplyBtn').style.display = '';
+  if (changes.length > 0 || missing.length > 0 || removed.length > 0)
+    document.getElementById('syncApplyBtn').style.display = '';
 }
 
 async function applySyncChanges() {
-  const toApply = _pendingSyncChanges.filter(c => c.checked);
-  if (!toApply.length) { alert('선택된 항목이 없습니다.'); return; }
+  const toApply = (_pendingSyncChanges||[]).filter(c => c.checked);
+  const toAdd = (_pendingSyncAdds||[]).filter(c => c.checked);
+  const toRemove = (_pendingSyncRemoves||[]).filter(c => c.checked);
+  if (!toApply.length && !toAdd.length && !toRemove.length) { alert('선택된 항목이 없습니다.'); return; }
 
   const btn = document.getElementById('syncApplyBtn');
   btn.disabled = true; btn.textContent = '적용 중...';
-
   let ok = 0, fail = 0;
+
+  // 신규 추가
+  for (const m of toAdd) {
+    try {
+      const acc = state.accounts.find(a => a.name === m.appAccName);
+      if (!acc) { fail++; continue; }
+      await apiPost({ action:'addHolding', account_id: acc.id, ticker: m.ticker, name: m.name||m.ticker,
+        avg_price: m.avg_price, quantity: m.quantity, currency: m.currency||'KRW', div_cycle:'' });
+      ok++;
+    } catch(e) { fail++; }
+  }
+  // 삭제
+  for (const m of toRemove) {
+    try { await apiPost({ action:'deleteHolding', id: m.id }); ok++; }
+    catch(e) { fail++; }
+  }
+
   for (const c of toApply) {
     try {
       const h = state.holdings.find(x => x.id === c.id);
