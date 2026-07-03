@@ -592,7 +592,7 @@
       <span id="scrCount" style="font-size:12px;color:var(--text3)"></span>
     </div>
     <div class="table-wrap">
-      <table>
+      <table class="scr-table" style="width:auto;margin:0 auto;font-size:12px">
         <thead><tr>
           <th>종목명</th><th>추종</th><th style="text-align:right">연분배율</th>
           <th style="text-align:right">1년수익</th><th style="text-align:right">현재가</th>
@@ -3114,15 +3114,15 @@ function renderScreener() {
   document.getElementById('scrBody').innerHTML = rows.map(x => {
     const chCls = x.change > 0 ? 'up' : x.change < 0 ? 'down' : '';
     return `<tr>
-      <td style="max-width:260px;white-space:normal">${x.name}</td>
-      <td><span class="badge" style="background:var(--bg4);color:var(--text2)">${x.category}</span></td>
-      <td class="num" style="color:var(--accent);font-weight:700">${x.divRate==null?'-':fmt(x.divRate)+'%'}</td>
-      <td class="num">${x.yld1y==null?'-':fmt(x.yld1y)+'%'}</td>
-      <td class="num">${x.price?x.price.toLocaleString():'-'}</td>
-      <td class="num ${chCls}">${(x.change>0?'+':'')+fmt(x.change)}%</td>
-      <td class="num">${x.expense==null?'-':fmt(x.expense)+'%'}</td>
-      <td class="num">${x.aum?x.aum.toLocaleString():'-'}</td>
-      <td style="font-size:11px;color:var(--text3)">${x.provider}</td>
+      <td style="max-width:260px;white-space:normal;padding:1px 8px">${x.name}</td>
+      <td style="padding:1px 8px"><span class="badge" style="background:#1e40af;color:#fff">${x.category}</span></td>
+      <td class="num" style="color:#1d4ed8;font-weight:700;padding:1px 8px">${x.divRate==null?'-':fmt(x.divRate)+'%'}</td>
+      <td class="num" style="padding:1px 8px">${x.yld1y==null?'-':fmt(x.yld1y)+'%'}</td>
+      <td class="num" style="padding:1px 8px">${x.price?x.price.toLocaleString():'-'}</td>
+      <td class="num ${chCls}" style="padding:1px 8px">${(x.change>0?'+':'')+fmt(x.change)}%</td>
+      <td class="num" style="padding:1px 8px">${x.expense==null?'-':fmt(x.expense)+'%'}</td>
+      <td class="num" style="padding:1px 8px">${x.aum?x.aum.toLocaleString():'-'}</td>
+      <td style="padding:1px 8px;color:#111827">${x.provider}</td>
     </tr>`;
   }).join('') || '<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:24px">결과 없음</td></tr>';
 }
