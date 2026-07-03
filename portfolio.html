@@ -2751,13 +2751,31 @@ function renderMasterCalendar(allData) {
       if (p && (p.m === month || p.m === nextMonth)) return true;
       return false;
     };
+    // 보유 종목 마킹
+    const markedCyc = new Set();
     if (heldItems.length) {
       heldItems.forEach(it => {
         const sch = fillRakil(it.sched && Object.keys(it.sched).length ? {...it.sched} : {...repSched}, repSched);
         if (!inRange(sch)) return;
         addAll(c, sch, it);
+        markedCyc.add(cycleOf(sch, it));
       });
-    } else {
+    }
+    // 공지엔 있으나 보유 회차로 안 잡힌 회차(월중/월말) 보충: 전체 items에서 회차 대표 1개씩
+    ['월중','월말'].forEach(cyc => {
+      if (markedCyc.has(cyc)) return;
+      const rep = items.find(it => {
+        const sch = fillRakil(it.sched && Object.keys(it.sched).length ? {...it.sched} : {...repSched}, repSched);
+        return cycleOf(sch, it) === cyc && inRange(sch);
+      });
+      if (rep) {
+        const sch = fillRakil(rep.sched && Object.keys(rep.sched).length ? {...rep.sched} : {...repSched}, repSched);
+        addAll(c, sch, rep);
+        markedCyc.add(cyc);
+      }
+    });
+    // 아무것도 없으면 대표 일정으로 폴백
+    if (!markedCyc.size) {
       const sch = fillRakil({...repSched}, repSched);
       if (inRange(sch)) addAll(c, sch);
     }
