@@ -192,7 +192,8 @@
   .div-cell:focus { background:var(--bg4); border-radius:4px; }
   .div-cell.has-value { color:#111827; font-weight:600; }
   .div-total { background:var(--bg3); font-family:var(--mono); font-size:11px; color:var(--accent2); font-weight:600; text-align:right; padding:2px 5px; }
-  .div-ticker-cell { padding:2px 6px; min-width:280px; width:280px; }
+  .div-ticker-cell { padding:1px 6px; min-width:280px; width:280px; }
+  .div-grid td, .div-grid th { padding-top:0; padding-bottom:0; line-height:1.1; }
   .div-name { font-size:11px; color:var(--text3); }
 
   /* ── DASHBOARD ── */
@@ -440,6 +441,10 @@
           <option value="value">평가금액순</option>
           <option value="name">종목명순</option>
         </select>
+        <label id="tickerFontWrap" style="display:none;align-items:center;gap:6px;font-size:12px;color:var(--text2);margin-left:8px">
+          글자
+          <input type="range" id="tickerFontSize" min="10" max="20" value="14" oninput="renderTickerSummary()" style="width:90px">
+        </label>
       </div>
       <div id="holdingsTable" class="loading"><span class="spinner"></span>계좌를 선택하세요</div>
       <div id="tickerSummary" style="display:none"></div>
@@ -1112,11 +1117,14 @@ function switchHoldingSub(which) {
   accBox.style.display = isTic ? 'none' : '';
   ticBox.style.display = isTic ? '' : 'none';
   sortSel.style.display = isTic ? '' : 'none';
+  const fw = document.getElementById('tickerFontWrap');
+  if (fw) fw.style.display = isTic ? 'inline-flex' : 'none';
   if (isTic) renderTickerSummary();
 }
 
 function renderTickerSummary() {
   const box = document.getElementById('tickerSummary');
+  const fs = parseInt(document.getElementById('tickerFontSize')?.value) || 14;
   const holdings = state.holdings || [];
   if (!holdings.length) { box.innerHTML = '<div style="padding:12px;color:var(--text3);font-size:13px">종목이 없습니다.</div>'; return; }
   const er = state.exchangeRate || 1400;
@@ -1172,7 +1180,7 @@ function renderTickerSummary() {
 
   box.innerHTML = `
     <div style="text-align:center">
-    <table style="width:auto;border-collapse:collapse;font-size:11px;margin:0 auto">
+    <table style="width:auto;border-collapse:collapse;font-size:${fs}px;margin:0 auto">
       <thead>
         <tr>
           <th style="border:${B};padding:2px 5px;background:#1e40af;color:#fff">티커</th>
@@ -1469,7 +1477,7 @@ async function loadDividendGrid() {
           onblur="if(this.dataset.display&&!this._editing)this.value=this.dataset.display;this._editing=false"
           onfocus="this._editing=true"
           onkeydown="if(event.key==='Enter')this.blur()">
-        ${monthRate ? `<div style="font-size:9px;color:#2563eb;font-weight:600;text-align:right;padding:0 4px;line-height:1">${monthRate}%</div>` : '<div style="height:0px"></div>'}
+        ${monthRate ? `<div style="font-size:9px;color:#2563eb;font-weight:600;text-align:left;padding:0 4px;line-height:1">${monthRate}%</div>` : '<div style="height:0px"></div>'}
       </td>`;
     }).join('');
     accSumKrw += rowTotalKrw;
