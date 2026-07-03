@@ -184,7 +184,7 @@
   .div-grid th { padding:3px 5px; background:#e2e8f0; border:1px solid #111827; color:#111827; font-size:1em; white-space:nowrap; text-align:center; font-weight:700; }
   .div-grid td { border:1px solid #111827; padding:0 2px; vertical-align:middle; }
   .div-cell {
-    width:auto; flex:1; min-width:28px; height:auto; background:transparent;
+    width:auto; flex:1; min-width:18px; height:1.3em; box-sizing:border-box; background:transparent;
     border:none; outline:none; color:var(--text);
     font-family:var(--mono); font-size:1em; text-align:right;
     padding:0 4px; cursor:pointer; vertical-align:middle; line-height:1.2;
@@ -1497,8 +1497,8 @@ async function loadDividendGrid() {
       const monthRate = (investKrw > 0 && amtKrw > 0) ? (amtKrw / investKrw * 100).toFixed(2) : '';
       const dol = isUsd && amt ? `<span style="font-size:0.8em;color:#92400e;font-weight:700;margin-right:1px">$</span>` : '';
       return `<td style="padding:0">
-        <div style="display:flex;align-items:center;justify-content:flex-end;gap:4px;white-space:nowrap;padding:0 4px;line-height:1.2">
-          <span style="font-size:0.7em;color:#2563eb;font-weight:600;min-width:30px;text-align:left">${monthRate?monthRate+'%':''}</span>
+        <div style="display:flex;align-items:center;justify-content:flex-end;gap:2px;white-space:nowrap;padding:0 2px;line-height:1.2">
+          <span style="font-size:0.62em;color:#2563eb;font-weight:600;text-align:left">${monthRate?monthRate+'%':''}</span>
           ${dol}<input class="div-cell ${amt?'has-value':''}"
           type="text" value="${displayVal}"
           data-display="${displayVal}" data-raw="${rawVal}"
@@ -1530,10 +1530,10 @@ async function loadDividendGrid() {
     rows += `<tr style="background:${divRowBg};${groupBorder}${isUsdBorder ? 'border-top:2px solid #f59e0b88' : ''}">
       ${acctCell}
       <td class="div-ticker-cell" title="${h.ticker}">
-        <span class="ticker" style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px;text-align:left;color:#111827;font-weight:500">${h.name || h.ticker}</span>
+        <span class="ticker" style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px;text-align:left;color:#111827;font-weight:500;line-height:1.1">${h.name || h.ticker}</span>
       </td>
       ${cells}
-      <td class="div-total" style="color:#111827;font-weight:600;font-size:11px;line-height:1.4">${rowTotalDisplay}</td>
+      <td class="div-total" style="color:#111827;font-weight:600;font-size:11px;line-height:1.1">${rowTotalDisplay}</td>
       <td class="div-total" style="color:var(--accent)">${realRate !== '-' ? realRate+'%' : '-'}</td>
       <td class="div-total" style="color:var(--accent)">${annualRate !== '-' ? annualRate+'%' : '-'}</td>
     </tr>`;
@@ -1563,7 +1563,7 @@ async function loadDividendGrid() {
       <thead><tr>
         <th style="color:#374151">계좌</th>
         <th style="color:#111827">종목</th>
-        ${months.map(m=>`<th style="min-width:40px;color:#111827">${m}월</th>`).join('')}
+        ${months.map(m=>`<th style="min-width:32px;color:#111827">${m}월</th>`).join('')}
         <th style="min-width:60px;color:#111827">합계</th>
         <th style="color:var(--accent)">실분배율</th>
         <th style="color:var(--accent)">환산분배율</th>
@@ -2403,14 +2403,29 @@ async function syncFromSheet() {
       removed.push({ id: h.id, accName: acc.name, ticker: key, name: h.name, quantity: h.quantity, checked: true });
     }
   }
-  _pendingSyncRemoves = removed;
+  // 안전장치: 특정 계좌 종목이 시트에서 통째로(그 계좌 앱종목의 절반 초과) 사라지면
+  // 정렬/파싱 오류일 가능성이 높으므로 삭제 제안에서 제외 (실수 삭제 방지)
+  const appCntByAcc = {}, rmCntByAcc = {};
+  for (const h of state.holdings) {
+    const acc = state.accounts.find(a => a.id === h.account_id);
+    if (acc) appCntByAcc[acc.name] = (appCntByAcc[acc.name]||0) + 1;
+  }
+  removed.forEach(m => { rmCntByAcc[m.accName] = (rmCntByAcc[m.accName]||0) + 1; });
+  const suspiciousAccs = Object.keys(rmCntByAcc).filter(a => rmCntByAcc[a] > (appCntByAcc[a]||0) * 0.5);
+  const safeRemoved = removed.filter(m => !suspiciousAccs.includes(m.accName));
+  if (suspiciousAccs.length) {
+    html += `<div style="background:#fef2f2;border:1px solid #dc2626;border-radius:8px;padding:10px;margin:12px 0;font-size:12px;color:#991b1b">
+      ⚠️ 다음 계좌는 종목 다수가 시트에서 누락되어 <b>정렬/파싱 오류</b>로 판단, 삭제 제안에서 제외했습니다: ${suspiciousAccs.join(', ')}.<br>
+      시트의 해당 계좌 A열(계좌명) 표기와 종목 데이터를 확인하세요.</div>`;
+  }
+  _pendingSyncRemoves = safeRemoved;
 
   _pendingSyncChanges = changes;
 
   // UI 렌더
   let html = '';
 
-  if (changes.length === 0 && missing.length === 0 && removed.length === 0) {
+  if (changes.length === 0 && missing.length === 0 && _pendingSyncRemoves.length === 0 && !suspiciousAccs.length) {
     html = '<div style="text-align:center;padding:32px;color:#166534;font-size:15px;">✅ 모든 종목이 일치합니다.</div>';
   }
 
@@ -2470,8 +2485,8 @@ async function syncFromSheet() {
     html += '</tbody></table>';
   }
 
-  if (removed.length > 0) {
-    html += `<div style="font-weight:700;font-size:14px;margin:16px 0 10px;color:#dc2626;">➖ 시트에서 사라진 종목 ${removed.length}건 (삭제)</div>`;
+  if (_pendingSyncRemoves.length > 0) {
+    html += `<div style="font-weight:700;font-size:14px;margin:16px 0 10px;color:#dc2626;">➖ 시트에서 사라진 종목 ${_pendingSyncRemoves.length}건 (삭제)</div>`;
     html += `<table style="width:auto;margin:0 auto;border-collapse:collapse;font-size:12px;">
       <thead><tr style="background:#e2e8f0;">
         <th style="padding:6px;border:1px solid #64748b;color:#111827">선택</th>
@@ -2480,7 +2495,7 @@ async function syncFromSheet() {
         <th style="padding:6px;border:1px solid #64748b;color:#111827">종목명</th>
         <th style="padding:6px;border:1px solid #64748b;color:#111827">수량</th>
       </tr></thead><tbody>`;
-    removed.forEach((m, i) => {
+    _pendingSyncRemoves.forEach((m, i) => {
       html += `<tr>
         <td style="padding:6px;border:1px solid #64748b;text-align:center"><input type="checkbox" data-rm-idx="${i}" checked onchange="_pendingSyncRemoves[${i}].checked=this.checked"></td>
         <td style="padding:6px;border:1px solid #64748b;color:#111827">${m.accName}</td>
@@ -2493,7 +2508,7 @@ async function syncFromSheet() {
   }
 
   body.innerHTML = html;
-  if (changes.length > 0 || missing.length > 0 || removed.length > 0)
+  if (changes.length > 0 || missing.length > 0 || _pendingSyncRemoves.length > 0)
     document.getElementById('syncApplyBtn').style.display = '';
 }
 
