@@ -181,10 +181,10 @@
   .div-controls select { padding:7px 12px; background:var(--bg3); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:13px; }
   .div-grid-wrap { overflow-x:auto; }
   .div-grid { border-collapse:collapse; font-size:12px; min-width:1400px; width:100%; }
-  .div-grid th { padding:3px 5px; background:var(--bg3); border:1px solid #94a3b8; color:var(--text3); font-size:10px; white-space:nowrap; text-align:center; }
-  .div-grid td { border:1px solid #cbd5e1; padding:0 2px; vertical-align:middle; }
+  .div-grid th { padding:3px 5px; background:#e2e8f0; border:1px solid #475569; color:#111827; font-size:10px; white-space:nowrap; text-align:center; font-weight:700; }
+  .div-grid td { border:1px solid #64748b; padding:0 2px; vertical-align:middle; }
   .div-cell {
-    width:100%; height:16px; background:transparent;
+    width:auto; flex:1; min-width:40px; height:15px; background:transparent;
     border:none; outline:none; color:var(--text);
     font-family:var(--mono); font-size:11px; text-align:right;
     padding:0 4px; cursor:pointer; vertical-align:middle;
@@ -1464,10 +1464,12 @@ async function loadDividendGrid() {
       // 표시: USD종목은 달러, KRW는 원화
       const displayVal = amt ? (isUsd ? amt.toFixed(2) : Math.round(amt).toLocaleString()) : '';
       const rawVal = div ? (div.raw_formula || displayVal) : '';
-      const cellPrefix = isUsd && amt ? `<div style="font-size:9px;color:#92400e;font-weight:700;text-align:left;padding:0 4px;line-height:1.2">$</div>` : '';
       const monthRate = (investKrw > 0 && amtKrw > 0) ? (amtKrw / investKrw * 100).toFixed(2) : '';
-      return `<td>
-        ${cellPrefix}<input class="div-cell ${amt?'has-value':''}"
+      const dol = isUsd && amt ? `<span style="font-size:10px;color:#92400e;font-weight:700;margin-right:1px">$</span>` : '';
+      return `<td style="padding:0">
+        <div style="display:flex;align-items:center;justify-content:flex-end;gap:4px;white-space:nowrap;padding:0 4px">
+          <span style="font-size:9px;color:#2563eb;font-weight:600;min-width:30px;text-align:left">${monthRate?monthRate+'%':''}</span>
+          ${dol}<input class="div-cell ${amt?'has-value':''}"
           type="text" value="${displayVal}"
           data-display="${displayVal}" data-raw="${rawVal}"
           data-holding="${h.id}" data-month="${m}"
@@ -1477,7 +1479,7 @@ async function loadDividendGrid() {
           onblur="if(this.dataset.display&&!this._editing)this.value=this.dataset.display;this._editing=false"
           onfocus="this._editing=true"
           onkeydown="if(event.key==='Enter')this.blur()">
-        ${monthRate ? `<div style="font-size:9px;color:#2563eb;font-weight:600;text-align:left;padding:0 4px;line-height:1">${monthRate}%</div>` : '<div style="height:0px"></div>'}
+        </div>
       </td>`;
     }).join('');
     accSumKrw += rowTotalKrw;
