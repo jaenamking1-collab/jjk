@@ -1153,55 +1153,41 @@ function renderTickerSummary() {
   // 계좌명 축약: "재남 키움 ISA" → "재남키움ISA"
   const abbr = n => (n||'').replace(/\s+/g,'').replace('미래에셋','미래').replace('연금저축','연저').replace('일반계좌','일반');
   const ownColor = n => (n||'').includes('재남') ? '#2563eb' : (n||'').includes('은경') ? '#db2777' : '#334155';
-  // 보유계좌 체크 매트릭스용: 전체 계좌(재남 먼저)
-  const allAccs = sortAccounts((state.accounts||[]).slice());
-  const jnAccs = allAccs.filter(a=>(a.name||'').includes('재남'));
-  const ekAccs = allAccs.filter(a=>(a.name||'').includes('은경'));
-  const matAccs = [...jnAccs, ...ekAccs];
   const B = '1px solid #64748b';
 
-  const rowsHtml = arr.map(x => {
+  const rowsHtml = arr.map((x, gi) => {
     const n = x.rows.length;
-    const heldNames = new Set(x.rows.map(r=>r.acc));
-    const checks = matAccs.map(a =>
-      `<td style="border:${B};padding:1px 3px;text-align:center;font-weight:800;color:${ownColor(a.name)}">${heldNames.has(a.name)?'✓':''}</td>`).join('');
-    return x.rows.map((r,i) => `<tr>
-      ${i===0?`<td rowspan="${n}" style="border:${B};padding:2px 5px;font-family:var(--mono);font-size:11px;font-weight:700;color:#111827;vertical-align:middle">${x.ticker}</td>`:''}
-      ${i===0?`<td rowspan="${n}" style="border:${B};padding:2px 6px;font-weight:700;color:#111827;white-space:nowrap;vertical-align:middle;text-align:left">${x.name}</td>`:''}
-      ${i===0?checks.replace(/<td /g,`<td rowspan="${n}" `):''}
-      ${i===0?`<td rowspan="${n}" style="border:${B};padding:2px 6px;text-align:right;font-family:var(--mono);font-weight:700;color:#111827;vertical-align:middle">${fmtNum(x.qty)}</td>`:''}
-      <td style="border:${B};padding:1px 5px;font-size:10px;font-weight:700;color:${ownColor(r.acc)};white-space:nowrap">${abbr(r.acc)}</td>
-      <td style="border:${B};padding:1px 5px;text-align:right;font-family:var(--mono);font-weight:700;color:#111827">${fmtNum(r.avg)}</td>
-      <td style="border:${B};padding:1px 5px;text-align:right;font-family:var(--mono);color:#111827">${fmtNum(r.qty)}</td>
-      ${i===0?`<td rowspan="${n}" style="border:${B};padding:2px 7px;text-align:right;font-family:var(--mono);font-weight:800;color:#111827;vertical-align:middle">${fmtW(x.value)}</td>`:''}
+    const zebra = gi % 2 ? '#f1f5f9' : '#ffffff';
+    return x.rows.map((r,i) => `<tr style="background:${zebra}">
+      ${i===0?`<td rowspan="${n}" style="border:${B};padding:1px 4px;font-family:var(--mono);font-size:11px;font-weight:700;color:#111827;vertical-align:middle">${x.ticker}</td>`:''}
+      ${i===0?`<td rowspan="${n}" style="border:${B};padding:1px 5px;font-weight:700;color:#111827;white-space:nowrap;vertical-align:middle;text-align:left">${x.name}</td>`:''}
+      ${i===0?`<td rowspan="${n}" style="border:${B};padding:1px 5px;text-align:right;font-family:var(--mono);font-weight:700;color:#111827;vertical-align:middle;background:#fefce8">${fmtNum(x.qty)}</td>`:''}
+      <td style="border:${B};padding:0 4px;font-size:10px;font-weight:700;color:${ownColor(r.acc)};white-space:nowrap">${abbr(r.acc)}</td>
+      <td style="border:${B};padding:0 4px;text-align:right;font-family:var(--mono);font-weight:700;color:#111827">${fmtNum(r.avg)}</td>
+      <td style="border:${B};padding:0 4px;text-align:right;font-family:var(--mono);color:#111827">${fmtNum(r.qty)}</td>
+      ${i===0?`<td rowspan="${n}" style="border:${B};padding:1px 6px;text-align:right;font-family:var(--mono);font-weight:800;color:#1e3a8a;vertical-align:middle;background:#dbeafe">${fmtW(x.value)}</td>`:''}
     </tr>`).join('');
   }).join('');
   const total = arr.reduce((s,x)=>s+x.value,0);
-
-  const accHead = matAccs.map(a =>
-    `<th style="border:${B};padding:2px 3px;font-size:9px;color:#fff;background:${ownColor(a.name)};writing-mode:initial;white-space:nowrap">${abbr(a.name).replace(a.name.includes('재남')?'재남':'은경','')}</th>`).join('');
 
   box.innerHTML = `
     <div style="text-align:center">
     <table style="border-collapse:collapse;font-size:12px;margin:0 auto">
       <thead>
-        <tr style="background:#e2e8f0">
-          <th rowspan="2" style="border:${B};padding:3px 6px;color:#111827">티커</th>
-          <th rowspan="2" style="border:${B};padding:3px 6px;color:#111827">종목</th>
-          <th colspan="${jnAccs.length}" style="border:${B};padding:2px;background:#2563eb;color:#fff">재남</th>
-          <th colspan="${ekAccs.length}" style="border:${B};padding:2px;background:#db2777;color:#fff">은경</th>
-          <th rowspan="2" style="border:${B};padding:3px 6px;color:#111827">수량합</th>
-          <th rowspan="2" style="border:${B};padding:3px 6px;color:#111827">계좌</th>
-          <th rowspan="2" style="border:${B};padding:3px 6px;color:#111827">매입가</th>
-          <th rowspan="2" style="border:${B};padding:3px 6px;color:#111827">수량</th>
-          <th rowspan="2" style="border:${B};padding:3px 6px;color:#111827">평가금액</th>
+        <tr>
+          <th style="border:${B};padding:2px 5px;background:#1e40af;color:#fff">티커</th>
+          <th style="border:${B};padding:2px 5px;background:#1e40af;color:#fff">종목</th>
+          <th style="border:${B};padding:2px 5px;background:#1e40af;color:#fff">수량합</th>
+          <th style="border:${B};padding:2px 5px;background:#0f766e;color:#fff">계좌</th>
+          <th style="border:${B};padding:2px 5px;background:#0f766e;color:#fff">매입가</th>
+          <th style="border:${B};padding:2px 5px;background:#0f766e;color:#fff">수량</th>
+          <th style="border:${B};padding:2px 5px;background:#1e40af;color:#fff">평가금액</th>
         </tr>
-        <tr>${accHead}</tr>
       </thead>
       <tbody>${rowsHtml}</tbody>
       <tfoot><tr style="background:#e2e8f0">
-        <td colspan="${4+matAccs.length+3}" style="border:${B};padding:3px 8px;text-align:right;font-weight:800;color:#111827">합계</td>
-        <td style="border:${B};padding:3px 8px;text-align:right;font-family:var(--mono);font-weight:800;color:#1d4ed8">${fmtW(total)}</td>
+        <td colspan="6" style="border:${B};padding:2px 6px;text-align:right;font-weight:800;color:#111827">합계</td>
+        <td style="border:${B};padding:2px 6px;text-align:right;font-family:var(--mono);font-weight:800;color:#1d4ed8">${fmtW(total)}</td>
       </tr></tfoot>
     </table>
     </div>`;
