@@ -184,10 +184,10 @@
   .div-grid th { padding:3px 5px; background:#e2e8f0; border:1px solid #111827; color:#111827; font-size:1em; white-space:nowrap; text-align:center; font-weight:700; }
   .div-grid td { border:1px solid #111827; padding:0 2px; vertical-align:middle; }
   .div-cell {
-    width:auto; flex:1; min-width:18px; height:1.3em; box-sizing:border-box; background:transparent;
+    width:100%; flex:none; min-width:0; height:1.3em; box-sizing:border-box; background:transparent;
     border:none; outline:none; color:var(--text);
-    font-family:var(--mono); font-size:1em; text-align:right;
-    padding:0 4px; cursor:pointer; vertical-align:middle; line-height:1.2;
+    font-family:var(--mono); font-size:0.9em; text-align:right;
+    padding:0 2px; cursor:pointer; vertical-align:middle; line-height:1.15;
   }
   .div-cell:focus { background:var(--bg4); border-radius:4px; }
   .div-cell.has-value { color:#111827; font-weight:600; }
@@ -1497,8 +1497,9 @@ async function loadDividendGrid() {
       const monthRate = (investKrw > 0 && amtKrw > 0) ? (amtKrw / investKrw * 100).toFixed(2) : '';
       const dol = isUsd && amt ? `<span style="font-size:0.8em;color:#92400e;font-weight:700;margin-right:1px">$</span>` : '';
       return `<td style="padding:0">
-        <div style="display:flex;align-items:center;justify-content:flex-end;gap:2px;white-space:nowrap;padding:0 2px;line-height:1.2">
-          <span style="font-size:0.62em;color:#2563eb;font-weight:600;text-align:left">${monthRate?monthRate+'%':''}</span>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;line-height:1;padding:0 3px">
+          <span style="font-size:0.52em;color:#2563eb;font-weight:600">${monthRate?monthRate+'%':''}</span>
+          <div style="display:flex;align-items:center;justify-content:flex-end;white-space:nowrap;width:100%">
           ${dol}<input class="div-cell ${amt?'has-value':''}"
           type="text" value="${displayVal}"
           data-display="${displayVal}" data-raw="${rawVal}"
@@ -1509,6 +1510,7 @@ async function loadDividendGrid() {
           onblur="if(this.dataset.display&&!this._editing)this.value=this.dataset.display;this._editing=false"
           onfocus="this._editing=true"
           onkeydown="if(event.key==='Enter')this.blur()">
+          </div>
         </div>
       </td>`;
     }).join('');
@@ -1563,7 +1565,7 @@ async function loadDividendGrid() {
       <thead><tr>
         <th style="color:#374151">계좌</th>
         <th style="color:#111827">종목</th>
-        ${months.map(m=>`<th style="min-width:32px;color:#111827">${m}월</th>`).join('')}
+        ${months.map(m=>`<th style="width:50px;min-width:44px;color:#111827">${m}월</th>`).join('')}
         <th style="min-width:60px;color:#111827">합계</th>
         <th style="color:var(--accent)">실분배율</th>
         <th style="color:var(--accent)">환산분배율</th>
@@ -2438,6 +2440,7 @@ async function syncFromSheet() {
         <th style="padding:6px;text-align:left;border-bottom:1px solid var(--border);">선택</th>
         <th style="padding:6px;text-align:left;border-bottom:1px solid var(--border);">계좌</th>
         <th style="padding:6px;text-align:left;border-bottom:1px solid var(--border);">티커</th>
+        <th style="padding:6px;text-align:left;border-bottom:1px solid var(--border);">종목명</th>
         <th style="padding:6px;text-align:right;border-bottom:1px solid var(--border);">앱 수량</th>
         <th style="padding:6px;text-align:right;border-bottom:1px solid var(--border);">시트 수량</th>
         <th style="padding:6px;text-align:right;border-bottom:1px solid var(--border);">앱 평단가</th>
@@ -2451,6 +2454,7 @@ async function syncFromSheet() {
         <td style="padding:6px;"><input type="checkbox" data-sync-idx="${i}" ${c.checked?'checked':''} onchange="_pendingSyncChanges[${i}].checked=this.checked"></td>
         <td style="padding:6px;font-size:11px;">${c.accName}</td>
         <td style="padding:6px;font-weight:600;">${c.ticker}</td>
+        <td style="padding:6px;font-size:11px;color:#111827;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${c.name||''}</td>
         <td style="padding:6px;text-align:right;${qtyStyle}">${(c.app.quantity||0).toLocaleString()}</td>
         <td style="padding:6px;text-align:right;${qtyStyle}"><b>${(c.sheet.quantity||0).toLocaleString()}</b></td>
         <td style="padding:6px;text-align:right;${priceStyle}">${cur}${(c.app.avg_price||0).toLocaleString()}</td>
