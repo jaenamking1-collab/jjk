@@ -9,29 +9,39 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root {
-    --bg: #f5f3ff;
-    --bg2: #fdfcff;
-    --bg3: #eef4ff;
-    --bg4: #e5e7eb;
-    --border: #e7e0f5;
-    --text: #111827;
+    --bg: #f4f7ff;
+    --bg2: #ffffff;
+    --bg3: #eef3ff;
+    --bg4: #e3e9f6;
+    --border: #e3ddf3;
+    --text: #1a1330;
     --text2: #4b5563;
     --text3: #9ca3af;
-    --accent: #2563eb;
+    --accent: #5b5bf0;
     --accent2: #3b82f6;
-    --green: #059669;
-    --red: #dc2626;
-    --yellow: #d97706;
-    --purple: #7c3aed;
+    --green: #10b981;
+    --red: #f43f5e;
+    --yellow: #f59e0b;
+    --purple: #a855f7;
+    --pink: #ec4899;
+    --teal: #14b8a6;
+    --orange: #fb7185;
     --mono: 'Pretendard', sans-serif;
     --sans: 'Pretendard', sans-serif;
   }
   * { margin:0; padding:0; box-sizing:border-box; }
-  body { background:var(--bg); color:var(--text); font-family:var(--sans); min-height:100vh; font-feature-settings:"tnum"; font-variant-numeric:tabular-nums; }
+  body {
+    background:
+      radial-gradient(1200px 600px at 8% -8%, #ffe4f2 0%, rgba(255,228,242,0) 55%),
+      radial-gradient(1000px 520px at 100% 0%, #dcefff 0%, rgba(220,239,255,0) 50%),
+      radial-gradient(900px 700px at 50% 120%, #e6fff6 0%, rgba(230,255,246,0) 55%),
+      var(--bg);
+    background-attachment:fixed;
+    color:var(--text); font-family:var(--sans); min-height:100vh; font-feature-settings:"tnum"; font-variant-numeric:tabular-nums; }
 
   /* ── HEADER ── */
   header {
-    background:var(--bg2);
+    background:linear-gradient(100deg,#fff0f7 0%,#eef1ff 38%,#e6f7ff 68%,#e9fff6 100%);
     border-bottom:1px solid var(--border);
     padding:0 24px;
     display:flex;
@@ -39,9 +49,12 @@
     justify-content:space-between;
     height:56px;
     position:sticky; top:0; z-index:100;
+    box-shadow:0 2px 12px rgba(124,58,237,0.06);
   }
-  .logo { font-size:24px; font-weight:800; letter-spacing:-0.5px; color:var(--text); }
-  .logo span { color:var(--accent); }
+  .logo { font-size:24px; font-weight:800; letter-spacing:-0.5px;
+    background:linear-gradient(90deg,#ec4899,#8b5cf6,#3b82f6);
+    -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
+  .logo span { -webkit-text-fill-color:transparent; }
   .rate-badge {
     display:flex; align-items:center; gap:6px;
     background:var(--bg3); border:1px solid var(--border);
@@ -55,7 +68,7 @@
   .tabs {
     display:flex; gap:8px;
     padding:12px 16px;
-    background:#faf8ff;
+    background:linear-gradient(100deg,#fff5fb,#f2f4ff 50%,#eefcff);
     border-bottom:1px solid #e7e0f5;
     flex-wrap:wrap;
   }
@@ -66,8 +79,15 @@
     padding:9px 16px; cursor:pointer;
     border-radius:999px; transition:.2s;
   }
-  .tab:hover { background:#f5f3ff; color:#7c3aed; border-color:#ddd0f5; }
-  .tab.active { color:#fff; font-weight:700; background:linear-gradient(135deg,#a78bfa,#818cf8); border-color:transparent; box-shadow:0 2px 8px rgba(124,58,237,0.25); }
+  .tabs .tab:nth-child(1){ color:#db2777; border-color:#fbcfe8; background:#fff5fa; }
+  .tabs .tab:nth-child(2){ color:#ea580c; border-color:#fed7aa; background:#fff7f0; }
+  .tabs .tab:nth-child(3){ color:#ca8a04; border-color:#fde68a; background:#fffbeb; }
+  .tabs .tab:nth-child(4){ color:#16a34a; border-color:#bbf7d0; background:#f2fdf6; }
+  .tabs .tab:nth-child(5){ color:#0891b2; border-color:#a5f0fc; background:#f0fdff; }
+  .tabs .tab:nth-child(6){ color:#7c3aed; border-color:#ddd6fe; background:#f6f4ff; }
+  .tabs .tab:nth-child(7){ color:#4f46e5; border-color:#c7d2fe; background:#f2f3ff; }
+  .tab:hover { filter:brightness(0.97); transform:translateY(-1px); }
+  .tab.active { color:#fff; font-weight:700; background:linear-gradient(120deg,#ec4899,#8b5cf6 55%,#3b82f6); border-color:transparent; box-shadow:0 4px 14px rgba(139,92,246,0.35); }
   .tab-icon { font-size:16px; }
 
   /* ── CONTENT ── */
@@ -77,22 +97,22 @@
 
   /* ── CARDS ── */
   .card {
-    background:#fdfcff; border:1px solid #e7e0f5;
-    border-radius:14px; padding:20px;
-    box-shadow:0 1px 3px rgba(124,58,237,0.04);
+    background:#ffffff; border:1px solid #ece7f8;
+    border-radius:16px; padding:20px;
+    box-shadow:0 6px 20px rgba(124,58,237,0.06);
   }
   .card-header {
     display:flex; align-items:center; justify-content:space-between;
     margin-bottom:16px;
   }
-  .card-title { font-size:14px; font-weight:600; color:var(--text2); text-transform:uppercase; letter-spacing:.5px; }
+  .card-title { font-size:14px; font-weight:700; color:#7c3aed; text-transform:uppercase; letter-spacing:.5px; }
   .page-title {
     display:inline-flex; align-items:center; gap:8px;
-    font-size:17px; font-weight:700; color:#6d28d9;
-    background:linear-gradient(135deg,#f5f3ff,#ede9fe);
-    border:1px solid #ddd6fe; border-radius:12px;
+    font-size:17px; font-weight:800; color:#fff;
+    background:linear-gradient(120deg,#ec4899,#8b5cf6 55%,#3b82f6);
+    border:none; border-radius:14px;
     padding:9px 18px; margin-bottom:18px;
-    box-shadow:0 1px 3px rgba(124,58,237,0.06);
+    box-shadow:0 6px 18px rgba(139,92,246,0.28);
   }
 
   /* ── BUTTONS ── */
@@ -101,8 +121,8 @@
     padding:7px 14px; border-radius:8px; font-size:13px; font-weight:500;
     cursor:pointer; border:none; transition:all .15s;
   }
-  .btn-primary { background:var(--accent); color:#fff; }
-  .btn-primary:hover { background:#2563eb; }
+  .btn-primary { background:linear-gradient(120deg,#8b5cf6,#6366f1); color:#fff; box-shadow:0 3px 10px rgba(99,102,241,0.3); }
+  .btn-primary:hover { filter:brightness(1.06); }
   .btn-ghost { background:transparent; color:var(--text2); border:1px solid var(--border); }
   .btn-ghost:hover { background:var(--bg3); color:var(--text); }
   .btn-danger { background:transparent; color:var(--red); border:1px solid #ef444433; }
@@ -201,15 +221,21 @@
 
   /* ── DASHBOARD ── */
   .stats-row { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:16px; margin-bottom:24px; }
-  .stat-card { background:#fdfcff; border:1px solid #e7e0f5; border-radius:14px; padding:20px; box-shadow:0 1px 3px rgba(124,58,237,0.04); }
+  .stat-card { background:#ffffff; border:1px solid #ece7f8; border-radius:16px; padding:20px; box-shadow:0 6px 18px rgba(124,58,237,0.06); position:relative; overflow:hidden; }
+  .stat-card::before { content:''; position:absolute; top:0; left:0; right:0; height:4px; background:linear-gradient(90deg,#ec4899,#8b5cf6,#3b82f6); }
+  .stats-row .stat-card:nth-child(1)::before { background:linear-gradient(90deg,#f472b6,#ec4899); }
+  .stats-row .stat-card:nth-child(2)::before { background:linear-gradient(90deg,#818cf8,#6366f1); }
+  .stats-row .stat-card:nth-child(3)::before { background:linear-gradient(90deg,#34d399,#10b981); }
+  .stats-row .stat-card:nth-child(4)::before { background:linear-gradient(90deg,#38bdf8,#0ea5e9); }
+  .stats-row .stat-card:nth-child(5)::before { background:linear-gradient(90deg,#c084fc,#a855f7); }
   .stat-label { font-size:11px; color:var(--text3); text-transform:uppercase; letter-spacing:.5px; margin-bottom:8px; }
   .stat-value { font-size:24px; font-weight:700; font-family:var(--mono); }
   .stat-sub { font-size:12px; color:var(--text3); margin-top:4px; }
 
   .chart-bars { display:flex; align-items:flex-end; gap:6px; height:160px; padding:0 4px; }
   .bar-wrap { flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; }
-  .bar { width:100%; border-radius:4px 4px 0 0; background:var(--accent); opacity:.8; transition:all .3s; min-height:2px; }
-  .bar:hover { opacity:1; }
+  .bar { width:100%; border-radius:6px 6px 0 0; background:linear-gradient(180deg,#8b5cf6,#3b82f6); opacity:.9; transition:all .3s; min-height:2px; }
+  .bar:hover { opacity:1; filter:saturate(1.2); }
   .bar-label { font-size:10px; color:var(--text3); }
   .bar-val { font-size:10px; color:var(--text2); font-family:var(--mono); writing-mode:vertical-rl; white-space:nowrap; }
 
@@ -634,9 +660,9 @@
           <div style="font-size:12px;font-weight:700;color:#64748b;margin-bottom:8px">📅 분배 일정 달력</div>
           <div id="distMasterCalendar"><div style="color:var(--text3);font-size:13px">불러오는 중...</div></div>
         </div>
-        <div style="width:340px;flex-shrink:0;background:#fdf4ff;border:1px solid #f0e2f5;border-radius:10px;padding:14px;display:flex;flex-direction:column">
+        <div style="width:340px;flex-shrink:0;background:#fdf4ff;border:1px solid #f0e2f5;border-radius:10px;padding:14px">
           <div style="font-size:12px;font-weight:700;color:#a855a8;margin-bottom:8px">🏢 운용사별 일정</div>
-          <div id="distScheduleList" style="flex:1"></div>
+          <div id="distScheduleList"></div>
         </div>
       </div>
     </div>
@@ -3068,15 +3094,15 @@ function renderMasterCalendar(allData) {
   // 한 셀에 월중/월말 2줄 (월중=파랑, 월말=핑크). 없으면 빈 줄로 정렬 유지.
   const cell2 = (r, key) => {
     const mv = dcell(r.mid, key), ev = dcell(r.end, key);
-    return `<td style="text-align:center;vertical-align:middle;padding:3px 2px;font-family:var(--mono);line-height:1.5;border:1px solid #d4c2e8">
+    return `<td style="text-align:center;padding:3px 2px;font-family:var(--mono);line-height:1.5;border:1px solid #d4c2e8">
       <div style="color:#2563eb;border-bottom:1px solid #d4c2e8;padding-bottom:2px;margin-bottom:2px">${mv || '<span style=\'color:var(--border)\'>·</span>'}</div>
       <div style="color:#db2777">${ev || '<span style=\'color:var(--border)\'>·</span>'}</div>
     </td>`;
   };
   const tableHtml = rowsData.length ? `
-    <table style="width:100%;height:100%;border-collapse:collapse;font-size:11px">
+    <table style="width:100%;border-collapse:collapse;font-size:11px">
       <thead><tr style="color:var(--text3)">
-        <th style="text-align:center;padding:3px 4px;font-weight:600;border:1px solid #d4c2e8">운용사</th>
+        <th style="text-align:left;padding:3px 4px;font-weight:600;border:1px solid #d4c2e8">운용사</th>
         <th style="padding:3px 4px;border:1px solid #d4c2e8"></th>
         <th style="text-align:center;padding:3px 2px;font-weight:600;color:#f59e0b;border:1px solid #d4c2e8">공시</th>
         <th style="text-align:center;padding:3px 2px;font-weight:600;color:#22c55e;border:1px solid #d4c2e8">분배락</th>
@@ -3085,11 +3111,11 @@ function renderMasterCalendar(allData) {
       </tr></thead>
       <tbody>${rowsData.map(r => {
         const noHold = m => (m.hasNotice && !m.hasHolding) ? '<span style="color:#b8a8cc;font-size:9px">보유X</span>' : '';
-        return `<tr>
-          <td style="padding:3px 4px;white-space:nowrap;vertical-align:middle;text-align:center;border:1px solid #d4c2e8">
+        return `<tr style="border-bottom:1.5px solid #c9b3e0">
+          <td style="padding:3px 4px;white-space:nowrap;vertical-align:middle;border:1px solid #d4c2e8">
             <span style="font-weight:700;color:${r.color}">${r.name}</span>
           </td>
-          <td style="padding:3px 6px;white-space:nowrap;font-size:10px;line-height:1.5;text-align:center;vertical-align:middle;border:1px solid #d4c2e8">
+          <td style="padding:3px 6px;white-space:nowrap;font-size:10px;line-height:1.5;border:1px solid #d4c2e8">
             <div style="border-bottom:1px solid #d4c2e8;padding-bottom:2px;margin-bottom:2px">${r.mid.hasNotice ? `<span style="color:#2563eb;font-weight:700">월중</span> ${noHold(r.mid)}` : '<span style="color:var(--border)">·</span>'}</div>
             <div>${r.end.hasNotice ? `<span style="color:#db2777;font-weight:700">월말</span> ${noHold(r.end)}` : '<span style="color:var(--border)">·</span>'}</div>
           </td>
