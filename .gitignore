@@ -1,0 +1,4 @@
+# Skill / agent tooling installed locally (npx skills, plugins) — not part of the app
+.agents/
+.claude/
+skills-lock.json
