@@ -139,7 +139,7 @@
   .holdings-compact th { padding:4px 8px; border-bottom:2px solid #111827; }
   tr:hover td { background:var(--bg4); }
   tr:last-child td { border-bottom:none; }
-  .ticker { font-family:var(--mono); font-size:12px; color:var(--accent2); font-weight:500; }
+  .ticker { font-family:var(--mono); font-size:12px; color:#111827; font-weight:500; }
   .num { font-family:var(--mono); text-align:right; }
   .up { color:var(--red); }
   .down { color:var(--green); }
@@ -1427,7 +1427,7 @@ async function renderHoldingsTable(holdings) {
           <td class="num" id="valuation-${h.id}"><span style="color:var(--text3);font-size:11px">-</span></td>
           <td class="num" id="pl-${h.id}"><span style="color:var(--text3);font-size:11px">-</span></td>
           <td id="trend-${h.id}" style="padding:2px 8px;"></td>
-          <td class="num" style="color:var(--accent);font-weight:600">${annual !== '-' ? annual+'%' : '-'}</td>
+          <td class="num" style="color:#111827;font-weight:600">${annual !== '-' ? annual+'%' : '-'}</td>
           <td style="font-size:11px">${cycOnly ? `<span style="background:${({'월배당':'#2563eb','월중':'#3b82f6','월말':'#8b5cf6','분기배당':'#059669','반기배당':'#d97706','연배당':'#dc2626','무배당':'#94a3b8'}[cycOnly]||'#64748b')};color:#fff;border-radius:6px;padding:2px 7px;font-weight:600;white-space:nowrap">${cycOnly}</span>` : '-'}</td>
           <td style="font-size:11px;">${catOnly ? `<span style="background:${catColor};color:#fff;border-radius:6px;padding:2px 7px;font-weight:600;white-space:nowrap;">${catOnly}</span>` : '<span style="color:var(--text3)">-</span>'}</td>
           <td>
@@ -1563,8 +1563,8 @@ async function loadDividendGrid() {
       </td>
       ${cells}
       <td class="div-total" style="color:#111827;font-weight:600;font-size:11px;line-height:1.1">${rowTotalDisplay}</td>
-      <td class="div-total" style="color:var(--accent)">${realRate !== '-' ? realRate+'%' : '-'}</td>
-      <td class="div-total" style="color:var(--accent)">${annualRate !== '-' ? annualRate+'%' : '-'}</td>
+      <td class="div-total" style="color:#111827">${realRate !== '-' ? realRate+'%' : '-'}</td>
+      <td class="div-total" style="color:#111827">${annualRate !== '-' ? annualRate+'%' : '-'}</td>
     </tr>`;
     if (isGroupEnd) {
       rows += `<tr style="background:var(--bg4);border-top:1px solid #94a3b8">
@@ -3068,7 +3068,7 @@ function renderMasterCalendar(allData) {
   // 한 셀에 월중/월말 2줄 (월중=파랑, 월말=핑크). 없으면 빈 줄로 정렬 유지.
   const cell2 = (r, key) => {
     const mv = dcell(r.mid, key), ev = dcell(r.end, key);
-    return `<td style="text-align:center;padding:3px 2px;font-family:var(--mono);line-height:1.5;border:1px solid #d4c2e8">
+    return `<td style="text-align:center;vertical-align:middle;padding:3px 2px;font-family:var(--mono);line-height:1.5;border:1px solid #d4c2e8">
       <div style="color:#2563eb;border-bottom:1px solid #d4c2e8;padding-bottom:2px;margin-bottom:2px">${mv || '<span style=\'color:var(--border)\'>·</span>'}</div>
       <div style="color:#db2777">${ev || '<span style=\'color:var(--border)\'>·</span>'}</div>
     </td>`;
@@ -3076,7 +3076,7 @@ function renderMasterCalendar(allData) {
   const tableHtml = rowsData.length ? `
     <table style="width:100%;height:100%;border-collapse:collapse;font-size:11px">
       <thead><tr style="color:var(--text3)">
-        <th style="text-align:left;padding:3px 4px;font-weight:600;border:1px solid #d4c2e8">운용사</th>
+        <th style="text-align:center;padding:3px 4px;font-weight:600;border:1px solid #d4c2e8">운용사</th>
         <th style="padding:3px 4px;border:1px solid #d4c2e8"></th>
         <th style="text-align:center;padding:3px 2px;font-weight:600;color:#f59e0b;border:1px solid #d4c2e8">공시</th>
         <th style="text-align:center;padding:3px 2px;font-weight:600;color:#22c55e;border:1px solid #d4c2e8">분배락</th>
@@ -3085,11 +3085,11 @@ function renderMasterCalendar(allData) {
       </tr></thead>
       <tbody>${rowsData.map(r => {
         const noHold = m => (m.hasNotice && !m.hasHolding) ? '<span style="color:#b8a8cc;font-size:9px">보유X</span>' : '';
-        return `<tr style="border-bottom:1.5px solid #c9b3e0">
-          <td style="padding:3px 4px;white-space:nowrap;vertical-align:middle;border:1px solid #d4c2e8">
+        return `<tr>
+          <td style="padding:3px 4px;white-space:nowrap;vertical-align:middle;text-align:center;border:1px solid #d4c2e8">
             <span style="font-weight:700;color:${r.color}">${r.name}</span>
           </td>
-          <td style="padding:3px 6px;white-space:nowrap;font-size:10px;line-height:1.5;border:1px solid #d4c2e8">
+          <td style="padding:3px 6px;white-space:nowrap;font-size:10px;line-height:1.5;text-align:center;vertical-align:middle;border:1px solid #d4c2e8">
             <div style="border-bottom:1px solid #d4c2e8;padding-bottom:2px;margin-bottom:2px">${r.mid.hasNotice ? `<span style="color:#2563eb;font-weight:700">월중</span> ${noHold(r.mid)}` : '<span style="color:var(--border)">·</span>'}</div>
             <div>${r.end.hasNotice ? `<span style="color:#db2777;font-weight:700">월말</span> ${noHold(r.end)}` : '<span style="color:var(--border)">·</span>'}</div>
           </td>
