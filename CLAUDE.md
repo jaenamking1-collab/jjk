@@ -51,6 +51,15 @@ Writes (`apiPost`): `addAccount` / `updateAccount` / `deleteAccount`, `addHoldin
 - **Font sizing**: dividend-grid cells use `font-size:1em` so the "글자" range slider (`applyDivFont`) can scale the whole grid uniformly. Avoid hardcoding px font sizes inside the grid.
 - **CDN dependencies**: SheetJS (`xlsx.full.min.js`) and Pretendard font, both loaded from CDN in `<head>`.
 
+## Working principles
+
+Adapted from the Karpathy coding guidelines — they matter more than usual here because there is no test suite or type checker to catch mistakes, and the backend must be redeployed by hand.
+
+1. **Think before coding.** State assumptions out loud instead of hiding uncertainty. When a request has multiple valid readings (e.g. "remove the ₩" — every page, or just totals?), lay out the options and recommend the simpler one before editing. If something is genuinely ambiguous, ask rather than guess — a wrong guess here ships to a live personal-finance app.
+2. **Simplicity first.** This is a personal two-user tool, not a framework. Write the minimal change that solves the actual request. No speculative features, config toggles, abstractions, or defensive handling for cases that can't occur. Match the existing plain-`function`, inline-style, `api()`/`apiPost()` idiom rather than introducing new patterns.
+3. **Surgical changes.** Edit only what the task needs. Don't reformat, rename, or "improve" untouched code in the same file — diffs are reviewed by eye against a ~3900-line file, so noise hides real changes. Flag unrelated dead code (like the stray top-level debug lines that were in `Code.gs`) instead of silently removing it unless asked. Preserve the documented **Conventions** above.
+4. **Goal-driven execution.** Since nothing runs automatically, define how you'll verify before you start: for `portfolio.html`, open it in the preview and check the affected tab; for `Code.gs`, remember it only takes effect after a manual redeploy and say so explicitly. State the success criterion ("월합계 셀에 ₩가 사라지고 숫자 크기가 나머지와 같다") and confirm it's met.
+
 ## Files
 
 - `portfolio.html` — the entire frontend.
