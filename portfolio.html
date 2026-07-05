@@ -616,6 +616,12 @@
     <div id="distCalendarWrap" style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:20px">
       <div id="distCalTitle" style="display:none"></div>
       <div style="display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap;justify-content:center">
+        <div style="width:300px;flex-shrink:0;background:#f0fdf4;border:1px solid #dcfce7;border-radius:10px;padding:14px">
+          <div style="font-size:12px;font-weight:700;color:#166534;margin-bottom:8px">📢 ETF 분배금 공지 원문</div>
+          <div id="noticeGrid" style="display:flex;flex-direction:column;gap:8px">
+            <div class="notice-loading">불러오는 중...</div>
+          </div>
+        </div>
         <div style="flex:0 1 720px;min-width:420px;max-width:720px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px">
           <div style="font-size:12px;font-weight:700;color:#64748b;margin-bottom:8px">📅 분배 일정 달력</div>
           <div id="distMasterCalendar"><div style="color:var(--text3);font-size:13px">불러오는 중...</div></div>
@@ -624,12 +630,6 @@
           <div style="font-size:12px;font-weight:700;color:#a855a8;margin-bottom:8px">🏢 운용사별 일정</div>
           <div id="distScheduleList"></div>
         </div>
-      </div>
-    </div>
-    <div style="background:#f0fdf4;border:1px solid #dcfce7;border-radius:12px;padding:16px;margin-bottom:20px">
-      <div style="font-size:15px;font-weight:700;margin-bottom:12px">📢 ETF 분배금 공지 원문</div>
-      <div id="noticeGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
-        <div class="notice-loading">불러오는 중...</div>
       </div>
     </div>
     <div style="background:#fffbeb;border:1px solid #fef3c7;border-radius:12px;padding:16px">
