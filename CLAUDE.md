@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A single-file personal dividend-portfolio tracker (`portfolio.html`) for two people (재남 / 은경) holding mostly monthly-distribution Korean ETFs across several brokerage accounts. It tracks holdings, valuations, and monthly dividend income, and visualizes progress toward a goal (₩10,000,000/month in distributions by 2029-02-28).
 
-There is **no build system, package manager, test suite, or lint config**. The entire app — HTML, CSS (`<style>`), and JS (`<script>`) — lives in `portfolio.html` (~3900 lines). Open the file in a browser to run it; there is nothing to compile.
+There is **no build system, package manager, test suite, or lint config**. The frontend — HTML, CSS (`<style>`), and JS (`<script>`) — lives in `portfolio.html` (~3900 lines). Open the file in a browser to run it; there is nothing to compile. The backend lives in `Code.gs` (Google Apps Script).
 
 ## Working in this repo
 
@@ -16,9 +16,12 @@ There is **no build system, package manager, test suite, or lint config**. The e
 
 ## Architecture
 
-**Frontend (this repo)** ⇄ **Google Apps Script backend** (a Google Sheets–backed web app).
+**Frontend (`portfolio.html`)** ⇄ **Google Apps Script backend (`Code.gs`)**, a Google Sheets–backed web app.
 
-- The backend URL is the `API` constant at the top of the `<script>` (`https://script.google.com/macros/s/.../exec`). All persistence lives in Google Sheets behind it — this repo has no database.
+- The backend URL is the `API` constant at the top of `portfolio.html`'s `<script>` (`https://script.google.com/macros/s/.../exec`). All persistence lives in Google Sheets behind it — this repo has no database.
+- `Code.gs` is the source of the deployed Apps Script. **Editing it here does NOT deploy it** — changes must be pasted back into the Apps Script editor (or pushed via `clasp`) and a new web-app deployment made. Keep `Code.gs` in sync with what's deployed.
+- The Apps Script reads/writes two spreadsheets by ID: the app's own DB sheet (`SHEET_ID`, tabs `accounts`/`holdings`/`dividends`/`config`/`stocks` + logs/caches) and an external "주식상황"/"분배금" sheet (hardcoded ID in `getSheetData`/`getDivSheetData`) that the sync features diff against.
+- `doGet` routes `?action=` reads; `doPost` routes JSON-body writes. `getDistribution(source)` scrapes six ETF issuers (KODEX/TIGER/ACE/RISE/PLUS/SOL) with per-issuer parsers, a smarttoday.co.kr news fallback, an adaptive sheet cache (`분배캐시`, keyed by billing "cycle"), and optional Google Vision OCR (needs `VISION_API_KEY` script property) for schedules embedded in notice images. `checkAndLogAlerts` fingerprints each parse to detect structure changes and writes to the `알림로그` sheet. Several time-driven triggers exist (`snapshotPrices`, `snapshotPortfolio`, `compactPriceLog`, `refreshAllDistributions`).
 - Two client helpers wrap every call:
   - `api(params)` — GET via `API + '?' + URLSearchParams`, returns JSON. Used for all reads.
   - `apiPost(data)` — POST with JSON body. Used for all writes.
@@ -50,5 +53,6 @@ Writes (`apiPost`): `addAccount` / `updateAccount` / `deleteAccount`, `addHoldin
 
 ## Files
 
-- `portfolio.html` — the entire application.
+- `portfolio.html` — the entire frontend.
+- `Code.gs` — the Google Apps Script backend (mirror of the deployed script; not auto-deployed).
 - `README.md` — one line (`# jjk`); no other docs.
