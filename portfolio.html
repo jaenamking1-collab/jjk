@@ -952,7 +952,7 @@ async function loadExchangeRate() {
   try {
     const r = await api({ action:'getExchangeRate' });
     state.exchangeRate = r.rate || 1447;
-    document.getElementById('rateDisplay').textContent = `$1 = ₩${Math.round(state.exchangeRate).toLocaleString()}`;
+    document.getElementById('rateDisplay').textContent = `$1 = ${Math.round(state.exchangeRate).toLocaleString()}`;
     const dsRateEl = document.getElementById('ds-rate'); if (dsRateEl) dsRateEl.textContent = Math.round(state.exchangeRate).toLocaleString();
   } catch(e) {}
 }
@@ -1580,7 +1580,7 @@ async function loadDividendGrid() {
     const groupBorder = (isGroupStart && idx > 0) ? 'border-top:2px solid #334155;' : '';
     // 합계 표시: 원화 환산만 표시
     const rowTotalDisplay = rowTotalKrw
-      ? '₩' + Math.round(rowTotalKrw).toLocaleString()
+      ? Math.round(rowTotalKrw).toLocaleString()
       : '-';
     rows += `<tr style="background:${divRowBg};${groupBorder}${isUsdBorder ? 'border-top:2px solid #f59e0b88' : ''}">
       ${acctCell}
@@ -1605,8 +1605,8 @@ async function loadDividendGrid() {
 
   const totalRow = `<tr style="background:var(--bg3)">
     <td style="padding:8px 10px;font-size:1em;font-weight:600;color:var(--text2)"></td>
-    <td style="padding:8px 10px;font-size:1em;font-weight:600;color:var(--text2)">월 합계 (₩환산)</td>
-    ${monthTotalsKrw.map(t => `<td class="div-total">${t?'₩'+Math.round(t).toLocaleString():''}</td>`).join('')}
+    <td style="padding:8px 10px;font-size:1em;font-weight:600;color:var(--text2)">월 합계 (원화환산)</td>
+    ${monthTotalsKrw.map(t => `<td class="div-total">${t?Math.round(t).toLocaleString():''}</td>`).join('')}
     <td class="div-total" style="color:var(--yellow)">${Math.round(monthTotalsKrw.reduce((a,b)=>a+b,0)).toLocaleString()}</td>
     <td class="div-total">-</td>
     <td class="div-total">-</td>
@@ -1768,15 +1768,15 @@ async function loadDashboard() {
 
   // ① 목표 진척도
   const GOAL = 10000000;
-  document.getElementById('goalNow').textContent = '월 ₩'+Math.round(monthlyAvg).toLocaleString();
+  document.getElementById('goalNow').textContent = '월 '+Math.round(monthlyAvg).toLocaleString();
   document.getElementById('goalPct').textContent = (monthlyAvg/GOAL*100).toFixed(1)+'%';
   document.getElementById('goalBar').style.width = Math.min(monthlyAvg/GOAL*100,100)+'%';
-  document.getElementById('goalSub').textContent = year+'년 예상 월평균(세전) · 목표 ₩10,000,000';
+  document.getElementById('goalSub').textContent = year+'년 예상 월평균(세전) · 목표 10,000,000';
   const gap = GOAL - monthlyAvg;
   document.getElementById('goalGap').textContent = (gap>0
-    ? `목표까지 월 ₩${Math.round(gap).toLocaleString()} 부족`
-    : `목표 달성 (+₩${Math.round(-gap).toLocaleString()})`)
-    + ` · 세후 추정 월평균 ₩${Math.round(afterMonthly).toLocaleString()} (건보료 별도)`;
+    ? `목표까지 월 ${Math.round(gap).toLocaleString()} 부족`
+    : `목표 달성 (+${Math.round(-gap).toLocaleString()})`)
+    + ` · 세후 추정 월평균 ${Math.round(afterMonthly).toLocaleString()} (건보료 별도)`;
 
   // D-Day: 2029년 2월 28일
   const TARGET_DATE = new Date('2029-02-28');
@@ -1794,15 +1794,15 @@ async function loadDashboard() {
   if (tsEl) tsEl.textContent = `시작 후 ${passedDays.toLocaleString()}일 경과 · 전체 ${totalDays.toLocaleString()}일 중 ${timePct.toFixed(1)}% 진행`;
 
   // ②③ 스탯
-  document.getElementById('ds-cost').textContent = '₩'+Math.round(costAll).toLocaleString();
-  document.getElementById('ds-value').textContent = valued? '₩'+Math.round(valued).toLocaleString() : '-';
+  document.getElementById('ds-cost').textContent = Math.round(costAll).toLocaleString();
+  document.getElementById('ds-value').textContent = valued? Math.round(valued).toLocaleString() : '-';
   const plEl = document.getElementById('ds-pl');
-  plEl.textContent = valued? `${pl>=0?'+':''}₩${Math.round(pl).toLocaleString()} (${plPct>=0?'+':''}${plPct.toFixed(1)}%)` : '현재가 없음';
+  plEl.textContent = valued? `${pl>=0?'+':''}${Math.round(pl).toLocaleString()} (${plPct>=0?'+':''}${plPct.toFixed(1)}%)` : '현재가 없음';
   plEl.style.color = pl>=0? 'var(--red)':'var(--accent)';
-  document.getElementById('ds-annual').textContent = '₩'+Math.round(annualActual).toLocaleString();
+  document.getElementById('ds-annual').textContent = Math.round(annualActual).toLocaleString();
   document.getElementById('ds-aftertax').textContent = '확정 입력분';
-  document.getElementById('ds-projected').textContent = '₩'+Math.round(annualProj).toLocaleString();
-  document.getElementById('ds-projsub').textContent = `세후 ₩${Math.round(afterAnnual).toLocaleString()} · 12개월 투영`;
+  document.getElementById('ds-projected').textContent = Math.round(annualProj).toLocaleString();
+  document.getElementById('ds-projsub').textContent = `세후 ${Math.round(afterAnnual).toLocaleString()} · 12개월 투영`;
   document.getElementById('ds-yield').textContent = (costAll>0? annualProj/costAll*100 : 0).toFixed(2)+'%';
 
   // ④ 월별 차트 (확정=진하게, 예상=연하게)
@@ -1828,7 +1828,7 @@ async function loadDashboard() {
   const rank = arr => arr.length ? arr.map(x=>`
     <div style="display:flex;justify-content:space-between;align-items:baseline;padding:5px 2px;border-bottom:1px solid var(--border)">
       <span style="font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%">${x.name}</span>
-      <span style="font-family:var(--mono);font-size:12px;font-weight:600;color:${x.plPct>=0?'var(--red)':'var(--accent)'}">${x.plPct>=0?'+':''}${x.plPct.toFixed(1)}% <span style="color:var(--text3);font-weight:400">(${x.plK>=0?'+':''}₩${Math.round(x.plK).toLocaleString()})</span></span>
+      <span style="font-family:var(--mono);font-size:12px;font-weight:600;color:${x.plPct>=0?'var(--red)':'var(--accent)'}">${x.plPct>=0?'+':''}${x.plPct.toFixed(1)}% <span style="color:var(--text3);font-weight:400">(${x.plK>=0?'+':''}${Math.round(x.plK).toLocaleString()})</span></span>
     </div>`).join('') : '<div style="padding:12px;color:var(--text3);font-size:12px">현재가 없음 — 종목관리에서 "시세 불러오기"</div>';
   document.getElementById('top5').innerHTML = rank(perHolding.slice(0,5));
   document.getElementById('bottom5').innerHTML = rank(perHolding.slice(-5).reverse());
@@ -2500,7 +2500,7 @@ async function syncFromSheet() {
         <th style="padding:6px;text-align:right;border-bottom:1px solid var(--border);">시트 평단가</th>
       </tr></thead><tbody>`;
     changes.forEach((c, i) => {
-      const cur = c.currency === 'USD' ? '$' : '₩';
+      const cur = c.currency === 'USD' ? '$' : '';
       const qtyStyle = c.fields.qty ? 'color:#dc2626;font-weight:700;' : '';
       const priceStyle = c.fields.price ? 'color:#dc2626;font-weight:700;' : '';
       html += `<tr style="border-bottom:1px solid var(--border);">
@@ -2531,7 +2531,7 @@ async function syncFromSheet() {
       </tr></thead><tbody>`;
     missing.forEach((m, i) => {
       m.checked = true;
-      const cur = m.currency === 'USD' ? '$' : '₩';
+      const cur = m.currency === 'USD' ? '$' : '';
       html += `<tr>
         <td style="padding:6px;border:1px solid #64748b;text-align:center"><input type="checkbox" data-add-idx="${i}" checked onchange="_pendingSyncAdds[${i}].checked=this.checked"></td>
         <td style="padding:6px;border:1px solid #64748b;color:#111827">${m.appAccName}</td>
@@ -2734,7 +2734,7 @@ async function syncDividendsFromSheet() {
     return;
   }
 
-  const cur = (c, amt) => c === 'USD' ? `$${amt}` : `₩${Math.round(amt).toLocaleString()}`;
+  const cur = (c, amt) => c === 'USD' ? `$${amt}` : `${Math.round(amt).toLocaleString()}`;
   let html = `<div style="font-weight:700;font-size:14px;margin-bottom:10px;color:#92400e;">⚠️ 불일치 ${changes.length}건</div>
     <table style="width:100%;border-collapse:collapse;font-size:12px;">
     <thead><tr style="background:var(--bg3);">
