@@ -275,6 +275,15 @@
 
 <header>
   <div class="logo">PORTFOLIO <span>MGR</span></div>
+  <div id="paletteBar" style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">
+    <span style="font-size:11px;color:var(--text3);margin-right:2px">테마</span>
+    <button onclick="applyPalette('default')" style="padding:3px 9px;border-radius:14px;border:1px solid #d1d5db;background:#fff;font-size:11px;font-weight:600;cursor:pointer">기본</button>
+    <button onclick="applyPalette('cobalt')" style="padding:3px 9px;border-radius:14px;border:none;background:#0047ff;color:#fff;font-size:11px;font-weight:600;cursor:pointer">코발트</button>
+    <button onclick="applyPalette('crimson')" style="padding:3px 9px;border-radius:14px;border:none;background:#fd1843;color:#fff;font-size:11px;font-weight:600;cursor:pointer">크림슨</button>
+    <button onclick="applyPalette('beige')" style="padding:3px 9px;border-radius:14px;border:1px solid #d6cbb5;background:#f5efe0;color:#1a1a1a;font-size:11px;font-weight:600;cursor:pointer">베이지</button>
+    <button onclick="applyPalette('lime')" style="padding:3px 9px;border-radius:14px;border:1px solid #cfe6a0;background:#e4fd97;color:#2d3e2c;font-size:11px;font-weight:600;cursor:pointer">라임</button>
+    <button onclick="applyPalette('rosy')" style="padding:3px 9px;border-radius:14px;border:none;background:#c9847a;color:#fff;font-size:11px;font-weight:600;cursor:pointer">로지</button>
+  </div>
   <div class="rate-badge">
     <div class="rate-dot"></div>
     <span id="rateDisplay">환율 로딩...</span>
@@ -818,6 +827,20 @@ let state = {
   currentYear: new Date().getFullYear(),
   stockList: []
   };
+
+// ── 팔레트 스위처 (미리보기용, :root 변수만 교체 · 기본으로 복구 가능) ──
+const DEFAULT_VARS = { '--bg':'#f5f3ff','--bg2':'#fdfcff','--bg3':'#eef4ff','--accent':'#2563eb','--accent2':'#3b82f6','--purple':'#7c3aed','--green':'#059669' };
+const PALETTES = {
+  cobalt:  { '--bg':'#eef2fb','--bg2':'#fdfdff','--bg3':'#e4ecfb','--accent':'#0047ff','--accent2':'#3b6bff','--purple':'#0047ff','--green':'#059669' },
+  crimson: { '--bg':'#fff4f6','--bg2':'#fffdfe','--bg3':'#ffe6eb','--accent':'#fd1843','--accent2':'#ff4d6a','--purple':'#fd1843','--green':'#059669' },
+  beige:   { '--bg':'#f2ead9','--bg2':'#fbf8f0','--bg3':'#eadfc9','--accent':'#8a6d3b','--accent2':'#a5844a','--purple':'#6b5636','--green':'#5a7d1a' },
+  lime:    { '--bg':'#eef8d8','--bg2':'#fbfdf3','--bg3':'#e2f2c4','--accent':'#3a7d1a','--accent2':'#5aa02a','--purple':'#2d3e2c','--green':'#3a7d1a' },
+  rosy:    { '--bg':'#f5e8e5','--bg2':'#fdf8f7','--bg3':'#eeddd9','--accent':'#c9847a','--accent2':'#4a5568','--purple':'#4a5568','--green':'#5a7d5a' },
+};
+function applyPalette(key) {
+  const p = key === 'default' ? DEFAULT_VARS : (PALETTES[key] || DEFAULT_VARS);
+  Object.entries(p).forEach(([k, v]) => document.documentElement.style.setProperty(k, v));
+}
 
 // ── API ──────────────────────────────────
 
