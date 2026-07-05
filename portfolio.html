@@ -1588,7 +1588,7 @@ async function loadDividendGrid() {
         <span class="ticker" style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px;text-align:left;color:#111827;font-weight:500;line-height:1.1;font-size:1em">${h.name || h.ticker}</span>
       </td>
       ${cells}
-      <td class="div-total" style="color:#111827;font-weight:600;font-size:11px;line-height:1.1">${rowTotalDisplay}</td>
+      <td class="div-total" style="color:#111827;font-weight:600;font-size:1em;line-height:1.1">${rowTotalDisplay}</td>
       <td class="div-total" style="color:#111827">${realRate !== '-' ? realRate+'%' : '-'}</td>
       <td class="div-total" style="color:#111827">${annualRate !== '-' ? annualRate+'%' : '-'}</td>
     </tr>`;
@@ -1604,10 +1604,10 @@ async function loadDividendGrid() {
   }
 
   const totalRow = `<tr style="background:var(--bg3)">
-    <td style="padding:8px 10px;font-size:12px;font-weight:600;color:var(--text2)"></td>
-    <td style="padding:8px 10px;font-size:12px;font-weight:600;color:var(--text2)">월 합계 (₩환산)</td>
+    <td style="padding:8px 10px;font-size:1em;font-weight:600;color:var(--text2)"></td>
+    <td style="padding:8px 10px;font-size:1em;font-weight:600;color:var(--text2)">월 합계 (₩환산)</td>
     ${monthTotalsKrw.map(t => `<td class="div-total">${t?'₩'+Math.round(t).toLocaleString():''}</td>`).join('')}
-    <td class="div-total" style="color:var(--yellow)">₩${Math.round(monthTotalsKrw.reduce((a,b)=>a+b,0)).toLocaleString()}</td>
+    <td class="div-total" style="color:var(--yellow)">${Math.round(monthTotalsKrw.reduce((a,b)=>a+b,0)).toLocaleString()}</td>
     <td class="div-total">-</td>
     <td class="div-total">-</td>
   </tr>`;
