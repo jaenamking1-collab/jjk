@@ -1,0 +1,1915 @@
+const SHEET_ID = '1iNlOU1YBRyJ6redmVoLDE4q6VfnWqL22s32IQHdSKN8';
+
+function doGet(e) {
+  if (!e || !e.parameter) return ContentService.createTextOutput('ok');
+  const action = e.parameter.action;
+  let result;
+  try {
+    switch(action) {
+      case 'getAccounts':     result = getAccounts(); break;
+      case 'getHoldings':     result = getHoldings(e.parameter.account_id); break;
+      case 'getDividends':    result = getDividends(e.parameter.year, e.parameter.account_id); break;
+      case 'getExchangeRate': result = { rate: fetchExchangeRate() }; break;
+      case 'getStockInfo':    result = getStockInfo(e.parameter.ticker, e.parameter.currency); break;
+      case 'getStockList':    result = getStockList(); break;
+      case 'getStockPrice':   result = getStockPrice(e.parameter.ticker, e.parameter.currency); break;
+      case 'getStockHistory': result = getStockHistory(e.parameter.ticker, e.parameter.currency, e.parameter.days); break;
+      case 'getEtfNotices':   result = getEtfNotices(e.parameter.source); break;
+      case 'getSheetData':    result = getSheetData(); break;
+      case 'getPriceLog':     result = getPriceLog(); break;
+      case 'getEtfScreener':  result = getEtfScreener(); break;
+      case 'getDistribution': result = getDistribution(e.parameter.source, e.parameter.force === '1'); break;
+      case 'getDivSheetData': result = getDivSheetData(); break;
+      case 'getPortfolioLog': result = getPortfolioLog(); break;
+      case 'getAlerts':       result = getAlerts(e.parameter.limit ? parseInt(e.parameter.limit) : 30); break;
+      case 'checkAlerts':     result = checkAndLogAlerts(); break;
+      case 'markAlertRead':   result = markAlertRead(parseInt(e.parameter.row)); break;
+      default: result = { error: 'Unknown action' };
+    }
+  } catch(err) {
+    result = { error: err.toString() };
+  }
+  const output = ContentService.createTextOutput(JSON.stringify(result));
+  output.setMimeType(ContentService.MimeType.JSON);
+  return output;
+}
+
+function doPost(e) {
+  const data = JSON.parse(e.postData.contents);
+  const action = data.action;
+  let result;
+  try {
+    switch(action) {
+      case 'addAccount':     result = addAccount(data); break;
+      case 'updateAccount':  result = updateAccount(data); break;
+      case 'deleteAccount':  result = deleteAccount(data.id); break;
+      case 'addHolding':     result = addHolding(data); break;
+      case 'updateHolding':  result = updateHolding(data); break;
+      case 'deleteHolding':  result = deleteHolding(data.id); break;
+      case 'saveDividend':   result = saveDividend(data); break;
+      case 'deleteDividend': result = deleteDividend(data.id); break;
+      default: result = { error: 'Unknown action' };
+    }
+  } catch(err) {
+    result = { error: err.toString() };
+  }
+  return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
+}
+
+// ── ACCOUNTS ──────────────────────────────
+function getAccounts() {
+  const sheet = getSheet('accounts');
+  const rows = sheet.getDataRange().getValues();
+  if (rows.length <= 1) return [];
+  return rows.slice(1).filter(r => r[0]).map(r => ({ id: r[0], name: r[1], type: r[2], created_at: r[3] }));
+}
+function addAccount(data) {
+  const sheet = getSheet('accounts');
+  const id = new Date().getTime().toString();
+  sheet.appendRow([id, data.name, data.type, new Date().toISOString()]);
+  return { success: true, id };
+}
+function updateAccount(data) {
+  const sheet = getSheet('accounts');
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][0].toString() === data.id.toString()) {
+      sheet.getRange(i+1, 2).setValue(data.name);
+      sheet.getRange(i+1, 3).setValue(data.type);
+      return { success: true };
+    }
+  }
+  return { error: 'Not found' };
+}
+function deleteAccount(id) {
+  deleteRowById('accounts', id);
+  const sheet = getSheet('holdings');
+  const rows = sheet.getDataRange().getValues();
+  for (let i = rows.length - 1; i >= 1; i--) {
+    if (rows[i][1].toString() === id.toString()) sheet.deleteRow(i+1);
+  }
+  return { success: true };
+}
+
+// ── HOLDINGS ──────────────────────────────
+function getHoldings(account_id) {
+  const sheet = getSheet('holdings');
+  const rows = sheet.getDataRange().getValues();
+  if (rows.length <= 1) return [];
+  let data = rows.slice(1).filter(r => r[0]);
+  if (account_id) data = data.filter(r => r[1].toString() === account_id.toString());
+  return data.map(r => ({
+    id: r[0],
+    account_id: r[1],
+    ticker: r[2] != null ? r[2].toString().trim() : '',
+    name: r[3],
+    avg_price: r[4],
+    quantity: r[5],
+    currency: r[6],
+    div_cycle: r[7],
+    created_at: r[8]
+  }));
+}
+function addHolding(data) {
+  const sheet = getSheet('holdings');
+  const id = new Date().getTime().toString();
+  sheet.appendRow([id, data.account_id, "'" + (data.ticker||'').toString().trim(), data.name, data.avg_price, data.quantity, data.currency, data.div_cycle, new Date().toISOString()]);
+  return { success: true, id };
+}
+function updateHolding(data) {
+  const sheet = getSheet('holdings');
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][0].toString() === data.id.toString()) {
+      sheet.getRange(i+1, 3).setValue("'" + (data.ticker||'').toString().trim());
+      sheet.getRange(i+1, 4).setValue(data.name);
+      sheet.getRange(i+1, 5).setValue(data.avg_price);
+      sheet.getRange(i+1, 6).setValue(data.quantity);
+      sheet.getRange(i+1, 7).setValue(data.currency);
+      sheet.getRange(i+1, 8).setValue(data.div_cycle);
+      return { success: true };
+    }
+  }
+  return { error: 'Not found' };
+}
+function deleteHolding(id) { deleteRowById('holdings', id); return { success: true }; }
+
+// ── DIVIDENDS ──────────────────────────────
+function getDividends(year, account_id) {
+  const sheet = getSheet('dividends');
+  const rows = sheet.getDataRange().getValues();
+  if (rows.length <= 1) return [];
+  let data = rows.slice(1).filter(r => r[0]);
+  if (year) data = data.filter(r => r[2].toString() === year.toString());
+  return data.map(r => ({ id: r[0], holding_id: r[1], year: r[2], month: r[3], amount: r[4], currency: r[5] }));
+}
+function saveDividend(data) {
+  const sheet = getSheet('dividends');
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][1].toString() === data.holding_id.toString() &&
+        rows[i][2].toString() === data.year.toString() &&
+        rows[i][3].toString() === data.month.toString()) {
+      sheet.getRange(i+1, 5).setValue(data.amount);
+      sheet.getRange(i+1, 6).setValue(data.currency);
+      return { success: true, updated: true };
+    }
+  }
+  const id = new Date().getTime().toString();
+  sheet.appendRow([id, data.holding_id, data.year, data.month, data.amount, data.currency]);
+  return { success: true, id };
+}
+function deleteDividend(id) { deleteRowById('dividends', id); return { success: true }; }
+
+// ── 환율 ──────────────────────────────────
+function fetchExchangeRate() {
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get('exchange_rate');
+  if (hit) return parseFloat(hit);
+  try {
+    const url = 'https://query1.finance.yahoo.com/v8/finance/chart/USDKRW=X?interval=1d&range=1d';
+    const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } });
+    const json = JSON.parse(res.getContentText());
+    const rate = json.chart.result[0].meta.regularMarketPrice;
+    cache.put('exchange_rate', String(rate), 3600);
+    const config = getSheet('config');
+    const rows = config.getDataRange().getValues();
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][0] === 'exchange_rate') { config.getRange(i+1, 2).setValue(rate); return rate; }
+    }
+    return rate;
+  } catch(e) {
+    const config = getSheet('config');
+    const rows = config.getDataRange().getValues();
+    for (let i = 1; i < rows.length; i++) { if (rows[i][0] === 'exchange_rate') return rows[i][1]; }
+    return 1447;
+  }
+}
+
+// ── 유틸 ──────────────────────────────────
+function getSheet(name) { return SpreadsheetApp.openById(SHEET_ID).getSheetByName(name); }
+function deleteRowById(sheetName, id) {
+  const sheet = getSheet(sheetName);
+  const rows = sheet.getDataRange().getValues();
+  for (let i = rows.length - 1; i >= 1; i--) {
+    if (rows[i][0].toString() === id.toString()) { sheet.deleteRow(i+1); return; }
+  }
+}
+
+// KRW 티커 6자리 leading zero 보정 유틸
+function padTicker(ticker, currency) {
+  if (currency === 'KRW' && ticker && ticker.length < 6) {
+    return ticker.padStart(6, '0');
+  }
+  return ticker;
+}
+
+function getStockInfo(ticker, currency) {
+  ticker = padTicker(ticker, currency);
+  try {
+    if (currency === 'KRW') {
+      const res = UrlFetchApp.fetch('https://polling.finance.naver.com/api/realtime/domestic/stock/' + ticker, { muteHttpExceptions: true });
+      const json = JSON.parse(res.getContentText());
+      if (json.datas && json.datas[0]) {
+        const d = json.datas[0];
+        return { name: d.stockName || d.itemName || d.name || '', success: true };
+      }
+    } else {
+      const res = UrlFetchApp.fetch('https://query1.finance.yahoo.com/v8/finance/chart/' + ticker + '?interval=1d&range=1d', { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } });
+      const json = JSON.parse(res.getContentText());
+      if (json.chart.result && json.chart.result[0]) return { name: json.chart.result[0].meta.longName || ticker, success: true };
+    }
+  } catch(e) {}
+  return { success: false };
+}
+
+function getStockList() {
+  const sheet = getSheet('stocks');
+  const rows = sheet.getDataRange().getValues();
+  if (rows.length <= 1) return [];
+  return rows.slice(1).filter(r => r[0]).map(r => ({ ticker: r[0], name: r[1], currency: r[2], div_cycle: r[3] || '' }));
+}
+
+function getStockPrice(ticker, currency) {
+  ticker = padTicker(ticker, currency);
+  const cache = CacheService.getScriptCache();
+  const cacheKey = 'price_' + ticker;
+  const cached = cache.get(cacheKey);
+  if (cached) return JSON.parse(cached);
+  try {
+    if (currency === 'KRW') {
+      const res = UrlFetchApp.fetch('https://polling.finance.naver.com/api/realtime/domestic/stock/' + ticker, { muteHttpExceptions: true });
+      const json = JSON.parse(res.getContentText());
+      if (json.datas && json.datas[0]) {
+        const d = json.datas[0];
+        const stripComma = v => parseFloat((v||'0').toString().replace(/,/g,'')) || 0;
+        const current = stripComma(d.closePrice || d.tradePrice);
+        const diff    = stripComma(d.compareToPreviousClosePrice);
+        const prev    = current - diff;
+        const result  = { success: true, current, prev: prev > 0 ? prev : 0, change: parseFloat(d.fluctuationsRatio || 0) };
+        cache.put(cacheKey, JSON.stringify(result), 21600);
+        return result;
+      }
+    } else {
+      const res = UrlFetchApp.fetch('https://query1.finance.yahoo.com/v8/finance/chart/' + ticker + '?interval=1d&range=1d', { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } });
+      const json = JSON.parse(res.getContentText());
+      if (json.chart.result && json.chart.result[0]) {
+        const meta = json.chart.result[0].meta;
+        const result = { success: true, current: meta.regularMarketPrice, prev: meta.chartPreviousClose, change: ((meta.regularMarketPrice - meta.chartPreviousClose) / meta.chartPreviousClose * 100).toFixed(2) };
+        cache.put(cacheKey, JSON.stringify(result), 21600);
+        return result;
+      }
+    }
+  } catch(e) {}
+  return { success: false };
+}
+
+function getStockHistory(ticker, currency, days) {
+  ticker = padTicker(ticker, currency);
+  days = parseInt(days) || 5;
+  const cache = CacheService.getScriptCache();
+  const cacheKey = 'hist_' + ticker + '_' + days;
+  const cached = cache.get(cacheKey);
+  if (cached) return JSON.parse(cached);
+  try {
+    if (currency === 'KRW') {
+      const text = UrlFetchApp.fetch('https://fchart.stock.naver.com/siseJson.naver?symbol=' + ticker + '&requestType=1&count=' + days + '&timeframe=day', { muteHttpExceptions: true }).getContentText();
+      const prices = (text.match(/\[([^\]]+)\]/g) || []).slice(1).map(m => parseFloat(m.replace(/[[\]]/g,'').split(',')[4]) || 0).filter(p => p > 0);
+      const result = { success: true, prices };
+      cache.put(cacheKey, JSON.stringify(result), 21600);
+      return result;
+    } else {
+      const res = UrlFetchApp.fetch('https://query1.finance.yahoo.com/v8/finance/chart/' + ticker + '?interval=1d&range=' + days + 'd', { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } });
+      const json = JSON.parse(res.getContentText());
+      if (json.chart.result && json.chart.result[0]) {
+        const result = { success: true, prices: (json.chart.result[0].indicators.quote[0].close || []).filter(p => p != null) };
+        cache.put(cacheKey, JSON.stringify(result), 21600);
+        return result;
+      }
+    }
+  } catch(e) {}
+  return { success: false, prices: [] };
+}
+
+// ── ETF 공지 프록시 ──
+function getEtfNotices(source) {
+  const cache = CacheService.getScriptCache();
+  const cacheKey = 'notices_' + source;
+  const cached = cache.get(cacheKey);
+  if (cached) return JSON.parse(cached);
+  try {
+    let items = [];
+    if (source === 'kodex') {
+      const html = UrlFetchApp.fetch('https://www.samsungfund.com/etf/lounge/notice.do?category=DIVIDEND', { muteHttpExceptions: true }).getContentText('UTF-8');
+      const matches = [...html.matchAll(/notice-view\.do\?no=(\d+)[^"]*"[^>]*>([\s\S]*?)<\/a>/g)];
+      matches.slice(0, 5).forEach(m => {
+        const inner = m[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        const date = (inner.match(/\d{4}\.\d{2}\.\d{2}/) || [''])[0];
+        items.push({ title: inner.replace(date, '').trim(), date, url: 'https://www.samsungfund.com/etf/lounge/notice-view.do?no=' + m[1] });
+      });
+    } else if (source === 'ace') {
+      const json = JSON.parse(UrlFetchApp.fetch('https://papi.aceetf.co.kr/api/notices?categoryNo=61&page=1&searchValue=', { muteHttpExceptions: true }).getContentText('UTF-8'));
+      (json.data || []).slice(0, 5).forEach(n => items.push({ title: n.title || '', date: (n.regDate || '').replace(/-/g, '.'), url: 'https://www.aceetf.co.kr/cs/notice/' + n.id }));
+    } else if (source === 'rise') {
+      const html = UrlFetchApp.fetch('https://www.riseetf.co.kr/cust/notice?searchText=%EB%B6%84%EB%B0%B0%EA%B8%88&searchType4=tab', { muteHttpExceptions: true }).getContentText('UTF-8');
+      html.split('<li class=').slice(1).forEach(block => {
+        if (items.length >= 5) return;
+        const idM = block.match(/href="(\/cust\/notice\/\d+)/);
+        const titleM = block.match(/class="body01">([\s\S]*?)<\/p>/);
+        const dateM = block.match(/class="body02">\s*([\d.]+)/);
+        if (idM && titleM && titleM[1].includes('분배금')) items.push({ title: titleM[1].replace(/<[^>]+>/g, '').trim(), date: dateM ? dateM[1].trim() : '', url: 'https://www.riseetf.co.kr' + idM[1] });
+      });
+    } else if (source === 'sol') {
+      const json = JSON.parse(UrlFetchApp.fetch('https://www.soletf.com/api/cs/notice?keyword=%EB%B6%84%EB%B0%B0%EA%B8%88', { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' } }).getContentText('UTF-8'));
+      (json.items || []).filter(n => (n.TITLE||'').includes('분배금') && !(n.TITLE||'').includes('이벤트')).slice(0, 5).forEach(n => items.push({ title: n.TITLE || '', date: (n.REG_DATE||'').slice(0,10).replace(/-/g,'.'), url: 'https://www.soletf.com/ko/cs/notice?no=' + n.NO }));
+    }
+    const result = { success: true, items };
+    cache.put(cacheKey, JSON.stringify(result), 21600);
+    return result;
+  } catch(e) {
+    return { success: false, items: [], error: e.toString() };
+  }
+}
+
+// ── 분배금 공지 ──
+function getDistribution(source, force) {
+  const cache = CacheService.getScriptCache();
+  const cacheKey = 'dist2_' + source;
+
+  // 적응형 시트캐시: 이번 달 현재 회차를 이미 받았으면 파싱 스킵하고 시트값 반환
+  if (!force) {
+    const sc = readDistCache(source);
+    if (sc && sc.payload) {
+      const need = currentCycleKey();               // 예: '2026-06-말'
+      const parsedItems = sc.payload.items || [];
+      // 회차 일치할 때만 캐시 반환. 회차 바뀌면(월중↔월말, 월 전환) 무조건 재파싱
+      if (parsedItems.length && sc.cycleKey === need) return sc.payload;
+    }
+    const cached = cache.get(cacheKey);              // 스크립트캐시(12h) 폴백
+    if (cached) return JSON.parse(cached);
+  }
+  let result;
+  try {
+    if (source === 'kodex') {
+      result = fetchDist_kodex();
+      if (!result || !result.items || !result.items.length) {
+        const all = fetchDist_smarttoday(force);
+        result = all[source] || { items: [], error: 'KODEX 양쪽 실패' };
+      } else {
+        try {
+          const all = fetchDist_smarttoday(force);
+          const st = all['kodex'];
+          if (st && st.schedule) {
+            result.schedule = result.schedule || {};
+            if (!result.schedule['공시일'] && st.schedule['공시일']) result.schedule['공시일'] = st.schedule['공시일'];
+            if (!result.schedule['분배락일'] && st.schedule['분배락일']) result.schedule['분배락일'] = st.schedule['분배락일'];
+          }
+        } catch(e) {}
+      }
+      if (result.items && result.items.length) cache.put(cacheKey, JSON.stringify(result), 43200);
+      return result;
+    }
+    if (source === 'tiger') {
+      result = fetchDist_tiger();
+      if (!result || !result.items || !result.items.length) {
+        const all = fetchDist_smarttoday(force);
+        result = all[source] || { items: [], error: 'TIGER 양쪽 실패' };
+      }
+      if (result.items && result.items.length) cache.put(cacheKey, JSON.stringify(result), 43200);
+      return result;
+    }
+    if (source === 'ace') {
+      result = fetchDist_ace();
+      if (!result || !result.items || !result.items.length) {
+        const all = fetchDist_smarttoday(force);
+        result = all[source] || { items: [], error: 'ACE 양쪽 실패' };
+      }
+      if (result.items && result.items.length) cache.put(cacheKey, JSON.stringify(result), 43200);
+      return result;
+    }
+    if (source === 'rise') {
+      result = fetchDist_rise();
+      if (!result || !result.items || !result.items.length) {
+        const all = fetchDist_smarttoday(force);
+        result = all[source] || { items: [], error: 'RISE 양쪽 실패' };
+      }
+      if (result.items && result.items.length) cache.put(cacheKey, JSON.stringify(result), 43200);
+      return result;
+    }
+    if (source === 'plus') {
+      result = fetchDist_plus();
+      if (!result || !result.items || !result.items.length) {
+        const all = fetchDist_smarttoday(force);
+        result = all[source] || { items: [], error: 'PLUS 양쪽 실패' };
+      }
+      if (result.items && result.items.length) cache.put(cacheKey, JSON.stringify(result), 43200);
+      return result;
+    }
+    const all = fetchDist_smarttoday(force);
+    result = all[source];
+    if (!result || !result.items || result.items.length === 0) {
+      const fb = fetchDist_fallback(source);
+      if (fb && fb.items && fb.items.length > 0) { fb.fallback = true; result = fb; }
+      else if (!result) result = { items: [], error: '기사/사이트 모두 실패' };
+    }
+    if (result && result.items && result.items.length > 0) {
+      const sched = result.schedule || {};
+      const need = ['공시일','분배락일','기준일','지급일'].some(k => !sched[k]);
+      if (need) {
+        try {
+          const fb = fetchDist_fallback(source);
+          if (fb && fb.schedule) {
+            ['공시일','분배락일','기준일','지급일'].forEach(k => {
+              if (!sched[k] && fb.schedule[k]) sched[k] = fb.schedule[k];
+            });
+            result.schedule = sched;
+            result.merged = true;
+          }
+        } catch(e) {}
+      }
+    }
+  } catch(e) {
+    try {
+      result = fetchDist_fallback(source) || { items: [], error: e.toString() };
+      if (result.items && result.items.length) result.fallback = true;
+    } catch(e2) {
+      result = { items: [], error: e.toString() };
+    }
+  }
+  if (result.items && result.items.length > 0) {
+    cache.put(cacheKey, JSON.stringify(result), 43200);
+    writeDistCache(source, result, currentCycleKey());   // 시트 영속 저장
+  }
+  return result;
+}
+
+// ── 적응형 분배캐시 유틸 ──
+function currentCycleKey() {
+  const now = new Date();
+  const ym = Utilities.formatDate(now, 'Asia/Seoul', 'yyyy-MM');
+  const day = parseInt(Utilities.formatDate(now, 'Asia/Seoul', 'd'), 10);
+  return ym + '-' + (day <= 20 ? '중' : '말');
+}
+function _distCacheSheet() {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  let sh = ss.getSheetByName('분배캐시');
+  if (!sh) { sh = ss.insertSheet('분배캐시'); sh.appendRow(['source','payload','savedAt','cycleKey']); }
+  return sh;
+}
+function readDistCache(source) {
+  try {
+    const sh = _distCacheSheet();
+    const rows = sh.getDataRange().getValues();
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][0] === source) {
+        return { payload: JSON.parse(rows[i][1]), savedAt: rows[i][2], cycleKey: rows[i][3], row: i + 1 };
+      }
+    }
+  } catch(e) {}
+  return null;
+}
+function writeDistCache(source, payload, cycleKey) {
+  try {
+    const sh = _distCacheSheet();
+    const rows = sh.getDataRange().getValues();
+    const now = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm');
+    const rec = [source, JSON.stringify(payload), now, cycleKey];
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][0] === source) { sh.getRange(i + 1, 1, 1, 4).setValues([rec]); return; }
+    }
+    sh.appendRow(rec);
+  } catch(e) {}
+}
+
+function fetchDist_fallback(source) {
+  switch(source) {
+    case 'kodex': return fetchDist_kodex();
+    case 'tiger': return fetchDist_tiger();
+    case 'ace':   return fetchDist_ace();
+    case 'plus':  return fetchDist_plus();
+    case 'rise':  return fetchDist_rise();
+    case 'sol':   return fetchDist_sol();
+    default: return null;
+  }
+}
+
+function fetchDist_smarttoday(force) {
+  const cache = CacheService.getScriptCache();
+  if (!force) {
+    const cached = cache.get('dist2_ALL');
+    if (cached) return JSON.parse(cached);
+  }
+  const BRANDS = {
+    KODEX:{id:'kodex',label:'삼성자산운용'}, TIGER:{id:'tiger',label:'미래에셋자산운용'},
+    ACE:{id:'ace',label:'한국투자신탁운용'}, RISE:{id:'rise',label:'KB자산운용'},
+    PLUS:{id:'plus',label:'한화자산운용'}, SOL:{id:'sol',label:'신한자산운용'}
+  };
+  const out = {};
+  let ids = [];
+  for (let page = 1; page <= 2; page++) {
+    try {
+      const u = 'https://www.smarttoday.co.kr/ko-kr/articles?q=' + encodeURIComponent('분배금') + (page>1?'&page='+page:'');
+      const h = UrlFetchApp.fetch(u, { muteHttpExceptions:true, headers:{'User-Agent':'Mozilla/5.0'} }).getContentText('UTF-8');
+      ids = ids.concat([...h.matchAll(/\/ko-kr\/articles\/(\d+)/g)].map(m => m[1]));
+    } catch(e) {}
+  }
+  ids = [...new Set(ids)];
+  const found = {};
+  for (const id of ids) {
+    if (Object.keys(found).length >= 6) break;
+    let html;
+    try {
+      html = UrlFetchApp.fetch('https://www.smarttoday.co.kr/ko-kr/articles/' + id, { muteHttpExceptions:true, headers:{'User-Agent':'Mozilla/5.0'} }).getContentText('UTF-8');
+    } catch(e) { continue; }
+    const titleM = html.match(/<title>([^<]+)<\/title>/);
+    const title = titleM ? titleM[1] : '';
+    if (!/월\s*배당\s*ETF.*분배금\s*내역|월중\s*배당\s*ETF.*분배금\s*내역/.test(title)) continue;
+    const brand = Object.keys(BRANDS).find(b => new RegExp(b).test(title));
+    if (!brand || found[brand]) continue;
+    found[brand] = { id, html, title };
+  }
+  Object.keys(BRANDS).forEach(brand => {
+    const f = found[brand];
+    if (!f) { out[BRANDS[brand].id] = { items:[], error:'최근 기사 없음', label:BRANDS[brand].label }; return; }
+    const parsed = parseSmartTodayArticle(f.html);
+    out[BRANDS[brand].id] = {
+      success: true, items: parsed.items, schedule: parsed.schedule,
+      title: f.title.replace(/^\[표\]\s*/, ''), label: BRANDS[brand].label,
+      articleUrl: 'https://www.smarttoday.co.kr/ko-kr/articles/' + f.id
+    };
+  });
+  cache.put('dist2_ALL', JSON.stringify(out), 43200);
+  return out;
+}
+
+function parseSmartTodayArticle(html) {
+  const items = [];
+  const tableM = html.match(/<table[\s\S]*?<\/table>/);
+  if (tableM) {
+    const trs = [...tableM[0].matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)]
+      .map(tr => [...tr[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/g)]
+        .map(c => c[1].replace(/<[^>]+>/g,'').replace(/&nbsp;/g,' ').trim()));
+    if (trs.length >= 2) {
+      const header = trs[0];
+      const codeIdx = header.findIndex(h => /종목코드|코드/.test(h));
+      const nameIdx = header.findIndex(h => /종목명/.test(h));
+      const rateIdx = header.findIndex(h => /분배율/.test(h));
+      const amtIdx  = header.findIndex(h => /분배금/.test(h));
+      trs.slice(1).forEach(cells => {
+        if (cells.length < 2) return;
+        const ticker = codeIdx >= 0 ? (cells[codeIdx]||'').trim() : '';
+        const name   = nameIdx >= 0 ? (cells[nameIdx]||'').trim() : cells[0];
+        const rate   = rateIdx >= 0 ? (parseFloat((cells[rateIdx]||'').replace(/,/g,'')) || null) : null;
+        const amount = amtIdx  >= 0 ? (parseFloat((cells[amtIdx]||'').replace(/,/g,''))  || null) : null;
+        if (name && amount != null) items.push({ name, ticker, rate, amount });
+      });
+    }
+  }
+  const text = html.replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' ').replace(/\s+/g,' ');
+  if (items.length === 0) {
+    const re = /((?:SOL|KODEX|TIGER|ACE|RISE|PLUS|Kodex)[가-힣A-Za-z0-9()+&·]+?)(?:은|는|이|가)?\s*좌당\s*([\d,]+)\s*원/g;
+    let m;
+    while ((m = re.exec(text))) {
+      const name = m[1].trim();
+      const amount = parseFloat(m[2].replace(/,/g,'')) || null;
+      if (name && amount != null && !items.some(it => it.name === name)) items.push({ name, ticker:'', rate:null, amount });
+    }
+  }
+  const schedule = {};
+  const pubM = html.match(/article:published_time"?\s*content="(\d{4})-(\d{2})-(\d{2})/);
+  const pubMonth = pubM ? parseInt(pubM[2]) : (new Date().getMonth()+1);
+  if (pubM) schedule['공시일'] = parseInt(pubM[2]) + '월 ' + parseInt(pubM[3]) + '일';
+  const baseM = text.match(/지급기준일은\s*(\d{1,2})일/) || text.match(/(\d{1,2})일을?\s*기준일/) || text.match(/(\d{1,2})일이?\s*기준일/);
+  if (baseM) schedule['기준일'] = pubMonth + '월 ' + baseM[1] + '일';
+  let payM = text.match(/분배금은?\s*(\d{1,2})월\s*(\d{1,2})일\s*지급/) || text.match(/(\d{1,2})월\s*(\d{1,2})일\s*지급/);
+  if (payM) {
+    schedule['지급일'] = parseInt(payM[1]) + '월 ' + parseInt(payM[2]) + '일';
+  } else {
+    payM = text.match(/오는\s*(\d{1,2})일\s*분배금이\s*지급/)
+        || text.match(/(\d{1,2})일\s*분배금이[^.]*입금/)
+        || text.match(/분배금은?\s*(?:오는\s*)?(\d{1,2})일\s*지급/)
+        || text.match(/(\d{1,2})일\s*분배금이\s*지급/);
+    if (payM) schedule['지급일'] = pubMonth + '월 ' + payM[1] + '일';
+  }
+  return { items, schedule };
+}
+
+function refreshAllDistributions() {
+  ['kodex','tiger','ace','plus','rise','sol'].forEach(s => {
+    try { getDistribution(s, true); } catch(e) { console.log(s, e); }
+  });
+}
+// ===== OCR 공용 함수 (Google Cloud Vision) =====
+// 이미지 URL을 받아 OCR 텍스트 반환. 실패 시 '' 반환.
+function ocrImageText(imgUrl) {
+  try {
+    const key = PropertiesService.getScriptProperties().getProperty('VISION_API_KEY');
+    if (!key) return '';
+    const blob = UrlFetchApp.fetch(imgUrl, { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } }).getBlob();
+    const b64 = Utilities.base64Encode(blob.getBytes());
+    const payload = { requests: [{ image: { content: b64 }, features: [{ type: 'DOCUMENT_TEXT_DETECTION' }] }] };
+    const res = UrlFetchApp.fetch('https://vision.googleapis.com/v1/images:annotate?key=' + key, {
+      method: 'post', contentType: 'application/json', payload: JSON.stringify(payload), muteHttpExceptions: true
+    });
+    const json = JSON.parse(res.getContentText('UTF-8'));
+    if (json.error) return '';
+    return json.responses && json.responses[0] && json.responses[0].fullTextAnnotation ? json.responses[0].fullTextAnnotation.text : '';
+  } catch(e) { return ''; }
+}
+
+// OCR 텍스트에서 일정 추출. 형식 예: "6.26 분배금 공시일", "6.30 분배금 지급기준일", "7.2 분배금 지급일"
+// 반환: { 공시일, 분배락일, 기준일, 지급일 } (찾은 것만)
+function parseScheduleFromOcr(text) {
+  if (!text) return {};
+  const t = text.replace(/\s+/g, ' ');
+  const out = {};
+
+  // 핵심: 설명표의 날짜는 '요일'이 붙는다 ("6.26 금", "6월 26일(금)").
+  // 달력 그리드 숫자엔 요일이 없으므로, 요일 붙은 날짜만 신뢰해 그리드 노이즈 배제.
+  const dateTokens = [];
+  let dm;
+  // 형식1: "6.26 금" 또는 "6.26 (금)" / "6/26 금"
+  const re1 = /(\d{1,2})[.\/](\d{1,2})\s*\(?([월화수목금토일])\)?/g;
+  while ((dm = re1.exec(t))) dateTokens.push({ m: parseInt(dm[1]), d: parseInt(dm[2]), end: dm.index + dm[0].length });
+  // 형식2: "6월 26일(금)" / "6월 26일 금"
+  const re2 = /(\d{1,2})월\s*(\d{1,2})일\s*\(?([월화수목금토일])\)?/g;
+  while ((dm = re2.exec(t))) dateTokens.push({ m: parseInt(dm[1]), d: parseInt(dm[2]), end: dm.index + dm[0].length });
+
+  // 라벨 직전, 요일붙은 날짜 중 가장 가까운 것
+  // 라벨은 '마지막 출현' 위치 사용 (앞쪽 달력 그리드의 라벨이 아닌 뒤쪽 설명표 라벨)
+  const lastIndexOf = (re) => {
+    const g = new RegExp(re.source, 'g');
+    let m, last = -1;
+    while ((m = g.exec(t))) last = m.index;
+    return last;
+  };
+  const findNearestBefore = (labelRe) => {
+    const labelPos = lastIndexOf(labelRe);
+    if (labelPos < 0) return null;
+    let best = null;
+    for (const dt of dateTokens) { if (dt.end <= labelPos) { if (!best || dt.end > best.end) best = dt; } }
+    return best ? (best.m + '월 ' + best.d + '일') : null;
+  };
+
+  out['공시일'] = findNearestBefore(/분배금\s*공시일|공시일/);
+  out['분배락일'] = findNearestBefore(/분배락일|분배락(?!\s*전일)/);
+  out['기준일'] = findNearestBefore(/분배금\s*지급기준일|지급기준일/);
+  out['지급일'] = findNearestBefore(/분배금\s*지급일(?!정)|(?<!기준)지급일/);
+  Object.keys(out).forEach(k => { if (!out[k]) delete out[k]; });
+  return out;
+}
+
+// 공지 본문 HTML에서 '일정표 이미지' URL을 찾아 OCR → 일정 반환
+// 일정표 식별: OCR 결과에 지급기준일/분배락 키워드가 있는 이미지
+function ocrScheduleFromNotice(html, baseUrl) {
+  try {
+    const imgs = [...html.matchAll(/<img[^>]+src=["']([^"']+\.(?:png|jpg|jpeg|gif))["']/gi)]
+      .map(m => m[1])
+      .filter(src => /upload|attach|board|notice|file/i.test(src)); // 첨부 이미지만(배너/아이콘 제외)
+    for (const src of imgs) {
+      const full = src.startsWith('http') ? src : (baseUrl + src);
+      const text = ocrImageText(full);
+      if (text && /(지급기준일|분배락|지급일)/.test(text)) {
+        const sched = parseScheduleFromOcr(text);
+        if (sched['기준일'] || sched['지급일']) return sched; // 유효 일정 발견
+      }
+    }
+  } catch(e) {}
+  return {};
+}
+
+// base64 이미지(또는 data URI) 직접 OCR → 일정. ACE처럼 본문에 base64가 박힌 경우.
+function ocrScheduleFromBase64Html(content) {
+  try {
+    const key = PropertiesService.getScriptProperties().getProperty('VISION_API_KEY');
+    if (!key) return {};
+    const m = content.match(/data:image\/(?:png|jpeg|jpg);base64,([A-Za-z0-9+/=]+)/);
+    if (!m) return {};
+    const payload = { requests: [{ image: { content: m[1] }, features: [{ type: 'DOCUMENT_TEXT_DETECTION' }] }] };
+    const res = UrlFetchApp.fetch('https://vision.googleapis.com/v1/images:annotate?key=' + key, {
+      method: 'post', contentType: 'application/json', payload: JSON.stringify(payload), muteHttpExceptions: true
+    });
+    const json = JSON.parse(res.getContentText('UTF-8'));
+    if (json.error) return {};
+    const text = json.responses && json.responses[0] && json.responses[0].fullTextAnnotation ? json.responses[0].fullTextAnnotation.text : '';
+    if (text && /(지급기준일|분배락|지급일)/.test(text)) return parseScheduleFromOcr(text);
+    return {};
+  } catch(e) { return {}; }
+}
+
+function fetchDist_kodex() {
+  try {
+    // ── 1) 공지글 목록에서 월중/월말 최신 글 no 추출 ──
+    const listHtml = UrlFetchApp.fetch('https://www.samsungfund.com/etf/lounge/notice.do?category=DIVIDEND',
+      { muteHttpExceptions:true, headers:{'User-Agent':'Mozilla/5.0'} }).getContentText('UTF-8');
+    // 견고 전략: no 링크와 (NN월_월중/월말배당) 제목을 각각 위치(index)로 수집한 뒤,
+    // 제목마다 "가장 가까운 no"를 짝지음. 링크가 제목 앞이든 뒤든(raw HTML/마크다운) 무관하게 동작.
+    const linkPos = [];   // { no, idx }
+    const titlePos = [];  // { mon, cycle, idx }
+    let mm;
+    const reLink = /notice-view\.do\?no=(\d+)/g;
+    while ((mm = reLink.exec(listHtml))) linkPos.push({ no: mm[1], idx: mm.index });
+    const reTitle = /\(\s*(?:'|&#39;|&apos;)?\s*(\d{2})\.(\d{1,2})월_(월중배당|월말배당)\s*\)/g;
+    while ((mm = reTitle.exec(listHtml))) titlePos.push({ mon: parseInt(mm[2]), cycle: mm[3], idx: mm.index });
+
+    const entries = [];
+    const usedNo = {};
+    titlePos.forEach(t => {
+      // 가장 가까운(미사용) 링크 선택
+      let best = null, bestDist = Infinity;
+      linkPos.forEach(l => {
+        const d = Math.abs(l.idx - t.idx);
+        if (d < bestDist && !usedNo[l.no + '@' + t.idx]) { best = l; bestDist = d; }
+      });
+      if (best && bestDist <= 400) {  // 한 항목(li/링크+제목) 범위 내로 제한
+        entries.push({ no: best.no, mon: t.mon, cycle: t.cycle });
+        usedNo[best.no + '@' + t.idx] = true;
+      }
+    });
+    if (!entries.length) return fetchDist_kodex_api(); // 공지 파싱 실패 → 기존 API 방식 폴백
+
+    // 가장 최근 월별로 월중/월말 최신 1건씩 (목록은 최신순이라 먼저 등장한 것이 최신)
+    const latestMon = Math.max(...entries.map(e => e.mon));
+    const pick = cyc => entries.find(e => e.mon === latestMon && e.cycle === cyc);
+    const midE = pick('월중배당');
+    const endE = pick('월말배당');
+
+    // ── 2) API에서 종목별 일정(basicD/payD) 맵 구성 (이미지 일정 대체) ──
+    const schedMap = {};
+    try {
+      const all = [];
+      for (let page = 1; page <= 6; page++) {
+        const res = UrlFetchApp.fetch('https://www.samsungfund.com/api/v1/kodex/distribution.do?pageNo=' + page + '&pageSize=100',
+          { muteHttpExceptions:true, headers:{'User-Agent':'Mozilla/5.0','Accept':'application/json'} });
+        if (res.getResponseCode() !== 200) break;
+        const j = JSON.parse(res.getContentText('UTF-8'));
+        const list = j.dividList || [];
+        if (!list.length) break;
+        all.push(...list);
+        if (all.length >= (j.totalCnt || 9999)) break;
+      }
+      const ymd = s => { if(!s||String(s).length<8) return ''; const t=String(s); return parseInt(t.substr(4,2))+'월 '+parseInt(t.substr(6,2))+'일'; };
+      all.forEach(it => {
+        const tk = (it.stkTicker||'').toString().trim();
+        if (!tk) return;
+        // 종목별 최신 회차 basicD 우선
+        if (!schedMap[tk] || String(it.basicD) > String(schedMap[tk]._b)) {
+          schedMap[tk] = { '기준일': ymd(it.basicD), '지급일': ymd(it.payD), _b: String(it.basicD||'') };
+        }
+      });
+    } catch(eApi) {}
+
+    // ── 3) 공지글 본문 표 파싱 ──
+    // 그 달 마지막 영업일(주말 제외, 공휴일 미반영 근사)
+    const lastBizDay = (year, mon) => {
+      const d = new Date(year, mon, 0); // mon월 마지막 날
+      while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
+      return { m: d.getMonth() + 1, d: d.getDate() };
+    };
+    // 다음 영업일
+    const nextBizDay = (year, mon, day) => {
+      const d = new Date(year, mon - 1, day);
+      do { d.setDate(d.getDate() + 1); } while (d.getDay() === 0 || d.getDay() === 6);
+      return { m: d.getMonth() + 1, d: d.getDate() };
+    };
+    const curYear = new Date().getFullYear();
+
+    const parseNoticeTable = (no, cycleLabel) => {
+      const html = UrlFetchApp.fetch('https://www.samsungfund.com/etf/lounge/notice-view.do?no=' + no,
+        { muteHttpExceptions:true, headers:{'User-Agent':'Mozilla/5.0'} }).getContentText('UTF-8');
+      const out = [];
+      // 본문 텍스트의 분배율 기준일: "* 분배율 : 6월 25일 종가 기준" → 기준월 확정
+      const plain = html.replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' ').replace(/\s+/g,' ');
+      const refM = plain.match(/분배율\s*[:：]?\s*(\d{1,2})월\s*(\d{1,2})일\s*종가/);
+      const refMonth = refM ? parseInt(refM[1]) : null;
+      const refDay   = refM ? parseInt(refM[2]) : null;
+
+      // 공시일: 공지 게시일 (본문 상단 "2026.06.26" 또는 메타 published_time)
+      let pubMD = null;
+      const pubM = plain.match(/(\d{4})\.(\d{2})\.(\d{2})/) || html.match(/article:published_time"?\s*content="(\d{4})-(\d{2})-(\d{2})/);
+      if (pubM) pubMD = parseInt(pubM[2]) + '월 ' + parseInt(pubM[3]) + '일';
+
+      // 이 회차의 일정 계산 (본문 기준월 기반, API 미반영 대비)
+      let calcSched = {};
+      if (pubMD) calcSched['공시일'] = pubMD;
+      if (refMonth) {
+        if (cycleLabel === '월말') {
+          // 월말배당: 지급기준일 = 기준월 마지막 영업일, 지급일 = 다음 영업일
+          const base = lastBizDay(curYear, refMonth);
+          const pay  = nextBizDay(curYear, base.m, base.d);
+          calcSched['기준일'] = base.m + '월 ' + base.d + '일';
+          calcSched['지급일'] = pay.m + '월 ' + pay.d + '일';
+        } else {
+          // 월중배당: 분배율 기준일 다음 영업일을 지급기준일로 근사
+          if (refDay) {
+            const pay = nextBizDay(curYear, refMonth, refDay);
+            calcSched['기준일'] = refMonth + '월 ' + refDay + '일';
+            calcSched['지급일'] = pay.m + '월 ' + pay.d + '일';
+          }
+        }
+      }
+
+      // 월말: 일정이 이미지라 계산은 부정확(KODEX는 지급일이 +2영업일). OCR로 실제값 우선.
+      if (cycleLabel === '월말') {
+        const ocrSched = ocrScheduleFromNotice(html, 'https://www.samsungfund.com');
+        if (ocrSched && (ocrSched['기준일'] || ocrSched['지급일'])) {
+          // OCR로 읽은 값으로 덮어쓰기 (공시일은 OCR에 있으면 우선, 없으면 게시일 유지)
+          if (ocrSched['공시일']) calcSched['공시일'] = ocrSched['공시일'];
+          if (ocrSched['분배락일']) calcSched['분배락일'] = ocrSched['분배락일'];
+          if (ocrSched['기준일']) calcSched['기준일'] = ocrSched['기준일'];
+          if (ocrSched['지급일']) calcSched['지급일'] = ocrSched['지급일'];
+          calcSched['_ocr'] = true; // OCR 확정 표시
+        }
+      }
+
+      const trRe = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
+      let tr;
+      while ((tr = trRe.exec(html))) {
+        const cols = [...tr[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/g)]
+          .map(c => c[1].replace(/<[^>]+>/g,'').replace(/&nbsp;/g,' ').replace(/,/g,'').trim());
+        // 종목코드 패턴: 6자리 영숫자 (494300, 0005A0 등)
+        const tickerIdx = cols.findIndex(c => /^[0-9A-Z]{6}$/.test(c));
+        if (tickerIdx < 0) continue;
+        const ticker = cols[tickerIdx];
+        const name = (cols[tickerIdx+1] || '').replace(/\s*ETF\s*$/,'').trim();
+        const nums = cols.slice(tickerIdx+2).filter(c => /^[\d.]+$/.test(c)).map(Number);
+        if (!nums.length) continue;
+        // 분배율(작은 값, 0~30) + 분배금(큰 값, >=10 보통이나 12원 등 예외 있어 마지막 숫자를 금액으로)
+        const rate   = nums.find(n => n > 0 && n < 30) ?? null;
+        const amount = nums[nums.length-1];
+        if (amount == null) continue;
+        // 일정: API값(schedMap)이 본문 기준월과 일치하면 우선, 아니면 계산값(calcSched) 사용
+        let sched = calcSched;
+        const apiS = schedMap[ticker];
+        if (apiS && apiS['기준일']) {
+          const apiMonM = apiS['기준일'].match(/(\d{1,2})월/);
+          const apiMon = apiMonM ? parseInt(apiMonM[1]) : null;
+          // 월말이면 API 기준월이 refMonth와 같을 때만(=API에 이번 월말 반영됨) 채택
+          // 월중이면 API 기준월이 refMonth와 같을 때 채택
+          if (apiMon === refMonth) sched = { '공시일': calcSched['공시일'], '기준일': apiS['기준일'], '지급일': apiS['지급일'] };
+        }
+        out.push({ name, ticker, amount: Number(amount), rate, cycle: cycleLabel, sched });
+      }
+      return out;
+    };
+
+    let items = [];
+    if (midE) { try { items = items.concat(parseNoticeTable(midE.no, '월중')); } catch(e) {} }
+    if (endE) { try { items = items.concat(parseNoticeTable(endE.no, '월말')); } catch(e) {} }
+
+    if (!items.length) return fetchDist_kodex_api(); // 표 파싱 0건 → API 폴백
+
+    // ── 4) 대표 일정(schedule): 월중 글 기준일/지급일을 대표로 (API 보강) ──
+    const repItem = items.find(it => it.cycle === '월중' && it.sched['기준일']) || items.find(it => it.sched['기준일']);
+    const schedule = repItem ? { '기준일': repItem.sched['기준일'], '지급일': repItem.sched['지급일'] } : {};
+
+    return { success: true, items, schedule, title: 'KODEX 분배금 (공지글 파싱)' };
+  } catch(e) {
+    try { return fetchDist_kodex_api(); } catch(e2) { return { items: [], error: 'KODEX: ' + e.toString() }; }
+  }
+}
+
+// 기존 자사 API 방식 (폴백용으로 분리 보존)
+function fetchDist_kodex_api() {
+  try {
+    const all = [];
+    for (let page = 1; page <= 6; page++) {
+      const res = UrlFetchApp.fetch('https://www.samsungfund.com/api/v1/kodex/distribution.do?pageNo=' + page + '&pageSize=100',
+        { muteHttpExceptions:true, headers:{'User-Agent':'Mozilla/5.0','Accept':'application/json'} });
+      if (res.getResponseCode() !== 200) break;
+      const j = JSON.parse(res.getContentText('UTF-8'));
+      const list = j.dividList || [];
+      if (!list.length) break;
+      all.push(...list);
+      if (all.length >= (j.totalCnt || 9999)) break;
+    }
+    const ymd = s => { if(!s||String(s).length<8) return ''; const t=String(s); return parseInt(t.substr(4,2))+'월 '+parseInt(t.substr(6,2))+'일'; };
+    const byTicker = {};
+    all.forEach(it => {
+      const ticker = (it.stkTicker||'').toString().trim();
+      if (it.dividA == null) return;
+      if (!byTicker[ticker] || String(it.basicD) > String(byTicker[ticker].basicD)) byTicker[ticker] = it;
+    });
+    const items = [];
+    Object.keys(byTicker).forEach(ticker => {
+      const it = byTicker[ticker];
+      items.push({ name: it.fNm || '', ticker, amount: Number(it.dividA), rate: it.dividY != null ? Math.round(Number(it.dividY)*100)/100 : null, sched: { '기준일': ymd(it.basicD), '지급일': ymd(it.payD) } });
+    });
+    if (!items.length) return { items: [], error: 'KODEX: API 결과 없음' };
+    const cnt = {};
+    items.forEach(it => { const k=it.sched['기준일']; if(k) cnt[k]=(cnt[k]||0)+1; });
+    const topBase = Object.keys(cnt).sort((a,b)=>cnt[b]-cnt[a])[0] || '';
+    const rep = items.find(it => it.sched['기준일'] === topBase);
+    const schedule = rep ? { '기준일': rep.sched['기준일'], '지급일': rep.sched['지급일'] } : {};
+    return { success: true, items, schedule, title: 'KODEX 분배금 (자사 API)' };
+  } catch(e) {
+    return { items: [], error: 'KODEX: ' + e.toString() };
+  }
+}
+function parseKodexSchedule(html) {
+  const schedule = {};
+  const thRe = /<th[^>]*>([\s\S]*?)<\/th>\s*<td[^>]*>([\s\S]*?)<\/td>/g;
+  let m;
+  while ((m = thRe.exec(html))) {
+    const key = m[1].replace(/<[^>]+>/g,'').replace(/&nbsp;/g,' ').trim();
+    const val = m[2].replace(/<[^>]+>/g,'').replace(/&nbsp;/g,' ').trim();
+    if (!val) continue;
+    const dateM = val.match(/\d{4}[.\-\/]\d{1,2}[.\-\/]\d{1,2}|\d{1,2}월\s*\d{1,2}일|\d{1,2}[\/]\d{1,2}/);
+    if (!dateM) continue;
+    if (/공시/.test(key))    schedule['공시일']  = dateM[0];
+    if (/분배락/.test(key))  schedule['분배락일'] = dateM[0];
+    if (/기준/.test(key))    schedule['기준일']  = dateM[0];
+    if (/지급/.test(key))    schedule['지급일']  = dateM[0];
+  }
+  if (!Object.keys(schedule).length) return parseScheduleFromText(html.replace(/<[^>]+>/g,' '));
+  return schedule;
+}
+
+function fetchDist_tiger() {
+  try {
+    const fd = 'firstIndex=0&listCnt=20&pageIndex=1&detailsKey=&q=';
+    const listRes = UrlFetchApp.fetch('https://investments.miraeasset.com/tigeretf/ko/customer/notice/list.ajax', {
+      method: 'post', payload: fd,
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Mozilla/5.0' },
+      muteHttpExceptions: true
+    });
+    const listHtml = listRes.getContentText('UTF-8');
+    const allKeys = [...listHtml.matchAll(/'detailsKey',\s*'(\d+)'/g)].map(m => m[1]);
+    if (!allKeys.length) return { items: [], error: 'TIGER: detailsKey 파싱 실패' };
+
+    // 분배금 글들의 본문에서 공시일(월/일) 파싱 → 최신 월의 월중/월말 가르기
+    // TIGER 컨벤션: 월중 공시 ≈ 11일, 월말 공시 ≈ 26일 (같은 달 두 번)
+    const curYear = new Date().getFullYear();
+    const found = []; // { key, pubMon, pubDay, cycle }
+    for (const key of allKeys.slice(0, 12)) {
+      const html = UrlFetchApp.fetch('https://investments.miraeasset.com/tigeretf/ko/customer/notice/view.do?detailsKey=' + key,
+        { headers: { 'User-Agent': 'Mozilla/5.0' }, muteHttpExceptions: true }).getContentText('UTF-8');
+      if (!(html.includes('분배금') && (html.includes('분배율') || html.includes('좌당')))) continue;
+      const text = html.replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' ').replace(/\s+/g,' ');
+      const pubM = text.match(/(\d{1,2})\/(\d{1,2})\s*\([월화수목금토일]\)\s*분배금\s*공시일/);
+      if (!pubM) continue;
+      const pubMon = parseInt(pubM[1]), pubDay = parseInt(pubM[2]);
+      const cycle = pubDay >= 20 ? '월말' : '월중'; // 공시 20일 이후=월말, 이전=월중
+      found.push({ key, pubMon, pubDay, cycle });
+      if (found.length >= 8) break;
+    }
+    if (!found.length) return { items: [], error: 'TIGER: 분배금 공지 미발견' };
+
+    // 최신 월 결정 후, 그 월의 월중/월말 각 1건
+    const latestMon = Math.max(...found.map(f => f.pubMon));
+    const midE = found.find(f => f.pubMon === latestMon && f.cycle === '월중');
+    const endE = found.find(f => f.pubMon === latestMon && f.cycle === '월말');
+
+    let items = [];
+    let schedule = {};
+    if (midE) {
+      const r = fetchDist_tiger_detail(midE.key, '월중');
+      items = items.concat(r.items);
+      if (Object.keys(r.schedule).length) schedule = r.schedule; // 월중 일정을 대표로
+    }
+    if (endE) {
+      const r = fetchDist_tiger_detail(endE.key, '월말');
+      items = items.concat(r.items);
+      if (!Object.keys(schedule).length && Object.keys(r.schedule).length) schedule = r.schedule;
+    }
+    if (!items.length) return { items: [], error: 'TIGER: 표 파싱 0건' };
+    return { success: true, items, schedule, title: 'TIGER 분배금 (자사 공지 파싱)' };
+  } catch(e) {
+    return { items: [], error: 'TIGER: ' + e.toString() };
+  }
+}
+
+function fetchDist_tiger_detail(key, cycleLabel) {
+  const detailRes = UrlFetchApp.fetch('https://investments.miraeasset.com/tigeretf/ko/customer/notice/view.do?detailsKey=' + key, { headers: { 'User-Agent': 'Mozilla/5.0' }, muteHttpExceptions: true });
+  const html = detailRes.getContentText('UTF-8');
+  const items = [];
+  const trRe = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
+  let tr;
+  while ((tr = trRe.exec(html))) {
+    // TIGER 표 컬럼 순서: [종목코드, 종목명, 분배금(원), 분배율(%)]
+    const cols = [...tr[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)]
+      .map(x => x[1].replace(/<[^>]+>/g,'').replace(/&nbsp;/g,' ').replace(/&#37;/g,'%').replace(/,/g,'').trim());
+    const tickerIdx = cols.findIndex(c => /^[0-9A-Z]{6}$/.test(c));
+    if (tickerIdx < 0) continue;
+    const ticker = cols[tickerIdx];
+    const name = (cols[tickerIdx+1] || '').replace(/\s*ETF\s*$/,'').trim();
+    // tickerIdx 이후 숫자들: 분배금(정수, %없음) / 분배율(%붙음)
+    const after = cols.slice(tickerIdx+2);
+    let amount = null, rate = null;
+    after.forEach(c => {
+      if (/%/.test(c)) { const r = parseFloat(c.replace('%','')); if (!isNaN(r) && rate == null) rate = r; }
+      else if (/^[\d.]+$/.test(c)) { const a = parseFloat(c); if (!isNaN(a) && amount == null) amount = a; }
+    });
+    if (amount == null) continue;
+    items.push({ name, ticker, amount: Number(amount), rate, cycle: cycleLabel });
+  }
+  const schedule = parseTigerSchedule(html);
+  // 일정에 cycle 정보 부여 위해 각 item.sched에도 동일 일정 복사(달력 표시용)
+  items.forEach(it => { it.sched = { '공시일': schedule['공시일'], '분배락일': schedule['분배락일'], '기준일': schedule['기준일'], '지급일': schedule['지급일'] }; });
+  return { success: true, items, schedule };
+}
+
+function parseTigerSchedule(html) {
+  const schedule = {};
+  let text = html.replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' ').replace(/\s+/g,' ');
+  const secIdx = text.indexOf('분배금 지급 일정');
+  if (secIdx >= 0) text = text.slice(secIdx);
+  const rules = [
+    ['공시일',   /(\d{1,2}[\/\.]\d{1,2})\s*\([월화수목금토일]\)\s*분배금\s*공시일/],
+    ['분배락일', /(\d{1,2}[\/\.]\d{1,2})\s*\([월화수목금토일]\)\s*분배락일/],
+    ['기준일',   /(\d{1,2}[\/\.]\d{1,2})\s*\([월화수목금토일]\)\s*분배금\s*지급기준일/],
+    ['지급일',   /(\d{1,2}[\/\.]\d{1,2})\s*\([월화수목금토일]\)\s*분배금\s*지급일/],
+  ];
+  rules.forEach(([label, re]) => {
+    const m = text.match(re);
+    if (m) schedule[label] = m[1].replace('.', '/');
+  });
+  return schedule;
+}
+
+function parseAceSchedule(html) {
+  const schedule = {};
+  const text = html.replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' ').replace(/\s+/g,' ');
+  const now = new Date();
+  const curMonth = now.getMonth() + 1;
+  const noticeM = text.match(/분배금\s*공시일\s*\(?\s*(\d{1,2})월\s*(\d{1,2})일/);
+  if (noticeM) schedule['공시일'] = noticeM[1] + '월 ' + noticeM[2] + '일';
+  const baseM = text.match(/매월\s*(\d{1,2})일을?\s*지급기준일/);
+  if (baseM) {
+    schedule['기준일'] = curMonth + '월 ' + baseM[1] + '일';
+  } else {
+    const baseM2 = text.match(/(\d{1,2})월\s*(\d{1,2})일.{0,10}지급기준일|지급기준일.{0,10}(\d{1,2})월\s*(\d{1,2})일/);
+    if (baseM2) {
+      const mo = baseM2[1] || baseM2[3], dy = baseM2[2] || baseM2[4];
+      if (mo && dy) schedule['기준일'] = mo + '월 ' + dy + '일';
+    }
+  }
+  return schedule;
+}
+
+function fetchDist_ace() {
+  try {
+    const listJson = JSON.parse(UrlFetchApp.fetch('https://papi.aceetf.co.kr/api/notices?categoryNo=61&page=1&searchValue=', { muteHttpExceptions: true }).getContentText('UTF-8'));
+    const notices = (listJson.data || []).filter(n => (n.title||'').includes('분배금'));
+    if (!notices.length) return { items: [], error: 'ACE: 분배금 공지 없음' };
+
+    // regDate(게시일)로 월중/월말 가르기: 게시 20일 이후=월말, 이전=월중
+    // 단발 비정기(국고채 등, 게시 5일경)는 제외 위해 월중은 11~16일만 인정
+    const parsed = notices.map(n => {
+      const m = (n.regDate || '').match(/(\d{4})-(\d{2})-(\d{2})/);
+      if (!m) return null;
+      return { id: n.id, title: n.title || '', y: parseInt(m[1]), mon: parseInt(m[2]), day: parseInt(m[3]) };
+    }).filter(Boolean);
+    if (!parsed.length) return { items: [], error: 'ACE: 게시일 파싱 실패' };
+
+    const latestMon = Math.max(...parsed.map(p => p.mon));
+    const midE = parsed.find(p => p.mon === latestMon && p.day >= 10 && p.day <= 16);
+    const endE = parsed.find(p => p.mon === latestMon && p.day >= 20);
+
+    // 영업일 계산 헬퍼
+    const lastBizDay = (year, mon) => { const d = new Date(year, mon, 0); while (d.getDay()===0||d.getDay()===6) d.setDate(d.getDate()-1); return { m:d.getMonth()+1, d:d.getDate() }; };
+    const nextBizDay = (year, mon, day) => { const d = new Date(year, mon-1, day); do { d.setDate(d.getDate()+1); } while (d.getDay()===0||d.getDay()===6); return { m:d.getMonth()+1, d:d.getDate() }; };
+    const curYear = new Date().getFullYear();
+
+    const fetchAceBody = (id) => {
+      const dj = JSON.parse(UrlFetchApp.fetch('https://papi.aceetf.co.kr/api/notices/' + id, { muteHttpExceptions: true }).getContentText('UTF-8'));
+      const item = dj.current || dj.data || {};
+      let content = item.content || '';
+      if (!content) {
+        try {
+          const br = UrlFetchApp.fetch('https://papi.aceetf.co.kr/api/notices/' + id + '/body', { muteHttpExceptions: true });
+          if (br.getResponseCode() === 200) { const bj = JSON.parse(br.getContentText('UTF-8')); content = bj.data || bj.content || ''; }
+        } catch(e) {}
+      }
+      return content;
+    };
+
+    const parseAceTable = (entry, cycleLabel) => {
+      const content = fetchAceBody(entry.id);
+      const out = [];
+      // 본문 분배율 기준월: "분배율 : 6월 26일 종가 기준"
+      const plain = content.replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' ').replace(/\s+/g,' ');
+      const refM = plain.match(/분배율\s*[:：]?\s*(\d{1,2})월\s*(\d{1,2})일\s*종가/);
+      const refMonth = refM ? parseInt(refM[1]) : entry.mon;
+      const refDay   = refM ? parseInt(refM[2]) : null;
+
+      // 일정 계산
+      let calcSched = { '공시일': entry.mon + '월 ' + entry.day + '일' };
+      if (cycleLabel === '월말') {
+        const base = lastBizDay(curYear, refMonth);
+        const pay  = nextBizDay(curYear, base.m, base.d);
+        calcSched['기준일'] = base.m + '월 ' + base.d + '일';
+        calcSched['지급일'] = pay.m + '월 ' + pay.d + '일';
+        // 일정이 본문 base64 이미지라 계산 부정확 → OCR로 실제값 우선
+        const ocrSched = ocrScheduleFromBase64Html(content);
+        if (ocrSched && (ocrSched['기준일'] || ocrSched['지급일'])) {
+          if (ocrSched['공시일']) calcSched['공시일'] = ocrSched['공시일'];
+          if (ocrSched['분배락일']) calcSched['분배락일'] = ocrSched['분배락일'];
+          if (ocrSched['기준일']) calcSched['기준일'] = ocrSched['기준일'];
+          if (ocrSched['지급일']) calcSched['지급일'] = ocrSched['지급일'];
+          calcSched['_ocr'] = true;
+        }
+      } else {
+        // ACE 월중: 본문 "매월 15일을 지급기준일" → 기준일=15일(휴일이면 직전 영업일), 지급일=다음 영업일
+        const baseMon = refMonth || entry.mon;
+        let bd = new Date(curYear, baseMon - 1, 15);
+        while (bd.getDay() === 0 || bd.getDay() === 6) bd.setDate(bd.getDate() - 1); // 15일 휴일이면 직전 영업일
+        const base = { m: bd.getMonth() + 1, d: bd.getDate() };
+        const pay = nextBizDay(curYear, base.m, base.d);
+        calcSched['기준일'] = base.m + '월 ' + base.d + '일';
+        calcSched['지급일'] = pay.m + '월 ' + pay.d + '일';
+      }
+
+      // 표: [종목명, 종목코드, 분배금, 분배율, 기호]
+      const trRe = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
+      let tr;
+      while ((tr = trRe.exec(content))) {
+        const cols = [...tr[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map(x => x[1].replace(/<[^>]+>/g,'').replace(/&nbsp;/g,' ').replace(/,/g,'').trim());
+        const tickerIdx = cols.findIndex(c => /^[0-9A-Z]{6}$/.test(c));
+        if (tickerIdx < 0) continue;
+        const ticker = cols[tickerIdx];
+        const name = (cols[tickerIdx-1] || cols[tickerIdx+1] || '').replace(/\s*ETF\s*$/,'').trim();
+        // ACE 표 순서: [명, 코드, 금액, 율, 기호] → 코드 다음 숫자 = [금액, 율]
+        const after = cols.slice(tickerIdx+1).filter(c => /^[\d.]+$/.test(c)).map(Number);
+        if (after.length < 1) continue;
+        const amount = after[0];        // 첫 숫자 = 분배금(원)
+        const rate   = after.length >= 2 ? after[1] : null; // 둘째 숫자 = 분배율(%)
+        if (amount == null) continue;
+        out.push({ name, ticker, amount: Number(amount), rate, cycle: cycleLabel, sched: { ...calcSched } });
+      }
+      return out;
+    };
+
+    let items = [], schedule = {};
+    if (midE) { const r = parseAceTable(midE, '월중'); items = items.concat(r); if (r[0]) schedule = r[0].sched; }
+    if (endE) { const r = parseAceTable(endE, '월말'); items = items.concat(r); if (!Object.keys(schedule).length && r[0]) schedule = r[0].sched; }
+    if (!items.length) return { items: [], error: 'ACE: 표 파싱 0건' };
+    return { success: true, items, schedule, title: 'ACE 분배금 (자사 공지 파싱)' };
+  } catch(e) {
+    return { items: [], error: 'ACE: ' + e.toString() };
+  }
+}
+
+function fetchDist_plus() {
+  try {
+    const listHtml = UrlFetchApp.fetch('https://www.plusetf.co.kr/customer/notice/list', { headers: { 'User-Agent': 'Mozilla/5.0' }, muteHttpExceptions: true }).getContentText('UTF-8');
+    // 분배금 공지 목록: 제목에 (월말)/(월중) 명시
+    const rowRe = /href="\/customer\/notice\/detail\?n=(\d+)"[\s\S]{0,300}?<\/a>/g;
+    const cands = [];
+    let rm;
+    while ((rm = rowRe.exec(listHtml))) {
+      const block = rm[0];
+      const titleM = block.match(/PLUS ETF[^<]*분배금[^<]*/);
+      if (!titleM) continue;
+      const title = titleM[0].trim();
+      const dateM = block.match(/(\d{4})\.(\d{2})\.(\d{2})/);
+      let cycle = null;
+      if (/\(월말\)/.test(title)) cycle = '월말';
+      else if (/\(월중\)/.test(title)) cycle = '월중';
+      const monM = title.match(/(\d{1,2})월/);
+      cands.push({ n: rm[1], title, cycle, mon: monM ? parseInt(monM[1]) : 0,
+        pubMon: dateM ? parseInt(dateM[2]) : 0, pubDay: dateM ? parseInt(dateM[3]) : 0 });
+    }
+    const dated = cands.filter(c => c.cycle && c.mon);
+    if (!dated.length) return { items: [], error: 'PLUS: 월중/월말 공지 미발견' };
+    const latestMon = Math.max(...dated.map(c => c.mon));
+    const midE = dated.find(c => c.mon === latestMon && c.cycle === '월중');
+    const endE = dated.find(c => c.mon === latestMon && c.cycle === '월말');
+
+    const parsePlusNotice = (entry) => {
+      const html = UrlFetchApp.fetch('https://www.plusetf.co.kr/customer/notice/detail?n=' + entry.n, { headers: { 'User-Agent': 'Mozilla/5.0' }, muteHttpExceptions: true }).getContentText('UTF-8');
+      const out = [];
+      let sched = {};
+      if (entry.pubMon) sched['공시일'] = entry.pubMon + '월 ' + entry.pubDay + '일';
+      let usedOcr = false;
+
+      // 방어 1: 텍스트 <table>에 종목코드 행이 있으면 우선 파싱
+      const tables = [...html.matchAll(/<table[\s\S]*?<\/table>/g)];
+      for (const tb of tables) {
+        const trs = [...tb[0].matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)];
+        for (const tr of trs) {
+          const cols = [...tr[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map(x => x[1].replace(/<[^>]+>/g,'').replace(/&nbsp;/g,' ').replace(/,/g,'').trim());
+          const ti = cols.findIndex(c => /^([0-9]{6}|[0-9]{4}[A-Z][0-9])$/.test(c));
+          if (ti < 0) continue;
+          const after = cols.slice(ti+1).filter(c => /^[\d.]+%?$/.test(c)).map(c => parseFloat(c.replace('%','')));
+          if (!after.length) continue;
+          const amount = after[0];
+          const rate = after.length >= 2 ? after[after.length-1] : null;
+          out.push({ name: (cols[ti-1]||cols[ti+1]||'').replace(/\s*ETF\s*$/,'').trim(), ticker: cols[ti], amount: Number(amount), rate, cycle: entry.cycle });
+        }
+      }
+
+      // 방어 2: 텍스트 표에서 못 얻으면 본문 이미지 OCR
+      if (!out.length) {
+        const imgM = html.match(/<img[^>]+src=["'](https?:\/\/[^"']*\/upload\/[^"']+\.(?:png|jpg|jpeg|PNG|JPG))["']/i);
+        if (imgM) {
+          const ocrText = ocrImageText(imgM[1]);
+          if (ocrText) {
+            usedOcr = true;
+            const t = ocrText.replace(/\s+/g, ' ');
+            // 종목코드 위치 기준으로 분할, 각 구간에서 금액+분배율
+            const codeRe = /\b([0-9]{6}|[0-9]{4}[A-Z][0-9])\b/g;
+            const codes = [];
+            let cm;
+            while ((cm = codeRe.exec(t))) codes.push({ code: cm[1], idx: cm.index, end: cm.index + cm[0].length });
+            for (let i = 0; i < codes.length; i++) {
+              const seg = t.slice(codes[i].end, i+1 < codes.length ? codes[i+1].idx : codes[i].end + 80);
+              const rateM = seg.match(/(\d+\.\d+)\s*%/);
+              const rate = rateM ? parseFloat(rateM[1]) : null;
+              let amount = null;
+              const amtM = seg.match(/(\d+)\s+\d+\.\d+\s*%/);
+              if (amtM) amount = parseInt(amtM[1]);
+              if (amount == null) continue;
+              // 종목명: 코드와 금액 사이 한글/영문 (기호 ●·. 제거)
+              let name = seg.slice(0, amtM ? seg.indexOf(amtM[0]) : seg.length).replace(/[●•·.]/g,'').replace(/\s+/g,' ').trim();
+              out.push({ name, ticker: codes[i].code, amount: Number(amount), rate, cycle: entry.cycle });
+            }
+            // 일정도 같은 OCR 텍스트에서 시도
+            const ocrSched = parseScheduleFromOcr(ocrText);
+            if (ocrSched['기준일'] || ocrSched['지급일']) {
+              if (ocrSched['공시일']) sched['공시일'] = ocrSched['공시일'];
+              if (ocrSched['분배락일']) sched['분배락일'] = ocrSched['분배락일'];
+              if (ocrSched['기준일']) sched['기준일'] = ocrSched['기준일'];
+              if (ocrSched['지급일']) sched['지급일'] = ocrSched['지급일'];
+            }
+          }
+        }
+      }
+
+      // 텍스트 본문에서 일정 보강 (이미지 OCR 실패 대비)
+      if (!sched['기준일']) {
+        const text = html.replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' ').replace(/\s+/g,' ');
+        const baseM = text.match(/지급기준일\s*[:：]?\s*\d{0,4}년?\s*(\d{1,2})월\s*(\d{1,2})일/);
+        const payM = text.match(/지급(?:예정)?일\s*[:：]?\s*\d{0,4}년?\s*(\d{1,2})월\s*(\d{1,2})일/);
+        if (baseM) sched['기준일'] = parseInt(baseM[1]) + '월 ' + parseInt(baseM[2]) + '일';
+        if (payM) sched['지급일'] = parseInt(payM[1]) + '월 ' + parseInt(payM[2]) + '일';
+      }
+
+      if (usedOcr) sched['_ocr'] = true;
+      out.forEach(it => { it.sched = { ...sched }; });
+      return { items: out, schedule: sched, usedOcr };
+    };
+
+    let items = [], schedule = {}, anyOcr = false;
+    if (midE) { const r = parsePlusNotice(midE); items = items.concat(r.items); if (Object.keys(r.schedule).length) schedule = r.schedule; if (r.usedOcr) anyOcr = true; }
+    if (endE) { const r = parsePlusNotice(endE); items = items.concat(r.items); if (!Object.keys(schedule).length && Object.keys(r.schedule).length) schedule = r.schedule; if (r.usedOcr) anyOcr = true; }
+    if (!items.length) return { items: [], error: 'PLUS: 종목 파싱 0건' };
+    return { success: true, items, schedule, title: 'PLUS 분배금 (자사 공지 파싱)' + (anyOcr ? ' [OCR]' : ''), _usedOcr: anyOcr };
+  } catch(e) {
+    return { items: [], error: 'PLUS: ' + e.toString() };
+  }
+}
+
+function fetchDist_rise() {
+  try {
+    const listHtml = UrlFetchApp.fetch('https://www.riseetf.co.kr/cust/notice?searchText=%EB%B6%84%EB%B0%B0%EA%B8%88&searchType4=tab', { muteHttpExceptions: true }).getContentText('UTF-8');
+    const liBlocks = listHtml.split('<li').slice(1);
+    const cands = [];
+    for (const block of liBlocks) {
+      const idM = block.match(/href="(\/cust\/notice\/(\d+))/);
+      const titleM = block.match(/class="body01">([\s\S]*?)<\/p>/);
+      const dateM = block.match(/(\d{4})[.\-](\d{2})[.\-](\d{2})/);
+      if (idM && titleM) {
+        const title = titleM[1].replace(/<[^>]+>/g,'').trim();
+        if (title.includes('분배금')) {
+          // 제목으로 월중/월말 구분: "6월 말"=월말, "중순"=월중, "초"=비정기(제외)
+          let cycle = null;
+          const monM = title.match(/(\d{1,2})월/);
+          if (/말/.test(title)) cycle = '월말';
+          else if (/중순|중/.test(title)) cycle = '월중';
+          cands.push({ id: parseInt(idM[2]), title, url: idM[1], cycle,
+            mon: monM ? parseInt(monM[1]) : 0,
+            pubMon: dateM ? parseInt(dateM[2]) : 0, pubDay: dateM ? parseInt(dateM[3]) : 0 });
+        }
+      }
+    }
+    cands.sort((a,b) => b.id - a.id);
+    // 최신 월의 월중/월말 각 1건
+    const dated = cands.filter(c => c.cycle && c.mon);
+    if (!dated.length) return { items: [], error: 'RISE: 월중/월말 공지 미발견' };
+    const latestMon = Math.max(...dated.map(c => c.mon));
+    const midE = dated.find(c => c.mon === latestMon && c.cycle === '월중');
+    const endE = dated.find(c => c.mon === latestMon && c.cycle === '월말');
+
+    const parseRiseNotice = (entry) => {
+      const html = UrlFetchApp.fetch('https://www.riseetf.co.kr' + entry.url, { muteHttpExceptions: true }).getContentText('UTF-8');
+      const text = html.replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' ').replace(/\s+/g,' ');
+      // 일정: 텍스트로 명시 ("지급기준일 : 2026년 6월 30일")
+      const sched = {};
+      if (entry.pubMon) sched['공시일'] = entry.pubMon + '월 ' + entry.pubDay + '일';
+      const baseM = text.match(/지급기준일\s*[:：]\s*\d{4}년\s*(\d{1,2})월\s*(\d{1,2})일/);
+      const payM = text.match(/지급예정일\s*[:：]\s*\d{4}년\s*(\d{1,2})월\s*(\d{1,2})일/);
+      if (baseM) sched['기준일'] = parseInt(baseM[1]) + '월 ' + parseInt(baseM[2]) + '일';
+      if (payM) sched['지급일'] = parseInt(payM[1]) + '월 ' + parseInt(payM[2]) + '일';
+      // 표: [종목명, 코드, 좌당예상분배금, 좌당과세분배금, 분배율]
+      const out = [];
+      const trRe = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
+      let tr;
+      while ((tr = trRe.exec(html))) {
+        const cols = [...tr[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map(x => x[1].replace(/<[^>]+>/g,'').replace(/&nbsp;/g,' ').replace(/,/g,'').trim());
+        const ti = cols.findIndex(c => /^[0-9A-Z]{6}$/.test(c));
+        if (ti < 0) continue;
+        const ticker = cols[ti];
+        const name = (cols[ti-1] || cols[0] || '').replace(/\s*ETF\s*$/,'').trim();
+        const after = cols.slice(ti+1).filter(c => /^[\d.]+$/.test(c)).map(Number);
+        if (!after.length) continue;
+        const amount = after[0];          // 좌당 예상분배금
+        const rate = after[after.length-1]; // 분배율(마지막)
+        if (amount == null) continue;
+        out.push({ name, ticker, amount: Number(amount), rate, cycle: entry.cycle, sched: { ...sched } });
+      }
+      return { items: out, schedule: sched };
+    };
+
+    let items = [], schedule = {};
+    if (midE) { const r = parseRiseNotice(midE); items = items.concat(r.items); if (Object.keys(r.schedule).length) schedule = r.schedule; }
+    if (endE) { const r = parseRiseNotice(endE); items = items.concat(r.items); if (!Object.keys(schedule).length && Object.keys(r.schedule).length) schedule = r.schedule; }
+    if (!items.length) return { items: [], error: 'RISE: 표 파싱 0건' };
+    return { success: true, items, schedule, title: 'RISE 분배금 (자사 공지 파싱)' };
+  } catch(e) {
+    return { items: [], error: 'RISE: ' + e.toString() };
+  }
+}
+
+function fetchDist_sol() {
+  const FUND_MAP = {
+    '0040Y0': { fundCd:'211088', name:'SOL 팔란티어커버드콜OTM채권혼합' },
+    '0040X0': { fundCd:'211089', name:'SOL 팔란티어미국채커버드콜혼합' },
+    '484880': { fundCd:'211061', name:'SOL 금융지주플러스고배당' },
+    '473330': { fundCd:'211044', name:'SOL 미국30년국채커버드콜(합성)' },
+    '446720': { fundCd:'210942', name:'SOL 미국배당다우존스' },
+    '493420': { fundCd:'211069', name:'SOL 미국배당다우존스2호' }
+  };
+  const items = [];
+  let schedule = {};
+  let latestWorkDt = '';
+  try {
+    Object.keys(FUND_MAP).forEach(ticker => {
+      const info = FUND_MAP[ticker];
+      try {
+        const res = UrlFetchApp.fetch('https://www.soletf.com/api/etf/pds/dividend/' + info.fundCd, { muteHttpExceptions:true, headers:{'User-Agent':'Mozilla/5.0','Accept':'application/json'} });
+        if (res.getResponseCode() !== 200) return;
+        const j = JSON.parse(res.getContentText('UTF-8'));
+        const arr = j.items || [];
+        if (!arr.length) return;
+        const latest = arr[0];
+        const amount = Number(latest.DIVIDEND_PRI) || null;
+        if (amount == null) return;
+        const base = Number(latest.BFAS_STAS_STPR) || Number(latest.TAX_PRI) || null;
+        const rate = base ? Math.round(amount / base * 10000) / 100 : null;
+        // 기준일(WORK_DT)의 일자로 월중/월말 판별: 25일 이후=월말
+        const wd = String(latest.WORK_DT || ''), dd = String(latest.DIVIDEND_DT || '');
+        const workDay = wd.length >= 8 ? parseInt(wd.substr(6,2)) : 0;
+        const cycle = workDay >= 25 ? '월말' : '월중';
+        const itemSched = (wd.length >= 8 && dd.length >= 8) ? {
+          '기준일': parseInt(wd.substr(4,2)) + '월 ' + parseInt(wd.substr(6,2)) + '일',
+          '지급일': parseInt(dd.substr(4,2)) + '월 ' + parseInt(dd.substr(6,2)) + '일'
+        } : {};
+        items.push({ name: info.name, ticker, amount, rate, cycle, sched: itemSched });
+        if (latest.WORK_DT > latestWorkDt) {
+          latestWorkDt = latest.WORK_DT;
+          schedule = { '기준일': parseInt(wd.substr(4,2)) + '월 ' + parseInt(wd.substr(6,2)) + '일', '지급일': parseInt(dd.substr(4,2)) + '월 ' + parseInt(dd.substr(6,2)) + '일' };
+        }
+      } catch(e2) {}
+    });
+    if (!items.length) return { items: [], error: 'SOL: dividend API 결과 없음' };
+    try {
+      const noticeRes = UrlFetchApp.fetch('https://www.soletf.com/api/cs/notice?pageNo=1&pageSize=20', { muteHttpExceptions:true, headers:{'User-Agent':'Mozilla/5.0','Accept':'application/json'} });
+      if (noticeRes.getResponseCode() === 200) {
+        const nj = JSON.parse(noticeRes.getContentText('UTF-8'));
+        const cand = (nj.items||[]).filter(it => /중순\s*분배금\s*안내/.test(it.TITLE||'')).sort((a,b) => String(b.REG_DATE||'').localeCompare(String(a.REG_DATE||'')));
+        if (cand.length) {
+          const reg = String(cand[0].REG_DATE||'');
+          const m = reg.match(/^\d{4}-(\d{2})-(\d{2})/);
+          if (m) schedule['공시일'] = parseInt(m[1]) + '월 ' + parseInt(m[2]) + '일';
+        }
+        // 제목에서 월말(②) 지급예정일 추출: "6월 분배금 안내 ② (지급 예정일 7월 1일)"
+        const endCand = (nj.items||[]).filter(it => /분배금\s*안내\s*②/.test(it.TITLE||'') && !/중순/.test(it.TITLE||''))
+          .sort((a,b) => String(b.REG_DATE||'').localeCompare(String(a.REG_DATE||'')));
+        if (endCand.length) {
+          const pm = (endCand[0].TITLE||'').match(/지급\s*예정일\s*(\d{1,2})월\s*(\d{1,2})일/);
+          if (pm) schedule['_월말지급예정'] = parseInt(pm[1]) + '월 ' + parseInt(pm[2]) + '일';
+        }
+      }
+    } catch(eNotice) {}
+    return { success: true, items, schedule, title: 'SOL 월배당 분배금 (자사 API)', _source: 'api' };
+  } catch(e) {
+    return { items: [], error: 'SOL: ' + e.toString() };
+  }
+}
+
+// ===== 알림 엔진 =====
+// 시트: '알림로그'(이력 누적), '_파서메타'(직전 상태 저장→변경 감지)
+const ALERT_SHEET_ID = '1iNlOU1YBRyJ6redmVoLDE4q6VfnWqL22s32IQHdSKN8';
+
+function _getOrCreateSheet(name, headers) {
+  const ss = SpreadsheetApp.openById(ALERT_SHEET_ID);
+  let sh = ss.getSheetByName(name);
+  if (!sh) {
+    sh = ss.insertSheet(name);
+    if (headers) sh.appendRow(headers);
+  }
+  return sh;
+}
+
+// 운용사별 현재 파싱 상태의 "지문" 생성 (변경 감지용)
+function _fingerprint(source, result) {
+  const items = (result && result.items) || [];
+  const sched = (result && result.schedule) || {};
+  return {
+    source: (result && result._source) || (source === 'sol' ? 'api' : 'page'),
+    isOcr: !!(result && (result._usedOcr || (sched && sched._ocr))),
+    itemCount: items.length,
+    cycles: [...new Set(items.map(it => it.cycle).filter(Boolean))].sort().join(','),
+    pubDate: sched['공시일'] || '',
+    hasItems: items.length > 0,
+    error: (result && result.error) || ''
+  };
+}
+
+// 알림 1건 추가 (중복 방지: 같은 운용사+종류+메시지가 최근 있으면 skip)
+function _addAlert(sheet, source, kind, message, level) {
+  const now = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm');
+  // 최근 50행 내 동일 알림 중복 체크
+  const last = sheet.getLastRow();
+  if (last > 1) {
+    const start = Math.max(2, last - 49);
+    const rows = sheet.getRange(start, 1, last - start + 1, 5).getValues();
+    for (const r of rows) {
+      if (r[1] === source && r[2] === kind && r[3] === message && r[5] !== '확인') return; // 이미 있음
+    }
+  }
+  sheet.appendRow([now, source, kind, message, level || '정보', '신규']);
+}
+
+// 6개 운용사 파싱 후 알림 감지·생성 (getDistribution 호출하며 비교)
+function checkAndLogAlerts() {
+  const logSheet = _getOrCreateSheet('알림로그', ['시각','운용사','종류','메시지','중요도','상태']);
+  const metaSheet = _getOrCreateSheet('_파서메타', ['운용사','source','isOcr','itemCount','cycles','pubDate','updated']);
+
+  // 직전 메타 로드
+  const metaRows = metaSheet.getLastRow() > 1 ? metaSheet.getRange(2,1,metaSheet.getLastRow()-1,7).getValues() : [];
+  const prevMeta = {};
+  metaRows.forEach(r => { prevMeta[r[0]] = { source:r[1], isOcr:r[2]===true||r[2]==='TRUE'||r[2]===true, itemCount:r[3], cycles:r[4], pubDate:r[5] }; });
+
+  const SRC_LABEL = { kodex:'KODEX', tiger:'TIGER', ace:'ACE', rise:'RISE', plus:'PLUS', sol:'SOL' };
+  const newMeta = [];
+
+  ['kodex','tiger','ace','rise','plus','sol'].forEach(source => {
+    let result;
+    try { result = getDistribution(source, true); } catch(e) { result = { items:[], error:e.toString() }; }
+    const fp = _fingerprint(source, result);
+    const label = SRC_LABEL[source];
+    const prev = prevMeta[source];
+
+    // 1) 파싱 경고
+    if (!fp.hasItems) {
+      _addAlert(logSheet, label, '파싱경고', `${label} 종목 0건 — 파싱 실패 또는 공지 없음`, '경고');
+    } else if (fp.isOcr) {
+      _addAlert(logSheet, label, '파싱경고', `${label} 이미지 OCR로 처리됨 — 정확도 확인 권장`, '정보');
+    }
+
+    if (prev) {
+      // 2) 구조 변경 감지
+      if (prev.source && prev.source !== fp.source) {
+        _addAlert(logSheet, label, '구조변경', `${label} 데이터 출처 변경: ${prev.source} → ${fp.source} — 파서 수정 필요`, '중요');
+      }
+      if (prev.isOcr && !fp.isOcr) {
+        _addAlert(logSheet, label, '구조변경', `${label} 이미지→텍스트 전환됨 — 페이지에 직접 작성 시작, 파서 점검 권장`, '중요');
+      }
+      if (!prev.isOcr && fp.isOcr) {
+        _addAlert(logSheet, label, '구조변경', `${label} 텍스트→이미지 전환됨 — OCR로 처리 중`, '정보');
+      }
+      // 3) 신규 공지 (공시일이 직전과 다름)
+      if (fp.pubDate && prev.pubDate && fp.pubDate !== prev.pubDate) {
+        _addAlert(logSheet, label, '신규공지', `${label} 새 분배금 공지: 공시일 ${fp.pubDate} (${fp.cycles})`, '정보');
+      }
+    }
+    newMeta.push([source, fp.source, fp.isOcr, fp.itemCount, fp.cycles, fp.pubDate, Utilities.formatDate(new Date(),'Asia/Seoul','yyyy-MM-dd HH:mm')]);
+  });
+
+  // 메타 갱신 (전체 덮어쓰기)
+  if (metaSheet.getLastRow() > 1) metaSheet.getRange(2,1,metaSheet.getLastRow()-1,7).clearContent();
+  if (newMeta.length) metaSheet.getRange(2,1,newMeta.length,7).setValues(newMeta);
+
+  return { checked: 6, time: Utilities.formatDate(new Date(),'Asia/Seoul','yyyy-MM-dd HH:mm') };
+}
+
+// 화면에 줄 알림 목록 반환 (최근 N건, 미확인 우선)
+function getAlerts(limit) {
+  try {
+    const sh = _getOrCreateSheet('알림로그', ['시각','운용사','종류','메시지','중요도','상태']);
+    const last = sh.getLastRow();
+    if (last <= 1) return { success: true, alerts: [] };
+    const n = Math.min(limit || 30, last - 1);
+    const rows = sh.getRange(last - n + 1, 1, n, 6).getValues();
+    const alerts = rows.map((r, i) => ({
+      row: last - n + 1 + i,
+      time: r[0], source: r[1], kind: r[2], message: r[3], level: r[4], status: r[5]
+    })).reverse(); // 최신 먼저
+    return { success: true, alerts };
+  } catch(e) {
+    return { success: false, error: e.toString(), alerts: [] };
+  }
+}
+
+// 알림 확인 처리 (상태→확인)
+function markAlertRead(row) {
+  try {
+    const sh = _getOrCreateSheet('알림로그');
+    if (row >= 2 && row <= sh.getLastRow()) sh.getRange(row, 6).setValue('확인');
+    return { success: true };
+  } catch(e) { return { success: false, error: e.toString() }; }
+}
+
+function parseScheduleFromText(text) {
+  const schedule = {};
+  const keyMap = [
+    ['공시일',    /공시일|공지일/],
+    ['분배락일',  /분배락/],
+    ['기준일',    /기준일/],
+    ['지급일',    /지급일|지급\(예정\)|지급예정/],
+  ];
+  keyMap.forEach(([label, re]) => {
+    const idx = text.search(re);
+    if (idx < 0) return;
+    const sub = text.slice(idx, idx + 80);
+    const datePatterns = [
+      /\d{4}[.\-\/]\d{1,2}[.\-\/]\d{1,2}/,
+      /\d{1,2}월\s*\d{1,2}일/,
+      /\d{1,2}[\/]\d{1,2}/,
+    ];
+    for (const dp of datePatterns) {
+      const m = sub.match(dp);
+      if (m) { schedule[label] = m[0].trim(); break; }
+    }
+  });
+  return schedule;
+}
+
+function getSheetData() {
+  const sheet = SpreadsheetApp.openById('19UsD0Tz6YL2eDoLdocL0ify8NLbUYSHaOOV-jtDqNLU').getSheetByName('주식상황');
+  const rows = sheet.getDataRange().getValues();
+  const items = [];
+  let account = '';
+  for (let i = 2; i < rows.length; i++) {
+    const r = rows[i];
+    if (r[0]) account = r[0].toString().trim();
+    const ticker = r[1] ? r[1].toString().trim() : '';
+    if (!ticker) continue;
+    const currentKrw = parseFloat(r[6]) || 0;
+    const currentUsd = parseFloat(r[7]) || 0;
+    const change = r[13] ? r[13].toString().replace('▼','-').replace('%','').trim() : '';
+    const qty = parseFloat(r[3]) || 0;
+    const avgKrw = parseFloat(r[4]) || 0;
+    const avgUsd = parseFloat(r[5]) || 0;
+    const currency = currentKrw ? 'KRW' : 'USD';
+    items.push({
+      account, ticker,
+      name: r[2] ? r[2].toString().trim() : '',
+      quantity: qty,
+      avg_price: currency === 'KRW' ? avgKrw : avgUsd,
+      current: currentKrw || currentUsd,
+      currency,
+      change: parseFloat(change) || 0
+    });
+  }
+  return { success: true, items };
+}
+
+function getDivSheetData() {
+  const sheet = SpreadsheetApp.openById('19UsD0Tz6YL2eDoLdocL0ify8NLbUYSHaOOV-jtDqNLU').getSheetByName('분배금');
+  const rows = sheet.getDataRange().getValues();
+  const items = [];
+  let account = '', ticker = '', currency = 'KRW';
+  for (let i = 3; i < rows.length; i++) {
+    const r = rows[i];
+    if (r[0] && r[0].toString().trim()) account = r[0].toString().trim();
+    if (r[1] && r[1].toString().trim()) ticker = r[1].toString().trim();
+    if (!ticker || !account) continue;
+    currency = /^[A-Z]+$/.test(ticker) ? 'USD' : 'KRW';
+    const item = { account, ticker, currency };
+    for (let m = 1; m <= 12; m++) {
+      const val = parseFloat(r[5 + m]) || 0;
+      item['m' + m] = val;
+    }
+    if (Object.keys(item).some(k => k.startsWith('m') && item[k] > 0)) items.push(item);
+  }
+  return { success: true, items };
+}
+
+function getPriceLog() {
+  const log = SpreadsheetApp.openById(SHEET_ID).getSheetByName('시세로그');
+  if (!log) return { success: true, items: {} };
+  const rows = log.getDataRange().getValues();
+  const map = {};
+  for (let i = 1; i < rows.length; i++) {
+    let t = rows[i][1] ? rows[i][1].toString().trim().toUpperCase() : '';
+    if (!t) continue;
+    if (/^\d+$/.test(t) && t.length < 6) t = t.padStart(6, '0');
+    (map[t] = map[t] || []).push({ d: rows[i][0].toString(), p: parseFloat(rows[i][2]) || 0 });
+  }
+  const items = {};
+  Object.keys(map).forEach(k => {
+    map[k].sort((a, b) => a.d < b.d ? -1 : 1);
+    // 같은 날짜 중복행이 있으면 마지막 값만 유지 (기존 누적 중복 방어)
+    const byDate = {};
+    map[k].forEach(x => { byDate[x.d] = x.p; });
+    const days = Object.keys(byDate).sort();
+    items[k] = days.map(d => byDate[d]).slice(-30);
+  });
+  return { success: true, items };
+}
+
+function snapshotPrices() {
+  const src = SpreadsheetApp.openById('19UsD0Tz6YL2eDoLdocL0ify8NLbUYSHaOOV-jtDqNLU').getSheetByName('주식상황');
+  const rows = src.getDataRange().getValues();
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  let log = ss.getSheetByName('시세로그');
+  if (!log) { log = ss.insertSheet('시세로그'); log.appendRow(['date','ticker','price']); }
+  const today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
+  if (log.getDataRange().getValues().some(r => r[0] && r[0].toString() === today)) return;
+  const out = [];
+  const seen = {};                                    // 티커 중복 제거 (주식상황이 계좌별로 종목 중복 나열)
+  for (let i = 2; i < rows.length; i++) {
+    let t = rows[i][1] ? rows[i][1].toString().trim() : '';
+    if (!t) continue;
+    if (/^\d+$/.test(t) && t.length < 6) t = t.padStart(6, '0');
+    if (seen[t]) continue;                            // 이미 기록한 티커면 건너뜀
+    const price = (parseFloat(rows[i][6]) || 0) || (parseFloat(rows[i][7]) || 0);
+    if (price) { out.push([today, t, price]); seen[t] = true; }
+  }
+  if (out.length) log.getRange(log.getLastRow() + 1, 1, out.length, 3).setValues(out);
+}
+
+// [주1회 트리거용] 시세로그 압축: 원본은 백업시트로 이관, 본시트는 다운샘플만 유지
+//  - 30일 이내: 일별 원본 유지
+//  - 30~90일: 주1회(월요일)만 유지
+//  - 90일 이상: 월1회(1일)만 유지
+function compactPriceLog() {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const log = ss.getSheetByName('시세로그');
+  if (!log) return { success: false, msg: '시세로그 없음' };
+  const rows = log.getDataRange().getValues();
+  if (rows.length < 2) return { success: true, msg: '데이터 없음' };
+  const header = rows[0];
+  const body = rows.slice(1);
+
+  const today = new Date();
+  const dayMs = 86400000;
+  const ageDays = (dStr) => {
+    const d = new Date(dStr);
+    if (isNaN(d)) return 0;
+    return Math.floor((today - d) / dayMs);
+  };
+
+  // 1) 원본 전체를 백업시트에 이관(누적 append)
+  let bak = ss.getSheetByName('시세로그_백업');
+  if (!bak) { bak = ss.insertSheet('시세로그_백업'); bak.appendRow(header); }
+  if (body.length) bak.getRange(bak.getLastRow() + 1, 1, body.length, header.length).setValues(body);
+
+  // 2) 본시트는 규칙에 맞는 행만 남김 (날짜별 마지막값으로 dedup)
+  const keep = {};   // key = ticker|date → row
+  body.forEach(r => {
+    const dStr = r[0] ? r[0].toString() : '';
+    if (!dStr) return;
+    const age = ageDays(dStr);
+    const d = new Date(dStr);
+    let ok = false;
+    if (age <= 30) ok = true;                          // 30일 이내: 전부
+    else if (age <= 90) ok = (d.getDay() === 1);       // 30~90일: 월요일만
+    else ok = (d.getDate() === 1);                     // 90일↑: 매월 1일만
+    if (!ok) return;
+    let t = r[1] ? r[1].toString().trim().toUpperCase() : '';
+    if (!t) return;
+    if (/^\d+$/.test(t) && t.length < 6) t = t.padStart(6, '0');
+    keep[t + '|' + dStr] = [dStr, t, r[2]];            // 같은 티커·날짜 마지막값 유지
+  });
+  const compact = Object.keys(keep).sort().map(k => keep[k]);
+
+  // 3) 본시트 재작성
+  log.clearContents();
+  log.getRange(1, 1, 1, header.length).setValues([header]);
+  if (compact.length) log.getRange(2, 1, compact.length, 3).setValues(compact);
+
+  return { success: true, before: body.length, after: compact.length, backedUp: body.length };
+}
+
+function getEtfScreener() {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  let sh = ss.getSheetByName('ETF스크리너');
+  const today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
+  if (sh) {
+    const rows = sh.getDataRange().getValues();
+    if (rows.length > 1 && rows[1][0] && rows[1][0].toString() === today) {
+      return { success: true, date: today, items: rows.slice(1).map(rowToScreener) };
+    }
+  }
+  const items = [];
+  try {
+    const url = 'https://finance.naver.com/api/sise/etfItemList.nhn?etfType=0&targetColumn=market_sum&sortOrder=desc';
+    const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.naver.com/fund/etf/etfMain.naver' } });
+    if (res.getResponseCode() !== 200) return staleOr(sh, 'ETF API 응답 오류: ' + res.getResponseCode());
+    const json = JSON.parse(res.getContentText('EUC-KR'));
+    const list = (json.result && json.result.etfItemList) || [];
+    if (!list.length) return staleOr(sh, '결과 없음');
+    list.forEach(r => {
+      const name = r.itemname || '';
+      if (!name.match(/커버드콜|고배당|배당|위클리|데일리|월배당|인컴|리츠/)) return;
+      items.push({
+        ticker:   r.itemcode || '',
+        name,
+        provider: guessProvider(name),
+        category: etfCategory(name),
+        divRate:  null,
+        yld1y:    parseFloat(r.threeMonthEarnRate) || null,
+        price:    parseFloat(r.nowVal) || 0,
+        change:   parseFloat(r.changeRate) || 0,
+        expense:  null,
+        aum:      Math.round((parseFloat(r.marketSum) || 0) / 100)
+      });
+    });
+  } catch(e) { return staleOr(sh, e.toString()); }
+  if (!items.length) return staleOr(sh, '결과 없음');
+  if (!sh) sh = ss.insertSheet('ETF스크리너');
+  sh.clearContents();
+  const header = ['date','ticker','name','provider','category','divRate','yld1y','price','change','expense','aum'];
+  const out = [header];
+  items.forEach(it => out.push([today, it.ticker, it.name, it.provider, it.category, it.divRate, it.yld1y, it.price, it.change, it.expense, it.aum]));
+  sh.getRange(1, 1, out.length, header.length).setValues(out);
+  return { success: true, date: today, items };
+}
+
+function guessProvider(name) {
+  if (/^KODEX/.test(name)) return '삼성';
+  if (/^TIGER/.test(name)) return '미래에셋';
+  if (/^ACE/.test(name))   return '한투';
+  if (/^RISE/.test(name))  return 'KB';
+  if (/^SOL/.test(name))   return '신한';
+  if (/^PLUS/.test(name))  return '한화';
+  if (/^KBSTAR/.test(name))return 'KB';
+  if (/^HANARO/.test(name))return 'NH';
+  return '';
+}
+function staleOr(sh, err) {
+  if (sh) { const rows = sh.getDataRange().getValues(); if (rows.length > 1) return { success: true, stale: true, date: rows[1][0], items: rows.slice(1).map(rowToScreener) }; }
+  return { success: false, error: err, items: [] };
+}
+function rowToScreener(r) {
+  return { ticker: r[1], name: r[2], provider: r[3], category: r[4], divRate: r[5]===''?null:parseFloat(r[5]), yld1y: r[6]===''?null:parseFloat(r[6]), price: parseFloat(r[7])||0, change: parseFloat(r[8])||0, expense: r[9]===''?null:parseFloat(r[9]), aum: parseFloat(r[10])||0 };
+}
+function etfCategory(n) {
+  if (/레버리지|선물단일종목|2X/.test(n)) return '레버리지/단일';
+  if (/CD금리|KOFR|SOFR|머니마켓|CD1년|단기채|단기변동금리|초단기|MMF/.test(n)) return '금리/현금';
+  if (/혼합|밸런스|TRF|멀티에셋|목표헤지/.test(n)) return '혼합/자산배분';
+  if (/국채|국고채/.test(n)) return '채권-국채';
+  if (/회사채|크레딧|투자등급|하이일드|금융채/.test(n)) return '채권-회사채';
+  if (/리츠|부동산|오피스|인프라/.test(n)) return '리츠/부동산';
+  if (/국제금|금커버드콜|골드|천연가스/.test(n)) return '원자재';
+  if (/차이나|중국|항셍/.test(n)) return '중국';
+  if (/미국배당|배당퀄리티|배당귀족|배당킹|캐시카우|미국고배당|배당100|배당증가/.test(n)) return '미국배당';
+  if (/나스닥|테크100|미국테크|빅테크|AI테크|AI빅테크/.test(n)) return '나스닥/테크';
+  if (/S&P500|미국500|미국S&P/.test(n)) return 'S&P500';
+  if (/밸류업/.test(n)) return '코리아밸류업';
+  if (/고배당|배당성장|주주환원|배당주|은행|금융지주|K고배당|코리아고배당/.test(n)) return '한국고배당';
+  if (/200|코스피/.test(n)) return '코스피200';
+  if (/반도체|AI|엔비디아|팔란티어|테슬라/.test(n)) return '테마';
+  return '기타';
+}
+
+function testDistribution() {
+  ['kodex','ace','rise','sol','tiger','plus'].forEach(s => {
+    const r = getDistribution(s, true);
+    console.log('[' + s + '] items:' + (r.items?r.items.length:0) + ' err:' + (r.error||''));
+    if (r.items && r.items[0]) console.log('  샘플:', JSON.stringify(r.items[0]));
+    if (r.schedule) console.log('  일정:', JSON.stringify(r.schedule));
+  });
+}
+
+function debugSmartToday() {
+  ['kodex','tiger','ace','rise','plus','sol'].forEach(src => {
+    const d = getDistribution(src, true);
+    console.log('[' + src + '] 종목:' + (d.items||[]).length + ' | 일정:' + JSON.stringify(d.schedule||{}));
+  });
+}
+
+// ── 수익로그 ──────────────────────────────
+function snapshotPortfolio() {
+  const day = new Date().getDay();
+  if (day === 0 || day === 6) return;
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  let log = ss.getSheetByName('수익로그');
+  if (!log) { log = ss.insertSheet('수익로그'); log.appendRow(['date','account_name','value']); }
+  const today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
+  const existing = log.getDataRange().getValues();
+  for (let i = existing.length - 1; i >= 1; i--) {
+    if (existing[i][0] && existing[i][0].toString() === today) log.deleteRow(i + 1);
+  }
+  const src = SpreadsheetApp.openById('19UsD0Tz6YL2eDoLdocL0ify8NLbUYSHaOOV-jtDqNLU').getSheetByName('주식상황');
+  const srcRows = src.getDataRange().getValues();
+  const priceMap = {};
+  for (let i = 2; i < srcRows.length; i++) {
+    const t = (srcRows[i][1] || '').toString().trim().toUpperCase();
+    if (!t) continue;
+    const price = parseFloat(srcRows[i][6]) || parseFloat(srcRows[i][7]) || 0;
+    if (price) priceMap[t] = price;
+  }
+  const er = fetchExchangeRate() || 1450;
+  const accounts = getAccounts();
+  const allHoldings = getHoldings();
+  const out = [];
+  accounts.forEach(acc => {
+    const h = allHoldings.filter(x => x.account_id === acc.id);
+    if (!h.length) return;
+    let value = 0;
+    h.forEach(x => {
+      const qty = parseFloat(x.quantity) || 0;
+      const avg = parseFloat(x.avg_price) || 0;
+      const cur = priceMap[(x.ticker||'').toString().toUpperCase()] || avg;
+      value += x.currency === 'USD' ? cur * qty * er : cur * qty;
+    });
+    if (value > 0) out.push([today, acc.name, Math.round(value)]);
+  });
+  if (out.length) log.getRange(log.getLastRow() + 1, 1, out.length, 3).setValues(out);
+}
+
+function getPortfolioLog() {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const log = ss.getSheetByName('수익로그');
+  if (!log) return { success: true, items: [] };
+  const rows = log.getDataRange().getValues();
+  if (rows.length <= 1) return { success: true, items: [] };
+  const items = rows.slice(1).filter(r => r[0] && r[1]).map(r => ({
+    date:         r[0].toString(),
+    account_name: r[1].toString(),
+    value:        parseFloat(r[2]) || 0
+  }));
+  return { success: true, items };
+}
+
+function importHistoricalData() {
+  console.log('이미 실행 완료 (472행). 재실행 불필요.');
+}
+function testScreener() {
+  const r = getEtfScreener();
+  console.log('success:', r.success);
+  console.log('items:', (r.items||[]).length);
+  console.log('error:', r.error||'없음');
+  if (r.items && r.items[0]) console.log('샘플:', JSON.stringify(r.items[0]));
+}
+function testEtfCheckApi() {
+  const res = UrlFetchApp.fetch('https://www.etfcheck.co.kr/api/screener?type=basic',
+    { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } });
+  console.log('status:', res.getResponseCode());
+  console.log('body:', res.getContentText('UTF-8').slice(0, 300));
+}
+
+function testKrxEtf2() {
+  const today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyyMMdd');
+  const payload = 'bld=dbms/MDC/STAT/standard/MDCSTAT04301&trdDd=' + today + '&share=1&money=1&csvxls_isNo=false';
+  const res = UrlFetchApp.fetch('https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd', {
+    method: 'post',
+    payload: payload,
+    headers: {
+      'User-Agent': 'Mozilla/5.0',
+      'Referer': 'https://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC020103010901',
+      'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+      'Accept': 'application/json, text/javascript, */*',
+      'X-Requested-With': 'XMLHttpRequest'
+    },
+    muteHttpExceptions: true
+  });
+  console.log('status:', res.getResponseCode());
+  console.log('body:', res.getContentText('UTF-8').slice(0, 500));
+}
+
+function testEtfCheckJang() {
+  const res = UrlFetchApp.fetch('https://www.etfcheck.co.kr/user/common/getJangGubun', {
+    muteHttpExceptions: true,
+    headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.etfcheck.co.kr/' }
+  });
+  console.log('status:', res.getResponseCode());
+  console.log('sample:', res.getContentText('UTF-8').slice(0, 200));
+}
+function ck(){
+  const r=UrlFetchApp.fetch('https://www.samsungfund.com/api/v1/kodex/distribution.do?pageNo=1&pageSize=100',{muteHttpExceptions:true});
+  const j=JSON.parse(r.getContentText('UTF-8'));
+  console.log((j.dividList||[]).slice(0,5).map(x=>x.basicD+' '+x.fNm));
+}
+
+function ckSolCycle(){
+  const cache=CacheService.getScriptCache(); cache.remove('dist2_sol');
+  const r=getDistribution('sol',true);
+  console.log('전체:', r.items.length);
+  r.items.forEach(it=>console.log(`  ${it.ticker} ${it.name.slice(0,20)} | ${it.cycle} | 기준 ${it.sched?.기준일||'?'}`));
+}
+
+CacheService.getScriptCache().remove('dist2_ace');   // 캐시 제거
+console.log(JSON.stringify(getDistribution('ace', true), null, 2));
+
+function debugSheetAcc(){
+  const r = getSheetData().items;
+  const s = {};
+  r.forEach(i => s[i.account] = (s[i.account]||0) + 1);
+  console.log(JSON.stringify(s, null, 2));
+}
