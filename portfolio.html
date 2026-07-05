@@ -135,7 +135,7 @@
   table { width:100%; border-collapse:collapse; font-size:12px; }
   th { padding:6px 8px; text-align:left; font-size:11px; font-weight:700; color:#111827; text-transform:uppercase; letter-spacing:.5px; background:#e2e8f0; border:1px solid #111827; white-space:nowrap; }
   td { padding:3px 8px; border:1px solid #64748b; vertical-align:middle; }
-  .holdings-compact td { padding:1px 8px; line-height:1.2; }
+  .holdings-compact td { padding:1px 8px; line-height:1.2; font-size:13px; }
   .holdings-compact th { padding:4px 8px; border-bottom:2px solid #111827; }
   tr:hover td { background:var(--bg4); }
   tr:last-child td { border-bottom:none; }
@@ -481,7 +481,7 @@
       <select id="divYear" onchange="loadDividendGrid()"></select>
       <span style="font-size:12px;color:var(--text2)">셀 클릭 후 금액 입력 → Enter로 저장 (USD종목은 달러로 입력)</span>
       <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);margin-left:12px">글자
-        <input type="range" id="divFontSize" min="9" max="18" value="12" oninput="applyDivFont()" style="width:90px">
+        <input type="range" id="divFontSize" min="9" max="18" value="13" oninput="applyDivFont()" style="width:90px">
       </label>
       <button class="btn" style="background:#f0fdf4;border:1px solid #86efac;color:#166534;margin-left:8px;" onclick="syncDividendsFromSheet()">🔄 스프레드시트 동기화</button>
       <button class="btn btn-ghost btn-sm" onclick="openAccountOrderModal()" style="margin-left:auto">⚙️ 계좌 순서 변경</button>
@@ -1547,7 +1547,7 @@ async function loadDividendGrid() {
     if (isGroupEnd) {
       rows += `<tr style="background:var(--bg4);border-top:1px solid #94a3b8">
         <td colspan="2" style="padding:4px 10px;font-size:1em;font-weight:700;color:var(--text2);text-align:right">${acc?.name||''} 소계 ▸</td>
-        ${accMonthKrw.map(t => `<td class="div-total" style="font-size:10px;color:var(--text2)">${t?'₩'+Math.round(t).toLocaleString():''}</td>`).join('')}
+        ${accMonthKrw.map(t => `<td class="div-total" style="font-size:1em;color:var(--text2)">${t?'₩'+Math.round(t).toLocaleString():''}</td>`).join('')}
         <td class="div-total" style="color:var(--purple);font-weight:700">${accSumKrw ? '₩'+Math.round(accSumKrw).toLocaleString() : '-'}</td>
         <td class="div-total">-</td>
         <td class="div-total">-</td>
