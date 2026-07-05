@@ -1904,9 +1904,6 @@ function ckSolCycle(){
   r.items.forEach(it=>console.log(`  ${it.ticker} ${it.name.slice(0,20)} | ${it.cycle} | 기준 ${it.sched?.기준일||'?'}`));
 }
 
-CacheService.getScriptCache().remove('dist2_ace');   // 캐시 제거
-console.log(JSON.stringify(getDistribution('ace', true), null, 2));
-
 function debugSheetAcc(){
   const r = getSheetData().items;
   const s = {};
