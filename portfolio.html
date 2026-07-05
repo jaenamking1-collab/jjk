@@ -296,7 +296,7 @@
   <!-- ── 포트폴리오 탭 ── -->
   <div id="tab-accounts" class="page active">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-      <div class="page-title">🏦 내 포트폴리오</div>
+      <div></div>
       <div style="display:flex;align-items:center;gap:12px;position:relative">
         <div style="position:relative">
           <button id="alertBell" onclick="toggleAlertPanel()" style="background:#fff;border:1px solid #e7e0f5;border-radius:10px;padding:8px 12px;cursor:pointer;font-size:16px;position:relative;transition:.15s" title="알림">
@@ -1366,7 +1366,7 @@ async function renderHoldingsTable(holdings) {
       <thead><tr>
         <th>계좌</th>
         <th>티커</th><th style="min-width:280px">종목명</th>
-        <th class="text-right">수량</th><th class="text-right">평균단가</th><th class="text-right">현재가</th><th class="text-right">전일가</th><th class="text-right">투자금액</th><th class="text-right">평가금액</th>
+        <th class="text-right">수량</th><th class="text-right">평균단가</th><th class="text-right">현재가</th><th class="text-right">전일가</th><th class="text-right">투자금액</th><th class="text-right">평가금액</th><th class="text-right">손익</th>
         <th style="width:100px">추세</th>
         <th class="text-right">연분배율</th><th>배당주기</th><th>추종</th><th>관리</th>
       </tr></thead>
@@ -1385,7 +1385,7 @@ async function renderHoldingsTable(holdings) {
         const [cycOnly, catOnly] = (h.div_cycle || '').split('|');
         // 계좌 셀: 그룹 첫 행에만 rowspan으로 표시
         const acctCell = acctSpan[idx]
-          ? `<td rowspan="${acctSpan[idx]}" style="font-size:11px;color:#374151;font-weight:600;white-space:nowrap;vertical-align:middle;text-align:center;background:${getAccColor(h.account_id)}">${acc?.name||''}</td>`
+          ? `<td rowspan="${acctSpan[idx]}" style="font-size:12px;color:#374151;font-weight:600;white-space:nowrap;vertical-align:middle;text-align:center;background:${getAccColor(h.account_id)}">${acc?.name||''}</td>`
           : '';
         const groupBorder = (acctSpan[idx] && idx > 0) ? 'border-top:2px solid #334155;' : '';
         const catColor = {'나스닥100':'#6366f1','S&P500':'#3b82f6','코스피200':'#10b981','IT':'#0ea5e9','반도체':'#8b5cf6','AI':'#d946ef','2차전지':'#14b8a6','방산':'#475569','조선':'#0891b2','금융':'#f59e0b','바이오':'#22c55e','전력·원자력':'#eab308','자동차':'#ef4444','리츠':'#a855f7','채권':'#64748b','필수소비재':'#f97316','현금성':'#94a3b8'}[catOnly] || '#9ca3af';
@@ -1399,6 +1399,7 @@ async function renderHoldingsTable(holdings) {
           <td class="num" id="prev-${h.id}"><span style="color:var(--text3);font-size:11px">-</span></td>
           <td class="num" style="color:#111827">${Math.round(investKrw).toLocaleString()}</td>
           <td class="num" id="valuation-${h.id}"><span style="color:var(--text3);font-size:11px">-</span></td>
+          <td class="num" id="pl-${h.id}"><span style="color:var(--text3);font-size:11px">-</span></td>
           <td id="trend-${h.id}" style="padding:2px 8px;"></td>
           <td class="num" style="color:var(--accent);font-weight:600">${annual !== '-' ? annual+'%' : '-'}</td>
           <td style="font-size:11px">${cycOnly ? `<span style="background:${({'월배당':'#2563eb','월중':'#3b82f6','월말':'#8b5cf6','분기배당':'#059669','반기배당':'#d97706','연배당':'#dc2626','무배당':'#94a3b8'}[cycOnly]||'#64748b')};color:#fff;border-radius:6px;padding:2px 7px;font-weight:600;white-space:nowrap">${cycOnly}</span>` : '-'}</td>
@@ -1501,7 +1502,7 @@ async function loadDividendGrid() {
       const dol = isUsd && amt ? `<span style="font-size:1em;color:#92400e;font-weight:700;margin-right:2px">$</span>` : '';
       return `<td style="padding:0">
         <div style="display:flex;align-items:center;justify-content:flex-end;white-space:nowrap;padding:0 3px">
-          ${dol}<input class="div-cell ${amt?'has-value':''}"
+          ${dol}<input class="div-cell ${amt?'has-value':''}" title="${monthRate?'분배율 '+monthRate+'%':''}"
           type="text" value="${displayVal}"
           data-display="${displayVal}" data-raw="${rawVal}"
           data-holding="${h.id}" data-month="${m}"
@@ -1522,7 +1523,7 @@ async function loadDividendGrid() {
     const annualRate = (investKrw > 0 && filledMonths > 0 && rowTotalKrw > 0 && ac2 > 0) ? (rowTotalKrw / filledMonths * ac2 / investKrw * 100).toFixed(2) : '-';
     const divRowBg = h.currency === 'USD' ? '#fffbeb' : getAccColor(h.account_id);
     const acctCell = isGroupStart
-      ? `<td rowspan="${acctSpan[idx]}" style="font-size:11px;color:#374151;font-weight:600;white-space:nowrap;vertical-align:middle;text-align:center;min-width:80px;background:${getAccColor(h.account_id)}">${acc?.name||''}</td>`
+      ? `<td rowspan="${acctSpan[idx]}" style="font-size:1em;color:#374151;font-weight:600;white-space:nowrap;vertical-align:middle;text-align:center;min-width:80px;background:${getAccColor(h.account_id)}">${acc?.name||''}</td>`
       : '';
     const groupBorder = (isGroupStart && idx > 0) ? 'border-top:2px solid #334155;' : '';
     // 합계 표시: 원화 환산만 표시
@@ -1532,7 +1533,7 @@ async function loadDividendGrid() {
     rows += `<tr style="background:${divRowBg};${groupBorder}${isUsdBorder ? 'border-top:2px solid #f59e0b88' : ''}">
       ${acctCell}
       <td class="div-ticker-cell" title="${h.ticker}">
-        <span class="ticker" style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px;text-align:left;color:#111827;font-weight:500;line-height:1.1">${h.name || h.ticker}</span>
+        <span class="ticker" style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px;text-align:left;color:#111827;font-weight:500;line-height:1.1;font-size:1em">${h.name || h.ticker}</span>
       </td>
       ${cells}
       <td class="div-total" style="color:#111827;font-weight:600;font-size:11px;line-height:1.1">${rowTotalDisplay}</td>
@@ -1541,7 +1542,7 @@ async function loadDividendGrid() {
     </tr>`;
     if (isGroupEnd) {
       rows += `<tr style="background:var(--bg4);border-top:1px solid #94a3b8">
-        <td colspan="2" style="padding:4px 10px;font-size:11px;font-weight:700;color:var(--text2);text-align:right">${acc?.name||''} 소계 ▸</td>
+        <td colspan="2" style="padding:4px 10px;font-size:1em;font-weight:700;color:var(--text2);text-align:right">${acc?.name||''} 소계 ▸</td>
         ${accMonthKrw.map(t => `<td class="div-total" style="font-size:10px;color:var(--text2)">${t?'₩'+Math.round(t).toLocaleString():''}</td>`).join('')}
         <td class="div-total" style="color:var(--purple);font-weight:700">${accSumKrw ? '₩'+Math.round(accSumKrw).toLocaleString() : '-'}</td>
         <td class="div-total">-</td>
@@ -3282,7 +3283,9 @@ async function loadHoldingPrices(holdings) {
           const plKrw = valKrw - investKrw2;
           const plColor = plKrw >= 0 ? 'var(--red)' : 'var(--accent)';
           const plSign = plKrw >= 0 ? '+' : '';
-          valEl.innerHTML = `<div style="font-family:var(--mono);font-size:12px;font-weight:600;color:#111827">${Math.round(valKrw).toLocaleString()}</div><div style="font-size:9px;color:${plColor}">${plSign}${Math.round(plKrw).toLocaleString()}</div>`;
+          valEl.innerHTML = `<span style="font-family:var(--mono);font-size:12px;font-weight:600;color:#111827">${Math.round(valKrw).toLocaleString()}</span>`;
+          const plEl = document.getElementById(`pl-${h.id}`);
+          if (plEl) plEl.innerHTML = `<span style="font-family:var(--mono);font-size:12px;font-weight:600;color:${plColor}">${plSign}${Math.round(plKrw).toLocaleString()}</span>`;
         }
       }
       const prevEl = document.getElementById(`prev-${h.id}`);
