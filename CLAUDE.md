@@ -1,31 +1,54 @@
-# jjk — 개인 배당/포트폴리오 관리 앱
+# CLAUDE.md
 
-## 개요
-`portfolio.html` 하나로 이루어진 싱글 파일 웹앱(순수 HTML+CSS+JS, 프레임워크 없음, 빌드 과정 없음).
-브라우저에서 파일을 직접 열거나 정적 호스팅하면 바로 동작한다.
-목적: 재남/은경 두 사람 명의의 여러 증권 계좌에 걸친 ETF(주로 월배당·분배형 ETF) 보유 종목,
-평가금액, 분배금(배당) 내역을 추적하고 목표(월 1,000만원 분배금, 목표일 2029-02-28) 대비 진척을 시각화.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## 아키텍처
-- **프론트엔드**: `portfolio.html` 한 파일에 `<style>`(테마 변수 기반 CSS, 라이트 테마 팔레트 스위처 포함)과
-  `<script>`(바닐라 JS, `state` 전역 객체로 계좌/보유종목/분배금 관리)가 모두 들어있다.
-- **백엔드**: Google Apps Script 웹앱을 API 서버로 사용.
-  `API` 상수(스크립트 상단, `https://script.google.com/macros/s/.../exec`)로 지정.
-  - GET: `api({action, ...})` → `API + '?' + URLSearchParams` 로 조회 (예: `getAccounts`, `getExchangeRate`, `getAlerts` 등)
-  - POST: `apiPost(data)` → JSON body로 저장/수정/삭제 요청
-  - 실제 데이터 저장소는 Google Sheets로 추정(스프레드시트 동기화 기능 존재).
-- **엑셀 연동**: `xlsx.full.min.js` (CDN, SheetJS)로 보유종목/분배금 엑셀 업로드·다운로드·양식 제공.
+## What this is
 
-## 주요 탭(화면) 구성 (`showTab()`)
-1. **포트폴리오** — 계좌 목록, 전체/인별(재남·은경) 투자금·평가금·수익률·분배금·환산분배율 요약, 카테고리(추종지수)별 비중
-2. **종목관리** — 계좌별/티커별 보유종목 테이블, 종목 추가/수정/삭제, 스프레드시트 동기화
-3. **분배금** — 연/계좌별 월별 분배금 입력 그리드(셀 직접 입력), 스프레드시트 동기화
-4. **대시보드** — 월 1,000만원 목표 진척 바, D-Day, 투자원금/평가금/연간분배금/연분배율 통계, 월별 분배금 차트, 계좌별 누적 수익률(일/월/연) 차트, 수익률 상위/하위 5종목
-5. **월배당 스크리너** — 월배당 ETF 목록 검색/필터(추종지수)/정렬(분배율·수익률·순자산·보수)
-6. **분배금공지** — 운용사(KODEX/TIGER/ACE/PLUS/RISE/SOL 등)별 분배금 공지사항 + 분배 일정 달력, 알림(🔔) 패널
-7. **엑셀** — 보유종목/분배금 엑셀 가져오기·내보내기·양식 다운로드
+A single-file personal dividend-portfolio tracker (`portfolio.html`) for two people (재남 / 은경) holding mostly monthly-distribution Korean ETFs across several brokerage accounts. It tracks holdings, valuations, and monthly dividend income, and visualizes progress toward a goal (₩10,000,000/month in distributions by 2029-02-28).
 
-## 참고
-- 파일이 매우 큼(3900+ 줄, ~210KB), 인라인 스타일과 스크립트가 섞여 있어 특정 섹션은 Grep으로 라인 찾아 편집 권장.
-- git 저장소이며 원격(`origin`)과 동기화된 상태(작업 트리 클린). 커밋 이력은 전부 "Update portfolio.html" 단일 파일 반복 수정.
-- README.md는 현재 `# jjk` 한 줄뿐, 상세 문서 없음.
+There is **no build system, package manager, test suite, or lint config**. The entire app — HTML, CSS (`<style>`), and JS (`<script>`) — lives in `portfolio.html` (~3900 lines). Open the file in a browser to run it; there is nothing to compile.
+
+## Working in this repo
+
+- **Editing**: The file is large with inline styles and one big script block. Use Grep to locate a function/section by line before editing rather than reading the whole file. Function definitions are plain `function name()` / `async function name()` at column 0, so `^(async )?function <name>` finds them fast.
+- **Preview**: Just open `portfolio.html` in a browser (the launch preview panel also renders it). No dev server.
+- **Commit/push**: History is a linear series of single-file "Update portfolio.html" commits on `main`, pushed to `origin` (GitHub `jaenamking1-collab/jjk`). Git identity is set locally as `jaenamking1-collab <jaenamking1@gmail.com>` (not global — new clones must set it). Only commit/push when asked.
+
+## Architecture
+
+**Frontend (this repo)** ⇄ **Google Apps Script backend** (a Google Sheets–backed web app).
+
+- The backend URL is the `API` constant at the top of the `<script>` (`https://script.google.com/macros/s/.../exec`). All persistence lives in Google Sheets behind it — this repo has no database.
+- Two client helpers wrap every call:
+  - `api(params)` — GET via `API + '?' + URLSearchParams`, returns JSON. Used for all reads.
+  - `apiPost(data)` — POST with JSON body. Used for all writes.
+- `state` (global object) holds the in-memory cache: `accounts`, `holdings`, `dividends`, `exchangeRate`, `currentYear`, `stockList`. Most tabs re-fetch from the API on activation rather than trusting the cache.
+
+### Backend action contract
+
+Reads (`api`): `getExchangeRate`, `getAccounts`, `getHoldings`, `getDividends`, `getSheetData`, `getDivSheetData`, `getDistribution`, `getPortfolioLog`, `getPriceLog`, `getStockPrice`, `getEtfScreener`, `getEtfNotices`, `getStockList`, `getAlerts`, `markAlertRead`.
+
+Writes (`apiPost`): `addAccount` / `updateAccount` / `deleteAccount`, `addHolding` / `updateHolding` / `deleteHolding`, `saveDividend`.
+
+`getSheetData` / `getDivSheetData` return the raw Google Sheet contents used by the **sync** features to diff against app data before applying changes.
+
+### Tabs (`showTab(name)` toggles `.page` elements)
+
+1. **포트폴리오** (`tab-accounts`) — account list, per-person and combined summaries (invested / valuation / P&L / dividends / yield), category-weight tables.
+2. **종목관리** (`tab-holdings`) — holdings by account or aggregated by ticker; add/edit/delete; "스프레드시트 동기화" diffs the sheet and lets you apply changes.
+3. **분배금** (`tab-dividends`) — editable year×account grid of monthly dividend amounts (`.div-grid` / `.div-cell`); USD rows entered in dollars, everything totaled in KRW via `state.exchangeRate`.
+4. **대시보드** (`tab-dashboard`) — goal progress bar + D-Day, stat cards, monthly-dividend chart, per-account cumulative return chart (day/month/year), top/bottom 5 by return.
+5. **월배당 스크리너** (`tab-screener`) — searchable/filterable monthly-dividend ETF list from `getEtfScreener`.
+6. **분배금공지** (`tab-distributions`) — issuer notices + distribution-schedule calendar + the 🔔 alerts panel.
+7. **엑셀** (`tab-excel`) — import/export holdings and dividends via SheetJS.
+
+### Conventions to preserve
+
+- **Currency display**: KRW amounts are shown as plain numbers (no ₩ symbol); USD amounts keep a `$` prefix. The `USD ? '$' : ''` ternary and bare `toLocaleString()` are intentional — do not reintroduce a ₩ prefix on displayed values. The `₩` still inside the two `replace(/[₩$,↑↓▲▼+\s]/g,'')` regexes is functional (strips symbols before parsing a price) and must stay.
+- **Font sizing**: dividend-grid cells use `font-size:1em` so the "글자" range slider (`applyDivFont`) can scale the whole grid uniformly. Avoid hardcoding px font sizes inside the grid.
+- **CDN dependencies**: SheetJS (`xlsx.full.min.js`) and Pretendard font, both loaded from CDN in `<head>`.
+
+## Files
+
+- `portfolio.html` — the entire application.
+- `README.md` — one line (`# jjk`); no other docs.
