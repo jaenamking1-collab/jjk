@@ -14,6 +14,14 @@ There is **no build system, package manager, test suite, or lint config**. The f
 - **Preview**: Just open `portfolio.html` in a browser (the launch preview panel also renders it). No dev server.
 - **Commit/push**: History is a linear series of single-file "Update portfolio.html" commits on `main`, pushed to `origin` (GitHub `jaenamking1-collab/jjk`). Git identity is set locally as `jaenamking1-collab <jaenamking1@gmail.com>` (not global — new clones must set it). Only commit/push when asked.
 
+## 세션 연속성 (WORKLOG.md)
+
+이 프로젝트는 윈도우/맥북 두 대의 PC에서 Claude Code로 번갈아 작업한다. 대화 맥락이 PC 간에 이어지지 않으므로 `WORKLOG.md`를 Git으로 동기화되는 공유 메모리로 사용한다.
+
+- **세션 시작 시**: `WORKLOG.md`를 먼저 읽어 최근 작업 맥락과 "다음 할 일"을 파악한다.
+- **세션 종료 시**: `WORKLOG.md` 맨 위에 새 항목(날짜, PC 구분(Windows/맥북), 한 일, 다음 할 일)을 추가한다. 과거 항목은 수정하지 않는다.
+- **갱신 후**: 사용자에게 `git add WORKLOG.md`, `git commit`, `git push` 실행을 안내한다(직접 커밋/푸시는 사용자가 명시적으로 요청했을 때만).
+
 ## Architecture
 
 **Frontend (`portfolio.html`)** ⇄ **Google Apps Script backend (`Code.gs`)**, a Google Sheets–backed web app.
