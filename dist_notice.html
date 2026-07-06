@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ETF 분배금 공지</title>
+<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/npm/pretendard/dist/web/static/pretendard.css">
+<style>
+  :root{
+    --bg:#f4f7ff; --bg2:#ffffff; --bg3:#eef3ff; --bg4:#e3e9f6;
+    --border:#e3ddf3; --text:#1a1330; --text2:#4b5563; --text3:#9ca3af;
+    --accent:#5b5bf0; --accent2:#3b82f6; --green:#10b981; --red:#f43f5e; --purple:#a855f7;
+    --mono:'Pretendard',sans-serif; --sans:'Pretendard',sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{
+    background:
+      radial-gradient(1200px 600px at 8% -8%, #ffe4f2 0%, rgba(255,228,242,0) 55%),
+      radial-gradient(1000px 520px at 100% 0%, #dcefff 0%, rgba(220,239,255,0) 50%),
+      radial-gradient(900px 700px at 50% 120%, #e6fff6 0%, rgba(230,255,246,0) 55%),
+      var(--bg);
+    background-attachment:fixed;
+    color:var(--text); font-family:var(--sans); min-height:100vh;
+    font-feature-settings:"tnum"; font-variant-numeric:tabular-nums;
+  }
+  header{
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+    padding:14px 20px; background:linear-gradient(100deg,#fff0f7 0%,#eef1ff 38%,#e6f7ff 68%,#e9fff6 100%);
+    border-bottom:1px solid var(--border);
+  }
+  .logo{font-size:18px; font-weight:800; letter-spacing:-0.3px;
+    background:linear-gradient(90deg,#ec4899,#8b5cf6,#3b82f6);
+    -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;}
+  .refresh{background:#fff; border:1px solid #e7e0f5; border-radius:10px; padding:7px 12px;
+    font-size:13px; color:var(--text2); cursor:pointer;}
+  .refresh:hover{background:var(--bg3);}
+  .wrap{padding:16px;}
+  .panels{display:flex; gap:14px; align-items:stretch; flex-wrap:wrap; justify-content:center;}
+  .panel{border-radius:10px; padding:14px;}
+  .p-notice{width:300px; flex-shrink:0; background:#f0fdf4; border:1px solid #dcfce7;}
+  .p-cal{flex:0 1 792px; min-width:460px; max-width:792px; background:#f8fafc; border:1px solid #e2e8f0;}
+  .p-sched{width:340px; flex-shrink:0; background:#fdf4ff; border:1px solid #f0e2f5;}
+  .p-title{font-size:12px; font-weight:700; margin-bottom:8px;}
+
+  /* ── notice cards ── */
+  #noticeGrid{display:flex; flex-direction:column; gap:8px;}
+  .notice-card{background:var(--bg2); border:1px solid var(--border); border-radius:12px; padding:10px 14px; position:relative; overflow:hidden;}
+  .notice-card::before{content:''; position:absolute; top:0; left:0; right:0; height:3px;}
+  .notice-card.kodex::before{background:#2563eb;} .notice-card.tiger::before{background:#f97316;}
+  .notice-card.ace::before{background:#059669;}   .notice-card.plus::before{background:#7c3aed;}
+  .notice-card.rise::before{background:#dc2626;}   .notice-card.sol::before{background:#0891b2;}
+  .notice-brand{font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px; display:flex; align-items:center; gap:6px;}
+  .notice-brand.kodex{color:#2563eb;} .notice-brand.tiger{color:#f97316;} .notice-brand.ace{color:#059669;}
+  .notice-brand.plus{color:#7c3aed;}  .notice-brand.rise{color:#dc2626;}  .notice-brand.sol{color:#0891b2;}
+  .notice-item{padding:4px 0; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:flex-start; gap:8px;}
+  .notice-item:last-child{border-bottom:none; padding-bottom:0;}
+  .notice-title{font-size:12px; color:var(--text); line-height:1.4; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:200px; cursor:pointer;}
+  .notice-title:hover{color:var(--accent2); text-decoration:underline;}
+  .notice-date{font-size:11px; color:var(--text3); white-space:nowrap; font-family:var(--mono);}
+  .notice-loading{font-size:12px; color:var(--text3); text-align:center; padding:16px 0;}
+  .notice-err{font-size:12px; color:var(--red); text-align:center; padding:16px 0;}
+  .spinner{display:inline-block; width:16px; height:16px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .6s linear infinite; vertical-align:middle; margin-right:6px;}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  /* ── mobile: 세로 스택 + 캘린더/일정 좌우 스크롤 ── */
+  @media (max-width:820px){
+    .panels{flex-direction:column; align-items:stretch;}
+    .p-notice, .p-cal, .p-sched{width:100%; max-width:100%; min-width:0;}
+    .cal-scroll, .sched-scroll{overflow-x:auto; -webkit-overflow-scrolling:touch;}
+    #distMasterCalendar{min-width:520px;}   /* 5열이 좁아지지 않게 */
+    #distScheduleList{min-width:420px;}
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">ETF 분배금 공지</div>
+  <button class="refresh" onclick="loadDistributions(true)">🔄 새로고침</button>
+</header>
+
+<div class="wrap">
+  <div class="panels">
+    <div class="panel p-notice">
+      <div id="noticeGrid"><div class="notice-loading">불러오는 중...</div></div>
+    </div>
+    <div class="panel p-cal">
+      <div class="p-title" style="color:#64748b">📅 분배 일정 달력</div>
+      <div class="cal-scroll">
+        <div id="distMasterCalendar"><div style="color:var(--text3);font-size:13px"><span class="spinner"></span>불러오는 중...</div></div>
+      </div>
+    </div>
+    <div class="panel p-sched">
+      <div class="p-title" style="color:#a855a8">🏢 운용사별 일정</div>
+      <div class="sched-scroll"><div id="distScheduleList"></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ⚠️ 공개 프록시 GAS의 exec URL 을 여기에 넣는다 (public_dist_proxy.gs 배포 후 발급된 URL).
+//    개인 GAS URL 이 아니라 '공개 프록시' URL 이어야 함 — 개인 데이터가 노출되지 않음.
+const API = 'PASTE_PUBLIC_PROXY_EXEC_URL_HERE';
+
+async function api(params){
+  const url = API + '?' + new URLSearchParams(params);
+  const res = await fetch(url, { redirect:'follow' });
+  return res.json();
+}
+
+const DIST_SOURCES = [
+  { id:'kodex', name:'KODEX', label:'삼성자산운용',   color:'#2563eb' },
+  { id:'tiger', name:'TIGER', label:'미래에셋자산운용', color:'#f59e0b' },
+  { id:'ace',   name:'ACE',   label:'한국투자신탁운용', color:'#059669' },
+  { id:'plus',  name:'PLUS',  label:'한화자산운용',   color:'#7c3aed' },
+  { id:'rise',  name:'RISE',  label:'KB자산운용',    color:'#dc2626' },
+  { id:'sol',   name:'SOL',   label:'신한자산운용',   color:'#0891b2' }
+];
+const SCHED_CFG = [
+  { key:'공시일',  color:'#f59e0b', label:'분배금공시일' },
+  { key:'분배락일', color:'#22c55e', label:'분배락일' },
+  { key:'기준일',  color:'#3b82f6', label:'분배금지급기준일' },
+  { key:'지급일',  color:'#ef4444', label:'분배금지급일' },
+];
+// 공개 페이지: 6개 운용사 공지를 모두 프록시(getEtfNotices)로 통일 (브라우저 CORS 없음).
+const NOTICE_SOURCES = DIST_SOURCES.map(s => ({
+  id: s.id, name: s.name, label: s.label,
+  fetch: async () => { const d = await api({ action:'getEtfNotices', source:s.id }); return d.items || []; }
+}));
+
+let _distData = [];
+
+async function loadDistributions(force){
+  const cal = document.getElementById('distMasterCalendar');
+  if (cal) cal.innerHTML = '<div style="color:var(--text3);font-size:13px"><span class="spinner"></span> 불러오는 중...</div>';
+
+  const timeout = ms => new Promise((_,rej) => setTimeout(() => rej(new Error('timeout')), ms));
+  const fetchOne = s => Promise.race([
+    api({ action:'getDistribution', source:s.id, force: force?'1':'' }).then(d => ({ ...s, data:d })),
+    timeout(25000).then(() => ({ ...s, data:{ items:[], error:'응답 시간 초과' } }))
+  ]).catch(e => ({ ...s, data:{ items:[], error:String(e) } }));
+
+  const results = await Promise.allSettled(DIST_SOURCES.map(fetchOne));
+  _distData = results.map(r => r.value || {});
+  renderMasterCalendar(_distData);
+  loadAllNotices();
+}
+
+function renderMasterCalendar(allData){
+  const now = new Date();
+  const year = now.getFullYear(), month = now.getMonth() + 1;
+
+  const parseDay = (str) => {
+    if (!str) return null;
+    const full = str.match(/(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
+    if (full) return { m: parseInt(full[2]), d: parseInt(full[3]) };
+    const ko = str.match(/(\d{1,2})월\s*(\d{1,2})일/);
+    if (ko) return { m: parseInt(ko[1]), d: parseInt(ko[2]) };
+    const sl = str.match(/(\d{1,2})[\/\.](\d{1,2})/);
+    if (sl) return { m: parseInt(sl[1]), d: parseInt(sl[2]) };
+    return null;
+  };
+
+  // 공개 페이지: 보유종목 개념 없음 → 항상 '전체 대표' 회차로 마킹
+  const cycleOf = (sch, it) => {
+    if (it && it.cycle) return it.cycle;
+    const base = parseDay(sch['기준일'] || sch['지급일']);
+    if (!base) return '';
+    if (base.m === month) return '월중';
+    return '월말';
+  };
+  const addAll = (c, sch, it) => {
+    const cyc = cycleOf(sch, it);
+    SCHED_CFG.forEach(({ key, color, label }) => {
+      const lbl = (key === '지급일' && cyc) ? `${cyc} 지급일` : label;
+      addMark(parseDay(sch[key]), c.name, c.color, lbl, color);
+    });
+  };
+
+  const prevBizDay = (m, d) => {
+    const dt = new Date(year, m - 1, d);
+    do { dt.setDate(dt.getDate() - 1); } while (dt.getDay() === 0 || dt.getDay() === 6);
+    return { m: dt.getMonth() + 1, d: dt.getDate() };
+  };
+  const fillRakil = (sched, repSched) => {
+    if (!sched) return sched;
+    if (!sched['공시일'] && repSched && repSched['공시일']) sched['공시일'] = repSched['공시일'];
+    if (!sched['분배락일'] && sched['기준일']) {
+      const base = parseDay(sched['기준일']);
+      if (base) { const p = prevBizDay(base.m, base.d); sched['분배락일'] = p.m + '월 ' + p.d + '일'; }
+    }
+    return sched;
+  };
+
+  const nextMonth = month === 12 ? 1 : month + 1;
+  const prevMonth = month === 1 ? 12 : month - 1;
+  const marks = {};
+  const addMark = (p, source, sourceColor, label, labelColor) => {
+    if (!p) return;
+    if (p.m !== month && p.m !== nextMonth && p.m !== prevMonth) return;
+    const k = `${p.m}-${p.d}`;
+    if (!marks[k]) marks[k] = [];
+    if (marks[k].some(x => x.source === source && x.label === label)) return;
+    marks[k].push({ source, sourceColor, label, labelColor });
+  };
+  allData.forEach(c => {
+    const repSched = (c.data && c.data.schedule) || {};
+    const items = (c.data && c.data.items) || [];
+    const inRange = sch => {
+      const b = parseDay(sch['기준일']), p = parseDay(sch['지급일']);
+      const ok = x => x && (x.m === month || x.m === nextMonth || x.m === prevMonth);
+      if (ok(b)) return true;
+      if (p && (p.m === month || p.m === nextMonth)) return true;
+      return false;
+    };
+    const markedCyc = new Set();
+    // 회차(월중/월말)별 대표 1개씩 마킹
+    ['월중','월말'].forEach(cyc => {
+      if (markedCyc.has(cyc)) return;
+      const rep = items.find(it => {
+        const sch = fillRakil(it.sched && Object.keys(it.sched).length ? {...it.sched} : {...repSched}, repSched);
+        return cycleOf(sch, it) === cyc && inRange(sch);
+      });
+      if (rep) {
+        const sch = fillRakil(rep.sched && Object.keys(rep.sched).length ? {...rep.sched} : {...repSched}, repSched);
+        addAll(c, sch, rep);
+        markedCyc.add(cyc);
+      }
+    });
+    if (!markedCyc.size) {
+      const sch = fillRakil({...repSched}, repSched);
+      if (inRange(sch)) addAll(c, sch);
+    }
+  });
+
+  const today = now.getDate();
+  const dowsShow = ['월','화','수','목','금']; // 평일만
+
+  const todayDate = new Date(year, month - 1, now.getDate());
+  const rangeStart = new Date(todayDate);
+  rangeStart.setDate(rangeStart.getDate() - rangeStart.getDay() - 7); // 지난주 일요일
+  let earliestMark = null;
+  Object.keys(marks).forEach(k => {
+    const [mm, dd] = k.split('-').map(Number);
+    let yr = year;
+    if (month === 1 && mm === 12) yr = year - 1;
+    else if (month === 12 && mm === 1) yr = year + 1;
+    const dt = new Date(yr, mm - 1, dd);
+    if (!earliestMark || dt < earliestMark) earliestMark = dt;
+  });
+  if (earliestMark && earliestMark < rangeStart) {
+    rangeStart.setTime(earliestMark.getTime());
+    rangeStart.setDate(rangeStart.getDate() - rangeStart.getDay());
+  }
+  const rangeEnd = new Date(rangeStart);
+  rangeEnd.setDate(rangeEnd.getDate() + 34);
+
+  const cells = [];
+  const cur = new Date(rangeStart);
+  while (cur <= rangeEnd) {
+    const dw = cur.getDay();
+    if (dw !== 0 && dw !== 6) cells.push({ m: cur.getMonth() + 1, d: cur.getDate(), next: false });
+    cur.setDate(cur.getDate() + 1);
+  }
+
+  const cellHtml = (cell) => {
+    if (!cell) return '<div style="min-height:95px"></div>';
+    const { m, d, next } = cell;
+    const dow = new Date(year, m - 1, d).getDay();
+    const ms = marks[`${m}-${d}`] || [];
+    const isToday = m === month && d === today;
+    const weekendBg = dow === 0 ? 'background:#fef6f6;' : dow === 6 ? 'background:#f5f8ff;' : '';
+    const bg = isToday ? 'background:#eff6ff;' : ms.length ? 'background:var(--bg3);' : weekendBg;
+    const border = isToday ? 'border:2px solid #3b82f6;' : 'border:1px solid var(--border);';
+    const dateColor = isToday ? '#2563eb' : dow === 0 ? '#dc2626' : dow === 6 ? '#2563eb' : 'var(--text)';
+    const byLabel = {};
+    ms.forEach(mk => {
+      if (!byLabel[mk.label]) byLabel[mk.label] = { labelColor: mk.labelColor, sources: [] };
+      byLabel[mk.label].sources.push({ name: mk.source, color: mk.sourceColor });
+    });
+    const eventHtml = Object.keys(byLabel).map(label => {
+      const g = byLabel[label];
+      const icons = g.sources.map(s =>
+        `<span style="display:flex;align-items:center;justify-content:center;background:${s.color};color:#fff;font-size:9px;font-weight:700;height:15px;border-radius:8px;white-space:nowrap;padding:0 2px">${s.name}</span>`
+      ).join('');
+      return `<div style="margin-top:4px">
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px">${icons}</div>
+        <div style="margin-top:3px;background:${g.labelColor}1a;color:${g.labelColor};font-size:11px;font-weight:700;text-align:center;padding:2px 0;border-radius:4px">${label}</div>
+      </div>`;
+    }).join('');
+    return `<div style="padding:5px;border-radius:6px;min-height:95px;display:flex;flex-direction:column;${bg}${border}">
+      <div style="font-size:13px;font-weight:${ms.length||isToday?'700':'400'};color:${dateColor};margin-bottom:2px">${next?m+'/':''}${d}</div>
+      <div style="margin-top:auto">${eventHtml}</div>
+    </div>`;
+  };
+
+  const colTmpl = 'repeat(5, 1fr)';
+  const dowBg = '#eef2ff', dowColor = '#6366f1';
+  const calHtml = `
+    <div>
+      <div style="display:grid;grid-template-columns:${colTmpl};gap:4px;width:100%">
+        ${dowsShow.map(d => `<div style="text-align:center;font-size:13px;font-weight:700;padding:6px 0;color:${dowColor};background:${dowBg};border-radius:5px">${d}</div>`).join('')}
+        ${cells.map(cellHtml).join('')}
+      </div>
+      <div style="margin-top:14px;display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--text3);justify-content:center">
+        ${SCHED_CFG.map(c => `<span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${c.color}"></span>${c.label}</span>`).join('')}
+      </div>
+    </div>`;
+  document.getElementById('distMasterCalendar').innerHTML = calHtml;
+
+  // ── 운용사별 일정 표 (월중/월말 2줄) ──
+  const curM = month, nextM = nextMonth;
+  const rowsData = [];
+  allData.forEach(c => {
+    const repSched = (c.data && c.data.schedule) || {};
+    const items = (c.data && c.data.items) || [];
+    const pickCycle = (cyc) => {
+      for (const it of items) {
+        const c2 = cycleOf(fillRakil((it.sched && Object.keys(it.sched).length) ? {...it.sched} : {...repSched}, repSched), it);
+        if (c2 === cyc) return { sched: fillRakil((it.sched && Object.keys(it.sched).length) ? {...it.sched} : {...repSched}, repSched), hasNotice: true };
+      }
+      return { sched: null, hasNotice: false };
+    };
+    const mid = pickCycle('월중'), end = pickCycle('월말');
+    if (!mid.hasNotice && !end.hasNotice) return;
+    rowsData.push({ name: c.name, color: c.color, mid, end });
+  });
+
+  const dcell = (info, key) => {
+    if (!info || !info.hasNotice) return '';
+    const v = info.sched && info.sched[key];
+    if (!v) return '';
+    const p = parseDay(v);
+    return p ? `${p.m}/${p.d}` : v;
+  };
+  const cell2 = (r, key) => {
+    const mv = dcell(r.mid, key), ev = dcell(r.end, key);
+    return `<td style="text-align:center;padding:3px 2px;font-family:var(--mono);line-height:1.5;border:1px solid #d4c2e8">
+      <div style="color:#2563eb;border-bottom:1px solid #d4c2e8;padding-bottom:2px;margin-bottom:2px">${mv || '<span style=\'color:var(--border)\'>·</span>'}</div>
+      <div style="color:#db2777">${ev || '<span style=\'color:var(--border)\'>·</span>'}</div>
+    </td>`;
+  };
+  const tableHtml = rowsData.length ? `
+    <table style="width:100%;border-collapse:collapse;font-size:11px">
+      <thead><tr style="color:var(--text3)">
+        <th style="text-align:left;padding:3px 4px;font-weight:600;border:1px solid #d4c2e8">운용사</th>
+        <th style="padding:3px 4px;border:1px solid #d4c2e8"></th>
+        <th style="text-align:center;padding:3px 2px;font-weight:600;color:#f59e0b;border:1px solid #d4c2e8">공시</th>
+        <th style="text-align:center;padding:3px 2px;font-weight:600;color:#22c55e;border:1px solid #d4c2e8">분배락</th>
+        <th style="text-align:center;padding:3px 2px;font-weight:600;color:#3b82f6;border:1px solid #d4c2e8">기준</th>
+        <th style="text-align:center;padding:3px 2px;font-weight:600;color:#ef4444;border:1px solid #d4c2e8">지급</th>
+      </tr></thead>
+      <tbody>${rowsData.map(r => {
+        return `<tr style="border-bottom:1.5px solid #c9b3e0">
+          <td style="padding:3px 4px;white-space:nowrap;vertical-align:middle;border:1px solid #d4c2e8">
+            <span style="font-weight:700;color:${r.color}">${r.name}</span>
+          </td>
+          <td style="padding:3px 6px;white-space:nowrap;font-size:10px;line-height:1.5;border:1px solid #d4c2e8">
+            <div style="border-bottom:1px solid #d4c2e8;padding-bottom:2px;margin-bottom:2px">${r.mid.hasNotice ? '<span style="color:#2563eb;font-weight:700">월중</span>' : '<span style="color:var(--border)">·</span>'}</div>
+            <div>${r.end.hasNotice ? '<span style="color:#db2777;font-weight:700">월말</span>' : '<span style="color:var(--border)">·</span>'}</div>
+          </td>
+          ${cell2(r,'공시일')}
+          ${cell2(r,'분배락일')}
+          ${cell2(r,'기준일')}
+          ${cell2(r,'지급일')}
+        </tr>`;
+      }).join('')}</tbody>
+    </table>` : '<div style="font-size:12px;color:var(--text3)">이번 달 일정 정보가 없습니다</div>';
+  document.getElementById('distScheduleList').innerHTML = tableHtml;
+}
+
+// ── 공지 제목 → 통일 형식 ──
+function normalizeNoticeTitle(title, source){
+  if (!title) return { label: '공지', cycle: '기타', mon: 0 };
+  const monM = title.match(/(\d{1,2})\s*월/);
+  const mon = monM ? parseInt(monM[1]) : 0;
+  if (source === 'ace') {
+    if (/국고채|국채\s*3년/.test(title)) return { label: '비정기', cycle: '제외', mon };
+    if (/데일리타겟|미국배당다우존스|시리즈/.test(title))
+      return { label: (mon?mon+'월 ':'') + '월중배당', cycle: '월중', mon };
+    return { label: (mon?mon+'월 ':'') + '월말배당', cycle: '월말', mon };
+  }
+  let cycle, label;
+  if (/월말|말\s*분배|②|안내\s*②/.test(title)) { cycle = '월말'; label = (mon?mon+'월 ':'') + '월말배당'; }
+  else if (/월중|중순|중간|①|안내\s*①/.test(title)) { cycle = '월중'; label = (mon?mon+'월 ':'') + '월중배당'; }
+  else if (/특별|임시|추가|결산/.test(title)) { cycle = '특별'; label = (mon?mon+'월 ':'') + '특별배당'; }
+  else { cycle = '기타'; label = (mon?mon+'월 ':'') + '분배금 공지'; }
+  return { label, cycle, mon };
+}
+
+async function loadAllNotices(){
+  const grid = document.getElementById('noticeGrid');
+  if (!grid) return;
+  grid.innerHTML = '<div class="notice-loading">불러오는 중...</div>';
+  const results = await Promise.allSettled(NOTICE_SOURCES.map(s =>
+    s.fetch().then(items => ({ ...s, items })).catch(() => ({ ...s, items: [] }))
+  ));
+  grid.innerHTML = results.map(r => {
+    const { id, name, label, items } = r.value || {};
+    const all = (items || []).map(n => ({ ...n, norm: normalizeNoticeTitle(n.title, id) }))
+      .filter(n => n.norm.cycle !== '제외');
+    const pickByCycle = cyc => {
+      const cand = all.filter(n => n.norm.cycle === cyc);
+      if (!cand.length) return null;
+      cand.sort((a,b) => (b.norm.mon - a.norm.mon) || String(b.date||'').localeCompare(String(a.date||'')));
+      return cand[0];
+    };
+    const picks = [pickByCycle('월중'), pickByCycle('월말'), pickByCycle('특별')].filter(Boolean);
+    const show = picks.length ? picks : all.slice(0, 1);
+    const rows = show.length
+      ? show.map(n => `
+          <div class="notice-item">
+            <span class="notice-title" onclick="window.open('${n.url}','_blank')" title="${(n.title||'').replace(/"/g,'&quot;')}">${n.norm.label}</span>
+            <span class="notice-date">${n.date}</span>
+          </div>`).join('')
+      : '<div class="notice-err">불러오기 실패</div>';
+    return `
+      <div class="notice-card ${id}">
+        <div class="notice-brand ${id}">● ${name} <span style="font-weight:400;color:var(--text3)">${label}</span></div>
+        ${rows}
+      </div>`;
+  }).join('');
+}
+
+loadDistributions(false);
+</script>
+</body>
+</html>

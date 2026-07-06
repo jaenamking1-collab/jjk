@@ -9,6 +9,19 @@
 
 ---
 
+## 2026-07-06 / 집 — (b) 공개 페이지 작성 완료
+**한 일**:
+- `dist_notice.html` 생성 — 반응형 공개 페이지(3패널: 공지·캘린더·운용사일정). 보유종목 강조·보유X 태그·하단 보유표 전부 제거. `API` = 공개 프록시 URL placeholder. 6개 운용사 공지를 모두 프록시 `getEtfNotices`로 통일(브라우저 CORS 제거). 모바일은 세로 스택 + 캘린더/일정 좌우 스크롤(min-width로 5열 유지).
+- `Code.gs`의 `getEtfNotices`에 **tiger·plus 분기 추가**(서버측 파싱). → **비공개 GAS 재배포 필요**.
+
+**다음 할 일 (배포 · 님 몫)**:
+1. 비공개 GAS(`Code.gs`) 재배포 — tiger/plus 공지 반영.
+2. 공개 프록시(`public_dist_proxy.gs`) 새 프로젝트 배포 → `PRIVATE_URL` 교체 → 웹앱(모든 사용자) → 공개 exec URL 발급.
+3. `dist_notice.html`의 `API` 상수를 그 공개 URL로 교체 후 GitHub Pages 등에 배포.
+4. 검증: 공개 URL에 `?action=getHoldings` 쳐서 `Not allowed` 나오는지(개인데이터 차단), `?action=getEtfNotices&source=tiger`/`plus` 정상 파싱되는지 확인. tiger/plus 서버 정규식은 실 HTML 대비 미검증이라 안 나오면 알려주면 조정.
+
+---
+
 ## 2026-07-06 / 집
 **한 일**: 분배금공지 공개 페이지 착수 — 백엔드 (a) 단계. `public_dist_proxy.gs` 생성(얇은 프록시: `getDistribution`·`getEtfNotices`만 화이트리스트로 비공개 GAS에 중계, 개인 데이터 액션 차단, force 무시, 30분 캐시). 실제 비공개 URL은 파일에 넣지 않고 placeholder 유지(공개 repo 대비).
 - 구조 결정: **얇은 프록시** 채택(파서 복붙 대신) → 단일 소스, 복제 0.
