@@ -12,7 +12,8 @@ There is **no build system, package manager, test suite, or lint config**. The f
 
 - **Editing**: The file is large with inline styles and one big script block. Use Grep to locate a function/section by line before editing rather than reading the whole file. Function definitions are plain `function name()` / `async function name()` at column 0, so `^(async )?function <name>` finds them fast.
 - **Preview**: Just open `portfolio.html` in a browser (the launch preview panel also renders it). No dev server.
-- **Commit/push**: History is a linear series of single-file "Update portfolio.html" commits on `main`, pushed to `origin` (GitHub `jaenamking1-collab/jjk`). Git identity is set locally as `jaenamking1-collab <jaenamking1@gmail.com>` (not global — new clones must set it). Only commit/push when asked.
+- **Commit/push**: History is a linear series of single-file "Update portfolio.html" commits on `main`, pushed to `origin` (GitHub `jaenamking1-collab/jjk`). Git identity is set locally as `jaenamking1-collab <jaenamking1@gmail.com>` (not global — new clones must set it). The owner works across **two PCs (work / home)** and wants every change committed and pushed automatically without asking.
+- **Two-PC routine**: This repo is edited from two machines. **Start every session with `git pull`** so the other PC's work (and `WORKLOG.md` / `CLAUDE.md` rules) is present before touching anything. **End every session by** adding one entry to the top of `WORKLOG.md`, then `git add .` → `git commit` → `git push`. `WORKLOG.md` is the running cross-PC log; keep it current.
 
 ## 세션 연속성 (WORKLOG.md)
 
@@ -72,4 +73,5 @@ Adapted from the Karpathy coding guidelines — they matter more than usual here
 
 - `portfolio.html` — the entire frontend.
 - `Code.gs` — the Google Apps Script backend (mirror of the deployed script; not auto-deployed).
+- `WORKLOG.md` — running work log for syncing across the two PCs; append a dated entry each session.
 - `README.md` — one line (`# jjk`); no other docs.
