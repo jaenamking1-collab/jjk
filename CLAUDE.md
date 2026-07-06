@@ -17,10 +17,10 @@ There is **no build system, package manager, test suite, or lint config**. The f
 
 ## 세션 연속성 (WORKLOG.md)
 
-이 프로젝트는 윈도우/맥북 두 대의 PC에서 Claude Code로 번갈아 작업한다. 대화 맥락이 PC 간에 이어지지 않으므로 `WORKLOG.md`를 Git으로 동기화되는 공유 메모리로 사용한다.
+이 프로젝트는 두 대의 Windows PC(직장 / 집)에서 Claude Code로 번갈아 작업한다. 대화 맥락이 PC 간에 이어지지 않으므로 `WORKLOG.md`를 Git으로 동기화되는 공유 메모리로 사용한다.
 
 - **세션 시작 시**: `WORKLOG.md`를 먼저 읽어 최근 작업 맥락과 "다음 할 일"을 파악한다.
-- **세션 종료 시**: `WORKLOG.md` 맨 위에 새 항목(날짜, PC 구분(Windows/맥북), 한 일, 다음 할 일)을 추가한다. 과거 항목은 수정하지 않는다.
+- **세션 종료 시**: `WORKLOG.md` 맨 위에 새 항목(날짜, 장소(직장/집), 한 일, 다음 할 일)을 추가한다. 과거 항목은 수정하지 않는다.
 - **갱신 후**: `git add .` → `git commit` → `git push`까지 자동으로 수행한다. 사용자가 "항상 커밋·푸시"를 요청했으므로 매번 확인하지 않는다.
 
 ## Architecture
