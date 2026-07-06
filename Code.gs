@@ -322,6 +322,30 @@ function getEtfNotices(source) {
     } else if (source === 'sol') {
       const json = JSON.parse(UrlFetchApp.fetch('https://www.soletf.com/api/cs/notice?keyword=%EB%B6%84%EB%B0%B0%EA%B8%88', { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' } }).getContentText('UTF-8'));
       (json.items || []).filter(n => (n.TITLE||'').includes('분배금') && !(n.TITLE||'').includes('이벤트')).slice(0, 5).forEach(n => items.push({ title: n.TITLE || '', date: (n.REG_DATE||'').slice(0,10).replace(/-/g,'.'), url: 'https://www.soletf.com/ko/cs/notice?no=' + n.NO }));
+    } else if (source === 'tiger') {
+      // 서버측 파싱(브라우저 CORS 회피). 공개 프록시가 이 액션을 중계한다.
+      const fd = 'firstIndex=0&listCnt=20&pageIndex=1&detailsKey=&q=';
+      const html = UrlFetchApp.fetch('https://investments.miraeasset.com/tigeretf/ko/customer/notice/list.ajax', { method:'post', payload:fd, headers:{'Content-Type':'application/x-www-form-urlencoded','User-Agent':'Mozilla/5.0'}, muteHttpExceptions:true }).getContentText('UTF-8');
+      html.split('<li').slice(1).forEach(b => {
+        if (items.length >= 5 || !b.includes('분배금')) return;
+        const titleM = b.match(/class="txt"[^>]*>([\s\S]*?)<\//);
+        if (!titleM) return;
+        const title = titleM[1].replace(/<[^>]+>/g,'').replace(/\s+/g,' ').trim();
+        if (!title.includes('분배금')) return;
+        const keyM = b.match(/'(\d+)'/);
+        const dateM = b.match(/class="item-date"[^>]*>([\s\S]*?)<\//);
+        items.push({ title, date: dateM ? dateM[1].replace(/<[^>]+>/g,'').trim() : '', url: keyM ? 'https://investments.miraeasset.com/tigeretf/ko/customer/notice/view.do?detailsKey=' + keyM[1] : '#' });
+      });
+    } else if (source === 'plus') {
+      const html = UrlFetchApp.fetch('https://www.plusetf.co.kr/customer/notice/list', { headers:{'User-Agent':'Mozilla/5.0'}, muteHttpExceptions:true }).getContentText('UTF-8');
+      const re = /href="(\/customer\/notice\/detail\?n=\d+)"[^>]*>([\s\S]*?)<\/a>/g;
+      let m;
+      while ((m = re.exec(html)) && items.length < 5) {
+        const txt = m[2].replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
+        if (!txt.includes('분배금')) continue;
+        const date = (txt.match(/\d{4}\.\d{2}\.\d{2}/) || [''])[0];
+        items.push({ title: txt.replace(date,'').trim(), date, url: 'https://www.plusetf.co.kr' + m[1] });
+      }
     }
     const result = { success: true, items };
     cache.put(cacheKey, JSON.stringify(result), 21600);
