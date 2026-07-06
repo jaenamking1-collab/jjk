@@ -21,7 +21,7 @@ There is **no build system, package manager, test suite, or lint config**. The f
 
 - **세션 시작 시**: `WORKLOG.md`를 먼저 읽어 최근 작업 맥락과 "다음 할 일"을 파악한다.
 - **세션 종료 시**: `WORKLOG.md` 맨 위에 새 항목(날짜, PC 구분(Windows/맥북), 한 일, 다음 할 일)을 추가한다. 과거 항목은 수정하지 않는다.
-- **갱신 후**: 사용자에게 `git add WORKLOG.md`, `git commit`, `git push` 실행을 안내한다(직접 커밋/푸시는 사용자가 명시적으로 요청했을 때만).
+- **갱신 후**: `git add .` → `git commit` → `git push`까지 자동으로 수행한다. 사용자가 "항상 커밋·푸시"를 요청했으므로 매번 확인하지 않는다.
 
 ## Architecture
 
