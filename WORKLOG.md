@@ -14,11 +14,17 @@
 - `dist_notice.html` 생성 — 반응형 공개 페이지(3패널: 공지·캘린더·운용사일정). 보유종목 강조·보유X 태그·하단 보유표 전부 제거. `API` = 공개 프록시 URL placeholder. 6개 운용사 공지를 모두 프록시 `getEtfNotices`로 통일(브라우저 CORS 제거). 모바일은 세로 스택 + 캘린더/일정 좌우 스크롤(min-width로 5열 유지).
 - `Code.gs`의 `getEtfNotices`에 **tiger·plus 분기 추가**(서버측 파싱). → **비공개 GAS 재배포 필요**.
 
-**다음 할 일 (배포 · 님 몫)**:
-1. 비공개 GAS(`Code.gs`) 재배포 — tiger/plus 공지 반영.
-2. 공개 프록시(`public_dist_proxy.gs`) 새 프로젝트 배포 → `PRIVATE_URL` 교체 → 웹앱(모든 사용자) → 공개 exec URL 발급.
-3. `dist_notice.html`의 `API` 상수를 그 공개 URL로 교체 후 GitHub Pages 등에 배포.
-4. 검증: 공개 URL에 `?action=getHoldings` 쳐서 `Not allowed` 나오는지(개인데이터 차단), `?action=getEtfNotices&source=tiger`/`plus` 정상 파싱되는지 확인. tiger/plus 서버 정규식은 실 HTML 대비 미검증이라 안 나오면 알려주면 조정.
+**진행 상황**:
+- ✅ 공개 프록시 배포됨. URL을 `dist_notice.html` `API`에 반영(커밋).
+- ✅ 보안 검증: 공개 URL `?action=getHoldings` → `{"error":"Not allowed"}` (개인데이터 차단).
+- ✅ `getDistribution`(캘린더) + KODEX/ACE/RISE/SOL 공지 정상.
+- ⚠️ TIGER·PLUS 공지 `items:[]`. 원인: 비공개 GAS 재배포 전이거나, `getEtfNotices` 6h 캐시에 옛 빈결과가 남음(getEtfNotices는 force 없음 → 빈값도 캐시).
+
+**다음 할 일**:
+1. 비공개 GAS(`Code.gs`, tiger/plus 분기 포함) **재배포**(기존 배포 "새 버전").
+2. 비공개 GAS 편집기에서 공지 캐시 비우기: `CacheService.getScriptCache().removeAll(['notices_tiger','notices_plus'])` 한 줄 함수 실행.
+3. 재검증 — tiger/plus 공지 뜨는지. 안 뜨면 서버 정규식 조정(실 HTML 확인).
+4. `dist_notice.html` GitHub Pages 배포.
 
 ---
 
