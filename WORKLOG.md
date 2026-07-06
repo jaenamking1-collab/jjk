@@ -9,6 +9,16 @@
 
 ---
 
+## 2026-07-06 / 집 — 검증 완료 ✅
+**한 일**: 비공개 GAS 재배포 + 공지 캐시 초기화(`clearNoticeCache`) 후 공개 프록시로 재검증.
+- **6개 운용사 공지 전부 정상**(TIGER·PLUS 서버 파서도 실 HTML과 일치 확인).
+- 캘린더(`getDistribution`)·운용사 일정·보안 차단(`getHoldings`→`Not allowed`) 모두 정상.
+- 백엔드/페이지 기능 완료.
+
+**남은 것**: `dist_notice.html`을 GitHub Pages(또는 원하는 호스팅)에 올리기만 하면 공개 끝.
+
+---
+
 ## 2026-07-06 / 집 — (b) 공개 페이지 작성 완료
 **한 일**:
 - `dist_notice.html` 생성 — 반응형 공개 페이지(3패널: 공지·캘린더·운용사일정). 보유종목 강조·보유X 태그·하단 보유표 전부 제거. `API` = 공개 프록시 URL placeholder. 6개 운용사 공지를 모두 프록시 `getEtfNotices`로 통일(브라우저 CORS 제거). 모바일은 세로 스택 + 캘린더/일정 좌우 스크롤(min-width로 5열 유지).
