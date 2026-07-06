@@ -15,7 +15,10 @@
 - 캘린더(`getDistribution`)·운용사 일정·보안 차단(`getHoldings`→`Not allowed`) 모두 정상.
 - 백엔드/페이지 기능 완료.
 
-**남은 것**: `dist_notice.html`을 GitHub Pages(또는 원하는 호스팅)에 올리기만 하면 공개 끝.
+**남은 것 (다음 세션 재개 지점)**: `dist_notice.html` 호스팅만 남음.
+- ⚠️ 이 repo로 GitHub Pages 켜면 `portfolio.html`도 `.../jjk/portfolio.html`로 공개돼 **개인 GAS URL 노출**(우리가 막으려던 문제). → **공개용 별도 repo에 `dist_notice.html`만 올리는 것 권장.**
+- 결정 필요: (a) 공개 전용 새 repo 만들어 그 파일만 배포, (b) 이 repo Pages + 위험 감수.
+- 공개 프록시 URL은 `dist_notice.html`의 `API`에 이미 박힘(안전 — 개인데이터 차단 검증됨).
 
 ---
 
