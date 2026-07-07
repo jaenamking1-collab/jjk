@@ -543,11 +543,6 @@
 
   <!-- ── 대시보드 탭 ── -->
   <div id="tab-dashboard" class="page">
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
-      <div class="page-title" style="margin-bottom:0">📈 대시보드</div>
-      <select id="dashYearSel" onchange="loadDashboard()" style="padding:5px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px"></select>
-    </div>
-
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px">
         <div style="font-size:13px;font-weight:700;color:var(--text2)">🎯 월 1,000만원 목표 진척도</div>
@@ -583,7 +578,7 @@
     </div>
 
     <div class="card mt-16">
-      <div class="card-header"><div class="card-title">월별 분배금 <span id="dashYear"></span></div></div>
+      <div class="card-header"><div class="card-title">월별 분배금 <span id="dashYear"></span></div><select id="dashYearSel" onchange="loadDashboard()" style="padding:5px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px"></select></div>
       <div id="monthChart" style="padding:8px 0"></div>
     </div>
 
@@ -2690,6 +2685,8 @@ async function syncDividendsFromSheet() {
 
   const er = state.exchangeRate || 1400;
   const changes = [];
+  const sheetMap = {};                // {holding_id_month: sheetAmt>0} — 시트에 값 있는 칸
+  const sheetHoldingIds = new Set();  // 시트가 추적하는 종목(이 종목의 빈 칸만 비우기 대상)
 
   for (const it of sheetDiv.items) {
     // 계좌명 매핑 (줄바꿈 정규화)
@@ -2703,10 +2700,12 @@ async function syncDividendsFromSheet() {
 
     const h = (holdingMap[appAccName] || {})[tk];
     if (!h) continue;
+    sheetHoldingIds.add(h.id);
 
     // 월별 비교
     for (let m = 1; m <= 12; m++) {
       const sheetAmt = parseFloat(it[`m${m}`]) || 0;
+      if (sheetAmt > 0) sheetMap[`${h.id}_${m}`] = sheetAmt;
       if (sheetAmt === 0) continue;
       const sheetCur = it.currency || (h.currency === 'USD' ? 'USD' : 'KRW');
       const key = `${h.id}_${m}`;
@@ -2729,6 +2728,23 @@ async function syncDividendsFromSheet() {
     }
   }
 
+  // 역방향: 시트에선 비워졌는데(옮겨서 빈 칸) 앱엔 값이 남은 (종목,월) → 앱을 0으로 비우기 제안
+  (appDivs || []).forEach(d => {
+    const appAmt = parseFloat(d.amount) || 0;
+    if (appAmt <= 0) return;
+    if (!sheetHoldingIds.has(d.holding_id)) return;    // 시트가 추적 안 하는 종목은 보존(안 건드림)
+    if (sheetMap[`${d.holding_id}_${d.month}`]) return; // 시트에 값 있으면 위 정방향에서 처리됨
+    const h = state.holdings.find(x => x.id === d.holding_id);
+    const acc = h ? state.accounts.find(a => a.id === h.account_id) : null;
+    changes.push({
+      holding_id: d.holding_id, accName: acc ? acc.name : '', ticker: (h && h.ticker) || '', name: (h && h.name) || '',
+      month: parseInt(d.month), year: parseInt(year),
+      app:   { amount: appAmt, currency: d.currency || 'KRW' },
+      sheet: { amount: 0,      currency: d.currency || 'KRW' },
+      checked: true, clear: true
+    });
+  });
+
   _pendingDivSyncChanges = changes;
 
   if (!changes.length) {
@@ -2737,7 +2753,9 @@ async function syncDividendsFromSheet() {
   }
 
   const cur = (c, amt) => c === 'USD' ? `$${amt}` : `${Math.round(amt).toLocaleString()}`;
-  let html = `<div style="font-weight:700;font-size:14px;margin-bottom:10px;color:#92400e;">⚠️ 불일치 ${changes.length}건</div>
+  const clearN = changes.filter(c => c.clear).length;
+  const updN = changes.length - clearN;
+  let html = `<div style="font-weight:700;font-size:14px;margin-bottom:10px;color:#92400e;">⚠️ 불일치 ${changes.length}건 <span style="font-weight:400;color:var(--text3)">(추가·수정 ${updN} · 비우기 ${clearN})</span></div>
     <table style="width:100%;border-collapse:collapse;font-size:12px;">
     <thead><tr style="background:var(--bg3);">
       <th style="padding:6px;">선택</th>
@@ -2748,13 +2766,13 @@ async function syncDividendsFromSheet() {
       <th style="padding:6px;text-align:right;">시트→</th>
     </tr></thead><tbody>`;
   changes.forEach((c, i) => {
-    html += `<tr style="border-bottom:1px solid var(--border);">
+    html += `<tr style="border-bottom:1px solid var(--border);${c.clear?'background:#fef2f2;':''}">
       <td style="padding:5px;text-align:center;"><input type="checkbox" data-div-idx="${i}" ${c.checked?'checked':''} onchange="_pendingDivSyncChanges[${i}].checked=this.checked"></td>
       <td style="padding:5px;font-size:11px;">${c.accName}</td>
       <td style="padding:5px;font-weight:600;">${c.ticker} <span style="color:var(--text3);font-weight:400">${c.name}</span></td>
       <td style="padding:5px;text-align:center;">${c.month}월</td>
       <td style="padding:5px;text-align:right;color:var(--text3);">${cur(c.app.currency, c.app.amount)}</td>
-      <td style="padding:5px;text-align:right;font-weight:700;color:#166534;">${cur(c.sheet.currency, c.sheet.amount)}</td>
+      <td style="padding:5px;text-align:right;font-weight:700;color:${c.clear?'#dc2626':'#166534'};">${c.clear ? '비움' : cur(c.sheet.currency, c.sheet.amount)}</td>
     </tr>`;
   });
   html += '</tbody></table>';
