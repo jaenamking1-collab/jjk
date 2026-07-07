@@ -9,6 +9,17 @@
 
 ---
 
+## 2026-07-07 / 직장 — 종목관리 괴리율(NAV) 컬럼 추가
+**목적**: 리밸런싱 지표로 괴리율(현재가 vs 기준가NAV) — 님 요청, "추세" 다음 컬럼. (지표 논의 결과 스냅샷 괴리율부터, 월별 추이 로깅은 추후 확장 후보)
+**데이터 소스 확인**: Naver realtime API(`polling.../stock/`)엔 nav **없음**(시세만). ETF 리스트 API(`finance.naver.com/api/sise/etfItemList.nhn`)엔 **nav 있음**(1142개 ETF, 예: 161510 nav 25449). → 이걸 씀.
+**구현**:
+- `Code.gs`: `getNavMap()` 추가 — etfItemList 1회 호출 → `{티커:nav}` 맵, 1h 캐시. 라우터 `getNavMap` case 추가. **⚠️ 비공개 GAS 재배포 필요**.
+- `portfolio.html`(renderHoldings): "추세" 다음 `괴리율` th + `disc-<id>` td 추가. `loadHoldingPrices`가 navMap 병렬 로딩 → 종목별 `(현재가−NAV)/NAV×100` 렌더(+프리미엄 빨강/−디스카운트 파랑, ±0.05% 이하 회색). 국내 ETF만(navMap에 있을 때), USD·비ETF는 `-`.
+- 재배포 전엔 getNavMap 없어 괴리율 전부 `-`(graceful), 재배포 후 값 표시.
+**검증**: 재배포 → 종목관리 "시세 불러오기" → 괴리율 값·부호 확인(예 161510 ≈ −0.1%). 표 컬럼 정렬 확인.
+
+---
+
 ## 2026-07-07 / 직장 — "운용사별 일정" 표 디자인 개선
 **증상**: 표가 지저분·선이 이상함. 원인: 모든 셀 1px 격자테두리(#d4c2e8) + 한 셀에 월중/월말 두 값을 내부 border-bottom으로 우겨넣어 인접 셀 분할선이 안 맞음 + 행 테두리와 겹침.
 **수정**: 회차(월중/월말)마다 **실제 `<tr>`로 분리**, 운용사명은 `rowspan`으로 묶음. 셀 내부 분할선 제거 → 가로선만. 회차는 알약(pill) 배지(월중 파랑/월말 핑크), 날짜는 종류별 색(공시 amber·분배락 green·기준 blue·지급 red), 빈 값은 muted `·`. 격자테두리 → 운용사 그룹 사이 1px solid var(--border)만. 하드코딩 색(#d4c2e8/#c9b3e0) 제거하고 CSS 변수 사용.

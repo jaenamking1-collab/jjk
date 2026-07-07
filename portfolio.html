@@ -1420,6 +1420,7 @@ async function renderHoldingsTable(holdings) {
         <th>티커</th><th style="min-width:280px">종목명</th>
         <th class="text-right">수량</th><th class="text-right">평균단가</th><th class="text-right">현재가</th><th class="text-right">전일가</th><th class="text-right">투자금액</th><th class="text-right">평가금액</th><th class="text-right">손익</th>
         <th style="width:100px">추세</th>
+        <th class="text-right" style="white-space:nowrap">괴리율</th>
         <th class="text-right">연분배율</th><th>배당주기</th><th>추종</th><th>관리</th>
       </tr></thead>
       <tbody>
@@ -1453,6 +1454,7 @@ async function renderHoldingsTable(holdings) {
           <td class="num" id="valuation-${h.id}"><span style="color:var(--text3);font-size:11px">-</span></td>
           <td class="num" id="pl-${h.id}"><span style="color:var(--text3);font-size:11px">-</span></td>
           <td id="trend-${h.id}" style="padding:2px 8px;"></td>
+          <td class="num" id="disc-${h.id}"><span style="color:var(--text3);font-size:11px">-</span></td>
           <td class="num" style="color:#111827;font-weight:600">${annual !== '-' ? annual+'%' : '-'}</td>
           <td style="font-size:11px">${cycOnly ? `<span style="background:${({'월배당':'#2563eb','월중':'#3b82f6','월말':'#8b5cf6','분기배당':'#059669','반기배당':'#d97706','연배당':'#dc2626','무배당':'#94a3b8'}[cycOnly]||'#64748b')};color:#fff;border-radius:6px;padding:2px 7px;font-weight:600;white-space:nowrap">${cycOnly}</span>` : '-'}</td>
           <td style="font-size:11px;">${catOnly ? `<span style="background:${catColor};color:#fff;border-radius:6px;padding:2px 7px;font-weight:600;white-space:nowrap;">${catOnly}</span>` : '<span style="color:var(--text3)">-</span>'}</td>
@@ -3278,12 +3280,14 @@ async function loadHoldingPrices(holdings) {
   if (!holdings.length) return;
 
   // 시트 1회 + 시세로그 1회 (urlfetch 0회, CORS 없음)
-  const [sheet, log] = await Promise.all([
+  const [sheet, log, navRes] = await Promise.all([
     api({ action:'getSheetData' }).catch(()=>({ items:[] })),
-    api({ action:'getPriceLog' }).catch(()=>({ items:{} }))
+    api({ action:'getPriceLog' }).catch(()=>({ items:{} })),
+    api({ action:'getNavMap' }).catch(()=>({ navs:{} }))
   ]);
   const sheetItems = sheet.items || [];
   const priceLog = log.items || {};
+  const navMap = (navRes && navRes.navs) || {};
 
   // 티커 → 시트현재가 매핑
   const priceMap = {};
@@ -3344,6 +3348,21 @@ async function loadHoldingPrices(holdings) {
           valEl.innerHTML = `<span style="font-family:var(--mono);font-size:12px;font-weight:600;color:#111827">${Math.round(valKrw).toLocaleString()}</span>`;
           const plEl = document.getElementById(`pl-${h.id}`);
           if (plEl) plEl.innerHTML = `<span style="font-family:var(--mono);font-size:12px;font-weight:600;color:${plColor}">${plSign}${Math.round(plKrw).toLocaleString()}</span>`;
+        }
+      }
+      // 괴리율: (현재가 − 기준가NAV) / NAV. 국내 ETF만(navMap에 있을 때). +프리미엄(빨강)/−디스카운트(파랑).
+      const discEl = document.getElementById(`disc-${h.id}`);
+      if (discEl) {
+        const padTk = (h.currency === 'KRW' && h.ticker && h.ticker.length < 6) ? h.ticker.padStart(6, '0') : tk;
+        const nav = h.currency === 'KRW' ? (parseFloat(navMap[padTk]) || 0) : 0;
+        const px = parseFloat(priceData.current) || 0;
+        if (nav > 0 && px > 0) {
+          const disc = (px - nav) / nav * 100;
+          const dColor = disc > 0.05 ? '#dc2626' : disc < -0.05 ? '#2563eb' : '#6b7280';
+          const dSign = disc > 0 ? '+' : '';
+          discEl.innerHTML = `<span title="기준가 ${Math.round(nav).toLocaleString()}" style="font-family:var(--mono);font-size:11px;font-weight:600;color:${dColor}">${dSign}${disc.toFixed(2)}%</span>`;
+        } else {
+          discEl.innerHTML = `<span style="color:var(--text3);font-size:11px">-</span>`;
         }
       }
       const prevEl = document.getElementById(`prev-${h.id}`);
