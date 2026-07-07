@@ -9,6 +9,13 @@
 
 ---
 
+## 2026-07-07 / 직장 — "운용사별 일정" 표 디자인 개선
+**증상**: 표가 지저분·선이 이상함. 원인: 모든 셀 1px 격자테두리(#d4c2e8) + 한 셀에 월중/월말 두 값을 내부 border-bottom으로 우겨넣어 인접 셀 분할선이 안 맞음 + 행 테두리와 겹침.
+**수정**: 회차(월중/월말)마다 **실제 `<tr>`로 분리**, 운용사명은 `rowspan`으로 묶음. 셀 내부 분할선 제거 → 가로선만. 회차는 알약(pill) 배지(월중 파랑/월말 핑크), 날짜는 종류별 색(공시 amber·분배락 green·기준 blue·지급 red), 빈 값은 muted `·`. 격자테두리 → 운용사 그룹 사이 1px solid var(--border)만. 하드코딩 색(#d4c2e8/#c9b3e0) 제거하고 CSS 변수 사용.
+- `portfolio.html`(renderMasterCalendar) + `dist_notice.html`(공개, 보유X만 뺀 동일본) 둘 다 적용 → jjk-dist 재배포.
+
+---
+
 ## 2026-07-07 / 직장 — PLUS 월말 해결 ✅ (원인=결제 미연결, 코드 아님)
 **결론**: PLUS 월말 누락은 **비공개 GAS 프로젝트에 Google Cloud 결제(billing)가 연결 안 돼 Vision OCR이 막혀 있던 것**. 코드 문제 아님.
 - 진단 경로(`diagPlus`/`diagPlus2` GAS에서 실행): ① `VISION_API_KEY` 존재(길이39)하나 OCR 0 → ② Vision 직접호출 원본응답 확인: 처음 `API_KEY_INVALID`(키 무효, 다른 대화서 삭제→복구) → 키 교체 후 `BILLING_DISABLED`(403, 결제 미연결) → 프로젝트#610977749646에 결제계정 연결(무료체험 크레딧 있음) → Vision HTTP 200, OCR 정상.
