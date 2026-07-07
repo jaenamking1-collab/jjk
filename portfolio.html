@@ -1454,7 +1454,7 @@ async function renderHoldingsTable(holdings) {
           <td class="num" id="valuation-${h.id}"><span style="color:var(--text3);font-size:11px">-</span></td>
           <td class="num" id="pl-${h.id}"><span style="color:var(--text3);font-size:11px">-</span></td>
           <td id="trend-${h.id}" style="padding:2px 8px;"></td>
-          <td class="num" id="disc-${h.id}"><span style="color:var(--text3);font-size:11px">-</span></td>
+          <td class="num" id="disc-${h.id}"><span style="color:var(--border);font-size:11px">/</span></td>
           <td class="num" style="color:#111827;font-weight:600">${annual !== '-' ? annual+'%' : '-'}</td>
           <td style="font-size:11px">${cycOnly ? `<span style="background:${({'월배당':'#2563eb','월중':'#3b82f6','월말':'#8b5cf6','분기배당':'#059669','반기배당':'#d97706','연배당':'#dc2626','무배당':'#94a3b8'}[cycOnly]||'#64748b')};color:#fff;border-radius:6px;padding:2px 7px;font-weight:600;white-space:nowrap">${cycOnly}</span>` : '-'}</td>
           <td style="font-size:11px;">${catOnly ? `<span style="background:${catColor};color:#fff;border-radius:6px;padding:2px 7px;font-weight:600;white-space:nowrap;">${catOnly}</span>` : '<span style="color:var(--text3)">-</span>'}</td>
@@ -3362,7 +3362,7 @@ async function loadHoldingPrices(holdings) {
           const dSign = disc > 0 ? '+' : '';
           discEl.innerHTML = `<span title="기준가 ${Math.round(nav).toLocaleString()}" style="font-family:var(--mono);font-size:11px;font-weight:600;color:${dColor}">${dSign}${disc.toFixed(2)}%</span>`;
         } else {
-          discEl.innerHTML = `<span style="color:var(--text3);font-size:11px">-</span>`;
+          discEl.innerHTML = `<span style="color:var(--border);font-size:11px">/</span>`;
         }
       }
       const prevEl = document.getElementById(`prev-${h.id}`);
