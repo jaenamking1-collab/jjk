@@ -17,6 +17,9 @@
 - `dist_notice.html` 1곳(공개 페이지) 동일 수정 → jjk-dist repo에도 재배포.
 **검증**: PLUS 기준일 6/15 → 월중 ✓. **portfolio.html 열린 탭 하드새로고침(Ctrl+Shift+R)으로 육안 확인 필요.**
 **남은 것(선택)**: 백엔드 `fetchDist_smarttoday`가 PLUS **월말 일정은 아예 안 가져옴**(왼쪽 공지엔 PLUS 월말배당 06.25 있음). 완전하려면 백엔드에서 월말 기사도 파싱 필요(GAS 수정+재배포). 분류 버그와는 별개.
+**→ 월말 누락 근본원인 규명(같은 세션)**: PLUS는 분배내역을 **이미지로만** 공지(plusetf 상세 n=30821 = 텍스트표 아님, `hwadm.plusetf.co.kr/webapp/upload/*.PNG`). `fetchDist_plus`는 OCR(`ocrImageText`, Google Vision) 의존인데 `ocrImageText`는 `VISION_API_KEY` 스크립트 속성 없으면 즉시 `''` 반환 → PLUS 0건 → `fetchDist_smarttoday` 폴백. 근데 smarttoday는 **브랜드당 기사 1건**만 수집(브랜드당 첫 매칭에서 `found[brand]` 차단) → PLUS는 월중 기사 하나만 → **월말 구조적 누락**.
+- **조치(님 몫)**: 비공개 GAS 편집기 → 프로젝트 설정 → 스크립트 속성에서 `VISION_API_KEY` 확인. 진단함수 `diagOcrPlus`(PLUS 이미지 OCR 테스트)로 키/OCR 상태 확인. 키 없으면 Google Vision 키 발급·등록 → `getDistribution('plus', true)`로 강제 새로고침. 키는 자격증명이라 Claude가 안 만짐.
+- OCR 살아나면 fetchDist_plus가 월중·월말 둘 다 정상 파싱 예상. 그래도 안 되면 parsePlusNotice regex 조정 필요.
 
 ---
 
