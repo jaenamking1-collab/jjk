@@ -165,8 +165,8 @@ function renderMasterCalendar(allData){
     if (it && it.cycle) return it.cycle;
     const base = parseDay(sch['기준일'] || sch['지급일']);
     if (!base) return '';
-    if (base.m === month) return '월중';
-    return '월말';
+    // 기준일의 '일'로 회차 추정(20일 이하=월중). 월 비교(base.m===month)는 월 경계에서 깨짐.
+    return base.d <= 20 ? '월중' : '월말';
   };
   const addAll = (c, sch, it) => {
     const cyc = cycleOf(sch, it);
