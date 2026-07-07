@@ -9,6 +9,22 @@
 
 ---
 
+## 2026-07-07 / 직장 — 공개 페이지 호스팅 완료 ✅
+**한 일**: 호스팅 결정 → **(a) 별도 공개 repo** 채택. 새 repo `jjk-dist` 생성 → `dist_notice.html`을 `index.html`로 복사해 push → GitHub Pages 켬.
+- **공개 URL**: https://jaenamking1-collab.github.io/jjk-dist/ (HTTP 200 확인).
+- 안전 재검증: 공개 페이지에 개인 GAS/`portfolio` 노출 **없음**, `getHoldings` → `Not allowed` 확인.
+- 구조: `jjk-dist`는 **배포 전용**. 원본 수정 시 `jjk/dist_notice.html` → `jjk-dist/index.html` 재복사 후 push 필요(해당 repo README에 명시). 폴더: `C:\Users\azsxd\Documents\jjk-dist`.
+
+**⚠️ 새 이슈 (다음 세션 백엔드에서 확인 필요)**: 07-07 현재 백엔드 데이터가 **전부 빈값**.
+- `getDistribution` → `{"items":[],"error":"기사/사이트 모두 실패"}`
+- `getEtfNotices`(kodex·ace·tiger·plus) → `{"success":true,"items":[]}` (전부 빈 배열)
+- 07-06 "검증 완료"였는데 하루 뒤 빈값 → **캐시 만료 후 재-깨짐 / 비공개 GAS 배포 되돌아감 / 상류 사이트 차단** 중 하나 의심.
+- 조치 후보: 비공개 GAS 편집기에서 실 fetch 로그로 재검증, 필요 시 재배포 + `clearNoticeCache` + `notices_*` 캐시 제거. 공개 프록시는 중계만 하므로 손댈 것 없음.
+
+**남은 것**: 호스팅은 완료. 위 **데이터 빈값 이슈만 비공개 GAS에서 확인**.
+
+---
+
 ## 2026-07-06 / 집 — 검증 완료 ✅
 **한 일**: 비공개 GAS 재배포 + 공지 캐시 초기화(`clearNoticeCache`) 후 공개 프록시로 재검증.
 - **6개 운용사 공지 전부 정상**(TIGER·PLUS 서버 파서도 실 HTML과 일치 확인).
