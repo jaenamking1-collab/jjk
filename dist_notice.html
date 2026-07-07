@@ -332,37 +332,39 @@ function renderMasterCalendar(allData){
     const p = parseDay(v);
     return p ? `${p.m}/${p.d}` : v;
   };
-  // 회차(월중/월말)마다 실제 행을 나눠 그린다. 운용사명은 rowspan으로 묶고, 셀 내부 분할선 없이 가로선만.
+  // 회차(월중/월말)마다 실제 행을 나눠 그린다. 운용사명은 rowspan. 세로줄 없이 가로선만(인라인 border로 통일).
   const CYC = { '월중': '#2563eb', '월말': '#db2777' };
-  const dateCell = (info, key, col) => {
+  const HB = 'border:0;border-bottom:2px solid var(--border);background:none;text-transform:none;letter-spacing:normal;font-weight:600;';
+  const dateCell = (info, key, col, bb) => {
     const v = dcell(info, key);
-    return `<td style="text-align:center;padding:6px 3px;font-family:var(--mono);white-space:nowrap;color:${v ? col : 'var(--border)'}">${v || '·'}</td>`;
+    return `<td style="text-align:center;padding:6px 3px;font-family:var(--mono);white-space:nowrap;border:0;${bb}color:${v ? col : 'var(--border)'}">${v || '·'}</td>`;
   };
   const tableHtml = rowsData.length ? `
     <table style="width:100%;border-collapse:collapse;font-size:11px">
-      <thead><tr style="color:var(--text3);border-bottom:2px solid var(--border)">
-        <th style="text-align:left;padding:7px 8px;font-weight:600">운용사</th>
-        <th style="text-align:left;padding:7px 6px;font-weight:600">회차</th>
-        <th style="text-align:center;padding:7px 3px;font-weight:600;color:#f59e0b">공시</th>
-        <th style="text-align:center;padding:7px 3px;font-weight:600;color:#22c55e">분배락</th>
-        <th style="text-align:center;padding:7px 3px;font-weight:600;color:#3b82f6">기준</th>
-        <th style="text-align:center;padding:7px 3px;font-weight:600;color:#ef4444">지급</th>
+      <thead><tr>
+        <th style="text-align:left;padding:7px 8px;${HB}color:var(--text3)">운용사</th>
+        <th style="text-align:left;padding:7px 6px;${HB}color:var(--text3)">회차</th>
+        <th style="text-align:center;padding:7px 3px;${HB}color:#f59e0b">공시</th>
+        <th style="text-align:center;padding:7px 3px;${HB}color:#22c55e">분배락</th>
+        <th style="text-align:center;padding:7px 3px;${HB}color:#3b82f6">기준</th>
+        <th style="text-align:center;padding:7px 3px;${HB}color:#ef4444">지급</th>
       </tr></thead>
       <tbody>${rowsData.map(r => {
         const cycles = [['월중', r.mid], ['월말', r.end]].filter(([, m]) => m.hasNotice);
         return cycles.map(([label, m], i) => {
           const col = CYC[label];
-          const nameCell = i === 0
-            ? `<td rowspan="${cycles.length}" style="padding:7px 8px;white-space:nowrap;vertical-align:middle"><span style="font-weight:700;color:${r.color}">${r.name}</span></td>`
-            : '';
           const last = i === cycles.length - 1;
-          return `<tr style="border-bottom:${last ? '1px solid var(--border)' : 'none'}">
+          const bb = last ? 'border-bottom:1px solid var(--border);' : '';
+          const nameCell = i === 0
+            ? `<td rowspan="${cycles.length}" style="padding:7px 8px;white-space:nowrap;vertical-align:middle;border:0;border-bottom:1px solid var(--border)"><span style="font-weight:700;color:${r.color}">${r.name}</span></td>`
+            : '';
+          return `<tr>
             ${nameCell}
-            <td style="padding:6px 6px;white-space:nowrap"><span style="display:inline-block;background:${col}1a;color:${col};font-size:9px;font-weight:700;padding:2px 7px;border-radius:8px">${label}</span></td>
-            ${dateCell(m, '공시일', '#d97706')}
-            ${dateCell(m, '분배락일', '#16a34a')}
-            ${dateCell(m, '기준일', '#2563eb')}
-            ${dateCell(m, '지급일', '#dc2626')}
+            <td style="padding:6px 6px;white-space:nowrap;border:0;${bb}"><span style="display:inline-block;background:${col}1a;color:${col};font-size:9px;font-weight:700;padding:2px 7px;border-radius:8px">${label}</span></td>
+            ${dateCell(m, '공시일', '#d97706', bb)}
+            ${dateCell(m, '분배락일', '#16a34a', bb)}
+            ${dateCell(m, '기준일', '#2563eb', bb)}
+            ${dateCell(m, '지급일', '#dc2626', bb)}
           </tr>`;
         }).join('');
       }).join('')}</tbody>

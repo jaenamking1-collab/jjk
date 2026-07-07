@@ -13,6 +13,7 @@
 **증상**: 표가 지저분·선이 이상함. 원인: 모든 셀 1px 격자테두리(#d4c2e8) + 한 셀에 월중/월말 두 값을 내부 border-bottom으로 우겨넣어 인접 셀 분할선이 안 맞음 + 행 테두리와 겹침.
 **수정**: 회차(월중/월말)마다 **실제 `<tr>`로 분리**, 운용사명은 `rowspan`으로 묶음. 셀 내부 분할선 제거 → 가로선만. 회차는 알약(pill) 배지(월중 파랑/월말 핑크), 날짜는 종류별 색(공시 amber·분배락 green·기준 blue·지급 red), 빈 값은 muted `·`. 격자테두리 → 운용사 그룹 사이 1px solid var(--border)만. 하드코딩 색(#d4c2e8/#c9b3e0) 제거하고 CSS 변수 사용.
 - `portfolio.html`(renderMasterCalendar) + `dist_notice.html`(공개, 보유X만 뺀 동일본) 둘 다 적용 → jjk-dist 재배포.
+- **후속**: portfolio.html은 전역 CSS(`td{border:1px solid #64748b}`, `th{background:#e2e8f0;text-transform:uppercase}`, `tr:last-child td{border-bottom:none}`)가 표에 세로격자·회색헤더·맨아래선제거를 강제 → 각 셀에 인라인 `border:0`+필요한 밑줄만 박아 눌러씀(인라인이 전역 선택자 이김). "맨 아래 선 혼자 없음"도 이 `tr:last-child` 규칙 때문 → 해결. 공개페이지 룩에 맞춤.
 
 ---
 
