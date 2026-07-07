@@ -9,6 +9,15 @@
 
 ---
 
+## 2026-07-07 / 직장 — PLUS 월말 해결 ✅ (원인=결제 미연결, 코드 아님)
+**결론**: PLUS 월말 누락은 **비공개 GAS 프로젝트에 Google Cloud 결제(billing)가 연결 안 돼 Vision OCR이 막혀 있던 것**. 코드 문제 아님.
+- 진단 경로(`diagPlus`/`diagPlus2` GAS에서 실행): ① `VISION_API_KEY` 존재(길이39)하나 OCR 0 → ② Vision 직접호출 원본응답 확인: 처음 `API_KEY_INVALID`(키 무효, 다른 대화서 삭제→복구) → 키 교체 후 `BILLING_DISABLED`(403, 결제 미연결) → 프로젝트#610977749646에 결제계정 연결(무료체험 크레딧 있음) → Vision HTTP 200, OCR 정상.
+- 결과: `getDistribution('plus', true)` 재파싱 → **items 15개(월중 3 + 월말 12)**, 월말 sched 정확(공시 6/25·분배락 6/29·기준 6/30·지급 7/2). PLUS는 분배내역을 이미지로 공지하므로 OCR 필수 — OCR 살아나니 `fetchDist_plus`가 정상 동작(코드 수정 0).
+- **최종 상태**: 오늘 프론트 cycleOf 월-경계 수정(별도 커밋) + 이 결제 연결 = PLUS 월중·월말 둘 다 정상.
+**선택 개선(미적용)**: `ocrImageText`가 Vision 에러를 조용히 `''`로 삼켜 진단이 어려웠음 → 실패 시 `console.log`로 에러 남기면 다음 OCR 장애 진단이 쉬움(백엔드 수정+재배포 필요, 지금은 안 함).
+
+---
+
 ## 2026-07-07 / 직장 — CLAUDE.md 작업원칙 보강
 **한 일**: karpathy-guidelines 스킬(github.com/multica-ai/andrej-karpathy-skills) 읽고 CLAUDE.md "Working principles" 보강. `.claude/`는 gitignore라 스킬 파일 설치는 두 PC 동기화 안 됨 → git 동기화되는 CLAUDE.md에 원칙을 박는 방식 채택.
 - 추가: 원문 링크 + "속도보다 신중, 사소한 건 재량" 단서 / 원칙2 자가체크("시니어가 과하다 할까? 200줄→50줄이면 재작성") / 원칙3 "내 변경이 만든 고아만 제거, 기존 죽은 코드는 신고" + "바뀐 줄이 요청에 직결되는가" 테스트 / 원칙4 "재현 먼저(테스트러너 없으니 콘솔로 `_distData` 덤프 등) → 수정 → 재현 소멸 확인".
