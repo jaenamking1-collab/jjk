@@ -2866,13 +2866,13 @@ function renderMasterCalendar(allData) {
     return myNames.has(normName(it.name));
   };
 
-  // 월중/월말 판정: 기준일이 당월이면 월중, 전월(말)이면 월말
+  // 월중/월말 판정: 명시 cycle 우선, 없으면 기준일의 '일'로 추정(20일 이하=월중).
+  // 월(月) 비교(base.m===month)는 월 경계에서 깨짐(7월에 6월 월중 데이터가 월말로 오분류)→ 일 기준으로 판정.
   const cycleOf = (sch, it) => {
     if (it && it.cycle) return it.cycle;
     const base = parseDay(sch['기준일'] || sch['지급일']);
     if (!base) return '';
-    if (base.m === month) return '월중';
-    return '월말';
+    return base.d <= 20 ? '월중' : '월말';
   };
   const addAll = (c, sch, it) => {
     const cyc = cycleOf(sch, it);
@@ -3137,9 +3137,11 @@ function renderDistGrid(allData) {
     if (it && it.cycle) return it.cycle;
     const sch = (it.sched && Object.keys(it.sched).length) ? it.sched : (repSched||{});
     const ref = sch['기준일'] || sch['지급일'] || '';
-    const m = ref.match(/(\d{1,2})월/);
+    // 기준일의 '일'로 회차 추정(20일 이하=월중). 월 비교는 월 경계에서 깨져 사용 안 함.
+    const m = ref.match(/(\d{1,2})월\s*(\d{1,2})일/) || ref.match(/\d{1,2}[\/\.](\d{1,2})/);
     if (!m) return '';
-    return parseInt(m[1]) === curMonth ? '월중' : '월말';
+    const day = m[2] != null ? parseInt(m[2]) : parseInt(m[1]);
+    return day <= 20 ? '월중' : '월말';
   };
   const myTickers = new Set((state.holdings || []).map(h => (h.ticker||'').toString().trim().toUpperCase()));
   // 종목명 정규화: 공백/ETF/합성/(H)/특수문자 제거

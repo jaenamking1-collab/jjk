@@ -9,6 +9,17 @@
 
 ---
 
+## 2026-07-07 / 직장 — PLUS 월중/월말 오분류 버그 수정 🐛
+**증상**: portfolio.html "운용사별 일정" 표에서 PLUS가 월중 줄 비고 월말 줄에만 뜸(`플러스가 안나오네`).
+**원인 확정**(브라우저 콘솔 `_distData` 덤프로): PLUS 데이터는 smarttoday 기사 출처라 아이템에 `cycle` 없음 + 대표 `schedule` 기준일 = **6월 15일**(명백한 월중, title도 "PLUS 월중 배당"). 그런데 `cycleOf`가 `base.m === month(=7월) ? 월중 : 월말` → 6≠7이라 **월말로 오분류**. **월 경계 버그**(7월에 6월 데이터 보면 전부 월말).
+**수정**: 회차 판정을 월 비교 → **기준일의 '일(day)' 기준**(20일 이하=월중, 초과=월말)으로 변경. 월 경계 안전. 명시 `it.cycle` 있으면 그대로 우선.
+- `portfolio.html` 2곳: `renderMasterCalendar`의 cycleOf(캘린더+일정표), `renderDistGrid`의 cycleOf(보유종목 그리드).
+- `dist_notice.html` 1곳(공개 페이지) 동일 수정 → jjk-dist repo에도 재배포.
+**검증**: PLUS 기준일 6/15 → 월중 ✓. **portfolio.html 열린 탭 하드새로고침(Ctrl+Shift+R)으로 육안 확인 필요.**
+**남은 것(선택)**: 백엔드 `fetchDist_smarttoday`가 PLUS **월말 일정은 아예 안 가져옴**(왼쪽 공지엔 PLUS 월말배당 06.25 있음). 완전하려면 백엔드에서 월말 기사도 파싱 필요(GAS 수정+재배포). 분류 버그와는 별개.
+
+---
+
 ## 2026-07-07 / 직장 — 공개 페이지 호스팅 완료 ✅
 **한 일**: 호스팅 결정 → **(a) 별도 공개 repo** 채택. 새 repo `jjk-dist` 생성 → `dist_notice.html`을 `index.html`로 복사해 push → GitHub Pages 켬.
 - **공개 URL**: https://jaenamking1-collab.github.io/jjk-dist/ (HTTP 200 확인).
