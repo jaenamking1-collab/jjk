@@ -9,6 +9,12 @@
 
 ---
 
+## 2026-07-07 / 직장 — CLAUDE.md 작업원칙 보강
+**한 일**: karpathy-guidelines 스킬(github.com/multica-ai/andrej-karpathy-skills) 읽고 CLAUDE.md "Working principles" 보강. `.claude/`는 gitignore라 스킬 파일 설치는 두 PC 동기화 안 됨 → git 동기화되는 CLAUDE.md에 원칙을 박는 방식 채택.
+- 추가: 원문 링크 + "속도보다 신중, 사소한 건 재량" 단서 / 원칙2 자가체크("시니어가 과하다 할까? 200줄→50줄이면 재작성") / 원칙3 "내 변경이 만든 고아만 제거, 기존 죽은 코드는 신고" + "바뀐 줄이 요청에 직결되는가" 테스트 / 원칙4 "재현 먼저(테스트러너 없으니 콘솔로 `_distData` 덤프 등) → 수정 → 재현 소멸 확인".
+
+---
+
 ## 2026-07-07 / 직장 — PLUS 월중/월말 오분류 버그 수정 🐛
 **증상**: portfolio.html "운용사별 일정" 표에서 PLUS가 월중 줄 비고 월말 줄에만 뜸(`플러스가 안나오네`).
 **원인 확정**(브라우저 콘솔 `_distData` 덤프로): PLUS 데이터는 smarttoday 기사 출처라 아이템에 `cycle` 없음 + 대표 `schedule` 기준일 = **6월 15일**(명백한 월중, title도 "PLUS 월중 배당"). 그런데 `cycleOf`가 `base.m === month(=7월) ? 월중 : 월말` → 6≠7이라 **월말로 오분류**. **월 경계 버그**(7월에 6월 데이터 보면 전부 월말).
