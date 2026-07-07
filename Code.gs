@@ -18,6 +18,7 @@ function doGet(e) {
       case 'getSheetData':    result = getSheetData(); break;
       case 'getPriceLog':     result = getPriceLog(); break;
       case 'getEtfScreener':  result = getEtfScreener(); break;
+      case 'getNavMap':       result = getNavMap(); break;
       case 'getDistribution': result = getDistribution(e.parameter.source, e.parameter.force === '1'); break;
       case 'getDivSheetData': result = getDivSheetData(); break;
       case 'getPortfolioLog': result = getPortfolioLog(); break;
@@ -1762,6 +1763,25 @@ function getEtfScreener() {
   items.forEach(it => out.push([today, it.ticker, it.name, it.provider, it.category, it.divRate, it.yld1y, it.price, it.change, it.expense, it.aum]));
   sh.getRange(1, 1, out.length, header.length).setValues(out);
   return { success: true, date: today, items };
+}
+
+// 국내 ETF 기준가(NAV) 맵: { 티커(6자리): nav } — 괴리율 계산용. etfItemList 1회 호출, 1h 캐시.
+function getNavMap() {
+  const cache = CacheService.getScriptCache();
+  const cached = cache.get('navmap');
+  if (cached) return JSON.parse(cached);
+  try {
+    const url = 'https://finance.naver.com/api/sise/etfItemList.nhn?etfType=0&targetColumn=market_sum&sortOrder=desc';
+    const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.naver.com/fund/etf/etfMain.naver' } });
+    if (res.getResponseCode() !== 200) return { success: false, error: 'ETF API 응답 오류: ' + res.getResponseCode(), navs: {} };
+    const json = JSON.parse(res.getContentText('EUC-KR'));
+    const list = (json.result && json.result.etfItemList) || [];
+    const navs = {};
+    list.forEach(r => { const nav = parseFloat(r.nav); if (r.itemcode && nav > 0) navs[r.itemcode] = nav; });
+    const result = { success: true, navs };
+    if (Object.keys(navs).length) cache.put('navmap', JSON.stringify(result), 3600);
+    return result;
+  } catch(e) { return { success: false, error: e.toString(), navs: {} }; }
 }
 
 function guessProvider(name) {
