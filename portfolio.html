@@ -1383,6 +1383,14 @@ async function renderHoldingsTable(holdings) {
     annualRateMap[h.id] = (investKrw>0 && filledM.size>0 && total>0 && annualCount>0)
       ? (total / filledM.size * annualCount / investKrw * 100).toFixed(1) : '-';
   });
+  // 같은 티커의 다른 보유분 연분배율(최댓값) → 분배금 기록 없는 보유분의 대체 표시용
+  const annualByTicker = {};
+  holdings.forEach(h => {
+    const v = annualRateMap[h.id];
+    if (v === '-') return;
+    const t = (h.ticker||'').toString().toUpperCase();
+    if (!(t in annualByTicker) || parseFloat(v) > parseFloat(annualByTicker[t])) annualByTicker[t] = v;
+  });
 
   // 계좌별 연속 개수 (rowspan용)
   const acctSpan = {};
@@ -1429,7 +1437,9 @@ async function renderHoldingsTable(holdings) {
         const prevH = idx > 0 ? holdings[idx-1] : null;
         const isUsdBorder = h.currency === 'USD' && (!prevH || prevH.account_id === h.account_id) && prevH?.currency === 'KRW';
         const rowBg = h.currency === 'USD' ? '#fffbeb' : getAccColor(h.account_id);
-        const annual = annualRateMap[h.id];
+        const ownAnnual = annualRateMap[h.id];
+        const annual = ownAnnual;
+        const annualEst = ownAnnual === '-' ? (annualByTicker[(h.ticker||'').toString().toUpperCase()] || '-') : '-';
         const [cycOnly, catOnly] = (h.div_cycle || '').split('|');
         // 계좌 셀: 그룹 첫 행에만 rowspan으로 표시
         const acctCell = acctSpan[idx]
@@ -1450,7 +1460,7 @@ async function renderHoldingsTable(holdings) {
           <td class="num" id="pl-${h.id}"><span style="color:var(--text3);font-size:11px">-</span></td>
           <td id="trend-${h.id}" style="padding:2px 8px;"></td>
           <td class="num" id="disc-${h.id}"><span style="color:var(--border);font-size:11px">/</span></td>
-          <td class="num" style="color:#111827;font-weight:600">${annual !== '-' ? annual+'%' : '-'}</td>
+          <td class="num" style="color:#111827;font-weight:600">${annual !== '-' ? annual+'%' : (annualEst !== '-' ? `<span style="color:var(--text3);font-weight:500" title="이 계좌엔 분배금 기록이 없어 같은 종목 다른 계좌 값으로 추정">~${annualEst}%</span>` : '-')}</td>
           <td style="font-size:11px">${cycOnly ? `<span style="background:${({'월배당':'#2563eb','월중':'#3b82f6','월말':'#8b5cf6','분기배당':'#059669','반기배당':'#d97706','연배당':'#dc2626','무배당':'#94a3b8'}[cycOnly]||'#64748b')};color:#fff;border-radius:6px;padding:2px 7px;font-weight:600;white-space:nowrap">${cycOnly}</span>` : '-'}</td>
           <td style="font-size:11px;">${catOnly ? `<span style="background:${catColor};color:#fff;border-radius:6px;padding:2px 7px;font-weight:600;white-space:nowrap;">${catOnly}</span>` : '<span style="color:var(--text3)">-</span>'}</td>
           <td>
