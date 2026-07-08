@@ -3297,10 +3297,11 @@ function renderScreener() {
 async function loadHoldingPrices(holdings) {
   if (!holdings.length) return;
 
-  // 로딩 표시: 시세/평가/손익 셀을 '…'로 (멈춤 아님을 명시)
+  // 로딩 표시: 아직 시세가 없는 셀만 '…'로 (기존 값은 유지해 깜빡임 방지)
   holdings.forEach(h => {
     const el = document.getElementById(`price-${h.id}`);
-    if (el) el.innerHTML = '<span style="color:var(--text3);font-size:11px">…</span>';
+    if (el && (!el.textContent.trim() || el.textContent.trim() === '-'))
+      el.innerHTML = '<span style="color:var(--text3);font-size:11px">…</span>';
   });
 
   // getSheetData는 외부 시트 재계산으로 간헐적으로 느리거나 실패 → 빈 결과면 1회 재시도

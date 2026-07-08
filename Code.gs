@@ -1573,6 +1573,12 @@ function parseScheduleFromText(text) {
 }
 
 function getSheetData() {
+  // '주식상황' 시트는 실시간 시세 수식 재계산 때문에 읽기에 최대 10초+ 걸림.
+  // 프론트가 로드/탭전환/일괄적용마다 반복 호출하므로 3분 캐시 → 첫 호출 외에는 즉시 응답.
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get('sheetData_v1');
+  if (hit) return JSON.parse(hit);
+
   const sheet = SpreadsheetApp.openById('19UsD0Tz6YL2eDoLdocL0ify8NLbUYSHaOOV-jtDqNLU').getSheetByName('주식상황');
   const rows = sheet.getDataRange().getValues();
   const items = [];
@@ -1599,7 +1605,9 @@ function getSheetData() {
       change: parseFloat(change) || 0
     });
   }
-  return { success: true, items };
+  const out = { success: true, items };
+  try { cache.put('sheetData_v1', JSON.stringify(out), 180); } catch(e) {} // 100KB 초과 시 캐시 생략
+  return out;
 }
 
 function getDivSheetData() {
