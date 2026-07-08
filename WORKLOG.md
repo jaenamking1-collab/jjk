@@ -9,6 +9,12 @@
 
 ---
 
+## 2026-07-09 / — 보안(저장소 private화) + 진입 비밀번호 + ACE 표시 버그
+- **`jjk` 저장소를 private으로 전환** (GitHub API). public일 때 portfolio.html·Code.gs 소스가 통째로 노출됐고, 그 안의 개인 GAS API URL로 외부에서 `getAccounts`/`getHoldings` 직접 호출해 실명 계좌·보유내역이 그대로 뽑히는 것 실증됨. 공개 분배금 페이지는 `jjk-dist`(별도 저장소)에서 서빙되므로 영향 없음. 확인: jjk API 404, github.io/jjk-dist 200.
+- **portfolio.html 진입 비밀번호 잠금 추가**: body 최상단 #gate 오버레이 + 하단 스크립트 `APP_PASSWORD`(현재 '1231') / `submitGate` / sessionStorage `jjk_auth`. init()은 인증 후에만 호출. 프리뷰로 오답 차단·정답 통과·콘솔 무에러 검증 완료.
+- **ACE 분배금 안 뜨는 버그 수정**: renderDistGrid의 "묵은 자료 숨김" 필터가 기준일 月을 당월/익월로만 비교 → 7월에 ACE 최신(6월, cycle 태그 없음) 항목이 전부 걸러짐. 전월도 허용하도록 수정.
+- ⚠️ 한계: 비밀번호는 클라이언트 잠금일 뿐, 개인 API는 여전히 열려 있어 API 직접 호출은 차단 못 함. 다음 할 일(원하면): Code.gs doGet/doPost에 토큰 검사 추가 후 재배포.
+
 ## 2026-07-08 / — 시세 13초 지연 근본수정 (getSheetData 캐시)
 - 사용자 캡처의 "…"는 직전 커밋에서 추가한 로딩 표시. 멈춘 게 아니라 getSheetData 응답(최대 13초) 대기 중 상태였음. 라이브 실측: 은경 미래에셋 연금저축 12종목 전부(494300=10,270/+0.08%) 결국 채워짐.
 - **Code.gs `getSheetData`에 CacheService 3분 캐시 추가** → 첫 호출만 느리고 이후 로드/탭전환/일괄적용은 즉시. ⚠️ **Apps Script 수동 재배포 필요.**

@@ -299,6 +299,18 @@
 </head>
 <body>
 
+<!-- 진입 비밀번호 잠금 -->
+<div id="gate" style="position:fixed;inset:0;z-index:9999;background:#0f172a;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;font-family:system-ui,sans-serif">
+  <div style="color:#e2e8f0;font-size:20px;font-weight:800;letter-spacing:1px">PORTFOLIO <span style="color:#a855f7">MGR</span></div>
+  <div style="color:#94a3b8;font-size:13px">비밀번호를 입력하세요</div>
+  <input id="gatePw" type="password" autocomplete="current-password"
+    style="width:220px;padding:11px 14px;border-radius:10px;border:1px solid #334155;background:#1e293b;color:#f1f5f9;font-size:15px;text-align:center;outline:none"
+    onkeydown="if(event.key==='Enter')submitGate()">
+  <button onclick="submitGate()"
+    style="width:220px;padding:11px;border:none;border-radius:10px;background:#a855f7;color:#fff;font-size:15px;font-weight:700;cursor:pointer">들어가기</button>
+  <div id="gateErr" style="display:none;color:#f87171;font-size:13px">비밀번호가 틀렸습니다</div>
+</div>
+
 <header>
   <div class="logo">PORTFOLIO <span>MGR</span></div>
   <div id="paletteBar" style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">
@@ -3190,13 +3202,17 @@ function renderDistGrid(allData) {
       if (!owned) return false;
       // KODEX는 cycle 태그가 있으면 그대로 신뢰(월말 6/30도 통과)
       if (it.cycle) return true;
-      // 그 외: 기준일이 당월/익월이 아니면(=전월 묵은 자료) 숨김
+      // 그 외: 기준일이 전월~익월(오늘 기준 앞뒤 한 달) 밖이면 숨김.
+      // 익월만 허용하면, 새 달이 시작됐는데 운용사가 아직 신규 회차를 공시 안 한 경우
+      // 직전달(최신 실지급분) 데이터가 통째로 사라진다(ACE 7월 초 사례). → 전월도 허용.
       const sch = (it.sched && Object.keys(it.sched).length) ? it.sched : (d.schedule||{});
       const ref = sch['기준일'] || '';
       const mm = ref.match(/(\d{1,2})월/);
       if (mm) {
         const rm = parseInt(mm[1]);
-        if (rm !== curMonth && rm !== (curMonth===12?1:curMonth+1)) return false;
+        const nextM = curMonth===12?1:curMonth+1;
+        const prevM = curMonth===1?12:curMonth-1;
+        if (rm !== curMonth && rm !== nextM && rm !== prevM) return false;
       }
       return true;
     });
@@ -3977,7 +3993,29 @@ document.querySelectorAll('.modal-overlay').forEach(m => {
   m.addEventListener('click', e => { if(e.target === m) m.classList.remove('open'); });
 });
 
-init();
+// ── 진입 비밀번호 잠금 ────────────────────────────────
+// ⚠️ 이 비밀번호는 브라우저에서 볼 수 있습니다. 화면을 가리는 잠금일 뿐,
+//    데이터 자체를 지키려면 저장소를 private으로 두고 백엔드에 토큰을 걸어야 합니다.
+const APP_PASSWORD = '1231';                // ← 원하는 비밀번호로 이 한 줄만 바꾸세요
+let _booted = false;
+function bootApp() { if (_booted) return; _booted = true; init(); }
+function submitGate() {
+  const el = document.getElementById('gatePw');
+  if (el.value === APP_PASSWORD) {
+    sessionStorage.setItem('jjk_auth', '1');
+    document.getElementById('gate').style.display = 'none';
+    bootApp();
+  } else {
+    document.getElementById('gateErr').style.display = 'block';
+    el.value = ''; el.focus();
+  }
+}
+if (sessionStorage.getItem('jjk_auth') === '1') {
+  document.getElementById('gate').style.display = 'none';
+  bootApp();
+} else {
+  document.getElementById('gatePw').focus();
+}
 </script>
 </body>
 </html>
