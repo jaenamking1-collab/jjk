@@ -1018,14 +1018,55 @@ function renderAccounts() {
   loadAccountStats();
 }
 
+// 종목별 연간 분배금 투영 — 대시보드 loadDashboard와 동일 알고리즘.
+// 반환: { holding_id: 연 투영액 }  (금액은 저장된 그대로=KRW 취급, 대시보드와 동일)
+function projectAnnualDist(holdings, dividends, year) {
+  const byH = {};
+  (dividends || []).forEach(d => {
+    const hid = d.holding_id, y = parseInt(d.year), m = parseInt(d.month);
+    if (!hid || !y || !m) return;
+    (byH[hid] = byH[hid] || {});
+    (byH[hid][y] = byH[hid][y] || {});
+    byH[hid][y][m] = parseFloat(d.amount) || 0;
+  });
+  const ALLM = [1,2,3,4,5,6,7,8,9,10,11,12];
+  const payMonthsOf = (h) => {
+    const cyc = h.div_cycle || '';
+    if (/월|주/.test(cyc)) return ALLM;
+    const hist = byH[h.id] || {};
+    const ms = [...new Set(Object.values(hist).flatMap(o => Object.keys(o).map(Number)).filter(Boolean))].sort((a,b)=>a-b);
+    if (ms.length) return ms;
+    if (/분기/.test(cyc)) return [3,6,9,12];
+    if (/반기/.test(cyc)) return [6,12];
+    return [];
+  };
+  const perH = {};
+  (holdings || []).forEach(h => {
+    const thisYear = (byH[h.id] && byH[h.id][year]) || {};
+    let vals = Object.values(thisYear).filter(v => v > 0);
+    if (!vals.length) vals = Object.values(byH[h.id] || {}).flatMap(o => Object.values(o)).filter(v => v > 0);
+    const perPay = vals.length ? vals.reduce((a,b)=>a+b,0) / vals.length : 0;
+    let sum = 0;
+    payMonthsOf(h).forEach(m => {
+      const actual = thisYear[m] || 0;
+      sum += actual > 0 ? actual : perPay;
+    });
+    perH[h.id] = sum;
+  });
+  return perH;
+}
+
 async function loadAccountStats() {
-  const [allHoldings, allDivs, sheet] = await Promise.all([
+  const [allHoldings, allDivs, sheet, allDivsFull] = await Promise.all([
     api({ action:'getHoldings' }),
     api({ action:'getDividends', year: state.currentYear }),
-    api({ action:'getSheetData' }).catch(()=>({ items:[] }))
+    api({ action:'getSheetData' }).catch(()=>({ items:[] })),
+    api({ action:'getDividends' }).catch(()=>[])
   ]);
   state.holdings = allHoldings || [];
   state.dividends = allDivs || [];
+  // 환산분배율용 투영맵 (대시보드 연 분배율과 동일 방식·동일 데이터)
+  const projMap = projectAnnualDist(state.holdings, allDivsFull || [], state.currentYear);
 
   // 현재가 맵 (ticker → 현재가)
   const priceMap = {};
@@ -1079,20 +1120,8 @@ async function loadAccountStats() {
       return s + (d.currency === 'USD' ? a * er2 : a);
     }, 0);
     const acctMonths = new Set(acctDivs.filter(d => parseFloat(d.amount)>0).map(d => d.month));
-    const divProj = (() => {
-      if (acctMonths.size === 0) return 0;
-      let proj = 0;
-      h.forEach(x => {
-        const xDivs = acctDivs.filter(d => d.holding_id === x.id);
-        const xMonths = new Set(xDivs.filter(d => parseFloat(d.amount)>0).map(d => d.month));
-        if (!xMonths.size) return;
-        const xTotal = xDivs.reduce((s,d) => { const a=parseFloat(d.amount)||0; return s+(d.currency==='USD'?a*er2:a); }, 0);
-        const cyc = (x.div_cycle||'').split('|')[0];
-        const cnt = /주배당/.test(cyc)?52:/월/.test(cyc)?12:/분기/.test(cyc)?4:/반기/.test(cyc)?2:xMonths.size>0?(12/xMonths.size):0;
-        proj += cnt > 0 ? xTotal/xMonths.size*cnt : 0;
-      });
-      return proj;
-    })();
+    // 환산분배율 = 종목별 배당주기 투영 (대시보드 연 분배율과 동일 방식)
+    const divProj = h.reduce((s, x) => s + (projMap[x.id] || 0), 0);
 
     const pl = value - invest;
     const plPct = invest > 0 ? (pl/invest*100).toFixed(1) : '0';
