@@ -3250,22 +3250,22 @@ function renderDistGrid(allData) {
     if (myItems.length) {
       body = `<table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead><tr style="background:var(--bg3)">
-          <th style="padding:5px 6px;text-align:center;font-size:10px;color:var(--text3);border-bottom:1px solid var(--border)">주기</th>
-          <th style="padding:5px 8px;text-align:left;font-size:10px;color:var(--text3);border-bottom:1px solid var(--border)">코드</th>
-          <th style="padding:5px 8px;text-align:left;font-size:10px;color:var(--text3);border-bottom:1px solid var(--border)">종목명</th>
-          <th style="padding:5px 8px;text-align:right;font-size:10px;color:var(--text3);border-bottom:1px solid var(--border)">분배금</th>
-          <th style="padding:5px 8px;text-align:right;font-size:10px;color:var(--text3);border-bottom:1px solid var(--border)">분배율</th>
+          <th style="padding:5px 6px;text-align:center;font-size:10px;color:var(--text3);border:1px solid #111827">주기</th>
+          <th style="padding:5px 8px;text-align:left;font-size:10px;color:var(--text3);border:1px solid #111827">코드</th>
+          <th style="padding:5px 8px;text-align:left;font-size:10px;color:var(--text3);border:1px solid #111827">종목명</th>
+          <th style="padding:5px 8px;text-align:right;font-size:10px;color:var(--text3);border:1px solid #111827">분배금</th>
+          <th style="padding:5px 8px;text-align:right;font-size:10px;color:var(--text3);border:1px solid #111827">분배율</th>
         </tr></thead>
         <tbody>${myItems.map(it => {
           const cyc = cycleOf(it, d.schedule);
           const cycColor = cyc==='월중' ? '#2563eb' : cyc==='월말' ? '#db2777' : 'var(--text3)';
           const rowBg = cyc==='월중' ? 'background:#2563eb0a;' : cyc==='월말' ? 'background:#db27770a;' : '';
-          return `<tr style="border-bottom:1px solid var(--border);${rowBg}">
-          <td style="padding:5px 6px;text-align:center">${cyc?`<span style="display:inline-block;background:${cycColor}1a;color:${cycColor};font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px">${cyc}</span>`:'-'}</td>
-          <td style="padding:5px 8px"><span class="ticker" style="font-size:11px">${it.ticker||''}</span></td>
-          <td style="padding:5px 8px;font-size:11px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${it.name||''}</td>
-          <td class="num" style="padding:5px 8px;font-size:12px;font-weight:600">${it.amount!=null?Number(it.amount).toLocaleString():'-'}</td>
-          <td style="padding:5px 8px;font-size:11px;font-weight:600;text-align:left;color:${c.color}">${it.rate!=null&&it.rate>0?Number(it.rate).toFixed(2)+'%':'-'}</td>
+          return `<tr style="${rowBg}">
+          <td style="padding:5px 6px;text-align:center;border:1px solid #111827">${cyc?`<span style="display:inline-block;background:${cycColor}1a;color:${cycColor};font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px">${cyc}</span>`:'-'}</td>
+          <td style="padding:5px 8px;border:1px solid #111827"><span class="ticker" style="font-size:11px">${it.ticker||''}</span></td>
+          <td style="padding:5px 8px;font-size:11px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:1px solid #111827">${it.name||''}</td>
+          <td class="num" style="padding:5px 8px;font-size:12px;font-weight:600;border:1px solid #111827">${it.amount!=null?Number(it.amount).toLocaleString():'-'}</td>
+          <td style="padding:5px 8px;font-size:11px;font-weight:600;text-align:left;color:${c.color};border:1px solid #111827">${it.rate!=null&&it.rate>0?Number(it.rate).toFixed(2)+'%':'-'}</td>
         </tr>`}).join('')}</tbody>
       </table>`;
     } else if (d.noticeUrl) {
