@@ -1038,8 +1038,8 @@ async function loadAccountStats() {
   const fmt   = v => Math.round(v).toLocaleString();
   const set   = (id, v) => { const el = document.getElementById(id); if (el) el.innerHTML = v; };
 
-  const grp = { 재남:{invest:0,value:0,div:0,filledM:new Set()}, 은경:{invest:0,value:0,div:0,filledM:new Set()} };
-  let totalInvest=0, totalValue=0, totalDiv=0, totalHoldings=0;
+  const grp = { 재남:{invest:0,value:0,div:0,proj:0,filledM:new Set()}, 은경:{invest:0,value:0,div:0,proj:0,filledM:new Set()} };
+  let totalInvest=0, totalValue=0, totalDiv=0, totalHoldings=0, totalProj=0;
   const allFilledM = new Set();
   // [임시 디버그] 계좌별 종목 평가액
   const _rate = state.exchangeRate || 1537;
@@ -1106,11 +1106,11 @@ async function loadAccountStats() {
     set(`ac-drt-${a.id}`, drt ? drt+'%' : '-');
     set(`ac-yrt-${a.id}`, yrt ? yrt+'%' : '-');
 
-    totalInvest += invest; totalValue += value; totalDiv += div;
+    totalInvest += invest; totalValue += value; totalDiv += div; totalProj += divProj;
     acctMonths.forEach(m => allFilledM.add(m));
     const owner = (a.name||'').includes('재남') ? '재남' : (a.name||'').includes('은경') ? '은경' : null;
     if (owner) {
-      grp[owner].invest += invest; grp[owner].value += value; grp[owner].div += div;
+      grp[owner].invest += invest; grp[owner].value += value; grp[owner].div += div; grp[owner].proj += divProj;
       acctMonths.forEach(m => grp[owner].filledM.add(m));
     }
   });
@@ -1125,7 +1125,7 @@ async function loadAccountStats() {
   set('sum-annual', fmt(totalDiv));
   const totalDrt = totalInvest > 0 && totalDiv > 0 ? (totalDiv/totalInvest*100).toFixed(2) : '-';
   set('sum-divrate', totalDrt !== '-' ? totalDrt+'%' : '-');
-  const totalProj = allFilledM.size > 0 ? totalDiv * (12/allFilledM.size) : 0;
+  // 환산분배율 = 종목별 배당주기 투영(divProj) 합계 기준 (계좌별 ac-yrt·대시보드 연 분배율과 동일 방식)
   const totalYrt = totalInvest > 0 && totalProj > 0 ? (totalProj/totalInvest*100).toFixed(2) : '-';
   set('sum-yieldrate', totalYrt !== '-' ? totalYrt+'%' : '-');
 
@@ -1136,7 +1136,7 @@ async function loadAccountStats() {
     const pl = g.value - g.invest;
     const plPct = g.invest > 0 ? (pl/g.invest*100).toFixed(1) : '0';
     const drt = g.invest > 0 && g.div > 0 ? (g.div/g.invest*100).toFixed(2) : '-';
-    const proj = g.filledM.size > 0 ? g.div * (12/g.filledM.size) : 0;
+    const proj = g.proj;
     const yrt = g.invest > 0 && proj > 0 ? (proj/g.invest*100).toFixed(2) : '-';
     set(`sum-${pfx}-invest`, g.invest ? fmt(g.invest) : '-');
     set(`sum-${pfx}-value`, g.value ? fmt(g.value) : '-');
