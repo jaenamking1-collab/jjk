@@ -9,6 +9,13 @@
 
 ---
 
+## 2026-07-09 (2) / — 저장소 다시 public + 백엔드 토큰 인증 도입
+- **private화가 GitHub Pages(jjk/portfolio.html URL)를 꺼뜨림** → 사용자가 URL로 못 열게 됨. 무료 Pages는 public 저장소만 가능. **jjk를 다시 public으로 되돌리고 Pages 재생성**(API POST, main/root). URL 복구 확인(200).
+- 대신 **데이터는 백엔드 토큰으로 보호**하도록 변경:
+  - `Code.gs`: `_authOk(action, token)` 추가. Script 속성 `APP_TOKEN`과 일치해야 통과. `PUBLIC_ACTIONS`(getDistribution·getEtfNotices)는 토큰 없이 허용(공개 분배 페이지 프록시용). **속성 미설정 시 전부 허용(하위호환)** → 재배포 전 앱 안 끊김. doGet/doPost 양쪽에 가드.
+  - `portfolio.html`: 하드코딩 비번 제거. 게이트가 입력값을 `APP_TOKEN`으로 삼아 `getAccounts` 호출로 검증. `api`/`apiPost`/getAlerts/markAlertRead 모두 `token` 파라미터 전송. 세션 저장키 `jjk_token`. 프리뷰로 통과·부팅·계좌7개 로드 검증.
+- ⚠️ **다음 할 일(사용자 수동)**: Apps Script 편집기 → 프로젝트 설정 → 스크립트 속성 `APP_TOKEN=1231` 추가 → Code.gs 붙여넣기 → **기존 배포 편집(새 버전)으로 재배포**(URL 유지). 이걸 해야 실제 강제됨. 그 전까지는 아무 비번이나 통과(하위호환).
+
 ## 2026-07-09 / — 보안(저장소 private화) + 진입 비밀번호 + ACE 표시 버그
 - **`jjk` 저장소를 private으로 전환** (GitHub API). public일 때 portfolio.html·Code.gs 소스가 통째로 노출됐고, 그 안의 개인 GAS API URL로 외부에서 `getAccounts`/`getHoldings` 직접 호출해 실명 계좌·보유내역이 그대로 뽑히는 것 실증됨. 공개 분배금 페이지는 `jjk-dist`(별도 저장소)에서 서빙되므로 영향 없음. 확인: jjk API 404, github.io/jjk-dist 200.
 - **portfolio.html 진입 비밀번호 잠금 추가**: body 최상단 #gate 오버레이 + 하단 스크립트 `APP_PASSWORD`(현재 '1231') / `submitGate` / sessionStorage `jjk_auth`. init()은 인증 후에만 호출. 프리뷰로 오답 차단·정답 통과·콘솔 무에러 검증 완료.

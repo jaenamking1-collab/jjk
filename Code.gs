@@ -1,8 +1,26 @@
 const SHEET_ID = '1iNlOU1YBRyJ6redmVoLDE4q6VfnWqL22s32IQHdSKN8';
 
+// ── 접근 토큰 ─────────────────────────────
+// Script 속성 'APP_TOKEN'에 값을 넣으면, 아래 PUBLIC_ACTIONS를 제외한 모든 요청은
+// 올바른 token 파라미터가 있어야 통과한다(개인 계좌·보유·분배 데이터 보호).
+// 속성이 비어 있으면(미설정) 전부 허용 → 재배포 전까지 기존 앱이 끊기지 않음(하위호환).
+// getDistribution·getEtfNotices는 공개 분배금 페이지(프록시)가 쓰므로 토큰 없이 허용.
+const PUBLIC_ACTIONS = ['getDistribution', 'getEtfNotices'];
+function _authOk(action, token) {
+  if (PUBLIC_ACTIONS.indexOf(action) !== -1) return true;
+  const secret = PropertiesService.getScriptProperties().getProperty('APP_TOKEN');
+  if (!secret) return true;           // 미설정 시 허용(하위호환)
+  return token === secret;
+}
+function _unauthorized() {
+  return ContentService.createTextOutput(JSON.stringify({ error: 'unauthorized' }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
 function doGet(e) {
   if (!e || !e.parameter) return ContentService.createTextOutput('ok');
   const action = e.parameter.action;
+  if (!_authOk(action, e.parameter.token)) return _unauthorized();
   let result;
   try {
     switch(action) {
@@ -38,6 +56,8 @@ function doGet(e) {
 function doPost(e) {
   const data = JSON.parse(e.postData.contents);
   const action = data.action;
+  const token = (e.parameter && e.parameter.token) || data.token;
+  if (!_authOk(action, token)) return _unauthorized();
   let result;
   try {
     switch(action) {

@@ -880,7 +880,7 @@ function applyPalette(key) {
 let _alertsCache = [];
 async function refreshAlerts() {
   try {
-    const res = await fetch(API + '?action=getAlerts&limit=30');
+    const res = await fetch(API + '?action=getAlerts&limit=30&token=' + encodeURIComponent(APP_TOKEN));
     const data = await res.json();
     _alertsCache = (data && data.alerts) || [];
     renderAlerts();
@@ -922,7 +922,7 @@ function toggleAlertPanel() {
 }
 async function markRead(row) {
   try {
-    await fetch(API + '?action=markAlertRead&row=' + row);
+    await fetch(API + '?action=markAlertRead&row=' + row + '&token=' + encodeURIComponent(APP_TOKEN));
     const a = _alertsCache.find(x => x.row === row);
     if (a) a.status = '확인';
     renderAlerts();
@@ -935,15 +935,16 @@ document.addEventListener('click', e => {
   if (panel && bell && !panel.contains(e.target) && !bell.contains(e.target)) panel.style.display = 'none';
 });
 
+let APP_TOKEN = sessionStorage.getItem('jjk_token') || '';  // 진입 비밀번호(백엔드 토큰)
 async function api(params) {
-  const url = API + '?' + new URLSearchParams(params);
+  const url = API + '?' + new URLSearchParams({ ...params, token: APP_TOKEN });
   const res = await fetch(url, { redirect: 'follow' });
   return res.json();
 }
 async function apiPost(data) {
-  const res = await fetch(API, {
+  const res = await fetch(API + '?token=' + encodeURIComponent(APP_TOKEN), {
     method:'POST',
-    body: JSON.stringify(data)
+    body: JSON.stringify({ ...data, token: APP_TOKEN })
   });
   return res.json();
 }
@@ -3994,25 +3995,34 @@ document.querySelectorAll('.modal-overlay').forEach(m => {
 });
 
 // ── 진입 비밀번호 잠금 ────────────────────────────────
-// ⚠️ 이 비밀번호는 브라우저에서 볼 수 있습니다. 화면을 가리는 잠금일 뿐,
-//    데이터 자체를 지키려면 저장소를 private으로 두고 백엔드에 토큰을 걸어야 합니다.
-const APP_PASSWORD = '1231';                // ← 원하는 비밀번호로 이 한 줄만 바꾸세요
+// 비밀번호는 소스에 저장하지 않는다. 입력한 값을 백엔드 토큰으로 써서 서버가 검증한다.
+// (백엔드 Code.gs의 Script 속성 APP_TOKEN 과 일치해야 통과 → 공개 페이지여도 데이터 보호)
 let _booted = false;
 function bootApp() { if (_booted) return; _booted = true; init(); }
-function submitGate() {
+function hideGate() { document.getElementById('gate').style.display = 'none'; }
+async function submitGate() {
   const el = document.getElementById('gatePw');
-  if (el.value === APP_PASSWORD) {
-    sessionStorage.setItem('jjk_auth', '1');
-    document.getElementById('gate').style.display = 'none';
-    bootApp();
-  } else {
+  const btn = document.querySelector('#gate button');
+  const pw = el.value;
+  if (!pw) { el.focus(); return; }
+  APP_TOKEN = pw;
+  btn.disabled = true; btn.textContent = '확인 중…';
+  document.getElementById('gateErr').style.display = 'none';
+  try {
+    const r = await api({ action: 'getAccounts' });   // 토큰 검증용 호출
+    if (r && r.error === 'unauthorized') throw new Error('bad');
+    sessionStorage.setItem('jjk_token', APP_TOKEN);
+    hideGate(); bootApp();
+  } catch (e) {
+    APP_TOKEN = '';
     document.getElementById('gateErr').style.display = 'block';
     el.value = ''; el.focus();
+  } finally {
+    btn.disabled = false; btn.textContent = '들어가기';
   }
 }
-if (sessionStorage.getItem('jjk_auth') === '1') {
-  document.getElementById('gate').style.display = 'none';
-  bootApp();
+if (APP_TOKEN) {            // 이번 세션에서 이미 인증됨
+  hideGate(); bootApp();
 } else {
   document.getElementById('gatePw').focus();
 }
