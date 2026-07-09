@@ -1754,7 +1754,8 @@ function getEtfScreener() {
   const today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
   if (sh) {
     const rows = sh.getDataRange().getValues();
-    if (rows.length > 1 && rows[1][0] && rows[1][0].toString() === today) {
+    // 헤더에 deviation 컬럼(12개)이 있고 당일자면 캐시 사용
+    if (rows.length > 1 && rows[1][0] && rows[1][0].toString() === today && rows[0].length >= 12) {
       return { success: true, date: today, items: rows.slice(1).map(rowToScreener) };
     }
   }
@@ -1774,23 +1775,54 @@ function getEtfScreener() {
         name,
         provider: guessProvider(name),
         category: etfCategory(name),
-        divRate:  null,
-        yld1y:    parseFloat(r.threeMonthEarnRate) || null,
+        divRate:  null,   // 아래 enrichScreener에서 채움 (연 분배율)
+        yld1y:    null,   // 1년 수익률
         price:    parseFloat(r.nowVal) || 0,
         change:   parseFloat(r.changeRate) || 0,
-        expense:  null,
-        aum:      Math.round((parseFloat(r.marketSum) || 0) / 100)
+        expense:  null,   // 총보수
+        aum:      Math.round((parseFloat(r.marketSum) || 0) / 100),
+        deviation: null   // 괴리율
       });
     });
   } catch(e) { return staleOr(sh, e.toString()); }
   if (!items.length) return staleOr(sh, '결과 없음');
+  // 네이버 모바일 종목 API로 분배율·보수·1년수익·괴리율·운용사 보강
+  try { enrichScreener(items); } catch(e) { /* 보강 실패해도 기본 리스트는 반환 */ }
   if (!sh) sh = ss.insertSheet('ETF스크리너');
   sh.clearContents();
-  const header = ['date','ticker','name','provider','category','divRate','yld1y','price','change','expense','aum'];
+  const header = ['date','ticker','name','provider','category','divRate','yld1y','price','change','expense','aum','deviation'];
   const out = [header];
-  items.forEach(it => out.push([today, it.ticker, it.name, it.provider, it.category, it.divRate, it.yld1y, it.price, it.change, it.expense, it.aum]));
+  items.forEach(it => out.push([today, it.ticker, it.name, it.provider, it.category, it.divRate, it.yld1y, it.price, it.change, it.expense, it.aum, it.deviation]));
   sh.getRange(1, 1, out.length, header.length).setValues(out);
   return { success: true, date: today, items };
+}
+
+// 각 ETF를 네이버 모바일 종목 API(integration)의 etfKeyIndicator로 보강.
+// UrlFetchApp.fetchAll로 병렬 호출(청크 40개)해 하루 1회 빌드 시에만 실행.
+function enrichScreener(items) {
+  const CHUNK = 40;
+  const opt = { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://m.stock.naver.com/' } };
+  for (let i = 0; i < items.length; i += CHUNK) {
+    const batch = items.slice(i, i + CHUNK);
+    const reqs = batch.map(it => Object.assign({ url: 'https://m.stock.naver.com/api/stock/' + it.ticker + '/integration' }, opt));
+    let resps;
+    try { resps = UrlFetchApp.fetchAll(reqs); } catch(e) { continue; }
+    resps.forEach((res, j) => {
+      const it = batch[j];
+      try {
+        if (res.getResponseCode() !== 200) return;
+        const body = res.getContentText('UTF-8');
+        if (body.charAt(0) !== '{') return;          // 상장폐지 등 HTML 응답 스킵
+        const k = (JSON.parse(body) || {}).etfKeyIndicator || {};
+        if (k.dividendYieldTtm != null) it.divRate  = parseFloat(k.dividendYieldTtm);
+        if (k.totalFee         != null) it.expense  = parseFloat(k.totalFee);
+        if (k.returnRate1y      != null) it.yld1y    = parseFloat(k.returnRate1y);
+        if (k.deviationRate     != null) it.deviation = parseFloat(k.deviationRate);
+        if (k.issuerName) it.provider = k.issuerName.replace(/\(ETF\)\s*$/, '').replace(/자산운용.*$/, '').trim() || it.provider;
+      } catch(e) { /* 개별 실패 무시 */ }
+    });
+    if (i + CHUNK < items.length) Utilities.sleep(200);
+  }
 }
 
 // 국내 ETF 기준가(NAV) 맵: { 티커(6자리): nav } — 괴리율 계산용. etfItemList 1회 호출, 1h 캐시.
@@ -1828,7 +1860,7 @@ function staleOr(sh, err) {
   return { success: false, error: err, items: [] };
 }
 function rowToScreener(r) {
-  return { ticker: r[1], name: r[2], provider: r[3], category: r[4], divRate: r[5]===''?null:parseFloat(r[5]), yld1y: r[6]===''?null:parseFloat(r[6]), price: parseFloat(r[7])||0, change: parseFloat(r[8])||0, expense: r[9]===''?null:parseFloat(r[9]), aum: parseFloat(r[10])||0 };
+  return { ticker: r[1], name: r[2], provider: r[3], category: r[4], divRate: r[5]===''?null:parseFloat(r[5]), yld1y: r[6]===''?null:parseFloat(r[6]), price: parseFloat(r[7])||0, change: parseFloat(r[8])||0, expense: r[9]===''?null:parseFloat(r[9]), aum: parseFloat(r[10])||0, deviation: (r[11]===''||r[11]==null)?null:parseFloat(r[11]) };
 }
 function etfCategory(n) {
   if (/레버리지|선물단일종목|2X/.test(n)) return '레버리지/단일';

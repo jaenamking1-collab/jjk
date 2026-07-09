@@ -642,9 +642,9 @@
           <th>종목명</th><th>추종</th><th style="text-align:right">연분배율</th>
           <th style="text-align:right">1년수익</th><th style="text-align:right">현재가</th>
           <th style="text-align:right">등락</th><th style="text-align:right">보수</th>
-          <th style="text-align:right">순자산(억)</th><th>운용사</th>
+          <th style="text-align:right">순자산(억)</th><th style="text-align:right">괴리율</th><th>운용사</th>
         </tr></thead>
-        <tbody id="scrBody"><tr><td colspan="9" style="text-align:center;color:var(--text3);padding:24px">불러오는 중...</td></tr></tbody>
+        <tbody id="scrBody"><tr><td colspan="10" style="text-align:center;color:var(--text3);padding:24px">불러오는 중...</td></tr></tbody>
       </table>
     </div>
     <div style="font-size:11px;color:var(--text3);margin-top:10px">※ '추종' 분류는 종목명 기반 자동 추정입니다. 하루 1회 ETF CHECK에서 갱신.</div>
@@ -3295,7 +3295,7 @@ let screenerData = [];
 async function loadScreener(force) {
   const body = document.getElementById('scrBody');
   if (!force && screenerData.length) { renderScreener(); return; }
-  body.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:24px"><span class="spinner"></span>불러오는 중...</td></tr>';
+  body.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:24px"><span class="spinner"></span>불러오는 중...</td></tr>';
   try {
     const r = await api({ action:'getEtfScreener' });
     screenerData = r.items || [];
@@ -3306,12 +3306,12 @@ async function loadScreener(force) {
       sel.innerHTML = '<option value="">전체 추종</option>' + cats.map(c => `<option value="${c}">${c}</option>`).join('');
     }
     if ((!r.success && !screenerData.length)) {
-      body.innerHTML = `<tr><td colspan="9" style="text-align:center;color:var(--red);padding:24px">불러오기 실패: ${r.error||''}</td></tr>`;
+      body.innerHTML = `<tr><td colspan="10" style="text-align:center;color:var(--red);padding:24px">불러오기 실패: ${r.error||''}</td></tr>`;
       return;
     }
     renderScreener();
   } catch(e) {
-    body.innerHTML = `<tr><td colspan="9" style="text-align:center;color:var(--red);padding:24px">오류: ${e.message}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="10" style="text-align:center;color:var(--red);padding:24px">오류: ${e.message}</td></tr>`;
   }
 }
 
@@ -3345,9 +3345,10 @@ function renderScreener() {
       <td class="num ${chCls}" style="padding:1px 8px">${(x.change>0?'+':'')+fmt(x.change)}%</td>
       <td class="num" style="padding:1px 8px">${x.expense==null?'-':fmt(x.expense)+'%'}</td>
       <td class="num" style="padding:1px 8px">${x.aum?x.aum.toLocaleString():'-'}</td>
+      <td class="num" style="padding:1px 8px;color:${x.deviation>0?'#dc2626':x.deviation<0?'#2563eb':'inherit'}">${x.deviation==null?'-':(x.deviation>0?'+':'')+fmt(x.deviation)+'%'}</td>
       <td style="padding:1px 8px;color:#111827">${x.provider}</td>
     </tr>`;
-  }).join('') || '<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:24px">결과 없음</td></tr>';
+  }).join('') || '<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:24px">결과 없음</td></tr>';
 }
 
 async function loadHoldingPrices(holdings) {
