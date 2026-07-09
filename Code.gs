@@ -1792,7 +1792,7 @@ function getEtfScreener() {
         buyFor:    null,                // 외인 순매수금액(원)
         buyOrg:    null,                // 기관 순매수금액(원)
         listedDate:'',                  // 상장일
-        top5:      ''                   // 구성종목 top5 (JSON 문자열)
+        top5:      []                   // 구성종목 top5 [{n,w}]
       });
     });
   } catch(e) { return staleOr(sh, e.toString()); }
@@ -1804,7 +1804,7 @@ function getEtfScreener() {
   const out = [SCREENER_HEADER];
   items.forEach(it => out.push([today, it.ticker, it.name, it.provider, it.category, it.baseIndex,
     it.divRate, it.price, it.change, it.wk, it.mo, it.yld1y, it.expense, it.aum, it.deviation,
-    it.buyInd, it.buyFor, it.buyOrg, it.listedDate, it.top5]));
+    it.buyInd, it.buyFor, it.buyOrg, it.listedDate, (it.top5 && it.top5.length) ? JSON.stringify(it.top5) : '']));
   sh.getRange(1, 1, out.length, SCREENER_HEADER.length).setValues(out);
   return { success: true, date: today, items };
 }
@@ -1855,7 +1855,7 @@ function enrichScreener(items) {
       const w = scrNum(h.etfWeight);
       return { n: h.itemName, w: w == null ? null : w };
     }).filter(x => x.n);
-    if (top.length) it.top5 = JSON.stringify(top);
+    if (top.length) it.top5 = top;   // 배열로 유지 (시트 저장 시에만 stringify)
   });
 
   // 2) integration — 실시간 종가·등락·투자자별

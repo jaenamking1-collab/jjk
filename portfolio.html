@@ -3348,7 +3348,10 @@ function renderScreener() {
   const eok = v => v==null||isNaN(v) ? '-' : (v>0?'+':'')+(v/1e8).toFixed(1);  // 원 → 억
   const esc = s => (s||'').replace(/"/g,'&quot;').replace(/</g,'&lt;');
   document.getElementById('scrBody').innerHTML = rows.map(x => {
-    const top = (x.top5||[]).map((h,i) => `${i+1}. ${h.n}${h.w!=null?' ('+h.w+'%)':''}`).join('\n');
+    let t5 = x.top5 || [];
+    if (typeof t5 === 'string') { try { t5 = JSON.parse(t5) || []; } catch(e) { t5 = []; } }  // 백엔드가 문자열로 줘도 방어
+    if (!Array.isArray(t5)) t5 = [];
+    const top = t5.map((h,i) => `${i+1}. ${h.n}${h.w!=null?' ('+h.w+'%)':''}`).join('\n');
     const nameTip = top ? ` title="구성종목 Top5\n${esc(top)}" style="cursor:help;border-bottom:1px dotted #94a3b8"` : '';
     return `<tr>
       <td style="padding:1px 8px;color:#475569;font-variant-numeric:tabular-nums">${x.ticker||'-'}</td>
