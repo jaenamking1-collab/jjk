@@ -369,7 +369,7 @@ function getEtfNotices(source) {
       }
     }
     const result = { success: true, items };
-    cache.put(cacheKey, JSON.stringify(result), 21600);
+    if (items.length) cache.put(cacheKey, JSON.stringify(result), 21600); // 0건은 캐시 안 함(일시 실패로 6h 막힘 방지)
     return result;
   } catch(e) {
     return { success: false, items: [], error: e.toString() };
