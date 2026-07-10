@@ -1749,7 +1749,7 @@ function compactPriceLog() {
 }
 
 // 시트 컬럼 순서 (rowToScreener와 반드시 일치)
-var SCREENER_HEADER = ['date','ticker','name','provider','category','baseIndex','divRate','price','change','wk','mo','yld1y','expense','aum','deviation','buyInd','buyFor','buyOrg','listedDate','top5'];
+var SCREENER_HEADER = ['date','ticker','name','provider','category','baseIndex','divRate','divPay','price','change','wk','mo','yld1y','expense','aum','deviation','buyInd','buyFor','buyOrg','listedDate','top5'];
 
 function getEtfScreener() {
   const ss = SpreadsheetApp.openById(SHEET_ID);
@@ -1780,6 +1780,7 @@ function getEtfScreener() {
         category:  etfCategory(name),   // enrichScreener에서 기초지수 기반으로 재계산
         baseIndex: '',                  // 실제 기초지수 (hover 표시)
         divRate:   null,                // 연 분배율
+        divPay:    null,                // 당월 좌당 분배금(원) — 분배캐시 조인
         price:     parseFloat(r.nowVal) || 0,   // enrich에서 실시간 종가로 갱신
         change:    null,                // 등락률 (etfItemList는 장 마감 후 0 → integration 사용)
         wk:        null,                // 주간 수익
@@ -1799,11 +1800,13 @@ function getEtfScreener() {
   if (!items.length) return staleOr(sh, '결과 없음');
   // 네이버 모바일 종목 API로 상세 보강 (분배율·보수·수익률·기초지수·상장일·구성종목·투자자별)
   try { enrichScreener(items); } catch(e) { /* 보강 실패해도 기본 리스트는 반환 */ }
+  // 분배금공지 캐시(분배캐시 시트)에서 당월 좌당 분배금 조인
+  try { applyDistAmounts(items); } catch(e) {}
   if (!sh) sh = ss.insertSheet('ETF스크리너');
   sh.clearContents();
   const out = [SCREENER_HEADER];
   items.forEach(it => out.push([today, it.ticker, it.name, it.provider, it.category, it.baseIndex,
-    it.divRate, it.price, it.change, it.wk, it.mo, it.yld1y, it.expense, it.aum, it.deviation,
+    it.divRate, it.divPay, it.price, it.change, it.wk, it.mo, it.yld1y, it.expense, it.aum, it.deviation,
     it.buyInd, it.buyFor, it.buyOrg, it.listedDate, (it.top5 && it.top5.length) ? JSON.stringify(it.top5) : '']));
   sh.getRange(1, 1, out.length, SCREENER_HEADER.length).setValues(out);
   return { success: true, date: today, items };
@@ -1811,6 +1814,27 @@ function getEtfScreener() {
 
 // 콤마/부호 포함 문자열 → 숫자. "+431,438" → 431438, "15,480" → 15480
 function scrNum(s) { if (s == null) return null; const n = parseFloat(String(s).replace(/[+,\s]/g, '')); return isNaN(n) ? null : n; }
+
+// 분배금공지 캐시(분배캐시 시트, 6개 운용사)에서 좌당 분배금(원)을 티커→종목명 순으로 조인
+function applyDistAmounts(items) {
+  const norm = s => (s || '').toString().toUpperCase().replace(/\s+/g, '');
+  const byT = {}, byN = {};
+  ['kodex','tiger','ace','rise','sol','plus'].forEach(src => {
+    const sc = readDistCache(src);
+    const its = (sc && sc.payload && sc.payload.items) || [];
+    its.forEach(d => {
+      if (d.amount == null) return;
+      const t = (d.ticker || '').toString().trim();
+      if (t && byT[t] == null) byT[t] = d.amount;
+      const nk = norm(d.name);
+      if (nk && byN[nk] == null) byN[nk] = d.amount;
+    });
+  });
+  items.forEach(it => {
+    const v = byT[it.ticker] != null ? byT[it.ticker] : byN[norm(it.name)];
+    if (v != null) { const n = parseFloat(v); if (!isNaN(n)) it.divPay = n; }
+  });
+}
 
 // 각 ETF를 네이버 모바일 종목 API 2종으로 보강. fetchAll 병렬(청크 45) — 하루 1회 빌드 시에만 실행.
 //   etfAnalysis : 기초지수·상장일·보수·괴리율·분배율·주간/월간/1년수익·구성종목 top10
@@ -1913,14 +1937,14 @@ function staleOr(sh, err) {
 function rowToScreener(r) {
   const num = v => (v === '' || v == null) ? null : (isNaN(parseFloat(v)) ? null : parseFloat(v));
   let top5 = [];
-  try { if (r[19]) top5 = JSON.parse(r[19]); } catch(e) {}
+  try { if (r[20]) top5 = JSON.parse(r[20]); } catch(e) {}
   return {
     ticker: r[1], name: r[2], provider: r[3], category: r[4], baseIndex: r[5] || '',
-    divRate: num(r[6]), price: parseFloat(r[7]) || 0, change: num(r[8]),
-    wk: num(r[9]), mo: num(r[10]), yld1y: num(r[11]),
-    expense: num(r[12]), aum: parseFloat(r[13]) || 0, deviation: num(r[14]),
-    buyInd: num(r[15]), buyFor: num(r[16]), buyOrg: num(r[17]),
-    listedDate: r[18] || '', top5: top5
+    divRate: num(r[6]), divPay: num(r[7]), price: parseFloat(r[8]) || 0, change: num(r[9]),
+    wk: num(r[10]), mo: num(r[11]), yld1y: num(r[12]),
+    expense: num(r[13]), aum: parseFloat(r[14]) || 0, deviation: num(r[15]),
+    buyInd: num(r[16]), buyFor: num(r[17]), buyOrg: num(r[18]),
+    listedDate: r[19] || '', top5: top5
   };
 }
 function etfCategory(n) {
