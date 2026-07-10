@@ -163,6 +163,10 @@
      그룹: [티커·종목명][추종][연분배율·당월분배금][현재가~1년][보수~괴리율][개인~기관][운용사·상장일] */
   .scr-table { border:2px solid #111827; }
   .scr-table thead th { border-bottom:2px solid #111827; }
+  /* 스크리너: 모든 글자 진하게, 등락 색은 배경 위에서도 선명하게 */
+  .scr-table td { color:#111827; font-weight:600; }
+  .scr-table td.up { color:#dc2626; }
+  .scr-table td.down { color:#047857; }
   .scr-table th:nth-child(2),  .scr-table td:nth-child(2),
   .scr-table th:nth-child(3),  .scr-table td:nth-child(3),
   .scr-table th:nth-child(5),  .scr-table td:nth-child(5),
@@ -650,7 +654,7 @@
       <span id="scrCount" style="font-size:12px;color:var(--text3)"></span>
     </div>
     <div class="table-wrap">
-      <table class="scr-table" style="width:auto;margin:0 auto;font-size:12px">
+      <table class="scr-table" style="width:auto;margin:0 auto;font-size:13px">
         <thead><tr>
           <th>티커</th><th>종목명</th><th>추종</th>
           <th style="text-align:right;background:#b7d3ff">연분배율</th><th style="text-align:right;background:#f7dd8b">당월분배금</th>
@@ -3366,7 +3370,7 @@ function renderScreener() {
     const top = t5.map((h,i) => `${i+1}. ${h.n}${h.w!=null?' ('+h.w+'%)':''}`).join('\n');
     const nameTip = top ? ` title="구성종목 Top5\n${esc(top)}" style="cursor:help;border-bottom:1px dotted #94a3b8"` : '';
     return `<tr>
-      <td style="padding:1px 8px;color:#475569;font-variant-numeric:tabular-nums">${x.ticker||'-'}</td>
+      <td style="padding:1px 8px;font-variant-numeric:tabular-nums">${x.ticker||'-'}</td>
       <td style="white-space:nowrap;padding:1px 8px"><span${nameTip}>${x.name}</span></td>
       <td style="padding:1px 8px"><span class="badge" style="background:#1e40af;color:#fff${x.baseIndex?';cursor:help':''}"${x.baseIndex?` title="기초지수: ${esc(x.baseIndex)}"`:''}>${x.category}</span></td>
       <td class="num" style="background:#d8e6ff;color:#1d4ed8;font-weight:700;padding:1px 8px">${x.divRate==null?'-':fmt(x.divRate)+'%'}</td>
@@ -3383,7 +3387,7 @@ function renderScreener() {
       <td class="num ${pcls(x.buyFor)}" style="background:#ffe8cc;padding:1px 8px">${eok(x.buyFor)}</td>
       <td class="num ${pcls(x.buyOrg)}" style="background:#ecdcfb;padding:1px 8px">${eok(x.buyOrg)}</td>
       <td style="padding:1px 8px;color:#111827;white-space:nowrap">${x.provider||'-'}</td>
-      <td class="num" style="padding:1px 8px;color:#64748b;white-space:nowrap">${x.listedDate||'-'}</td>
+      <td class="num" style="padding:1px 8px;white-space:nowrap">${x.listedDate||'-'}</td>
     </tr>`;
   }).join('') || '<tr><td colspan="18" style="text-align:center;color:var(--text3);padding:24px">결과 없음</td></tr>';
 }
