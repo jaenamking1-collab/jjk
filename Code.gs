@@ -1748,8 +1748,9 @@ function compactPriceLog() {
   return { success: true, before: body.length, after: compact.length, backedUp: body.length };
 }
 
-// 시트 컬럼 순서 (rowToScreener와 반드시 일치)
-var SCREENER_HEADER = ['date','ticker','name','provider','category','baseIndex','divRate','divPay','price','change','wk','mo','yld1y','expense','aum','deviation','buyInd','buyFor','buyOrg','listedDate','top5'];
+// 시트 컬럼 순서 (rowToScreener와 반드시 일치). 첫 컬럼명에 스키마 버전을 넣어
+// 로직 변경 시(예: aum 단위 수정) 당일 캐시를 무효화한다.
+var SCREENER_HEADER = ['date_v3','ticker','name','provider','category','baseIndex','divRate','divPay','price','change','wk','mo','yld1y','expense','aum','deviation','buyInd','buyFor','buyOrg','listedDate','top5'];
 
 function getEtfScreener() {
   const ss = SpreadsheetApp.openById(SHEET_ID);
@@ -1757,8 +1758,9 @@ function getEtfScreener() {
   const today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
   if (sh) {
     const rows = sh.getDataRange().getValues();
-    // 헤더가 신규 스키마(20컬럼)이고 당일자면 캐시 사용
-    if (rows.length > 1 && rows[1][0] && rows[1][0].toString() === today && rows[0].length >= SCREENER_HEADER.length) {
+    // 헤더가 현재 스키마 버전이고 당일자면 캐시 사용
+    if (rows.length > 1 && rows[1][0] && rows[1][0].toString() === today &&
+        rows[0].length >= SCREENER_HEADER.length && rows[0][0].toString() === SCREENER_HEADER[0]) {
       return { success: true, date: today, items: rows.slice(1).map(rowToScreener) };
     }
   }
@@ -1787,7 +1789,7 @@ function getEtfScreener() {
         mo:        null,                // 월간 수익
         yld1y:     null,                // 1년 수익
         expense:   null,                // 총보수
-        aum:       Math.round((parseFloat(r.marketSum) || 0) / 100),  // 순자산(억)
+        aum:       Math.round(parseFloat(r.marketSum) || 0),  // 순자산(억) — marketSum이 이미 억 단위
         deviation: null,                // 괴리율
         buyInd:    null,                // 개인 순매수금액(원)
         buyFor:    null,                // 외인 순매수금액(원)
@@ -1815,13 +1817,14 @@ function getEtfScreener() {
 // 콤마/부호 포함 문자열 → 숫자. "+431,438" → 431438, "15,480" → 15480
 function scrNum(s) { if (s == null) return null; const n = parseFloat(String(s).replace(/[+,\s]/g, '')); return isNaN(n) ? null : n; }
 
-// 분배금공지 캐시(분배캐시 시트, 6개 운용사)에서 좌당 분배금(원)을 티커→종목명 순으로 조인
+// 분배금공지(6개 운용사)에서 좌당 분배금(원)을 티커→종목명 순으로 조인.
+// readDistCache 직접 읽기 대신 getDistribution(캐시+재파싱+폴백) 사용 — 공지탭과 동일 경로라 커버리지 보장.
 function applyDistAmounts(items) {
   const norm = s => (s || '').toString().toUpperCase().replace(/\s+/g, '');
   const byT = {}, byN = {};
   ['kodex','tiger','ace','rise','sol','plus'].forEach(src => {
-    const sc = readDistCache(src);
-    const its = (sc && sc.payload && sc.payload.items) || [];
+    let its = [];
+    try { const r = getDistribution(src, false); its = (r && r.items) || []; } catch(e) {}
     its.forEach(d => {
       if (d.amount == null) return;
       const t = (d.ticker || '').toString().trim();
@@ -1882,8 +1885,15 @@ function enrichScreener(items) {
     if (top.length) it.top5 = top;   // 배열로 유지 (시트 저장 시에만 stringify)
   });
 
-  // 2) integration — 실시간 종가·등락·투자자별
+  // 2) integration — 실시간 종가·등락·투자자별 (+etfAnalysis 실패 종목 폴백)
   fetchChunked(t => 'https://m.stock.naver.com/api/stock/' + t + '/integration', (it, d) => {
+    // etfAnalysis가 없는 종목은 etfKeyIndicator로 지표 폴백
+    const k = (d && d.etfKeyIndicator) || {};
+    if (it.divRate   == null && k.dividendYieldTtm != null) it.divRate   = parseFloat(k.dividendYieldTtm);
+    if (it.expense   == null && k.totalFee         != null) it.expense   = parseFloat(k.totalFee);
+    if (it.yld1y     == null && k.returnRate1y     != null) it.yld1y     = parseFloat(k.returnRate1y);
+    if (it.mo        == null && k.returnRate1m     != null) it.mo        = parseFloat(k.returnRate1m);
+    if (it.deviation == null && k.deviationRate    != null) it.deviation = parseFloat(k.deviationRate);
     const arr = d && d.dealTrendInfos;
     if (!arr || !arr.length) return;
     const x = arr[0];
