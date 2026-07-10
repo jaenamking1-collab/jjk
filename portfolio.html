@@ -667,7 +667,7 @@
         <tbody id="scrBody"><tr><td colspan="18" style="text-align:center;color:var(--text3);padding:24px">불러오는 중...</td></tr></tbody>
       </table>
     </div>
-    <div style="font-size:11px;color:var(--text3);margin-top:10px">※ 종목명 hover→구성종목 Top5 · '추종' hover→실제 기초지수 · 최근분배금 hover→기준일 (예탁원 Seibro 최근 95일, 좌당 원) · 개인/외인/기관은 <b>당일 순매수금액(억)</b>(순매수수량×종가) · 하루 1회 갱신.</div>
+    <div style="font-size:11px;color:var(--text3);margin-top:10px">※ 종목명 hover→구성종목 Top5 · '추종' hover→실제 기초지수 · 최근분배금 hover→기준일 (예탁원 Seibro 최근 95일, 좌당 원) · 개인/외인/기관은 <b>당일 순매수금액(억)</b>(순매수수량×종가) · <b>현재가·등락·괴리율은 조회 시점 실시간</b>(장외엔 종가), 나머지는 하루 1회 갱신.</div>
   </div>
 
   <!-- ── 분배금 공지 탭 ── -->
@@ -1513,7 +1513,7 @@ async function renderHoldingsTable(holdings) {
           ? `<td rowspan="${acctSpan[idx]}" style="font-size:12px;color:#374151;font-weight:600;white-space:nowrap;vertical-align:middle;text-align:center;background:${getAccColor(h.account_id)}">${acc?.name||''}</td>`
           : '';
         const groupBorder = (acctSpan[idx] && idx > 0) ? 'border-top:2px solid #334155;' : '';
-        const catColor = {'나스닥100':'#6366f1','S&P500':'#3b82f6','코스피200':'#10b981','IT':'#0ea5e9','반도체':'#8b5cf6','AI':'#d946ef','2차전지':'#14b8a6','방산':'#475569','조선':'#0891b2','금융':'#f59e0b','바이오':'#22c55e','전력·원자력':'#eab308','자동차':'#ef4444','리츠':'#a855f7','채권':'#64748b','필수소비재':'#f97316','현금성':'#94a3b8'}[catOnly] || '#9ca3af';
+        const catColor = {'나스닥100':'#4f46e5','S&P500':'#2563eb','코스피200':'#059669','IT':'#0284c7','반도체':'#7c3aed','AI':'#c026d3','2차전지':'#0d9488','방산':'#475569','조선':'#0e7490','금융':'#d97706','바이오':'#16a34a','전력·원자력':'#ca8a04','자동차':'#dc2626','리츠':'#9333ea','채권':'#64748b','필수소비재':'#ea580c','현금성':'#78716c'}[catOnly] || '#6b7280';
         return `<tr style="border-bottom:1px solid #d1d5db;background:${rowBg};${groupBorder}${isUsdBorder ? 'border-top:2px solid #f59e0b88' : ''}">
           ${acctCell}
           <td><span class="ticker">${h.ticker}</span></td>
@@ -1528,8 +1528,8 @@ async function renderHoldingsTable(holdings) {
           <td id="trend-${h.id}" style="padding:2px 8px;"></td>
           <td class="num" id="disc-${h.id}"><span style="color:var(--border);font-size:11px">/</span></td>
           <td class="num" style="color:#111827;font-weight:600">${annual !== '-' ? annual+'%' : (annualEst !== '-' ? `<span style="color:var(--text3);font-weight:500" title="이 계좌엔 분배금 기록이 없어 같은 종목 다른 계좌 값으로 추정">~${annualEst}%</span>` : '-')}</td>
-          <td style="font-size:11px">${cycOnly ? `<span style="background:${({'월배당':'#2563eb','월중':'#3b82f6','월말':'#8b5cf6','분기배당':'#059669','반기배당':'#d97706','연배당':'#dc2626','무배당':'#94a3b8'}[cycOnly]||'#64748b')};color:#fff;border-radius:6px;padding:2px 7px;font-weight:600;white-space:nowrap">${cycOnly}</span>` : '-'}</td>
-          <td style="font-size:11px;">${catOnly ? `<span style="background:${catColor};color:#fff;border-radius:6px;padding:2px 7px;font-weight:600;white-space:nowrap;">${catOnly}</span>` : '<span style="color:var(--text3)">-</span>'}</td>
+          <td style="font-size:11px;text-align:center;white-space:nowrap;${cycOnly?`background:${({'월배당':'#2563eb','월중':'#0891b2','월말':'#7c3aed','분기배당':'#059669','반기배당':'#d97706','연배당':'#dc2626','무배당':'#6b7280'}[cycOnly]||'#64748b')};color:#fff;font-weight:700`:''}">${cycOnly||'-'}</td>
+          <td style="font-size:11px;text-align:center;white-space:nowrap;${catOnly?`background:${catColor};color:#fff;font-weight:700`:''}">${catOnly||'<span style="color:var(--text3)">-</span>'}</td>
           <td>
             <div class="gap-8">
               <button class="btn btn-ghost btn-sm" onclick="editHolding('${h.id}')">수정</button>
@@ -3326,8 +3326,10 @@ function renderDistGrid(allData) {
 let screenerData = [];
 async function loadScreener(force) {
   const body = document.getElementById('scrBody');
-  if (!force && screenerData.length) { renderScreener(); return; }
-  body.innerHTML = '<tr><td colspan="18" style="text-align:center;color:var(--text3);padding:24px"><span class="spinner"></span>불러오는 중...</td></tr>';
+  // 기존 데이터가 있으면 즉시 표시하고, 백그라운드로 최신 시세를 받아 다시 그린다
+  const hasCache = !force && screenerData.length > 0;
+  if (hasCache) renderScreener();
+  else body.innerHTML = '<tr><td colspan="18" style="text-align:center;color:var(--text3);padding:24px"><span class="spinner"></span>불러오는 중...</td></tr>';
   try {
     const r = await api({ action:'getEtfScreener' });
     screenerData = r.items || [];
@@ -3343,8 +3345,18 @@ async function loadScreener(force) {
     }
     renderScreener();
   } catch(e) {
-    body.innerHTML = `<tr><td colspan="18" style="text-align:center;color:var(--red);padding:24px">오류: ${e.message}</td></tr>`;
+    if (!hasCache) body.innerHTML = `<tr><td colspan="18" style="text-align:center;color:var(--red);padding:24px">오류: ${e.message}</td></tr>`;
   }
+}
+
+// 스크리너 추종(분류)별 셀 색 — 흰 글자가 잘 보이는 진한 톤
+function scrCatColor(cat) {
+  return {
+    'S&P500':'#1d4ed8','나스닥/테크':'#7c3aed','미국배당':'#0369a1','한국고배당':'#b91c1c',
+    '코스피200':'#334155','코리아밸류업':'#9d174d','채권-국채':'#047857','채권-회사채':'#4d7c0f',
+    '리츠/부동산':'#c2410c','혼합/자산배분':'#a21caf','금리/현금':'#57534e','원자재':'#b45309',
+    '중국':'#e11d48','테마':'#db2777','레버리지/단일':'#7f1d1d','기타':'#64748b'
+  }[cat] || '#64748b';
 }
 
 function renderScreener() {
@@ -3384,7 +3396,7 @@ function renderScreener() {
     return `<tr>
       <td style="padding:1px 8px;font-variant-numeric:tabular-nums">${x.ticker||'-'}</td>
       <td style="white-space:nowrap;padding:1px 8px"><span${nameTip}>${x.name}</span></td>
-      <td style="padding:1px 8px"><span class="badge" style="background:#1e40af;color:#fff${x.baseIndex?';cursor:help':''}"${x.baseIndex?` title="기초지수: ${esc(x.baseIndex)}"`:''}>${x.category}</span></td>
+      <td style="padding:1px 8px;text-align:center;white-space:nowrap;background:${scrCatColor(x.category)};color:#fff;font-weight:700${x.baseIndex?';cursor:help':''}"${x.baseIndex?` title="기초지수: ${esc(x.baseIndex)}"`:''}>${x.category}</td>
       <td class="num" style="background:#d8e6ff;color:#1d4ed8;font-weight:700;padding:1px 8px">${x.divRate==null?'-':fmt(x.divRate)+'%'}</td>
       <td class="num" style="background:#faf0c8;color:#92400e;font-weight:700;padding:1px 8px${x.divPayDt?';cursor:help':''}"${x.divPayDt?` title="기준일 ${String(x.divPayDt).replace(/(\d{4})(\d{2})(\d{2})/,'$1-$2-$3')}"`:''}>${x.divPay==null?'-':Math.round(x.divPay).toLocaleString()+'원'}</td>
       <td class="num" style="padding:1px 8px">${x.price?x.price.toLocaleString():'-'}</td>
