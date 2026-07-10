@@ -1758,10 +1758,12 @@ function getEtfScreener() {
   const today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
   if (sh) {
     const rows = sh.getDataRange().getValues();
-    // 헤더가 현재 스키마 버전이고 당일자면 캐시 사용
+    // 헤더가 현재 스키마 버전이고 당일자면 캐시 사용 (+시세만 실시간 덮어쓰기)
     if (rows.length > 1 && rows[1][0] && rows[1][0].toString() === today &&
         rows[0].length >= SCREENER_HEADER.length && rows[0][0].toString() === SCREENER_HEADER[0]) {
-      return { success: true, date: today, items: rows.slice(1).map(rowToScreener) };
+      const cached = rows.slice(1).map(rowToScreener);
+      try { overlayLivePrices(cached); } catch(e) {}
+      return { success: true, date: today, items: cached };
     }
   }
   const items = [];
@@ -1812,7 +1814,32 @@ function getEtfScreener() {
     it.divRate, it.divPay, it.divPayDt, it.price, it.change, it.wk, it.mo, it.yld1y, it.expense, it.aum, it.deviation,
     it.buyInd, it.buyFor, it.buyOrg, it.listedDate, (it.top5 && it.top5.length) ? JSON.stringify(it.top5) : '']));
   sh.getRange(1, 1, out.length, SCREENER_HEADER.length).setValues(out);
+  try { overlayLivePrices(items); } catch(e) {}   // 응답에는 조회 시점 시세 반영 (시트엔 종가 유지)
   return { success: true, date: today, items };
+}
+
+// 조회 시점 실시간 시세 덮어쓰기: etfItemList 1회 호출로 현재가·등락률·괴리율 갱신.
+// 장 마감 후엔 etfItemList의 changeRate가 전부 0으로 초기화되므로,
+// 0이 아닌 종목 비율로 장중 여부를 판별해 마감 후엔 캐시된 등락(전일 확정치)을 유지한다.
+function overlayLivePrices(items) {
+  const url = 'https://finance.naver.com/api/sise/etfItemList.nhn?etfType=0&targetColumn=market_sum&sortOrder=desc';
+  const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.naver.com/fund/etf/etfMain.naver' } });
+  if (res.getResponseCode() !== 200) return;
+  const list = (JSON.parse(res.getContentText('EUC-KR')).result || {}).etfItemList || [];
+  if (!list.length) return;
+  const map = {};
+  let liveCnt = 0;
+  list.forEach(r => { map[r.itemcode] = r; if (parseFloat(r.changeRate)) liveCnt++; });
+  const isLive = liveCnt > list.length * 0.05;   // 5% 이상 등락이 있으면 장중으로 판단
+  items.forEach(it => {
+    const r = map[it.ticker];
+    if (!r) return;
+    const p = parseFloat(r.nowVal);
+    if (p) it.price = p;
+    if (isLive) it.change = parseFloat(r.changeRate) || 0;
+    const nav = parseFloat(r.nav);
+    if (p && nav > 0) it.deviation = Math.round((p - nav) / nav * 10000) / 100;
+  });
 }
 
 // 콤마/부호 포함 문자열 → 숫자. "+431,438" → 431438, "15,480" → 15480
