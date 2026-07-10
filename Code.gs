@@ -1750,7 +1750,7 @@ function compactPriceLog() {
 
 // 시트 컬럼 순서 (rowToScreener와 반드시 일치). 첫 컬럼명에 스키마 버전을 넣어
 // 로직 변경 시(예: aum 단위 수정) 당일 캐시를 무효화한다.
-var SCREENER_HEADER = ['date_v3','ticker','name','provider','category','baseIndex','divRate','divPay','price','change','wk','mo','yld1y','expense','aum','deviation','buyInd','buyFor','buyOrg','listedDate','top5'];
+var SCREENER_HEADER = ['date_v4','ticker','name','provider','category','baseIndex','divRate','divPay','divPayDt','price','change','wk','mo','yld1y','expense','aum','deviation','buyInd','buyFor','buyOrg','listedDate','top5'];
 
 function getEtfScreener() {
   const ss = SpreadsheetApp.openById(SHEET_ID);
@@ -1782,7 +1782,8 @@ function getEtfScreener() {
         category:  etfCategory(name),   // enrichScreener에서 기초지수 기반으로 재계산
         baseIndex: '',                  // 실제 기초지수 (hover 표시)
         divRate:   null,                // 연 분배율
-        divPay:    null,                // 당월 좌당 분배금(원) — 분배캐시 조인
+        divPay:    null,                // 최근 좌당 분배금(원) — Seibro/공지 조인
+        divPayDt:  '',                  // 최근 분배금 기준일(yyyyMMdd)
         price:     parseFloat(r.nowVal) || 0,   // enrich에서 실시간 종가로 갱신
         change:    null,                // 등락률 (etfItemList는 장 마감 후 0 → integration 사용)
         wk:        null,                // 주간 수익
@@ -1808,7 +1809,7 @@ function getEtfScreener() {
   sh.clearContents();
   const out = [SCREENER_HEADER];
   items.forEach(it => out.push([today, it.ticker, it.name, it.provider, it.category, it.baseIndex,
-    it.divRate, it.divPay, it.price, it.change, it.wk, it.mo, it.yld1y, it.expense, it.aum, it.deviation,
+    it.divRate, it.divPay, it.divPayDt, it.price, it.change, it.wk, it.mo, it.yld1y, it.expense, it.aum, it.deviation,
     it.buyInd, it.buyFor, it.buyOrg, it.listedDate, (it.top5 && it.top5.length) ? JSON.stringify(it.top5) : '']));
   sh.getRange(1, 1, out.length, SCREENER_HEADER.length).setValues(out);
   return { success: true, date: today, items };
@@ -1817,9 +1818,18 @@ function getEtfScreener() {
 // 콤마/부호 포함 문자열 → 숫자. "+431,438" → 431438, "15,480" → 15480
 function scrNum(s) { if (s == null) return null; const n = parseFloat(String(s).replace(/[+,\s]/g, '')); return isNaN(n) ? null : n; }
 
-// 분배금공지(6개 운용사)에서 좌당 분배금(원)을 티커→종목명 순으로 조인.
-// readDistCache 직접 읽기 대신 getDistribution(캐시+재파싱+폴백) 사용 — 공지탭과 동일 경로라 커버리지 보장.
+// 최근 좌당 분배금(원) 채우기.
+// 1순위: Seibro(예탁원) 분배금지급현황 — 전 운용사 커버 (KIWOOM·TIME·FOCUS 포함)
+// 2순위: 운용사 공지 조인(getDistribution) — Seibro 실패/누락분 폴백
 function applyDistAmounts(items) {
+  let seibro = {};
+  try { seibro = fetchSeibroDist(); } catch(e) {}
+  items.forEach(it => {
+    const s = seibro[it.ticker];
+    if (s) { it.divPay = s.amount; it.divPayDt = s.dt; }
+  });
+  if (items.every(it => it.divPay != null)) return;
+  // 폴백: 운용사 공지 (Seibro에 아직 안 뜬 이번 회차 공지 포함)
   const norm = s => (s || '').toString().toUpperCase().replace(/\s+/g, '');
   const byT = {}, byN = {};
   ['kodex','tiger','ace','rise','sol','plus'].forEach(src => {
@@ -1834,9 +1844,49 @@ function applyDistAmounts(items) {
     });
   });
   items.forEach(it => {
+    if (it.divPay != null) return;
     const v = byT[it.ticker] != null ? byT[it.ticker] : byN[norm(it.name)];
     if (v != null) { const n = parseFloat(v); if (!isNaN(n)) it.divPay = n; }
   });
+}
+
+// Seibro 분배금지급현황(최근 95일)을 페이지(30행)씩 긁어 { 티커: {amount, dt} } 반환.
+// 티커 = ISIN 4~9번째 자리. 같은 티커는 기준일 최신 것만. 청산분배 제외.
+function fetchSeibroDist() {
+  const now = new Date();
+  const f = d => Utilities.formatDate(d, 'Asia/Seoul', 'yyyyMMdd');
+  const from = f(new Date(now.getTime() - 95 * 24 * 3600 * 1000)), to = f(now);
+  const map = {};
+  for (let p = 1; p <= 25; p++) {
+    const xml = '<reqParam action="exerInfoDtramtPayStatPlist" task="ksd.safe.bip.cnts.etf.process.EtfExerInfoPTask">'
+      + '<etf_sort_cd value=""/><etf_big_sort_cd value=""/><isin value=""/><mngco_custno value=""/>'
+      + '<RGT_RSN_DTAIL_SORT_CD value=""/><fromRGT_STD_DT value="' + from + '"/><toRGT_STD_DT value="' + to + '"/>'
+      + '<START_PAGE value="' + ((p - 1) * 30 + 1) + '"/><END_PAGE value="' + (p * 30) + '"/>'
+      + '<MENU_NO value="179"/><CMM_BTN_ABBR_NM value=""/><W2XPATH value="/IPORTAL/user/etf/BIP_CNTS06030V.xml"/></reqParam>';
+    let res;
+    try {
+      res = UrlFetchApp.fetch('https://seibro.or.kr/websquare/engine/proworks/callServletService.jsp', {
+        method: 'post', contentType: 'application/xml', payload: xml, muteHttpExceptions: true,
+        headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://seibro.or.kr/websquare/control.jsp',
+                   'submissionid': 'submission_exerInfoDtramtPayStatPlist' }
+      });
+    } catch(e) { break; }
+    if (res.getResponseCode() !== 200) break;
+    const rows = res.getContentText('UTF-8').split('<result>').slice(1);
+    rows.forEach(r => {
+      const g = k => { const m = r.match(new RegExp('<' + k + ' value="([^"]*)"')); return m ? m[1] : ''; };
+      if ((g('RGT_RSN_DTAIL_NM') || '').indexOf('청산') !== -1) return;   // 청산분배(상환금) 제외
+      const isin = g('ISIN');
+      if (!isin || isin.length < 9) return;
+      const t = isin.substr(3, 6);
+      const amt = parseFloat(g('ESTM_STDPRC'));
+      if (!amt || isNaN(amt)) return;
+      const dt = g('RGT_STD_DT');
+      if (!map[t] || dt > map[t].dt) map[t] = { amount: Math.round(amt * 100) / 100, dt: dt };
+    });
+    if (rows.length < 30) break;
+  }
+  return map;
 }
 
 // 각 ETF를 네이버 모바일 종목 API 2종으로 보강. fetchAll 병렬(청크 45) — 하루 1회 빌드 시에만 실행.
@@ -1947,14 +1997,15 @@ function staleOr(sh, err) {
 function rowToScreener(r) {
   const num = v => (v === '' || v == null) ? null : (isNaN(parseFloat(v)) ? null : parseFloat(v));
   let top5 = [];
-  try { if (r[20]) top5 = JSON.parse(r[20]); } catch(e) {}
+  try { if (r[21]) top5 = JSON.parse(r[21]); } catch(e) {}
   return {
     ticker: r[1], name: r[2], provider: r[3], category: r[4], baseIndex: r[5] || '',
-    divRate: num(r[6]), divPay: num(r[7]), price: parseFloat(r[8]) || 0, change: num(r[9]),
-    wk: num(r[10]), mo: num(r[11]), yld1y: num(r[12]),
-    expense: num(r[13]), aum: parseFloat(r[14]) || 0, deviation: num(r[15]),
-    buyInd: num(r[16]), buyFor: num(r[17]), buyOrg: num(r[18]),
-    listedDate: r[19] || '', top5: top5
+    divRate: num(r[6]), divPay: num(r[7]), divPayDt: (r[8] || '').toString(),
+    price: parseFloat(r[9]) || 0, change: num(r[10]),
+    wk: num(r[11]), mo: num(r[12]), yld1y: num(r[13]),
+    expense: num(r[14]), aum: parseFloat(r[15]) || 0, deviation: num(r[16]),
+    buyInd: num(r[17]), buyFor: num(r[18]), buyOrg: num(r[19]),
+    listedDate: r[20] || '', top5: top5
   };
 }
 function etfCategory(n) {

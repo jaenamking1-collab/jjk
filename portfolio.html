@@ -642,7 +642,7 @@
       <select id="scrSort" onchange="renderScreener()"
         style="padding:7px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
         <option value="divRate">연 분배율 높은순</option>
-        <option value="divPay">당월 분배금 높은순</option>
+        <option value="divPay">최근 분배금 높은순</option>
         <option value="wk">주간 수익 높은순</option>
         <option value="mo">월간 수익 높은순</option>
         <option value="yld1y">1년 수익률 높은순</option>
@@ -657,7 +657,7 @@
       <table class="scr-table" style="width:auto;margin:0 auto;font-size:13px">
         <thead><tr>
           <th>티커</th><th>종목명</th><th>추종</th>
-          <th style="text-align:right;background:#b7d3ff">연분배율</th><th style="text-align:right;background:#f7dd8b">당월분배금</th>
+          <th style="text-align:right;background:#b7d3ff">연분배율</th><th style="text-align:right;background:#f7dd8b">최근분배금</th>
           <th style="text-align:right">현재가</th><th style="text-align:right">등락</th>
           <th style="text-align:right;background:#aedcfa">주간</th><th style="text-align:right;background:#aedcfa">월간</th><th style="text-align:right;background:#aedcfa">1년</th>
           <th style="text-align:right">보수</th><th style="text-align:right">순자산(억)</th><th style="text-align:right">괴리율</th>
@@ -667,7 +667,7 @@
         <tbody id="scrBody"><tr><td colspan="18" style="text-align:center;color:var(--text3);padding:24px">불러오는 중...</td></tr></tbody>
       </table>
     </div>
-    <div style="font-size:11px;color:var(--text3);margin-top:10px">※ 종목명에 마우스를 올리면 구성종목 Top5, '추종'에 올리면 실제 기초지수가 표시됩니다 · 당월분배금은 운용사 공지 기준 좌당 금액(공지 전이면 -) · 개인/외인/기관은 <b>당일 순매수금액(억)</b>(순매수수량×종가) · 하루 1회 네이버 기준 갱신.</div>
+    <div style="font-size:11px;color:var(--text3);margin-top:10px">※ 종목명 hover→구성종목 Top5 · '추종' hover→실제 기초지수 · 최근분배금 hover→기준일 (예탁원 Seibro 최근 95일, 좌당 원) · 개인/외인/기관은 <b>당일 순매수금액(억)</b>(순매수수량×종가) · 하루 1회 갱신.</div>
   </div>
 
   <!-- ── 분배금 공지 탭 ── -->
@@ -3374,7 +3374,7 @@ function renderScreener() {
       <td style="white-space:nowrap;padding:1px 8px"><span${nameTip}>${x.name}</span></td>
       <td style="padding:1px 8px"><span class="badge" style="background:#1e40af;color:#fff${x.baseIndex?';cursor:help':''}"${x.baseIndex?` title="기초지수: ${esc(x.baseIndex)}"`:''}>${x.category}</span></td>
       <td class="num" style="background:#d8e6ff;color:#1d4ed8;font-weight:700;padding:1px 8px">${x.divRate==null?'-':fmt(x.divRate)+'%'}</td>
-      <td class="num" style="background:#faf0c8;color:#92400e;font-weight:700;padding:1px 8px">${x.divPay==null?'-':Math.round(x.divPay).toLocaleString()+'원'}</td>
+      <td class="num" style="background:#faf0c8;color:#92400e;font-weight:700;padding:1px 8px${x.divPayDt?';cursor:help':''}"${x.divPayDt?` title="기준일 ${String(x.divPayDt).replace(/(\d{4})(\d{2})(\d{2})/,'$1-$2-$3')}"`:''}>${x.divPay==null?'-':Math.round(x.divPay).toLocaleString()+'원'}</td>
       <td class="num" style="padding:1px 8px">${x.price?x.price.toLocaleString():'-'}</td>
       <td class="num ${pcls(x.change)}" style="padding:1px 8px">${pct(x.change)}</td>
       <td class="num ${pcls(x.wk)}" style="background:#ddeefc;padding:1px 8px">${pct(x.wk)}</td>
