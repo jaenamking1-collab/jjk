@@ -3124,8 +3124,12 @@ function renderMasterCalendar(allData) {
     });
     const eventHtml = Object.keys(byLabel).map(label => {
       const g = byLabel[label];
-      const icons = g.sources.map(s =>
-        `<span style="display:flex;align-items:center;justify-content:center;background:${s.color};color:#fff;font-size:9px;font-weight:700;height:15px;border-radius:2px;white-space:nowrap;padding:0 2px">${s.name}</span>`
+      // 고정 슬롯: 윗줄 KODEX·TIGER·ACE / 아랫줄 PLUS·RISE·SOL, 없는 회사는 빈칸
+      const bySource = {};
+      g.sources.forEach(s => { bySource[s.name] = s.color; });
+      const icons = DIST_SOURCES.map(s => bySource[s.name]
+        ? `<span style="display:flex;align-items:center;justify-content:center;background:${bySource[s.name]};color:#fff;font-size:9px;font-weight:700;height:15px;border-radius:2px;white-space:nowrap;padding:0 2px">${s.name}</span>`
+        : '<span style="height:15px"></span>'
       ).join('');
       return `<div style="margin-top:4px">
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px">${icons}</div>
@@ -3139,7 +3143,7 @@ function renderMasterCalendar(allData) {
   };
 
   const colTmpl = 'repeat(5, 1fr)';
-  const dowBg = '#eef2ff', dowColor = '#6366f1'; // 평일 통일
+  const dowBg = '#4f46e5', dowColor = '#fff'; // 평일 통일 — 진한 남색 배경 + 흰 글자
   const calHtml = `
     <div>
       <div style="display:grid;grid-template-columns:${colTmpl};gap:4px;width:100%">
