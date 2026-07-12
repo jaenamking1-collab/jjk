@@ -3220,12 +3220,13 @@ function renderMasterCalendar(allData) {
         <th style="text-align:center;padding:6px 3px;color:#dc2626">지급</th>
       </tr></thead>
       <tbody>${rowsData.map(r => {
-        const cycles = [['월중', r.mid], ['월말', r.end]].filter(([, m]) => m.hasNotice);
+        // 공지 없는 회차도 줄은 유지(날짜만 비움) — 예: PLUS/RISE 7월 월말 미공지
+        const cycles = [['월중', r.mid], ['월말', r.end]];
         return cycles.map(([label, m], i) => {
           const [bg, col] = CYC[label];
           const mp = parseDay((m.sched && (m.sched['기준일'] || m.sched['지급일'])) || '');
-          const monLabel = (mp ? mp.m + '월 ' : '') + label;
-          const noHold = !m.hasHolding ? ' <span style="color:var(--text3);font-size:9px">보유X</span>' : '';
+          const monLabel = (mp ? mp.m + '월 ' : month + '월 ') + label;
+          const noHold = (m.hasNotice && !m.hasHolding) ? ' <span style="color:var(--text3);font-size:9px">보유X</span>' : '';
           const nameCell = i === 0
             ? `<td rowspan="${cycles.length}" style="padding:5px 8px;white-space:nowrap;vertical-align:middle"><span style="font-weight:700;color:${r.color}">${r.name}</span></td>`
             : '';

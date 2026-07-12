@@ -72,6 +72,7 @@ Adapted from the [Karpathy coding guidelines](https://x.com/karpathy/status/2015
 ## Files
 
 - `portfolio.html` — the entire frontend.
+- `dist_notice.html` — public standalone copy of the 분배금공지 tab (calendar + 운용사별 일정 + notices). It duplicates `renderMasterCalendar`/schedule-table code from `portfolio.html`; **any change to the 분배금공지 tab's calendar or schedule rendering must be mirrored here** or the public page silently diverges.
 - `Code.gs` — the Google Apps Script backend (mirror of the deployed script; not auto-deployed).
 - `WORKLOG.md` — running work log for syncing across the two PCs; append a dated entry each session.
 - `README.md` — one line (`# jjk`); no other docs.
