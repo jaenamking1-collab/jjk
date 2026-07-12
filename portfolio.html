@@ -3203,11 +3203,11 @@ function renderMasterCalendar(allData) {
     return p ? `${p.m}/${p.d}` : v;
   };
   // 회차(월중/월말)마다 실제 행을 나눠 그린다. 운용사명은 rowspan.
-  // 전역 table/th/td CSS(격자선·회색 헤더)를 그대로 살려 다른 탭 표와 같은 모양으로.
-  const CYC = { '월중': '#2563eb', '월말': '#db2777' };
-  const dateCell = (info, key, col) => {
+  // 월중/월말은 행 전체 배경색으로 구분, 회차엔 해당 월을 붙여 표시(예: 7월 월중).
+  const CYC = { '월중': ['#ecfeff', '#0e7490'], '월말': ['#f5f3ff', '#6d28d9'] };
+  const dateCell = (info, key, col, bg) => {
     const v = dcell(info, key);
-    return `<td style="text-align:center;padding:5px 3px;font-family:var(--mono);white-space:nowrap;font-weight:600;color:${v ? col : '#cbd5e1'}">${v || '·'}</td>`;
+    return `<td style="text-align:center;padding:5px 3px;font-family:var(--mono);white-space:nowrap;font-weight:600;background:${bg};color:${v ? col : '#cbd5e1'}">${v || '·'}</td>`;
   };
   const tableHtml = rowsData.length ? `
     <table style="width:100%;border-collapse:collapse;font-size:11px;border:2px solid #111827;background:var(--bg2)">
@@ -3222,18 +3222,20 @@ function renderMasterCalendar(allData) {
       <tbody>${rowsData.map(r => {
         const cycles = [['월중', r.mid], ['월말', r.end]].filter(([, m]) => m.hasNotice);
         return cycles.map(([label, m], i) => {
-          const col = CYC[label];
+          const [bg, col] = CYC[label];
+          const mp = parseDay((m.sched && (m.sched['기준일'] || m.sched['지급일'])) || '');
+          const monLabel = (mp ? mp.m + '월 ' : '') + label;
           const noHold = !m.hasHolding ? ' <span style="color:var(--text3);font-size:9px">보유X</span>' : '';
           const nameCell = i === 0
             ? `<td rowspan="${cycles.length}" style="padding:5px 8px;white-space:nowrap;vertical-align:middle"><span style="font-weight:700;color:${r.color}">${r.name}</span></td>`
             : '';
           return `<tr>
             ${nameCell}
-            <td style="padding:5px 6px;white-space:nowrap"><span style="display:inline-block;background:${col}1a;color:${col};font-size:9px;font-weight:700;padding:2px 7px;border-radius:8px">${label}</span>${noHold}</td>
-            ${dateCell(m, '공시일', '#d97706')}
-            ${dateCell(m, '분배락일', '#16a34a')}
-            ${dateCell(m, '기준일', '#2563eb')}
-            ${dateCell(m, '지급일', '#dc2626')}
+            <td style="padding:5px 6px;white-space:nowrap;background:${bg};color:${col};font-weight:700">${monLabel}${noHold}</td>
+            ${dateCell(m, '공시일', '#d97706', bg)}
+            ${dateCell(m, '분배락일', '#16a34a', bg)}
+            ${dateCell(m, '기준일', '#2563eb', bg)}
+            ${dateCell(m, '지급일', '#dc2626', bg)}
           </tr>`;
         }).join('');
       }).join('')}</tbody>
