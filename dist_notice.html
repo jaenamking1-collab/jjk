@@ -67,13 +67,31 @@
   #distScheduleList th{padding:6px 3px; font-size:11px; font-weight:700; color:#111827; background:#e2e8f0; border:1px solid #111827; white-space:nowrap;}
   #distScheduleList td{border:1px solid #64748b; vertical-align:middle;}
 
-  /* ── mobile: 세로 스택 + 캘린더/일정 좌우 스크롤 ── */
+  /* ── 달력 셀 ── */
+  .cal-grid{display:grid; grid-template-columns:repeat(5,1fr); gap:4px; width:100%;}
+  .cal-dow{text-align:center; font-size:13px; font-weight:700; padding:6px 0; color:#6366f1; background:#eef2ff; border-radius:5px;}
+  .cal-cell{padding:5px; border-radius:6px; min-height:95px; display:flex; flex-direction:column;}
+  .cal-date{font-size:13px; margin-bottom:2px;}
+  .cal-icons{display:grid; grid-template-columns:repeat(3,1fr); gap:2px;}
+  .cal-chip{display:flex; align-items:center; justify-content:center; color:#fff; font-size:9px; font-weight:700; height:15px; border-radius:2px; white-space:nowrap; padding:0 2px;}
+  .cal-evt{margin-top:3px; font-size:11px; font-weight:700; text-align:center; padding:2px 0; border-radius:4px;}
+  .cal-evt .lbl-short{display:none;}
+
+  /* ── mobile: 세로 스택, 달력은 화면 폭에 맞게 축소, 일정 표만 좌우 스크롤 ── */
   @media (max-width:820px){
     .panels{flex-direction:column; align-items:stretch;}
     .p-notice, .p-cal, .p-sched{width:100%; max-width:100%; min-width:0;}
     .cal-scroll, .sched-scroll{overflow-x:auto; -webkit-overflow-scrolling:touch;}
-    #distMasterCalendar{min-width:520px;}   /* 5열이 좁아지지 않게 */
     #distScheduleList{min-width:420px;}
+    .cal-grid{gap:2px;}
+    .cal-dow{font-size:11px; padding:4px 0;}
+    .cal-cell{padding:3px; min-height:74px; border-radius:5px;}
+    .cal-date{font-size:11px;}
+    .cal-icons{grid-template-columns:1fr; gap:1px;}
+    .cal-chip{font-size:8px; height:13px;}
+    .cal-evt{font-size:9px; padding:1px 0;}
+    .cal-evt .lbl-full{display:none;}
+    .cal-evt .lbl-short{display:inline;}
   }
 </style>
 </head>
@@ -126,10 +144,10 @@ const DIST_SOURCES = [
   { id:'sol',   name:'SOL',   label:'신한자산운용',   color:'#0891b2' }
 ];
 const SCHED_CFG = [
-  { key:'공시일',  color:'#f59e0b', label:'분배금공시일' },
-  { key:'분배락일', color:'#22c55e', label:'분배락일' },
-  { key:'기준일',  color:'#3b82f6', label:'분배금지급기준일' },
-  { key:'지급일',  color:'#ef4444', label:'분배금지급일' },
+  { key:'공시일',  color:'#f59e0b', label:'분배금공시일', short:'공시일' },
+  { key:'분배락일', color:'#22c55e', label:'분배락일', short:'분배락일' },
+  { key:'기준일',  color:'#3b82f6', label:'분배금지급기준일', short:'기준일' },
+  { key:'지급일',  color:'#ef4444', label:'분배금지급일', short:'지급일' },
 ];
 // 공개 페이지: 6개 운용사 공지를 모두 프록시(getEtfNotices)로 통일 (브라우저 CORS 없음).
 const NOTICE_SOURCES = DIST_SOURCES.map(s => ({
@@ -188,9 +206,10 @@ function renderMasterCalendar(allData){
   };
   const addAll = (c, sch, it) => {
     const cyc = cycleOf(sch, it);
-    SCHED_CFG.forEach(({ key, color, label }) => {
+    SCHED_CFG.forEach(({ key, color, label, short }) => {
       const lbl = (key === '지급일' && cyc) ? `${cyc} 지급일` : label;
-      addMark(parseDay(sch[key]), c.name, c.color, lbl, color);
+      const sh = (key === '지급일' && cyc) ? `${cyc} 지급일` : short;
+      addMark(parseDay(sch[key]), c.name, c.color, lbl, color, sh);
     });
   };
 
@@ -212,13 +231,13 @@ function renderMasterCalendar(allData){
   const nextMonth = month === 12 ? 1 : month + 1;
   const prevMonth = month === 1 ? 12 : month - 1;
   const marks = {};
-  const addMark = (p, source, sourceColor, label, labelColor) => {
+  const addMark = (p, source, sourceColor, label, labelColor, shortLabel) => {
     if (!p) return;
     if (p.m !== month && p.m !== nextMonth && p.m !== prevMonth) return;
     const k = `${p.m}-${p.d}`;
     if (!marks[k]) marks[k] = [];
     if (marks[k].some(x => x.source === source && x.label === label)) return;
-    marks[k].push({ source, sourceColor, label, labelColor });
+    marks[k].push({ source, sourceColor, label, labelColor, shortLabel: shortLabel || label });
   };
   allData.forEach(c => {
     const repSched = (c.data && c.data.schedule) || {};
@@ -287,7 +306,7 @@ function renderMasterCalendar(allData){
   }
 
   const cellHtml = (cell) => {
-    if (!cell) return '<div style="min-height:95px"></div>';
+    if (!cell) return '<div class="cal-cell"></div>';
     const { m, d, next } = cell;
     const dow = new Date(year, m - 1, d).getDay();
     const ms = marks[`${m}-${d}`] || [];
@@ -298,31 +317,29 @@ function renderMasterCalendar(allData){
     const dateColor = isToday ? '#2563eb' : dow === 0 ? '#dc2626' : dow === 6 ? '#2563eb' : 'var(--text)';
     const byLabel = {};
     ms.forEach(mk => {
-      if (!byLabel[mk.label]) byLabel[mk.label] = { labelColor: mk.labelColor, sources: [] };
+      if (!byLabel[mk.label]) byLabel[mk.label] = { labelColor: mk.labelColor, shortLabel: mk.shortLabel, sources: [] };
       byLabel[mk.label].sources.push({ name: mk.source, color: mk.sourceColor });
     });
     const eventHtml = Object.keys(byLabel).map(label => {
       const g = byLabel[label];
       const icons = g.sources.map(s =>
-        `<span style="display:flex;align-items:center;justify-content:center;background:${s.color};color:#fff;font-size:9px;font-weight:700;height:15px;border-radius:2px;white-space:nowrap;padding:0 2px">${s.name}</span>`
+        `<span class="cal-chip" style="background:${s.color}">${s.name}</span>`
       ).join('');
       return `<div style="margin-top:4px">
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px">${icons}</div>
-        <div style="margin-top:3px;background:${g.labelColor}1a;color:${g.labelColor};font-size:11px;font-weight:700;text-align:center;padding:2px 0;border-radius:4px">${label}</div>
+        <div class="cal-icons">${icons}</div>
+        <div class="cal-evt" style="background:${g.labelColor}1a;color:${g.labelColor}"><span class="lbl-full">${label}</span><span class="lbl-short">${g.shortLabel || label}</span></div>
       </div>`;
     }).join('');
-    return `<div style="padding:5px;border-radius:6px;min-height:95px;display:flex;flex-direction:column;${bg}${border}">
-      <div style="font-size:13px;font-weight:${ms.length||isToday?'700':'400'};color:${dateColor};margin-bottom:2px">${next?m+'/':''}${d}</div>
+    return `<div class="cal-cell" style="${bg}${border}">
+      <div class="cal-date" style="font-weight:${ms.length||isToday?'700':'400'};color:${dateColor}">${next?m+'/':''}${d}</div>
       <div style="margin-top:auto">${eventHtml}</div>
     </div>`;
   };
 
-  const colTmpl = 'repeat(5, 1fr)';
-  const dowBg = '#eef2ff', dowColor = '#6366f1';
   const calHtml = `
     <div>
-      <div style="display:grid;grid-template-columns:${colTmpl};gap:4px;width:100%">
-        ${dowsShow.map(d => `<div style="text-align:center;font-size:13px;font-weight:700;padding:6px 0;color:${dowColor};background:${dowBg};border-radius:5px">${d}</div>`).join('')}
+      <div class="cal-grid">
+        ${dowsShow.map(d => `<div class="cal-dow">${d}</div>`).join('')}
         ${cells.map(cellHtml).join('')}
       </div>
       <div style="margin-top:14px;display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--text3);justify-content:center">
