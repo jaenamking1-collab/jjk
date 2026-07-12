@@ -101,7 +101,7 @@
 <body>
 <header>
   <div class="logo">ETF 분배금 공지</div>
-  <button class="refresh" onclick="loadDistributions(true)">🔄 새로고침</button>
+  <button class="refresh" onclick="pageRefresh()">🔄 새로고침</button>
 </header>
 
 <div class="wrap">
@@ -474,7 +474,14 @@ async function loadAllNotices(){
   }).join('');
 }
 
-loadDistributions(false);
+// 새로고침 버튼: 페이지 자체를 다시 로드(배포된 새 코드 반영) + 데이터 강제 갱신
+function pageRefresh(){
+  sessionStorage.setItem('forceRefresh', '1');
+  location.reload();
+}
+const _force = sessionStorage.getItem('forceRefresh') === '1';
+sessionStorage.removeItem('forceRefresh');
+loadDistributions(_force);
 </script>
 </body>
 </html>
