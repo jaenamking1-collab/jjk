@@ -1528,8 +1528,8 @@ async function renderHoldingsTable(holdings) {
           <td id="trend-${h.id}" style="padding:2px 8px;"></td>
           <td class="num" id="disc-${h.id}"><span style="color:var(--border);font-size:11px">/</span></td>
           <td class="num" style="color:#111827;font-weight:600">${annual !== '-' ? annual+'%' : (annualEst !== '-' ? `<span style="color:var(--text3);font-weight:500" title="이 계좌엔 분배금 기록이 없어 같은 종목 다른 계좌 값으로 추정">~${annualEst}%</span>` : '-')}</td>
-          <td style="font-size:11px;text-align:center;white-space:nowrap;${cycOnly?`background:${({'월배당':'#2563eb','월중':'#0891b2','월말':'#7c3aed','분기배당':'#059669','반기배당':'#d97706','연배당':'#dc2626','무배당':'#6b7280'}[cycOnly]||'#64748b')};color:#fff;font-weight:700`:''}">${cycOnly||'-'}</td>
-          <td style="font-size:11px;text-align:center;white-space:nowrap;${catOnly?`background:${catColor};color:#fff;font-weight:700`:''}">${catOnly||'<span style="color:var(--text3)">-</span>'}</td>
+          <td style="font-size:11px;text-align:center;white-space:nowrap;${cycOnly?(c=>`background:${c[0]};color:${c[1]};font-weight:700`)(({'월배당':['#dbeafe','#1d4ed8'],'월중':['#cffafe','#0e7490'],'월말':['#ede9fe','#6d28d9'],'분기배당':['#d1fae5','#047857'],'반기배당':['#fef3c7','#b45309'],'연배당':['#fee2e2','#b91c1c'],'무배당':['#fce7f3','#be185d']})[cycOnly]||['#eef2ff','#4f46e5']):''}">${cycOnly||'-'}</td>
+          <td style="font-size:11px;text-align:center;white-space:nowrap;${catOnly?`background:${catColor[0]};color:${catColor[1]};font-weight:700`:''}">${catOnly||'<span style="color:var(--text3)">-</span>'}</td>
           <td>
             <div class="gap-8">
               <button class="btn btn-ghost btn-sm" onclick="editHolding('${h.id}')">수정</button>
@@ -3085,6 +3085,10 @@ function renderMasterCalendar(allData) {
   if (_calWeekOffset === 0 && earliestMark && earliestMark < rangeStart) {
     rangeStart.setTime(earliestMark.getTime());
     rangeStart.setDate(rangeStart.getDate() - rangeStart.getDay()); // 그 주 일요일
+    // 이른 마킹으로 당겨져도 오늘 주가 5주 창 밖으로 밀리지 않게 클램프
+    const minStart = new Date(todayDate);
+    minStart.setDate(minStart.getDate() - minStart.getDay() - 28); // 오늘 주가 5번째 주가 되는 시작점
+    if (rangeStart < minStart) rangeStart.setTime(minStart.getTime());
   }
   // ←/→ 버튼: 주 단위 이동
   rangeStart.setDate(rangeStart.getDate() + _calWeekOffset * 7);
@@ -3349,14 +3353,16 @@ async function loadScreener(force) {
   }
 }
 
-// 스크리너 추종(분류)별 셀 색 — 흰 글자가 잘 보이는 진한 톤
+// 스크리너 추종(분류)별 셀 색 — [파스텔 배경, 진한 글자]
 function scrCatColor(cat) {
   return {
-    'S&P500':'#1d4ed8','나스닥/테크':'#7c3aed','미국배당':'#0369a1','한국고배당':'#b91c1c',
-    '코스피200':'#334155','코리아밸류업':'#9d174d','채권-국채':'#047857','채권-회사채':'#4d7c0f',
-    '리츠/부동산':'#c2410c','혼합/자산배분':'#a21caf','금리/현금':'#57534e','원자재':'#b45309',
-    '중국':'#e11d48','테마':'#db2777','레버리지/단일':'#7f1d1d','기타':'#64748b'
-  }[cat] || '#64748b';
+    'S&P500':['#dbeafe','#1d4ed8'],'나스닥/테크':['#ede9fe','#6d28d9'],'미국배당':['#e0f2fe','#0369a1'],
+    '한국고배당':['#fee2e2','#b91c1c'],'코스피200':['#e0e7ff','#4338ca'],'코리아밸류업':['#fce7f3','#9d174d'],
+    '채권-국채':['#d1fae5','#047857'],'채권-회사채':['#ecfccb','#3f6212'],'리츠/부동산':['#ffedd5','#c2410c'],
+    '혼합/자산배분':['#fae8ff','#a21caf'],'금리/현금':['#fef9c3','#a16207'],'원자재':['#fef3c7','#b45309'],
+    '중국':['#ffe4e6','#e11d48'],'테마':['#fce7f3','#db2777'],'레버리지/단일':['#fee2e2','#7f1d1d'],
+    '기타':['#eef2ff','#4f46e5']
+  }[cat] || ['#eef2ff','#4f46e5'];
 }
 
 function renderScreener() {
@@ -3396,7 +3402,7 @@ function renderScreener() {
     return `<tr>
       <td style="padding:1px 8px;font-variant-numeric:tabular-nums">${x.ticker||'-'}</td>
       <td style="white-space:nowrap;padding:1px 8px"><span${nameTip}>${x.name}</span></td>
-      <td style="padding:1px 8px;text-align:center;white-space:nowrap;background:${scrCatColor(x.category)};color:#fff;font-weight:700${x.baseIndex?';cursor:help':''}"${x.baseIndex?` title="기초지수: ${esc(x.baseIndex)}"`:''}>${x.category}</td>
+      <td style="padding:1px 8px;text-align:center;white-space:nowrap;background:${scrCatColor(x.category)[0]};color:${scrCatColor(x.category)[1]};font-weight:700${x.baseIndex?';cursor:help':''}"${x.baseIndex?` title="기초지수: ${esc(x.baseIndex)}"`:''}>${x.category}</td>
       <td class="num" style="background:#d8e6ff;color:#1d4ed8;font-weight:700;padding:1px 8px">${x.divRate==null?'-':fmt(x.divRate)+'%'}</td>
       <td class="num" style="background:#faf0c8;color:#92400e;font-weight:700;padding:1px 8px${x.divPayDt?';cursor:help':''}"${x.divPayDt?` title="기준일 ${String(x.divPayDt).replace(/(\d{4})(\d{2})(\d{2})/,'$1-$2-$3')}"`:''}>${x.divPay==null?'-':Math.round(x.divPay).toLocaleString()+'원'}</td>
       <td class="num" style="padding:1px 8px">${x.price?x.price.toLocaleString():'-'}</td>
