@@ -330,7 +330,7 @@ function renderMasterCalendar(allData){
       </div>`;
     }).join('');
     return `<div class="cal-cell" style="${bg}${border}">
-      <div class="cal-date" style="font-weight:${ms.length||isToday?'700':'400'};color:${dateColor}">${next?m+'/':''}${d}</div>
+      <div class="cal-date" style="font-weight:${ms.length||isToday?'700':'400'};color:${dateColor}">${m}/${d}</div>
       <div style="margin-top:auto">${eventHtml}</div>
     </div>`;
   };
