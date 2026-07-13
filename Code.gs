@@ -789,9 +789,10 @@ function fetchDist_kodex() {
     });
     if (!entries.length) return fetchDist_kodex_api(); // 공지 파싱 실패 → 기존 API 방식 폴백
 
-    // 가장 최근 월별로 월중/월말 최신 1건씩 (목록은 최신순이라 먼저 등장한 것이 최신)
-    const latestMon = Math.max(...entries.map(e => e.mon));
-    const pick = cyc => entries.find(e => e.mon === latestMon && e.cycle === cyc);
+    // 회차별 최신 글 1건씩 (목록은 최신순이라 먼저 등장한 것이 최신).
+    // 전체 최신월로 거르면 새 월중 공지가 뜨는 순간 지난 월말 일정이 통째로
+    // 사라지므로(7월 월중 + 6월 월말 공존 못 함), 회차별로 독립 선택한다.
+    const pick = cyc => entries.find(e => e.cycle === cyc);
     const midE = pick('월중배당');
     const endE = pick('월말배당');
 
@@ -1018,10 +1019,9 @@ function fetchDist_tiger() {
     }
     if (!found.length) return { items: [], error: 'TIGER: 분배금 공지 미발견' };
 
-    // 최신 월 결정 후, 그 월의 월중/월말 각 1건
-    const latestMon = Math.max(...found.map(f => f.pubMon));
-    const midE = found.find(f => f.pubMon === latestMon && f.cycle === '월중');
-    const endE = found.find(f => f.pubMon === latestMon && f.cycle === '월말');
+    // 회차별 최신 글 1건씩 (목록 최신순) — 새 월중이 떠도 지난 월말 일정 유지
+    const midE = found.find(f => f.cycle === '월중');
+    const endE = found.find(f => f.cycle === '월말');
 
     let items = [];
     let schedule = {};
@@ -1125,9 +1125,9 @@ function fetchDist_ace() {
     }).filter(Boolean);
     if (!parsed.length) return { items: [], error: 'ACE: 게시일 파싱 실패' };
 
-    const latestMon = Math.max(...parsed.map(p => p.mon));
-    const midE = parsed.find(p => p.mon === latestMon && p.day >= 10 && p.day <= 16);
-    const endE = parsed.find(p => p.mon === latestMon && p.day >= 20);
+    // 회차별 최신 글 1건씩 (목록 최신순) — 새 월중이 떠도 지난 월말 일정 유지
+    const midE = parsed.find(p => p.day >= 10 && p.day <= 16);
+    const endE = parsed.find(p => p.day >= 20);
 
     // 영업일 계산 헬퍼
     const lastBizDay = (year, mon) => { const d = new Date(year, mon, 0); while (d.getDay()===0||d.getDay()===6) d.setDate(d.getDate()-1); return { m:d.getMonth()+1, d:d.getDate() }; };
@@ -1235,9 +1235,9 @@ function fetchDist_plus() {
     }
     const dated = cands.filter(c => c.cycle && c.mon);
     if (!dated.length) return { items: [], error: 'PLUS: 월중/월말 공지 미발견' };
-    const latestMon = Math.max(...dated.map(c => c.mon));
-    const midE = dated.find(c => c.mon === latestMon && c.cycle === '월중');
-    const endE = dated.find(c => c.mon === latestMon && c.cycle === '월말');
+    // 회차별 최신 글 1건씩 (목록 최신순) — 새 월중이 떠도 지난 월말 일정 유지
+    const midE = dated.find(c => c.cycle === '월중');
+    const endE = dated.find(c => c.cycle === '월말');
 
     const parsePlusNotice = (entry) => {
       const html = UrlFetchApp.fetch('https://www.plusetf.co.kr/customer/notice/detail?n=' + entry.n, { headers: { 'User-Agent': 'Mozilla/5.0' }, muteHttpExceptions: true }).getContentText('UTF-8');
@@ -1350,9 +1350,9 @@ function fetchDist_rise() {
     // 최신 월의 월중/월말 각 1건
     const dated = cands.filter(c => c.cycle && c.mon);
     if (!dated.length) return { items: [], error: 'RISE: 월중/월말 공지 미발견' };
-    const latestMon = Math.max(...dated.map(c => c.mon));
-    const midE = dated.find(c => c.mon === latestMon && c.cycle === '월중');
-    const endE = dated.find(c => c.mon === latestMon && c.cycle === '월말');
+    // 회차별 최신 글 1건씩 (목록 최신순) — 새 월중이 떠도 지난 월말 일정 유지
+    const midE = dated.find(c => c.cycle === '월중');
+    const endE = dated.find(c => c.cycle === '월말');
 
     const parseRiseNotice = (entry) => {
       const html = UrlFetchApp.fetch('https://www.riseetf.co.kr' + entry.url, { muteHttpExceptions: true }).getContentText('UTF-8');

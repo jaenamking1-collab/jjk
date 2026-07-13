@@ -57,6 +57,7 @@
   .notice-title{font-size:12px; color:var(--text); line-height:1.4; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:200px; cursor:pointer;}
   .notice-title:hover{color:var(--accent2); text-decoration:underline;}
   .notice-date{font-size:11px; color:var(--text3); white-space:nowrap; font-family:var(--mono);}
+  .new-badge{display:inline-block; margin-left:4px; padding:0 5px; height:14px; line-height:14px; border-radius:7px; background:#ef4444; color:#fff; font-size:9px; font-weight:800; vertical-align:1px;}
   .notice-loading{font-size:12px; color:var(--text3); text-align:center; padding:16px 0;}
   .notice-err{font-size:12px; color:var(--red); text-align:center; padding:16px 0;}
   .spinner{display:inline-block; width:16px; height:16px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .6s linear infinite; vertical-align:middle; margin-right:6px;}
@@ -282,27 +283,11 @@ function renderMasterCalendar(allData){
   const today = now.getDate();
   const dowsShow = ['월','화','수','목','금']; // 평일만
 
+  // 오늘이 속한 주가 5주 창의 가운데(3번째 줄)에 오도록 2주 전 일요일부터 시작.
+  // ←/→ 버튼은 여기에 주 단위로만 더해져 항상 한 주씩 움직인다.
   const todayDate = new Date(year, month - 1, now.getDate());
   const rangeStart = new Date(todayDate);
-  rangeStart.setDate(rangeStart.getDate() - rangeStart.getDay() - 7); // 지난주 일요일
-  let earliestMark = null;
-  Object.keys(marks).forEach(k => {
-    const [mm, dd] = k.split('-').map(Number);
-    let yr = year;
-    if (month === 1 && mm === 12) yr = year - 1;
-    else if (month === 12 && mm === 1) yr = year + 1;
-    const dt = new Date(yr, mm - 1, dd);
-    if (!earliestMark || dt < earliestMark) earliestMark = dt;
-  });
-  if (_calWeekOffset === 0 && earliestMark && earliestMark < rangeStart) {
-    rangeStart.setTime(earliestMark.getTime());
-    rangeStart.setDate(rangeStart.getDate() - rangeStart.getDay());
-    // 이른 마킹으로 당겨져도 오늘 주가 5주 창 밖으로 밀리지 않게 클램프
-    const minStart = new Date(todayDate);
-    minStart.setDate(minStart.getDate() - minStart.getDay() - 28);
-    if (rangeStart < minStart) rangeStart.setTime(minStart.getTime());
-  }
-  // ←/→ 버튼: 주 단위 이동
+  rangeStart.setDate(rangeStart.getDate() - rangeStart.getDay() - 14);
   rangeStart.setDate(rangeStart.getDate() + _calWeekOffset * 7);
   const rangeEnd = new Date(rangeStart);
   rangeEnd.setDate(rangeEnd.getDate() + 34);
@@ -469,10 +454,16 @@ async function loadAllNotices(){
     };
     const picks = [pickByCycle('월중'), pickByCycle('월말'), pickByCycle('특별')].filter(Boolean);
     const show = picks.length ? picks : all.slice(0, 1);
+    // 등록 3일 이내 공지엔 NEW 배지
+    const isNew = n => {
+      const m = String(n.date || '').match(/(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
+      if (!m) return false;
+      return (Date.now() - new Date(+m[1], +m[2] - 1, +m[3]).getTime()) < 3 * 86400000;
+    };
     const rows = show.length
       ? show.map(n => `
           <div class="notice-item">
-            <span class="notice-title" onclick="window.open('${n.url}','_blank')" title="${(n.title||'').replace(/"/g,'&quot;')}">${n.norm.label}</span>
+            <span class="notice-title" onclick="window.open('${n.url}','_blank')" title="${(n.title||'').replace(/"/g,'&quot;')}">${n.norm.label}${isNew(n) ? '<span class="new-badge">NEW</span>' : ''}</span>
             <span class="notice-date">${n.date}</span>
           </div>`).join('')
       : '<div class="notice-err">불러오기 실패</div>';
