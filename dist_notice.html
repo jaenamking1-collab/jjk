@@ -80,7 +80,7 @@
   .cal-legend{margin-top:14px; display:flex; gap:16px; flex-wrap:wrap; font-size:12px; color:var(--text3); justify-content:center;}
   .cal-companies{display:none; flex-wrap:wrap; gap:3px 10px; justify-content:center; margin-bottom:6px; font-size:10px; color:var(--text2);}
   .cal-co{display:flex; align-items:center; gap:3px;}
-  .co-chip{display:inline-flex; align-items:center; justify-content:center; width:14px; height:13px; border-radius:2px; color:#fff; font-size:8px; font-weight:700;}
+  .co-chip{display:inline-flex; align-items:center; justify-content:center; padding:0 3px; height:13px; border-radius:2px; color:#fff; font-size:8px; font-weight:700;}
 
   /* ── mobile: 세로 스택, 달력은 화면 폭에 맞게 축소, 일정 표만 좌우 스크롤 ── */
   @media (max-width:820px){
@@ -96,7 +96,7 @@
     .cal-cell{padding:3px; min-height:74px; border-radius:5px;}
     .cal-date{font-size:11px;}
     .cal-icons{gap:1px;}
-    .cal-chip{font-size:8px; height:13px;}
+    .cal-chip{font-size:7px; height:13px; padding:0 1px;}
     .cal-chip .chip-full{display:none;}
     .cal-chip .chip-min{display:inline;}
     .cal-evt{font-size:9px; padding:1px 0;}
@@ -336,7 +336,7 @@ function renderMasterCalendar(allData){
       const bySource = {};
       g.sources.forEach(s => { bySource[s.name] = s.color; });
       const icons = DIST_SOURCES.map(s => bySource[s.name]
-        ? `<span class="cal-chip" style="background:${bySource[s.name]}"><span class="chip-full">${s.name}</span><span class="chip-min">${s.name[0]}</span></span>`
+        ? `<span class="cal-chip" style="background:${bySource[s.name]}"><span class="chip-full">${s.name}</span><span class="chip-min">${s.name.slice(0,3)}</span></span>`
         : '<span class="cal-chip"></span>'
       ).join('');
       return `<div style="margin-top:4px">
@@ -353,7 +353,7 @@ function renderMasterCalendar(allData){
   const calHtml = `
     <div>
       <div class="cal-companies">
-        ${DIST_SOURCES.map(s => `<span class="cal-co"><span class="co-chip" style="background:${s.color}">${s.name[0]}</span>${s.name}</span>`).join('')}
+        ${DIST_SOURCES.map(s => `<span class="cal-co"><span class="co-chip" style="background:${s.color}">${s.name.slice(0,3)}</span>${s.name}</span>`).join('')}
       </div>
       <div class="cal-grid">
         ${dowsShow.map(d => `<div class="cal-dow">${d}</div>`).join('')}
