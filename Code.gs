@@ -369,7 +369,7 @@ function getEtfNotices(source) {
       }
     }
     const result = { success: true, items };
-    if (items.length) cache.put(cacheKey, JSON.stringify(result), 21600); // 0건은 캐시 안 함(일시 실패로 6h 막힘 방지)
+    if (items.length) cache.put(cacheKey, JSON.stringify(result), distCacheTtlSec()); // 0건은 캐시 안 함(일시 실패 장기 캐시 방지)
     return result;
   } catch(e) {
     return { success: false, items: [], error: e.toString() };
@@ -387,10 +387,16 @@ function getDistribution(source, force) {
     if (sc && sc.payload) {
       const need = currentCycleKey();               // 예: '2026-06-말'
       const parsedItems = sc.payload.items || [];
-      // 회차 일치할 때만 캐시 반환. 회차 바뀌면(월중↔월말, 월 전환) 무조건 재파싱
-      if (parsedItems.length && sc.cycleKey === need) return sc.payload;
+      // 회차 일치 + 신선(TTL 내)할 때만 캐시 반환. 공시 임박 구간엔 2시간마다 재파싱해
+      // 새로 올라온 공지(예: KODEX 월중)를 놓치지 않는다.
+      if (parsedItems.length && sc.cycleKey === need) {
+        const saved = sc.savedAt instanceof Date
+          ? sc.savedAt
+          : new Date(String(sc.savedAt).replace(' ', 'T') + ':00+09:00');
+        if (!isNaN(saved) && (Date.now() - saved.getTime()) < distCacheTtlSec() * 1000) return sc.payload;
+      }
     }
-    const cached = cache.get(cacheKey);              // 스크립트캐시(12h) 폴백
+    const cached = cache.get(cacheKey);              // 스크립트캐시 폴백
     if (cached) return JSON.parse(cached);
   }
   let result;
@@ -411,7 +417,7 @@ function getDistribution(source, force) {
           }
         } catch(e) {}
       }
-      if (result.items && result.items.length) cache.put(cacheKey, JSON.stringify(result), 43200);
+      if (result.items && result.items.length) cache.put(cacheKey, JSON.stringify(result), distCacheTtlSec());
       return result;
     }
     if (source === 'tiger') {
@@ -420,7 +426,7 @@ function getDistribution(source, force) {
         const all = fetchDist_smarttoday(force);
         result = all[source] || { items: [], error: 'TIGER 양쪽 실패' };
       }
-      if (result.items && result.items.length) cache.put(cacheKey, JSON.stringify(result), 43200);
+      if (result.items && result.items.length) cache.put(cacheKey, JSON.stringify(result), distCacheTtlSec());
       return result;
     }
     if (source === 'ace') {
@@ -429,7 +435,7 @@ function getDistribution(source, force) {
         const all = fetchDist_smarttoday(force);
         result = all[source] || { items: [], error: 'ACE 양쪽 실패' };
       }
-      if (result.items && result.items.length) cache.put(cacheKey, JSON.stringify(result), 43200);
+      if (result.items && result.items.length) cache.put(cacheKey, JSON.stringify(result), distCacheTtlSec());
       return result;
     }
     if (source === 'rise') {
@@ -438,7 +444,7 @@ function getDistribution(source, force) {
         const all = fetchDist_smarttoday(force);
         result = all[source] || { items: [], error: 'RISE 양쪽 실패' };
       }
-      if (result.items && result.items.length) cache.put(cacheKey, JSON.stringify(result), 43200);
+      if (result.items && result.items.length) cache.put(cacheKey, JSON.stringify(result), distCacheTtlSec());
       return result;
     }
     if (source === 'plus') {
@@ -447,7 +453,7 @@ function getDistribution(source, force) {
         const all = fetchDist_smarttoday(force);
         result = all[source] || { items: [], error: 'PLUS 양쪽 실패' };
       }
-      if (result.items && result.items.length) cache.put(cacheKey, JSON.stringify(result), 43200);
+      if (result.items && result.items.length) cache.put(cacheKey, JSON.stringify(result), distCacheTtlSec());
       return result;
     }
     const all = fetchDist_smarttoday(force);
@@ -482,13 +488,23 @@ function getDistribution(source, force) {
     }
   }
   if (result.items && result.items.length > 0) {
-    cache.put(cacheKey, JSON.stringify(result), 43200);
+    cache.put(cacheKey, JSON.stringify(result), distCacheTtlSec());
     writeDistCache(source, result, currentCycleKey());   // 시트 영속 저장
   }
   return result;
 }
 
 // ── 적응형 분배캐시 유틸 ──
+// 공시 임박 구간(매달 8~15일, 21일~말일)의 주간(08~20시 KST)엔 2시간마다 재파싱.
+// 그 외에는 6시간(CacheService 최대 TTL). 야간엔 공지 올라올 일 없으니 길게.
+function distCacheTtlSec() {
+  const now = new Date();
+  const h = parseInt(Utilities.formatDate(now, 'Asia/Seoul', 'H'), 10);
+  const d = parseInt(Utilities.formatDate(now, 'Asia/Seoul', 'd'), 10);
+  const noticeWindow = (d >= 8 && d <= 15) || d >= 21;
+  const daytime = h >= 8 && h < 20;
+  return (noticeWindow && daytime) ? 7200 : 21600;
+}
 function currentCycleKey() {
   const now = new Date();
   const ym = Utilities.formatDate(now, 'Asia/Seoul', 'yyyy-MM');
@@ -583,7 +599,7 @@ function fetchDist_smarttoday(force) {
       articleUrl: 'https://www.smarttoday.co.kr/ko-kr/articles/' + f.id
     };
   });
-  cache.put('dist2_ALL', JSON.stringify(out), 43200);
+  cache.put('dist2_ALL', JSON.stringify(out), distCacheTtlSec());
   return out;
 }
 
@@ -854,8 +870,9 @@ function fetchDist_kodex() {
         }
       }
 
-      // 월말: 일정이 이미지라 계산은 부정확(KODEX는 지급일이 +2영업일). OCR로 실제값 우선.
-      if (cycleLabel === '월말') {
+      // 실제 일정은 본문 첨부 이미지에 있음(월중·월말 공통). 계산 근사는 부정확
+      // (월중 지급일이 기준일 다음 영업일이 아니라 며칠 뒤인 경우 多) → OCR 실제값으로 덮어쓰기.
+      {
         const ocrSched = ocrScheduleFromNotice(html, 'https://www.samsungfund.com');
         if (ocrSched && (ocrSched['기준일'] || ocrSched['지급일'])) {
           // OCR로 읽은 값으로 덮어쓰기 (공시일은 OCR에 있으면 우선, 없으면 게시일 유지)
@@ -883,9 +900,10 @@ function fetchDist_kodex() {
         const rate   = nums.find(n => n > 0 && n < 30) ?? null;
         const amount = nums[nums.length-1];
         if (amount == null) continue;
-        // 일정: API값(schedMap)이 본문 기준월과 일치하면 우선, 아니면 계산값(calcSched) 사용
+        // 일정: OCR로 실제 일정을 읽었으면 그것이 공식 공지값이므로 최우선.
+        // 없으면 API값(schedMap)이 본문 기준월과 일치할 때 우선, 아니면 계산값(calcSched).
         let sched = calcSched;
-        const apiS = schedMap[ticker];
+        const apiS = calcSched['_ocr'] ? null : schedMap[ticker];
         if (apiS && apiS['기준일']) {
           const apiMonM = apiS['기준일'].match(/(\d{1,2})월/);
           const apiMon = apiMonM ? parseInt(apiMonM[1]) : null;
