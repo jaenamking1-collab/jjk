@@ -3066,31 +3066,11 @@ function renderMasterCalendar(allData) {
   const dows = ['일','월','화','수','목','금','토'];
   const dowsShow = ['월','화','수','목','금']; // 평일만 표시
 
-  // 표시 범위: 오늘 기준 롤링. 지난주 일요일 ~ 4주 후 토요일.
-  // 월 단위로 끊지 않아, 7/1이어도 6월 말(공시/기준)과 7월 초(지급)가 함께 보임.
+  // 오늘이 속한 주가 5주 창의 가운데(3번째 줄)에 오도록 2주 전 일요일부터 시작.
+  // ←/→ 버튼은 여기에 주 단위로만 더해져 항상 한 주씩 움직인다.
   const todayDate = new Date(year, month - 1, now.getDate());
   const rangeStart = new Date(todayDate);
-  rangeStart.setDate(rangeStart.getDate() - rangeStart.getDay() - 7); // 지난주 일요일
-  // 마킹된 날짜 중 rangeStart보다 이른 게 있으면 그 주까지 당겨 포함
-  let earliestMark = null;
-  Object.keys(marks).forEach(k => {
-    const [mm, dd] = k.split('-').map(Number);
-    // 마킹 월이 현재월 또는 현재월±1 범위로 연도 추정
-    let yr = year;
-    if (month === 1 && mm === 12) yr = year - 1;
-    else if (month === 12 && mm === 1) yr = year + 1;
-    const dt = new Date(yr, mm - 1, dd);
-    if (!earliestMark || dt < earliestMark) earliestMark = dt;
-  });
-  if (_calWeekOffset === 0 && earliestMark && earliestMark < rangeStart) {
-    rangeStart.setTime(earliestMark.getTime());
-    rangeStart.setDate(rangeStart.getDate() - rangeStart.getDay()); // 그 주 일요일
-    // 이른 마킹으로 당겨져도 오늘 주가 5주 창 밖으로 밀리지 않게 클램프
-    const minStart = new Date(todayDate);
-    minStart.setDate(minStart.getDate() - minStart.getDay() - 28); // 오늘 주가 5번째 주가 되는 시작점
-    if (rangeStart < minStart) rangeStart.setTime(minStart.getTime());
-  }
-  // ←/→ 버튼: 주 단위 이동
+  rangeStart.setDate(rangeStart.getDate() - rangeStart.getDay() - 14);
   rangeStart.setDate(rangeStart.getDate() + _calWeekOffset * 7);
   // 5주 고정: rangeStart(일요일)부터 34일 후(5번째 주 토요일)까지
   const rangeEnd = new Date(rangeStart);
