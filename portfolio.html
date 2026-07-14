@@ -743,7 +743,11 @@
           <div id="distMasterCalendar"><div style="color:var(--text3);font-size:13px">불러오는 중...</div></div>
         </div>
         <div style="width:340px;flex-shrink:0;background:#fdf4ff;border:1px solid #f0e2f5;border-radius:10px;padding:14px">
-          <div style="font-size:12px;font-weight:700;color:#a855a8;margin-bottom:8px">🏢 운용사별 일정</div>
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+            <div id="schedTitle" style="font-size:12px;font-weight:700;color:#a855a8">🏢 운용사별 일정</div>
+            <button onclick="schedShiftMonth(-1)" title="이전 달" style="width:24px;height:24px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;line-height:1">←</button>
+            <button onclick="schedShiftMonth(1)" title="다음 달" style="width:24px;height:24px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;line-height:1">→</button>
+          </div>
           <div id="distScheduleList"></div>
         </div>
       </div>
@@ -2964,11 +2968,19 @@ const SCHED_CFG = [
 
 let _distData = [];
 let _calWeekOffset = 0;   // 달력 주 단위 이동 (←/→ 버튼)
+let _schedMonthOffset = 0; // 운용사별 일정 표: 월 단위 이동 (0=이번 달)
 
 // dir: -1 한 주 앞으로, +1 한 주 뒤로, 0 오늘 주로 리셋
 function calShiftWeek(dir) {
   if (!_distData.length) return;
   _calWeekOffset = dir === 0 ? 0 : Math.max(-26, Math.min(26, _calWeekOffset + dir));
+  renderMasterCalendar(_distData);
+}
+
+// 운용사별 일정 표의 달 이동. 공지 데이터가 전월~익월 정도만 있어 ±1로 제한.
+function schedShiftMonth(dir) {
+  if (!_distData.length) return;
+  _schedMonthOffset = Math.max(-1, Math.min(1, _schedMonthOffset + dir));
   renderMasterCalendar(_distData);
 }
 
@@ -3205,21 +3217,27 @@ function renderMasterCalendar(allData) {
   }).filter(Boolean).join('');
 
   // ── 운용사별 일정: 표(A안) — 회사별 1행, 셀에 월중/월말 2줄 ──
+  // ←/→ 버튼으로 고른 달(selM)의 일정만 표시. 행 귀속 월은 기준일(없으면 지급일)의 월.
+  const selM = ((month - 1 + _schedMonthOffset) % 12 + 12) % 12 + 1;
+  const schedTitle = document.getElementById('schedTitle');
+  if (schedTitle) schedTitle.textContent = `🏢 ${selM}월 운용사별 일정`;
   const rowsData = [];
   allData.forEach(c => {
     const repSched = (c.data && c.data.schedule) || {};
     const items = (c.data && c.data.items) || [];
     const heldItems = items.filter(held);
     const pickCycle = (cyc) => {
-      for (const it of heldItems) {
-        const c2 = cycleOf(fillRakil((it.sched && Object.keys(it.sched).length) ? {...it.sched} : {...repSched}, repSched), it);
-        if (c2 === cyc) return { sched: fillRakil((it.sched && Object.keys(it.sched).length) ? {...it.sched} : {...repSched}, repSched), hasHolding: true, hasNotice: true };
-      }
-      for (const it of items) {
-        const c2 = cycleOf(fillRakil((it.sched && Object.keys(it.sched).length) ? {...it.sched} : {...repSched}, repSched), it);
-        if (c2 === cyc) return { sched: fillRakil((it.sched && Object.keys(it.sched).length) ? {...it.sched} : {...repSched}, repSched), hasHolding: false, hasNotice: true };
-      }
-      return { sched: null, hasHolding: false, hasNotice: false };
+      const match = (list, hasHolding) => {
+        for (const it of list) {
+          const sch = fillRakil((it.sched && Object.keys(it.sched).length) ? {...it.sched} : {...repSched}, repSched);
+          if (cycleOf(sch, it) !== cyc) continue;
+          const p = parseDay(sch['기준일'] || sch['지급일']);
+          if (!p || p.m !== selM) continue;
+          return { sched: sch, hasHolding, hasNotice: true };
+        }
+        return null;
+      };
+      return match(heldItems, true) || match(items, false) || { sched: null, hasHolding: false, hasNotice: false };
     };
     const mid = pickCycle('월중'), end = pickCycle('월말');
     if (!mid.hasNotice && !end.hasNotice) return;
@@ -3255,8 +3273,7 @@ function renderMasterCalendar(allData) {
         const cycles = [['월중', r.mid], ['월말', r.end]];
         return cycles.map(([label, m], i) => {
           const [bg, col] = CYC[label];
-          const mp = parseDay((m.sched && (m.sched['기준일'] || m.sched['지급일'])) || '');
-          const monLabel = (mp ? mp.m + '월 ' : month + '월 ') + label;
+          const monLabel = selM + '월 ' + label; // 제목의 달과 항상 일치
           const noHold = (m.hasNotice && !m.hasHolding) ? ' <span style="color:var(--text3);font-size:9px">보유X</span>' : '';
           const nameCell = i === 0
             ? `<td rowspan="${cycles.length}" style="padding:5px 8px;white-space:nowrap;vertical-align:middle"><span style="font-weight:700;color:${r.color}">${r.name}</span></td>`
@@ -3271,7 +3288,7 @@ function renderMasterCalendar(allData) {
           </tr>`;
         }).join('');
       }).join('')}</tbody>
-    </table>` : '<div style="font-size:12px;color:var(--text3)">이번 달 일정 정보가 없습니다</div>';
+    </table>` : `<div style="font-size:12px;color:var(--text3)">${selM}월 일정 정보가 없습니다</div>`;
   document.getElementById('distScheduleList').innerHTML = tableHtml;
 }
 
