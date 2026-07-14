@@ -449,11 +449,11 @@ async function loadAllNotices(){
     };
     const picks = [pickByCycle('월중'), pickByCycle('월말'), pickByCycle('특별')].filter(Boolean);
     const show = picks.length ? picks : all.slice(0, 1);
-    // 등록 3일 이내 공지엔 NEW 배지
+    // 등록 5일 이내 공지엔 NEW 배지
     const isNew = n => {
       const m = String(n.date || '').match(/(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
       if (!m) return false;
-      return (Date.now() - new Date(+m[1], +m[2] - 1, +m[3]).getTime()) < 3 * 86400000;
+      return (Date.now() - new Date(+m[1], +m[2] - 1, +m[3]).getTime()) < 5 * 86400000;
     };
     const rows = show.length
       ? show.map(n => `
