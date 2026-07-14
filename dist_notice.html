@@ -78,7 +78,6 @@
   .cal-chip .chip-min{display:none;}
   .cal-evt{margin-top:3px; font-size:11px; font-weight:700; text-align:center; padding:2px 0; border-radius:4px;}
   .cal-evt .lbl-short{display:none;}
-  .cal-legend{margin-top:14px; display:flex; gap:16px; flex-wrap:wrap; font-size:12px; color:var(--text3); justify-content:center;}
   .cal-companies{display:none; flex-wrap:wrap; gap:3px 10px; justify-content:center; margin-bottom:6px; font-size:10px; color:var(--text2);}
   .cal-co{display:flex; align-items:center; gap:3px;}
   .co-chip{display:inline-flex; align-items:center; justify-content:center; padding:0 3px; height:13px; border-radius:2px; color:#fff; font-size:8px; font-weight:700;}
@@ -88,7 +87,6 @@
     .panels{flex-direction:column; align-items:stretch; gap:8px;}
     .panel{padding:10px;}
     .p-notice, .p-cal, .p-sched{width:100%; max-width:100%; min-width:0;}
-    .cal-legend{display:none;}
     .cal-companies{display:flex;}
     .cal-scroll, .sched-scroll{overflow-x:auto; -webkit-overflow-scrolling:touch;}
     #distScheduleList{min-width:420px;}
@@ -343,9 +341,6 @@ function renderMasterCalendar(allData){
       <div class="cal-grid">
         ${dowsShow.map(d => `<div class="cal-dow">${d}</div>`).join('')}
         ${cells.map(cellHtml).join('')}
-      </div>
-      <div class="cal-legend">
-        ${SCHED_CFG.map(c => `<span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${c.color}"></span>${c.label}</span>`).join('')}
       </div>
     </div>`;
   document.getElementById('distMasterCalendar').innerHTML = calHtml;
