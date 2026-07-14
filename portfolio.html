@@ -724,6 +724,11 @@
       <div id="distCalTitle" style="display:none"></div>
       <div style="display:flex;gap:14px;align-items:stretch;flex-wrap:wrap;justify-content:center">
         <div style="width:300px;flex-shrink:0;background:#f0fdf4;border:1px solid #dcfce7;border-radius:10px;padding:14px">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+            <div id="noticeTitle" style="font-size:12px;font-weight:700;color:#16a34a">📢 분배금 공지</div>
+            <button onclick="noticeShiftMonth(-1)" title="이전 달" style="width:24px;height:24px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;line-height:1">←</button>
+            <button onclick="noticeShiftMonth(1)" title="다음 달" style="width:24px;height:24px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;line-height:1">→</button>
+          </div>
           <div id="noticeGrid" style="display:flex;flex-direction:column;gap:8px">
             <div class="notice-loading">불러오는 중...</div>
           </div>
@@ -4075,6 +4080,15 @@ function normalizeNoticeTitle(title, source) {
   return { label, cycle, mon };
 }
 
+let _noticeData = null;    // 공지 원본 (월 이동 시 재사용)
+let _noticeMonthOffset = 0; // 분배금 공지 패널: 월 단위 이동 (0=이번 달)
+
+function noticeShiftMonth(dir) {
+  if (!_noticeData) return;
+  _noticeMonthOffset = Math.max(-1, Math.min(1, _noticeMonthOffset + dir));
+  renderNotices();
+}
+
 async function loadAllNotices() {
   const grid = document.getElementById('noticeGrid');
   if (!grid) return;
@@ -4082,22 +4096,37 @@ async function loadAllNotices() {
   const results = await Promise.allSettled(NOTICE_SOURCES.map(s =>
     s.fetch().then(items => ({ ...s, items })).catch(() => ({ ...s, items: [] }))
   ));
-  grid.innerHTML = results.map(r => {
-    const { id, name, label, items } = r.value || {};
+  _noticeData = results.map(r => r.value || {});
+  renderNotices();
+}
+
+function renderNotices() {
+  const grid = document.getElementById('noticeGrid');
+  if (!grid || !_noticeData) return;
+  const now = new Date();
+  const selM = ((now.getMonth() + _noticeMonthOffset) % 12 + 12) % 12 + 1;
+  const title = document.getElementById('noticeTitle');
+  if (title) title.textContent = `📢 ${selM}월 분배금 공지`;
+  // 공지의 귀속 월: 제목의 'N월'(norm.mon) 우선, 없으면 등록일의 월
+  const monOf = n => {
+    if (n.norm.mon) return n.norm.mon;
+    const m = String(n.date || '').match(/\d{4}[.\-\/](\d{1,2})/);
+    return m ? parseInt(m[1]) : 0;
+  };
+  grid.innerHTML = _noticeData.map(({ id, name, label, items }) => {
     const all = (items || []).map(n => ({ ...n, norm: normalizeNoticeTitle(n.title, id) }))
       .filter(n => n.norm.cycle !== '제외');   // ACE 국고채 등 비정기 제거
-    // 회차별 최신 1건씩: 월중/월말/특별 — 7월 월중 나오면 6월 월중 자동 교체
-    const latestMon = Math.max(0, ...all.map(n => n.norm.mon));
+    const inMonth = all.filter(n => monOf(n) === selM);
+    // 회차별 최신 1건씩: 월중/월말/특별 (고른 달 안에서)
     const pickByCycle = cyc => {
-      const cand = all.filter(n => n.norm.cycle === cyc);
+      const cand = inMonth.filter(n => n.norm.cycle === cyc);
       if (!cand.length) return null;
-      // 최신 월 우선, 같은 월이면 날짜 최신
-      cand.sort((a,b) => (b.norm.mon - a.norm.mon) || String(b.date||'').localeCompare(String(a.date||'')));
+      cand.sort((a,b) => String(b.date||'').localeCompare(String(a.date||'')));
       return cand[0];
     };
     const picks = [pickByCycle('월중'), pickByCycle('월말'), pickByCycle('특별')].filter(Boolean);
     // 회차 분류가 안 된 경우(기타만 있음) 최신 1건 폴백
-    const show = picks.length ? picks : all.slice(0, 1);
+    const show = picks.length ? picks : inMonth.slice(0, 1);
     // 등록 5일 이내 공지엔 NEW 배지 (공지페이지와 동일)
     const isNew = n => {
       const m = String(n.date || '').match(/(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
@@ -4110,7 +4139,9 @@ async function loadAllNotices() {
             <span class="notice-title" onclick="window.open('${n.url}','_blank')" title="${(n.title||'').replace(/"/g,'&quot;')}">${n.norm.label}${isNew(n) ? '<span class="new-badge">NEW</span>' : ''}</span>
             <span class="notice-date">${n.date}</span>
           </div>`).join('')
-      : '<div class="notice-err">불러오기 실패</div>';
+      : ((items && items.length)
+          ? `<div style="font-size:11px;color:var(--text3);padding:4px 0">${selM}월 공지 없음</div>`
+          : '<div class="notice-err">불러오기 실패</div>');
     return `
       <div class="notice-card ${id}">
         <div class="notice-brand ${id}">● ${name} <span style="font-weight:400;color:var(--text3)">${label}</span></div>
