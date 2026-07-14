@@ -507,23 +507,31 @@ function renderNotices(){
       cand.sort((a,b) => String(b.date||'').localeCompare(String(a.date||'')));
       return cand[0];
     };
-    const picks = [pickByCycle('월중'), pickByCycle('월말'), pickByCycle('특별')].filter(Boolean);
-    const show = picks.length ? picks : inMonth.slice(0, 1);
+    // 월중/월말 슬롯은 공지가 없어도 자리를 비워둔다(카드 높이·순서 고정). 특별·기타는 있을 때만.
+    const picks = [pickByCycle('월중'), pickByCycle('월말'), pickByCycle('특별')];
+    const extra = picks.every(p => !p) ? inMonth.slice(0, 1) : []; // 회차 분류 안 된 공지 폴백
     // 등록 5일 이내 공지엔 NEW 배지
     const isNew = n => {
       const m = String(n.date || '').match(/(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
       if (!m) return false;
       return (Date.now() - new Date(+m[1], +m[2] - 1, +m[3]).getTime()) < 5 * 86400000;
     };
-    const rows = show.length
-      ? show.map(n => `
+    const itemHtml = n => `
           <div class="notice-item">
             <span class="notice-title" onclick="window.open('${n.url}','_blank')" title="${(n.title||'').replace(/"/g,'&quot;')}">${n.norm.label}${isNew(n) ? '<span class="new-badge">NEW</span>' : ''}</span>
             <span class="notice-date">${n.date}</span>
-          </div>`).join('')
-      : ((items && items.length)
-          ? `<div style="font-size:11px;color:var(--text3);padding:4px 0">${selM}월 공지 없음</div>`
-          : '<div class="notice-err">불러오기 실패</div>');
+          </div>`;
+    const emptySlot = cyc => `
+          <div class="notice-item">
+            <span style="font-size:12px;color:var(--text3);line-height:1.4">${selM}월 ${cyc}배당</span>
+            <span class="notice-date">-</span>
+          </div>`;
+    const rows = (items && items.length)
+      ? [ picks[0] ? itemHtml(picks[0]) : emptySlot('월중'),
+          picks[1] ? itemHtml(picks[1]) : emptySlot('월말'),
+          picks[2] ? itemHtml(picks[2]) : '',
+          ...extra.map(itemHtml) ].join('')
+      : '<div class="notice-err">불러오기 실패</div>';
     return `
       <div class="notice-card ${id}">
         <div class="notice-brand ${id}">● ${name} <span style="font-weight:400;color:var(--text3)">${label}</span></div>
