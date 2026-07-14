@@ -156,7 +156,7 @@
   th { padding:6px 8px; text-align:left; font-size:11px; font-weight:700; color:#111827; text-transform:uppercase; letter-spacing:.5px; background:#e2e8f0; border:1px solid #111827; white-space:nowrap; }
   td { padding:3px 8px; border:1px solid #64748b; vertical-align:middle; }
   .holdings-compact td { padding:1px 8px; line-height:1.2; font-size:13px; }
-  .holdings-compact th { padding:4px 8px; border-bottom:2px solid #111827; }
+  .holdings-compact th { padding:4px 8px; border-bottom:2px solid #111827; text-align:center; }
   tr:hover td { background:var(--bg4); }
   tr:last-child td { border-bottom:none; }
   /* ── 스크리너: 바깥 테두리 + 그룹 구분선 진하게 ──
@@ -1514,7 +1514,6 @@ async function renderHoldingsTable(holdings) {
           ? `<td rowspan="${acctSpan[idx]}" style="font-size:12px;color:#374151;font-weight:600;white-space:nowrap;vertical-align:middle;text-align:center;background:${getAccColor(h.account_id)}">${acc?.name||''}</td>`
           : '';
         const groupBorder = (acctSpan[idx] && idx > 0) ? 'border-top:2px solid #334155;' : '';
-        const catColor = {'나스닥100':'#4f46e5','S&P500':'#2563eb','코스피200':'#059669','IT':'#0284c7','반도체':'#7c3aed','AI':'#c026d3','2차전지':'#0d9488','방산':'#475569','조선':'#0e7490','금융':'#d97706','바이오':'#16a34a','전력·원자력':'#ca8a04','자동차':'#dc2626','리츠':'#9333ea','채권':'#64748b','필수소비재':'#ea580c','현금성':'#78716c'}[catOnly] || '#6b7280';
         return `<tr style="border-bottom:1px solid #d1d5db;background:${rowBg};${groupBorder}${isUsdBorder ? 'border-top:2px solid #f59e0b88' : ''}">
           ${acctCell}
           <td><span class="ticker">${h.ticker}</span></td>
@@ -1529,8 +1528,8 @@ async function renderHoldingsTable(holdings) {
           <td id="trend-${h.id}" style="padding:2px 8px;"></td>
           <td class="num" id="disc-${h.id}"><span style="color:var(--border);font-size:11px">/</span></td>
           <td class="num" style="color:#111827;font-weight:600">${annual !== '-' ? annual+'%' : (annualEst !== '-' ? `<span style="color:var(--text3);font-weight:500" title="이 계좌엔 분배금 기록이 없어 같은 종목 다른 계좌 값으로 추정">~${annualEst}%</span>` : '-')}</td>
-          <td style="font-size:11px;text-align:center;white-space:nowrap;${cycOnly?(c=>`background:${c[0]};color:${c[1]};font-weight:700`)(({'월배당':['#dbeafe','#1d4ed8'],'월중':['#cffafe','#0e7490'],'월말':['#ede9fe','#6d28d9'],'분기배당':['#d1fae5','#047857'],'반기배당':['#fef3c7','#b45309'],'연배당':['#fee2e2','#b91c1c'],'무배당':['#fce7f3','#be185d']})[cycOnly]||['#eef2ff','#4f46e5']):''}">${cycOnly||'-'}</td>
-          <td style="font-size:11px;text-align:center;white-space:nowrap;${catOnly?`background:${catColor[0]};color:${catColor[1]};font-weight:700`:''}">${catOnly||'<span style="color:var(--text3)">-</span>'}</td>
+          <td style="font-size:11px;text-align:center;white-space:nowrap;${cycOnly?(c=>`background:${c[0]};color:${c[1]};font-weight:700`)(({'월배당':['#dbeafe','#1d4ed8'],'월초':['#fdba74','#7c2d12'],'월중':['#a5f3fc','#155e75'],'월말':['#c4b5fd','#4c1d95'],'분기배당':['#d1fae5','#047857'],'반기배당':['#fef3c7','#b45309'],'연배당':['#fee2e2','#b91c1c'],'무배당':['#fce7f3','#be185d'],'주배당':['#bbf7d0','#166534'],'비정기':['#e5e7eb','#374151']})[cycOnly]||['#eef2ff','#4f46e5']):''}">${cycOnly||'-'}</td>
+          <td style="font-size:11px;text-align:center;white-space:nowrap;${catOnly?`color:#111827;font-weight:700`:''}">${catOnly||'<span style="color:var(--text3)">-</span>'}</td>
           <td>
             <div class="gap-8">
               <button class="btn btn-ghost btn-sm" onclick="editHolding('${h.id}')">수정</button>
