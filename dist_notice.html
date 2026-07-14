@@ -125,6 +125,11 @@
 <div class="wrap">
   <div class="panels">
     <div class="panel p-notice">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+        <div class="p-title" id="noticeTitle" style="color:#16a34a;margin-bottom:0">📢 분배금 공지</div>
+        <button onclick="noticeShiftMonth(-1)" title="이전 달" style="width:24px;height:24px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;line-height:1">←</button>
+        <button onclick="noticeShiftMonth(1)" title="다음 달" style="width:24px;height:24px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;line-height:1">→</button>
+      </div>
       <div id="noticeGrid"><div class="notice-loading">불러오는 중...</div></div>
     </div>
     <div class="panel p-cal">
@@ -459,6 +464,15 @@ function normalizeNoticeTitle(title, source){
   return { label, cycle, mon };
 }
 
+let _noticeData = null;    // 공지 원본 (월 이동 시 재사용)
+let _noticeMonthOffset = 0; // 분배금 공지 패널: 월 단위 이동 (0=이번 달)
+
+function noticeShiftMonth(dir){
+  if (!_noticeData) return;
+  _noticeMonthOffset = Math.max(-1, Math.min(1, _noticeMonthOffset + dir));
+  renderNotices();
+}
+
 async function loadAllNotices(){
   const grid = document.getElementById('noticeGrid');
   if (!grid) return;
@@ -466,18 +480,35 @@ async function loadAllNotices(){
   const results = await Promise.allSettled(NOTICE_SOURCES.map(s =>
     s.fetch().then(items => ({ ...s, items })).catch(() => ({ ...s, items: [] }))
   ));
-  grid.innerHTML = results.map(r => {
-    const { id, name, label, items } = r.value || {};
+  _noticeData = results.map(r => r.value || {});
+  renderNotices();
+}
+
+function renderNotices(){
+  const grid = document.getElementById('noticeGrid');
+  if (!grid || !_noticeData) return;
+  const now = new Date();
+  const selM = ((now.getMonth() + _noticeMonthOffset) % 12 + 12) % 12 + 1;
+  const title = document.getElementById('noticeTitle');
+  if (title) title.textContent = `📢 ${selM}월 분배금 공지`;
+  // 공지의 귀속 월: 제목의 'N월'(norm.mon) 우선, 없으면 등록일의 월
+  const monOf = n => {
+    if (n.norm.mon) return n.norm.mon;
+    const m = String(n.date || '').match(/\d{4}[.\-\/](\d{1,2})/);
+    return m ? parseInt(m[1]) : 0;
+  };
+  grid.innerHTML = _noticeData.map(({ id, name, label, items }) => {
     const all = (items || []).map(n => ({ ...n, norm: normalizeNoticeTitle(n.title, id) }))
       .filter(n => n.norm.cycle !== '제외');
+    const inMonth = all.filter(n => monOf(n) === selM);
     const pickByCycle = cyc => {
-      const cand = all.filter(n => n.norm.cycle === cyc);
+      const cand = inMonth.filter(n => n.norm.cycle === cyc);
       if (!cand.length) return null;
-      cand.sort((a,b) => (b.norm.mon - a.norm.mon) || String(b.date||'').localeCompare(String(a.date||'')));
+      cand.sort((a,b) => String(b.date||'').localeCompare(String(a.date||'')));
       return cand[0];
     };
     const picks = [pickByCycle('월중'), pickByCycle('월말'), pickByCycle('특별')].filter(Boolean);
-    const show = picks.length ? picks : all.slice(0, 1);
+    const show = picks.length ? picks : inMonth.slice(0, 1);
     // 등록 5일 이내 공지엔 NEW 배지
     const isNew = n => {
       const m = String(n.date || '').match(/(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
@@ -490,20 +521,33 @@ async function loadAllNotices(){
             <span class="notice-title" onclick="window.open('${n.url}','_blank')" title="${(n.title||'').replace(/"/g,'&quot;')}">${n.norm.label}${isNew(n) ? '<span class="new-badge">NEW</span>' : ''}</span>
             <span class="notice-date">${n.date}</span>
           </div>`).join('')
-      : '<div class="notice-err">불러오기 실패</div>';
+      : ((items && items.length)
+          ? `<div style="font-size:11px;color:var(--text3);padding:4px 0">${selM}월 공지 없음</div>`
+          : '<div class="notice-err">불러오기 실패</div>');
     return `
       <div class="notice-card ${id}">
         <div class="notice-brand ${id}">● ${name} <span style="font-weight:400;color:var(--text3)">${label}</span></div>
         ${rows}
-        ${stockListHtml(id)}
+        ${stockListHtml(id, selM)}
       </div>`;
   }).join('');
 }
 
-// 공지(getDistribution)에 나온 전체 종목을 회사 카드 하단에 회차별로 표시
-function stockListHtml(id){
+// 공지(getDistribution)에 나온 전체 종목을 회사 카드 하단에 회차별로 표시.
+// selM: 패널에서 고른 달 — 종목의 기준일(없으면 지급일) 월이 일치하는 것만.
+function stockListHtml(id, selM){
   const entry = _distData.find(d => d.id === id);
-  const items = (entry && entry.data && entry.data.items) || [];
+  const allItems = (entry && entry.data && entry.data.items) || [];
+  const monOfSched = sch => {
+    const s = String((sch && (sch['기준일'] || sch['지급일'])) || '');
+    const m = s.match(/(\d{1,2})\s*월/) || s.match(/^(\d{1,2})[\/\.]/) || s.match(/\d{4}[.\-\/](\d{1,2})/);
+    return m ? parseInt(m[1]) : 0;
+  };
+  // 월 판별이 안 되는 종목은 이번 달 화면에서만 노출
+  const items = selM == null ? allItems : allItems.filter(it => {
+    const m = monOfSched(it.sched);
+    return m ? m === selM : _noticeMonthOffset === 0;
+  });
   if (!items.length) return '';
   const CYC_COLOR = { '월중': ['#ecfeff', '#0e7490'], '월말': ['#f5f3ff', '#6d28d9'] };
   const groups = {};
