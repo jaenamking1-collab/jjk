@@ -638,40 +638,30 @@
       <div class="stat-card"><div class="stat-label">지금 기준 월 수령액</div><div class="stat-value" id="pp-now" style="color:var(--green)">-</div><div class="stat-sub">개시 전 연금 제외</div></div>
       <div class="stat-card"><div class="stat-label">퇴직시점 월 수령액</div><div class="stat-value" id="pp-retire-amt" style="color:var(--accent2)">-</div><div class="stat-sub" id="pp-retire-sub">-</div></div>
       <div class="stat-card"><div class="stat-label">전체 개시 후 월 수령액</div><div class="stat-value" id="pp-full" style="color:var(--accent)">-</div><div class="stat-sub">모든 연금 개시 기준</div></div>
-      <div class="stat-card"><div class="stat-label">연금계좌 연간 수령</div><div class="stat-value" id="pp-limit-amt">-</div><div class="stat-sub">종합과세 한도 1,500만원</div></div>
+      <div class="stat-card"><div class="stat-label">연금계좌 연간 수령 (1인당 한도 1,500만)</div><div class="stat-value" id="pp-limit-jn" style="font-size:16px">-</div><div class="stat-value" id="pp-limit-ek" style="font-size:16px">-</div></div>
     </div>
 
-    <!-- 1. ISA·일반계좌 (분배금 자동 추정) -->
-    <div class="card mt-16">
-      <div class="card-header"><div class="card-title">💰 ISA·일반계좌 (분배금 자동 추정)</div><span id="pp-base-note" style="font-size:11px;color:var(--text3)"></span></div>
-      <div id="pp-base"></div>
-      <div style="font-size:11px;color:var(--text3);margin-top:8px">분배금 탭의 올해 데이터에서 월평균을 자동 계산. 직접입력 칸에 값을 넣으면 그 값을 사용(비우면 자동으로 복귀). 퇴직 후에도 원금을 빼지 않고 분배금만 쓰는 기준.</div>
+    <!-- 1. 재남(좌) / 은경(우) 컬럼 -->
+    <div class="mt-16" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:14px;align-items:start">
+      <div id="pp-col-jn"></div>
+      <div id="pp-col-ek"></div>
     </div>
 
-    <!-- 2. 연금계좌 (연금저축·IRP·우체국) -->
+    <!-- 2. 참고 -->
     <div class="card mt-16">
-      <div class="card-header"><div class="card-title">🏛 연금계좌 (연금저축·IRP·우체국)</div><button class="btn btn-ghost btn-sm" onclick="ppAddPension()">➕ 추가</button></div>
-      <div id="pp-limitbar" style="margin-bottom:12px"></div>
-      <div id="pp-pension"></div>
-      <div style="font-size:11px;color:var(--text3);margin-top:8px">
-        연금저축·IRP 계좌는 분배금 탭 데이터로 연 수령액을 자동 추정(🔄로 자동값 복귀), 나머지 행은 직접 입력·수정·삭제. ➕ 추가로 우체국연금·기타 연금계좌를 늘릴 수 있음.<br>
-        <b>세공(세액공제분)</b> 행만 연 1,500만 종합과세 한도에 합산되고, <b>안세공</b>(세액공제 안 받은 원금 재원)은 한도와 무관.<br>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span style="font-size:12px;color:var(--text2);font-weight:600">사학연금 납입 누계 (참고)</span>
+        <input type="text" inputmode="numeric" id="pp-sahak" onchange="ppSetSahak(this.value)" style="padding:4px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;width:140px;text-align:right;font-family:var(--mono)">
+        <span style="font-size:12px;color:var(--text3)">원</span>
+      </div>
+      <div style="font-size:11px;color:var(--text3)">
+        ISA·일반: 분배금 탭의 올해 데이터에서 연간 합계와 월평균을 자동 계산. 직접입력 칸에 값을 넣으면 그 값을 사용(비우면 자동 복귀). 원금은 빼지 않고 분배금만 쓰는 기준.<br>
+        연금계좌: 연금저축·IRP 계좌는 분배금으로 연 수령액 자동 추정(🔄로 자동값 복귀), 나머지 행은 직접 입력·수정·삭제. <b>세공</b> 행만 1인당 연 1,500만 종합과세 한도에 합산, <b>안세공</b>은 한도와 무관.<br>
         우체국 기준: 재남 연 420만 납입 → 월 52.9만 확정. 은경 연 324만 납입 → 납입액 비율 단순추정 약 40.8만 (가입시기·이율·납입기간·개시연령이 같을 때만 성립 — 실제 계약 확인 후 수정). 개시 2037년 10월 25일, 둘 다 동일.
       </div>
     </div>
 
-    <!-- 3. 기타 연금 -->
-    <div class="card mt-16">
-      <div class="card-header"><div class="card-title">🏢 기타 연금 (국민연금·사학연금 등)</div><button class="btn btn-ghost btn-sm" onclick="ppAddOther()">➕ 추가</button></div>
-      <div id="pp-others"></div>
-      <div style="display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
-        <span style="font-size:12px;color:var(--text2);font-weight:600">사학연금 납입 누계 (참고)</span>
-        <input type="number" id="pp-sahak" step="100000" onchange="ppSetSahak(this.value)" style="padding:4px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;width:140px;text-align:right;font-family:var(--mono)">
-        <span style="font-size:12px;color:var(--text3)">원</span>
-      </div>
-    </div>
-
-    <!-- 4. 연도별 시뮬레이션 -->
+    <!-- 3. 연도별 시뮬레이션 -->
     <div class="card mt-16">
       <div class="card-header">
         <div class="card-title">🗓 연도별 월 수령액</div>
@@ -4134,28 +4124,41 @@ const PP_LIMIT = 15000000; // 연금계좌 종합과세 한도 (연 1,500만원)
 let ppCfg = null;
 let ppAuto = { byBase:{}, byAccount:{} }; // byBase: {'재남_ISA':{avg,months}, ...}
 
+const PP_OWNERS = ['재남','은경'];
 const PP_BASE_KEYS = ['재남_ISA','재남_일반','은경_ISA','은경_일반'];
 function ppDefaultCfg() {
   return {
-    v: 2,
+    v: 3,
     base: { '재남_ISA':null, '재남_일반':null, '은경_ISA':null, '은경_일반':null }, // null = 자동, 숫자 = 직접입력(월)
-    pension: [ // {id, accountId(자동행)|null, name, tax:'세공'|'안세공', annual:null(자동)|숫자, startYear}
-      { id:'postal-jn', accountId:null, name:'재남 우체국연금', tax:'세공', annual:529000*12, startYear:'2037' },
-      { id:'postal-ek', accountId:null, name:'은경 우체국연금', tax:'세공', annual:408000*12, startYear:'2037' }
+    pension: [ // {id, owner, accountId(자동행)|null, name, tax:'세공'|'안세공', annual:null(자동)|숫자, startYear}
+      { id:'postal-jn', owner:'재남', accountId:null, name:'우체국연금', tax:'세공', annual:529000*12, startYear:'2037' },
+      { id:'postal-ek', owner:'은경', accountId:null, name:'우체국연금', tax:'세공', annual:408000*12, startYear:'2037' }
     ],
     pensionRemoved: [], // 삭제한 자동행 accountId — 재생성 방지
-    others: [],         // {id, title, monthly, startYear}
+    others: [],         // {id, owner, title, monthly, startYear}
     sahak: '',
     retire: '2029-03'
   };
 }
-function ppMigrateCfg(c) { // v1(우체국 별도 섹션·base 미분리) → v2
-  if (!c || c.v >= 2) return c;
+function ppOwnerOf(n) { return (n||'').includes('은경') ? '은경' : '재남'; }
+function ppAccClass(a) { // 계좌 유형: type 필드가 표준값이면 그대로, 아니면 계좌명으로 판별
+  const t = (a.type||'').trim();
+  if (['ISA','연금저축','IRP','일반'].includes(t)) return t;
+  const n = a.name||'';
+  if (n.toUpperCase().includes('ISA')) return 'ISA';
+  if (n.toUpperCase().includes('IRP')) return 'IRP';
+  if (n.includes('연금')) return '연금저축';
+  return '일반';
+}
+function ppMigrateCfg(c) { // v1(우체국 별도 섹션) / v2(재남·은경 미분리) → v3
+  if (!c || c.v >= 3) return c;
   const d = ppDefaultCfg();
-  d.pension = (c.postal||[]).map((p,i) => ({ id:'postal-m'+i, accountId:null, name:p.name||'우체국연금',
-    tax:'세공', annual: Math.round((parseFloat(p.monthly)||0)*12), startYear: p.startYear||'2037' }));
-  (c.pension||[]).forEach(p => d.pension.push(p));
-  d.pensionRemoved = c.pensionRemoved||[]; d.others = c.others||[];
+  d.pension = (c.postal||[]).map((p,i) => ({ id:'postal-m'+i, owner:ppOwnerOf(p.name), accountId:null,
+    name:p.name||'우체국연금', tax:'세공', annual: Math.round((parseFloat(p.monthly)||0)*12), startYear: p.startYear||'2037' }));
+  (c.pension||[]).forEach(p => d.pension.push({ ...p, owner: p.owner || ppOwnerOf(p.name) }));
+  d.pensionRemoved = c.pensionRemoved||[];
+  d.others = (c.others||[]).map(o => ({ ...o, owner: o.owner || ppOwnerOf(o.title) }));
+  if (c.base && ('재남_ISA' in c.base)) d.base = c.base;
   d.sahak = c.sahak||''; d.retire = c.retire||'2029-03';
   return d;
 }
@@ -4182,7 +4185,7 @@ async function loadPensionPlan() {
     api({ action:'getDividends', year }).catch(()=>[])
   ]);
   const er = state.exchangeRate || 1400;
-  const accType = {}; (state.accounts||[]).forEach(a => accType[a.id] = a.type);
+  const accType = {}; (state.accounts||[]).forEach(a => accType[a.id] = ppAccClass(a));
   const hAcc = {}, hCur = {};
   (holdings||[]).forEach(h => { hAcc[h.id] = h.account_id; hCur[h.id] = h.currency; });
 
@@ -4196,15 +4199,15 @@ async function loadPensionPlan() {
     (perAcc[accId] = perAcc[accId] || Array(12).fill(0))[d.month-1] += krw;
   });
 
-  // 집계: ISA·일반은 사람별 월평균, 연금저축·IRP는 계좌별 연환산
+  // 집계: ISA·일반은 사람별 월평균+연간합계, 연금저축·IRP는 계좌별 연환산
   const accName = {}; (state.accounts||[]).forEach(a => accName[a.id] = a.name || '');
   const baseMonths = {}; PP_BASE_KEYS.forEach(k => baseMonths[k] = Array(12).fill(0));
   const byAccount = {};
   for (const accId of Object.keys(perAcc)) {
-    const arr = perAcc[accId], t = accType[accId], n = accName[accId] || '';
+    const arr = perAcc[accId], t = accType[accId];
     if (t === 'ISA' || t === '일반') {
-      const owner = n.includes('재남') ? '재남' : n.includes('은경') ? '은경' : null;
-      if (owner) arr.forEach((v,i) => baseMonths[`${owner}_${t}`][i] += v);
+      const owner = ppOwnerOf(accName[accId]);
+      arr.forEach((v,i) => baseMonths[`${owner}_${t}`][i] += v);
     }
     if (t === '연금저축' || t === 'IRP') {
       const filled = arr.filter(v => v > 0).length;
@@ -4213,113 +4216,146 @@ async function loadPensionPlan() {
   }
   const byBase = {};
   PP_BASE_KEYS.forEach(k => {
-    const arr = baseMonths[k], f = arr.filter(v=>v>0).length;
-    byBase[k] = { avg: f ? Math.round(arr.reduce((a,b)=>a+b,0)/f) : 0, months: f };
+    const arr = baseMonths[k], f = arr.filter(v=>v>0).length, sum = arr.reduce((a,b)=>a+b,0);
+    byBase[k] = { sum: Math.round(sum), avg: f ? Math.round(sum/f) : 0, months: f };
   });
   ppAuto = { byBase, byAccount };
 
   // 연금저축·IRP 계좌마다 자동 행 생성 (이미 있거나 삭제했던 행은 건너뜀)
   (state.accounts||[]).forEach(a => {
-    if (a.type !== '연금저축' && a.type !== 'IRP') return;
+    const t = ppAccClass(a);
+    if (t !== '연금저축' && t !== 'IRP') return;
     if (ppCfg.pension.some(p => String(p.accountId) === String(a.id))) return;
     if (ppCfg.pensionRemoved.includes(String(a.id))) return;
-    ppCfg.pension.push({ id:'p'+Date.now()+Math.random().toString(36).slice(2,6), accountId:a.id, name:a.name,
-      tax: a.type === 'IRP' ? '세공' : '안세공', annual: a.type === 'IRP' ? 0 : null, startYear:'' });
+    ppCfg.pension.push({ id:'p'+Date.now()+Math.random().toString(36).slice(2,6), owner:ppOwnerOf(a.name), accountId:a.id, name:a.name,
+      tax: t === 'IRP' ? '세공' : '안세공', annual: t === 'IRP' ? 0 : null, startYear:'' });
   });
   ppSave();
   renderPensionPlan();
 }
 
-// 해당 연도의 월 수령액 내역 (y=null이면 전체 개시 기준)
+// 해당 연도의 사람별 월 수령액 내역 (y=null이면 전체 개시 기준)
 function ppCalcAt(y) {
-  let base = 0;
+  const r = {};
+  PP_OWNERS.forEach(o => r[o] = { base:0, pensionM:0, others:0, limitAnnual:0, total:0 });
   PP_BASE_KEYS.forEach(k => {
     const ov = ppCfg.base[k];
-    base += ov == null ? (ppAuto.byBase[k] ? ppAuto.byBase[k].avg : 0) : ppNum(ov);
+    r[k.split('_')[0]].base += ov == null ? (ppAuto.byBase[k] ? ppAuto.byBase[k].avg : 0) : ppNum(ov);
   });
-  let pensionM = 0, others = 0, limitAnnual = 0;
   ppCfg.pension.forEach(p => {
     if (y != null && !ppActive(p.startYear, y)) return;
+    const an = ppAnnualOf(p), o = r[p.owner] || r['재남'];
+    o.pensionM += an / 12;
+    if (p.tax === '세공') o.limitAnnual += an;
+  });
+  ppCfg.others.forEach(x => {
+    if (y != null && !ppActive(x.startYear, y)) return;
+    (r[x.owner] || r['재남']).others += ppNum(x.monthly);
+  });
+  PP_OWNERS.forEach(o => r[o].total = r[o].base + r[o].pensionM + r[o].others);
+  r.total = r['재남'].total + r['은경'].total;
+  return r;
+}
+
+function ppLimitColor(v) { return v > PP_LIMIT ? 'var(--red)' : v > PP_LIMIT * 0.9 ? '#f59e0b' : 'var(--green)'; }
+
+// 한 사람 컬럼(ISA·일반 + 연금계좌 + 기타) HTML
+function ppRenderOwnerCol(owner, thisYear, full) {
+  const ownerColor = owner === '재남' ? 'var(--accent2)' : '#ec4899';
+  // ISA·일반
+  const baseRows = ['ISA','일반'].map(t => {
+    const k = `${owner}_${t}`;
+    const a = ppAuto.byBase[k] || { sum:0, avg:0, months:0 };
+    const ov = ppCfg.base[k];
+    const use = ov == null ? a.avg : ppNum(ov);
+    return `<tr><td style="font-weight:600">${t === '일반' ? '일반계좌' : t}</td>
+      <td style="text-align:right;font-family:var(--mono);color:var(--text2)">${ppFmt(a.sum)}</td>
+      <td style="text-align:right;font-family:var(--mono);color:var(--text2)">${ppFmt(a.avg)} <span style="font-size:10px;color:var(--text3)">(${a.months}개월)</span></td>
+      <td style="text-align:right"><input type="text" inputmode="numeric" value="${ov==null?'':ppFmtIn(ov)}" placeholder="자동" onchange="ppSetBase('${k}',this.value)" style="${PP_INPUT};width:90px"></td>
+      <td style="text-align:right;font-family:var(--mono);font-weight:700;color:var(--green)">${ppFmt(use)}</td></tr>`;
+  }).join('');
+
+  // 연금계좌 한도 바
+  const lim = full[owner].limitAnnual;
+  const barColor = ppLimitColor(lim);
+  const pct = Math.min(100, lim / PP_LIMIT * 100);
+  const limitBar = `
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+      <span style="font-size:11px;font-weight:700;color:var(--text2)">연간 수령 합산 (세공 행)</span>
+      <span style="font-family:var(--mono);font-size:13px;font-weight:800;color:${barColor}">${ppFmt(lim)} / 15,000,000</span>
+    </div>
+    <div style="height:10px;background:var(--bg3);border-radius:5px;overflow:hidden">
+      <div style="height:100%;width:${pct}%;background:${barColor};border-radius:5px;transition:width .4s"></div>
+    </div>
+    ${lim > PP_LIMIT ? `<div style="font-size:11px;color:var(--red);font-weight:700;margin-top:4px">⚠️ 한도 초과 ${ppFmt(lim - PP_LIMIT)}원 — 종합과세(또는 16.5% 분리과세) 대상</div>`
+                     : `<div style="font-size:10px;color:var(--text3);margin-top:4px">여유 ${ppFmt(PP_LIMIT - lim)}원</div>`}`;
+
+  // 연금계좌 표
+  const pensionRows = ppCfg.pension.filter(p => (p.owner||'재남') === owner).map(p => {
     const an = ppAnnualOf(p);
-    pensionM += an / 12;
-    if (p.tax === '세공') limitAnnual += an;
-  });
-  ppCfg.others.forEach(o => {
-    if (y != null && !ppActive(o.startYear, y)) return;
-    others += ppNum(o.monthly);
-  });
-  return { base, pensionM, others, limitAnnual, total: base + pensionM + others };
+    const isAuto = p.annual == null;
+    return `<tr>
+      <td><input type="text" value="${ppEsc(p.name)}" onchange="ppSetPension('${p.id}','name',this.value)" style="${PP_INPUT};width:110px;text-align:left"></td>
+      <td><select onchange="ppSetPension('${p.id}','tax',this.value)" style="${PP_INPUT};text-align:left;padding:4px 4px">
+        <option value="세공" ${p.tax==='세공'?'selected':''}>세공</option>
+        <option value="안세공" ${p.tax==='안세공'?'selected':''}>안세공</option></select></td>
+      <td style="text-align:right"><input type="text" inputmode="numeric" value="${ppFmtIn(an/12)}" onchange="ppSetPension('${p.id}','monthly',this.value)" style="${PP_INPUT};width:85px"></td>
+      <td style="text-align:right;white-space:nowrap">
+        <input type="text" inputmode="numeric" value="${ppFmtIn(an)}" onchange="ppSetPension('${p.id}','annual',this.value)" style="${PP_INPUT};width:95px">
+        ${p.accountId != null ? `<button class="btn btn-ghost btn-sm" title="분배금 자동값으로 복귀" onclick="ppSetPension('${p.id}','annual','')" style="padding:2px 4px">🔄</button>` : ''}
+        ${isAuto ? '<span style="font-size:9px;color:var(--accent2)">자동</span>' : ''}</td>
+      <td><input type="number" min="2020" max="2100" value="${ppEsc(p.startYear)}" placeholder="지금" onchange="ppSetPension('${p.id}','startYear',this.value)" style="${PP_INPUT};width:64px"></td>
+      <td><button class="btn btn-danger btn-sm" onclick="ppDelPension('${p.id}')" style="padding:2px 6px">✕</button></td></tr>`;
+  }).join('');
+
+  // 기타 표
+  const otherList = ppCfg.others.filter(o => (o.owner||'재남') === owner);
+  const otherRows = otherList.length ? `
+    <table><thead><tr><th>이름</th><th style="text-align:right">월 수령액</th><th>개시년도</th><th></th></tr></thead><tbody>
+    ${otherList.map(o => `<tr>
+      <td><input type="text" value="${ppEsc(o.title)}" onchange="ppSetOther('${o.id}','title',this.value)" style="${PP_INPUT};width:130px;text-align:left"></td>
+      <td style="text-align:right"><input type="text" inputmode="numeric" value="${ppFmtIn(o.monthly)}" onchange="ppSetOther('${o.id}','monthly',this.value)" style="${PP_INPUT};width:95px"></td>
+      <td><input type="number" min="2020" max="2100" value="${ppEsc(o.startYear)}" placeholder="지금" onchange="ppSetOther('${o.id}','startYear',this.value)" style="${PP_INPUT};width:64px"></td>
+      <td><button class="btn btn-danger btn-sm" onclick="ppDelOther('${o.id}')" style="padding:2px 6px">✕</button></td></tr>`).join('')}
+    </tbody></table>`
+    : '<div style="font-size:11px;color:var(--text3);padding:6px 0">아직 없음 — ➕ 추가로 국민연금·사학연금 등을 넣으세요</div>';
+
+  return `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding-bottom:8px;border-bottom:2px solid ${ownerColor}">
+        <span style="font-size:15px;font-weight:800;color:${ownerColor}">👤 ${owner}</span>
+        <span style="font-size:12px;color:var(--text3)">전체 개시 후 월 <b style="font-family:var(--mono);color:var(--green)">${ppFmt(full[owner].total)}</b></span>
+      </div>
+
+      <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:6px">💰 ISA·일반계좌 <span style="font-weight:400;font-size:10px;color:var(--text3)">(${thisYear}년 분배금 자동)</span></div>
+      <div style="overflow-x:auto"><table><thead><tr><th>구분</th><th style="text-align:right">연간 합계</th><th style="text-align:right">월평균</th><th style="text-align:right">직접입력(월)</th><th style="text-align:right">적용(월)</th></tr></thead><tbody>${baseRows}</tbody></table></div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;margin:14px 0 6px">
+        <span style="font-size:12px;font-weight:700;color:var(--text2)">🏛 연금계좌 (연금저축·IRP·우체국)</span>
+        <button class="btn btn-ghost btn-sm" onclick="ppAddPension('${owner}')">➕ 추가</button>
+      </div>
+      ${limitBar}
+      <div style="overflow-x:auto;margin-top:8px"><table><thead><tr><th>계좌명</th><th>구분</th><th style="text-align:right">월 수령액</th><th style="text-align:right">연 수령액</th><th>개시년도</th><th></th></tr></thead><tbody>${pensionRows}</tbody></table></div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;margin:14px 0 6px">
+        <span style="font-size:12px;font-weight:700;color:var(--text2)">🏢 기타 연금 (국민연금·사학연금 등)</span>
+        <button class="btn btn-ghost btn-sm" onclick="ppAddOther('${owner}')">➕ 추가</button>
+      </div>
+      <div style="overflow-x:auto">${otherRows}</div>
+    </div>`;
 }
 
 function renderPensionPlan() {
   const thisYear = new Date().getFullYear();
   const retireYear = parseInt((ppCfg.retire||'2029-03').slice(0,4)) || 2029;
-
-  // ① ISA·일반 (재남/은경 분리)
-  document.getElementById('pp-base-note').textContent = `${thisYear}년 분배금 월합산 기준`;
-  document.getElementById('pp-base').innerHTML = `
-    <table><thead><tr><th>구분</th><th style="text-align:right">자동 추정 (월)</th><th style="text-align:right">직접입력 (월)</th><th style="text-align:right">적용값 (월)</th></tr></thead><tbody>
-    ${PP_BASE_KEYS.map(k => {
-      const a = ppAuto.byBase[k] || { avg:0, months:0 };
-      const ov = ppCfg.base[k];
-      const use = ov == null ? a.avg : ppNum(ov);
-      return `<tr><td style="font-weight:600">${k.replace('_',' ')}</td>
-        <td style="text-align:right;font-family:var(--mono);color:var(--text2)">${ppFmt(a.avg)} <span style="font-size:10px;color:var(--text3)">(${a.months}개월 평균)</span></td>
-        <td style="text-align:right"><input type="text" inputmode="numeric" value="${ov==null?'':ppFmtIn(ov)}" placeholder="자동" onchange="ppSetBase('${k}',this.value)" style="${PP_INPUT};width:120px"></td>
-        <td style="text-align:right;font-family:var(--mono);font-weight:700;color:var(--green)">${ppFmt(use)}</td></tr>`;
-    }).join('')}
-    </tbody></table>`;
-
-  // ② 연금계좌 + 1,500만 한도 바
   const full = ppCalcAt(null);
-  const pct = Math.min(100, full.limitAnnual / PP_LIMIT * 100);
-  const over = full.limitAnnual > PP_LIMIT;
-  const near = !over && full.limitAnnual > PP_LIMIT * 0.9;
-  const barColor = over ? 'var(--red)' : near ? '#f59e0b' : 'var(--green)';
-  document.getElementById('pp-limitbar').innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
-      <span style="font-size:12px;font-weight:700;color:var(--text2)">연금계좌 연간 수령 합산 (세공 행)</span>
-      <span style="font-family:var(--mono);font-size:14px;font-weight:800;color:${barColor}">${ppFmt(full.limitAnnual)} / 15,000,000</span>
-    </div>
-    <div style="height:12px;background:var(--bg3);border-radius:6px;overflow:hidden">
-      <div style="height:100%;width:${pct}%;background:${barColor};border-radius:6px;transition:width .4s"></div>
-    </div>
-    ${over ? `<div style="font-size:12px;color:var(--red);font-weight:700;margin-top:5px">⚠️ 한도 초과 ${ppFmt(full.limitAnnual - PP_LIMIT)}원 — 종합과세(또는 16.5% 분리과세) 대상. 수령액 조정 필요</div>`
-           : `<div style="font-size:11px;color:var(--text3);margin-top:5px">여유 ${ppFmt(PP_LIMIT - full.limitAnnual)}원</div>`}`;
 
-  document.getElementById('pp-pension').innerHTML = `
-    <table><thead><tr><th>계좌명</th><th>구분</th><th style="text-align:right">월 수령액</th><th style="text-align:right">연 수령액</th><th>개시년도</th><th></th></tr></thead><tbody>
-    ${ppCfg.pension.map(p => {
-      const an = ppAnnualOf(p);
-      const isAuto = p.annual == null;
-      return `<tr>
-      <td><input type="text" value="${ppEsc(p.name)}" onchange="ppSetPension('${p.id}','name',this.value)" style="${PP_INPUT};width:170px;text-align:left"></td>
-      <td><select onchange="ppSetPension('${p.id}','tax',this.value)" style="${PP_INPUT};text-align:left">
-        <option value="세공" ${p.tax==='세공'?'selected':''}>세공</option>
-        <option value="안세공" ${p.tax==='안세공'?'selected':''}>안세공</option></select></td>
-      <td style="text-align:right"><input type="text" inputmode="numeric" value="${ppFmtIn(an/12)}" onchange="ppSetPension('${p.id}','monthly',this.value)" style="${PP_INPUT};width:110px"></td>
-      <td style="text-align:right;white-space:nowrap">
-        <input type="text" inputmode="numeric" value="${ppFmtIn(an)}" onchange="ppSetPension('${p.id}','annual',this.value)" style="${PP_INPUT};width:120px">
-        ${p.accountId != null ? `<button class="btn btn-ghost btn-sm" title="분배금 자동값으로 복귀" onclick="ppSetPension('${p.id}','annual','')" style="padding:2px 6px">🔄</button>` : ''}
-        ${isAuto ? '<span style="font-size:10px;color:var(--accent2)">자동</span>' : ''}</td>
-      <td><input type="number" min="2020" max="2100" value="${ppEsc(p.startYear)}" placeholder="지금부터" onchange="ppSetPension('${p.id}','startYear',this.value)" style="${PP_INPUT};width:90px"></td>
-      <td><button class="btn btn-danger btn-sm" onclick="ppDelPension('${p.id}')">삭제</button></td></tr>`;
-    }).join('')}
-    </tbody></table>`;
+  // ① 재남(좌) / 은경(우)
+  document.getElementById('pp-col-jn').innerHTML = ppRenderOwnerCol('재남', thisYear, full);
+  document.getElementById('pp-col-ek').innerHTML = ppRenderOwnerCol('은경', thisYear, full);
+  document.getElementById('pp-sahak').value = ppFmtIn(ppCfg.sahak);
 
-  // ④ 기타
-  document.getElementById('pp-others').innerHTML = ppCfg.others.length ? `
-    <table><thead><tr><th>이름</th><th style="text-align:right">월 수령액</th><th>개시년도</th><th></th></tr></thead><tbody>
-    ${ppCfg.others.map(o => `<tr>
-      <td><input type="text" value="${ppEsc(o.title)}" onchange="ppSetOther('${o.id}','title',this.value)" style="${PP_INPUT};width:170px;text-align:left"></td>
-      <td style="text-align:right"><input type="text" inputmode="numeric" value="${ppFmtIn(o.monthly)}" onchange="ppSetOther('${o.id}','monthly',this.value)" style="${PP_INPUT};width:110px"></td>
-      <td><input type="number" min="2020" max="2100" value="${ppEsc(o.startYear)}" placeholder="지금부터" onchange="ppSetOther('${o.id}','startYear',this.value)" style="${PP_INPUT};width:90px"></td>
-      <td><button class="btn btn-danger btn-sm" onclick="ppDelOther('${o.id}')">삭제</button></td></tr>`).join('')}
-    </tbody></table>`
-    : '<div style="font-size:12px;color:var(--text3);padding:8px 0">아직 없음 — ➕ 추가로 국민연금·사학연금 등을 넣으세요</div>';
-  document.getElementById('pp-sahak').value = ppCfg.sahak || '';
-
-  // ⑤ 연도별 표
+  // ② 연도별 표 (재남/은경 분리)
   document.getElementById('pp-retire').value = ppCfg.retire || '2029-03';
   const startYears = [].concat(ppCfg.pension, ppCfg.others).map(x => parseInt(x.startYear)||0);
   const endYear = Math.min(thisYear + 25, Math.max(thisYear + 10, retireYear + 5, ...startYears) + 2);
@@ -4327,28 +4363,30 @@ function renderPensionPlan() {
   for (let y = thisYear; y <= endYear; y++) {
     const c = ppCalcAt(y);
     const isRetire = y === retireYear;
-    const limOver = c.limitAnnual > PP_LIMIT;
+    const limCell = o => {
+      const v = c[o].limitAnnual, ovr = v > PP_LIMIT;
+      return `<td style="text-align:right;font-family:var(--mono);color:${ovr?'var(--red)':'var(--text2)'};font-weight:${ovr?'700':'400'}">${ppFmt(v)}${ovr?' ⚠️':''}</td>`;
+    };
     yrows += `<tr${isRetire ? ' style="background:#fef3c7"' : ''}>
       <td style="font-weight:700">${y}${isRetire ? ' 🏁 퇴직' : ''}</td>
-      <td style="text-align:right;font-family:var(--mono)">${ppFmt(c.base)}</td>
-      <td style="text-align:right;font-family:var(--mono)">${ppFmt(c.pensionM)}</td>
-      <td style="text-align:right;font-family:var(--mono)">${ppFmt(c.others)}</td>
+      <td style="text-align:right;font-family:var(--mono)">${ppFmt(c['재남'].total)}</td>
+      <td style="text-align:right;font-family:var(--mono)">${ppFmt(c['은경'].total)}</td>
       <td style="text-align:right;font-family:var(--mono);font-weight:800;color:var(--green)">${ppFmt(c.total)}</td>
-      <td style="text-align:right;font-family:var(--mono);color:${limOver?'var(--red)':'var(--text2)'};font-weight:${limOver?'700':'400'}">${ppFmt(c.limitAnnual)}${limOver?' ⚠️':''}</td></tr>`;
+      ${limCell('재남')}${limCell('은경')}</tr>`;
   }
   document.getElementById('pp-years').innerHTML = `
-    <table><thead><tr><th>년도</th><th style="text-align:right">ISA·일반 (월)</th><th style="text-align:right">연금계좌 (월)</th><th style="text-align:right">기타 (월)</th><th style="text-align:right">월 합계</th><th style="text-align:right">연금계좌 연간 (한도체크)</th></tr></thead><tbody>${yrows}</tbody></table>`;
+    <table><thead><tr><th>년도</th><th style="text-align:right">재남 (월)</th><th style="text-align:right">은경 (월)</th><th style="text-align:right">월 합계</th><th style="text-align:right">재남 연금계좌 연간</th><th style="text-align:right">은경 연금계좌 연간</th></tr></thead><tbody>${yrows}</tbody></table>`;
 
   // 요약 카드
-  const now = ppCalcAt(thisYear);
-  document.getElementById('pp-now').textContent = ppFmt(now.total);
-  const ret = ppCalcAt(retireYear);
-  document.getElementById('pp-retire-amt').textContent = ppFmt(ret.total);
+  document.getElementById('pp-now').textContent = ppFmt(ppCalcAt(thisYear).total);
+  document.getElementById('pp-retire-amt').textContent = ppFmt(ppCalcAt(retireYear).total);
   document.getElementById('pp-retire-sub').textContent = (ppCfg.retire||'2029-03').replace('-','년 ') + '월 기준';
   document.getElementById('pp-full').textContent = ppFmt(full.total);
-  const limEl = document.getElementById('pp-limit-amt');
-  limEl.textContent = ppFmt(full.limitAnnual);
-  limEl.style.color = barColor;
+  PP_OWNERS.forEach((o,i) => {
+    const el = document.getElementById(i === 0 ? 'pp-limit-jn' : 'pp-limit-ek');
+    el.textContent = `${o} ${ppFmt(full[o].limitAnnual)}`;
+    el.style.color = ppLimitColor(full[o].limitAnnual);
+  });
 }
 
 function ppSetBase(k, v) { ppCfg.base[k] = String(v).trim() === '' ? null : ppNum(v); ppSave(); renderPensionPlan(); }
@@ -4359,7 +4397,7 @@ function ppSetPension(id, k, v) {
   else p[k] = v;
   ppSave(); renderPensionPlan();
 }
-function ppAddPension() { ppCfg.pension.push({ id:'p'+Date.now()+Math.random().toString(36).slice(2,6), accountId:null, name:'연금계좌', tax:'세공', annual:0, startYear:'' }); ppSave(); renderPensionPlan(); }
+function ppAddPension(owner) { ppCfg.pension.push({ id:'p'+Date.now()+Math.random().toString(36).slice(2,6), owner: owner||'재남', accountId:null, name:'연금계좌', tax:'세공', annual:0, startYear:'' }); ppSave(); renderPensionPlan(); }
 function ppDelPension(id) {
   const p = ppCfg.pension.find(x => x.id === id); if (!p) return;
   if (p.accountId != null) ppCfg.pensionRemoved.push(String(p.accountId));
@@ -4367,9 +4405,9 @@ function ppDelPension(id) {
   ppSave(); renderPensionPlan();
 }
 function ppSetOther(id, k, v) { const o = ppCfg.others.find(x => x.id === id); if (!o) return; o[k] = k === 'monthly' ? ppNum(v) : v; ppSave(); renderPensionPlan(); }
-function ppAddOther() { ppCfg.others.push({ id:'o'+Date.now()+Math.random().toString(36).slice(2,6), title:'', monthly:0, startYear:'' }); ppSave(); renderPensionPlan(); }
+function ppAddOther(owner) { ppCfg.others.push({ id:'o'+Date.now()+Math.random().toString(36).slice(2,6), owner: owner||'재남', title:'', monthly:0, startYear:'' }); ppSave(); renderPensionPlan(); }
 function ppDelOther(id) { ppCfg.others = ppCfg.others.filter(x => x.id !== id); ppSave(); renderPensionPlan(); }
-function ppSetSahak(v) { ppCfg.sahak = v; ppSave(); }
+function ppSetSahak(v) { ppCfg.sahak = ppNum(v) || ''; ppSave(); document.getElementById('pp-sahak').value = ppFmtIn(ppCfg.sahak); }
 function ppSetRetire(v) { ppCfg.retire = v || '2029-03'; ppSave(); renderPensionPlan(); }
 
 // 모달 외부 클릭 닫기
