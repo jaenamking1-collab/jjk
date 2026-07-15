@@ -312,6 +312,20 @@ function getStockHistory(ticker, currency, days) {
   return { success: false, prices: [] };
 }
 
+// ACE papi 공용 fetch: 브라우저형 헤더로 WAF 회피 시도. HTML이 오면 차단으로 보고 명시적 에러.
+// (2026-07: papi가 Apps Script 요청에 HTML 차단 페이지를 반환하기 시작 — 원인 추정: 구글 IP/봇 필터)
+function fetchAceApi(url) {
+  const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, headers: {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'ko-KR,ko;q=0.9',
+    'Referer': 'https://www.aceetf.co.kr/'
+  }});
+  const text = res.getContentText('UTF-8');
+  if (text.trim().charAt(0) === '<') throw new Error('ACE API 차단 (HTTP ' + res.getResponseCode() + ', HTML 응답)');
+  return JSON.parse(text);
+}
+
 // ── ETF 공지 프록시 ──
 function getEtfNotices(source) {
   const cache = CacheService.getScriptCache();
@@ -329,7 +343,7 @@ function getEtfNotices(source) {
         items.push({ title: inner.replace(date, '').trim(), date, url: 'https://www.samsungfund.com/etf/lounge/notice-view.do?no=' + m[1] });
       });
     } else if (source === 'ace') {
-      const json = JSON.parse(UrlFetchApp.fetch('https://papi.aceetf.co.kr/api/notices?categoryNo=61&page=1&searchValue=', { muteHttpExceptions: true }).getContentText('UTF-8'));
+      const json = fetchAceApi('https://papi.aceetf.co.kr/api/notices?categoryNo=61&page=1&searchValue=');
       (json.data || []).slice(0, 5).forEach(n => items.push({ title: n.title || '', date: (n.regDate || '').replace(/-/g, '.'), url: 'https://www.aceetf.co.kr/cs/notice/' + n.id }));
     } else if (source === 'rise') {
       const html = UrlFetchApp.fetch('https://www.riseetf.co.kr/cust/notice?searchText=%EB%B6%84%EB%B0%B0%EA%B8%88&searchType4=tab', { muteHttpExceptions: true }).getContentText('UTF-8');
@@ -1112,7 +1126,7 @@ function parseAceSchedule(html) {
 
 function fetchDist_ace() {
   try {
-    const listJson = JSON.parse(UrlFetchApp.fetch('https://papi.aceetf.co.kr/api/notices?categoryNo=61&page=1&searchValue=', { muteHttpExceptions: true }).getContentText('UTF-8'));
+    const listJson = fetchAceApi('https://papi.aceetf.co.kr/api/notices?categoryNo=61&page=1&searchValue=');
     const notices = (listJson.data || []).filter(n => (n.title||'').includes('분배금'));
     if (!notices.length) return { items: [], error: 'ACE: 분배금 공지 없음' };
 
@@ -1135,13 +1149,13 @@ function fetchDist_ace() {
     const curYear = new Date().getFullYear();
 
     const fetchAceBody = (id) => {
-      const dj = JSON.parse(UrlFetchApp.fetch('https://papi.aceetf.co.kr/api/notices/' + id, { muteHttpExceptions: true }).getContentText('UTF-8'));
+      const dj = fetchAceApi('https://papi.aceetf.co.kr/api/notices/' + id);
       const item = dj.current || dj.data || {};
       let content = item.content || '';
       if (!content) {
         try {
-          const br = UrlFetchApp.fetch('https://papi.aceetf.co.kr/api/notices/' + id + '/body', { muteHttpExceptions: true });
-          if (br.getResponseCode() === 200) { const bj = JSON.parse(br.getContentText('UTF-8')); content = bj.data || bj.content || ''; }
+          const bj = fetchAceApi('https://papi.aceetf.co.kr/api/notices/' + id + '/body');
+          content = bj.data || bj.content || '';
         } catch(e) {}
       }
       return content;
