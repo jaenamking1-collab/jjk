@@ -3315,6 +3315,7 @@ function renderDistGrid(allData) {
   const cards = allData.map(c => {
     const d = c.data || {};
     const myItems = (d.items || []).filter(it => {
+      if (it.hist) return false;   // 이력(지난 회차)은 일정 표·달력용 — 여기선 현재 공지만
       const t = (it.ticker||'').toString().trim().toUpperCase();
       const owned = (t && myTickers.has(t)) || myNames.has(normName(it.name));
       if (!owned) return false;
