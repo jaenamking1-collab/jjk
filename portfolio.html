@@ -315,14 +315,15 @@
   .pp-plain:hover, .pp-plain:focus { background:var(--bg3); border-color:var(--border); outline:none; }
   /* ── 은경 저축 표 ── */
   .sv-wrap { overflow-x:auto; padding:2px; }
-  .sv-tbl { border-collapse:separate; border-spacing:0; font-size:12px; background:var(--bg2);
+  .sv-tbl { border-collapse:separate; border-spacing:0; font-size:14px; background:var(--bg2);
             width:fit-content; max-width:100%; margin:0 auto;
-            border:1px solid var(--border); border-radius:12px; overflow:hidden; box-shadow:0 2px 12px rgba(2,6,23,.05); }
-  .sv-tbl th, .sv-tbl td { padding:5px 9px; border-bottom:1px solid var(--border); white-space:nowrap; }
+            border:2px solid var(--text); border-radius:0; overflow:hidden; }
+  .sv-tbl th, .sv-tbl td { padding:6px 10px; border-bottom:1px solid var(--border); white-space:nowrap; }
+  .sv-tbl thead { border-bottom:2px solid var(--text); }
   .sv-tbl tbody tr:hover td { background:rgba(91,91,240,.04); }
-  .sv-tbl thead .grp { font-size:11px; font-weight:800; letter-spacing:.6px; padding:7px 9px; text-align:center; }
-  .sv-tbl thead .col { font-size:10.5px; font-weight:600; color:var(--text2); text-align:center; }
-  .sv-tbl tfoot td { background:var(--bg3); font-weight:800; }
+  .sv-tbl thead .grp { font-size:13px; font-weight:800; letter-spacing:.6px; padding:8px 10px; text-align:center; }
+  .sv-tbl thead .col { font-size:12.5px; font-weight:600; color:var(--text2); text-align:center; }
+  .sv-tbl tfoot td { background:var(--bg3); font-weight:800; border-top:2px solid var(--text); }
   .sv-tbl .num { text-align:right; font-family:var(--mono); }
   /* 구역 옅은 배경 */
   .sv-tbl td.g-prin  { background:rgba(59,130,246,.055); }
@@ -338,18 +339,21 @@
   .sv-tbl .bd-b { border-left:3px solid #3b82f6; }
   .sv-tbl .bd-g { border-left:3px solid #10b981; }
   .sv-tbl .bd-a { border-left:3px solid #f59e0b; }
+  /* 비고 구분선(중립) */
+  .sv-tbl .bd-n { border-left:2px solid var(--text2); }
   /* 입력칸 */
-  .sv-in { padding:3px 5px; background:transparent; border:1px solid transparent; border-radius:6px;
-           color:var(--text); font-size:12px; text-align:center; font-family:var(--mono); }
+  .sv-in { padding:3px 6px; background:transparent; border:1px solid transparent; border-radius:6px;
+           color:var(--text); font-size:14px; text-align:center; font-family:var(--mono); }
   .sv-in:hover, .sv-in:focus { background:var(--bg2); border-color:var(--border); outline:none; box-shadow:0 0 0 2px rgba(91,91,240,.14); }
-  .sv-in.nm  { text-align:left; width:118px; font-family:var(--sans); font-weight:600; }
-  .sv-in.amt { text-align:right; width:92px; }
-  .sv-in.rt  { width:46px; }
-  .sv-in.dt  { width:118px; text-align:center; color:var(--text2); }
-  .sv-del { padding:2px 7px; font-size:12px; background:transparent; border:1px solid #ef444433;
+  .sv-in.nm   { text-align:left; width:128px; font-family:var(--sans); font-weight:600; }
+  .sv-in.amt  { text-align:right; width:104px; }
+  .sv-in.rt   { width:54px; }
+  .sv-in.dt   { width:130px; text-align:center; color:var(--text2); }
+  .sv-in.memo { text-align:left; width:150px; font-family:var(--sans); color:var(--text2); }
+  .sv-del { padding:2px 8px; font-size:14px; background:transparent; border:1px solid #ef444433;
             color:var(--red); border-radius:6px; cursor:pointer; }
   .sv-del:hover { background:#ef44441a; }
-  .sv-mv { padding:1px 5px; font-size:10px; line-height:1.2; background:transparent; border:1px solid var(--border);
+  .sv-mv { padding:1px 6px; font-size:12px; line-height:1.2; background:transparent; border:1px solid var(--border);
            color:var(--text2); border-radius:5px; cursor:pointer; }
   .sv-mv:hover { background:var(--bg3); color:var(--accent); border-color:var(--accent); }
   .sv-mv:disabled { opacity:.3; cursor:default; }
@@ -723,11 +727,11 @@
   <div id="tab-savings" class="page">
     <div class="card">
       <div style="position:relative;text-align:center;margin-bottom:16px;padding:0 90px">
-        <div style="font-size:18px;font-weight:800;color:var(--text);letter-spacing:.3px">💵 은경 저축</div>
+        <div style="font-size:20px;font-weight:800;color:var(--text);letter-spacing:.3px">💵 은경 저축</div>
         <button class="btn btn-primary" style="position:absolute;right:0;top:50%;transform:translateY(-50%);font-size:12px;padding:6px 14px" onclick="svAdd()">➕ 추가</button>
       </div>
       <div id="sv-table"></div>
-      <div style="text-align:center;font-size:11px;color:var(--text3);margin-top:10px">💡 날짜는 <b>20261101</b>처럼 8자리 숫자로 입력하면 자동으로 <b>2026-11-01</b>로 바뀝니다. · Tab 키로 옆 칸 이동 · ▲▼로 순서 변경</div>
+      <div style="text-align:center;font-size:13px;color:var(--text3);margin-top:10px">💡 날짜는 <b>20261101</b>처럼 8자리 숫자로 입력하면 자동으로 <b>2026-11-01</b>로 바뀝니다. · Tab 키로 옆 칸 이동 · ▲▼로 순서 변경 · 맨 오른쪽 비고칸에 메모</div>
     </div>
   </div>
 
@@ -3033,7 +3037,7 @@ function svFmtDate(v) {
 }
 function svVals(s) {
   return { name:s.name, principal:s.principal, mat_rate:s.mat_rate, mat_date:s.mat_date,
-    mat_amount:s.mat_amount, early_rate:s.early_rate, early_date:s.early_date, early_amount:s.early_amount };
+    mat_amount:s.mat_amount, early_rate:s.early_rate, early_date:s.early_date, early_amount:s.early_amount, memo:s.memo };
 }
 
 function svRow(s, idx, isLast) {
@@ -3046,6 +3050,7 @@ function svRow(s, idx, isLast) {
     <td class="g-early bd-a"><input type="text" class="sv-in rt" inputmode="decimal" value="${svRateShow(s.early_rate)}" onchange="svSet('${s.id}','early_rate',this)"></td>
     <td class="g-early"><input type="text" class="sv-in dt" inputmode="numeric" placeholder="20261101" value="${svEsc(s.early_date)}" onchange="svSet('${s.id}','early_date',this)"></td>
     <td class="g-early"><input type="text" class="sv-in amt" inputmode="numeric" value="${svFmtIn(s.early_amount)}" onchange="svSet('${s.id}','early_amount',this)"></td>
+    <td class="bd-n"><input type="text" class="sv-in memo" value="${svEsc(s.memo)}" placeholder="메모" onchange="svSet('${s.id}','memo',this)"></td>
     <td style="text-align:center"><span class="sv-act">
       <button class="sv-mv" tabindex="-1" title="위로" onclick="svMove('${s.id}',-1)"${idx === 0 ? ' disabled' : ''}>▲</button>
       <button class="sv-mv" tabindex="-1" title="아래로" onclick="svMove('${s.id}',1)"${isLast ? ' disabled' : ''}>▼</button>
@@ -3066,7 +3071,7 @@ function renderSavings() {
   const n = svData.length;
   const body = n
     ? svData.map((s, i) => svRow(s, i, i === n - 1)).join('')
-    : `<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:22px">➕ 추가로 저축 계좌를 입력하세요</td></tr>`;
+    : `<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:22px">➕ 추가로 저축 계좌를 입력하세요</td></tr>`;
   box.innerHTML = `
     <div class="sv-wrap"><table class="sv-tbl">
       <thead>
@@ -3075,6 +3080,7 @@ function renderSavings() {
           <th class="grp g-prin bd-b" rowspan="2">원금</th>
           <th class="grp g-mat bd-g" colspan="3">만기</th>
           <th class="grp g-early bd-a" colspan="3">중도해지</th>
+          <th class="col bd-n" rowspan="2">비고</th>
           <th rowspan="2"></th>
         </tr>
         <tr>
@@ -3090,6 +3096,7 @@ function renderSavings() {
         <td class="g-mat num" id="sv-sum-m">0</td>
         <td class="g-early bd-a"></td><td class="g-early"></td>
         <td class="g-early num" id="sv-sum-e">0</td>
+        <td class="bd-n"></td>
         <td></td>
       </tr></tfoot>
     </table></div>`;
@@ -3097,7 +3104,7 @@ function renderSavings() {
 }
 
 async function svAdd() {
-  const blank = { name:'', principal:'', mat_rate:'', mat_date:'', mat_amount:'', early_rate:'', early_date:'', early_amount:'' };
+  const blank = { name:'', principal:'', mat_rate:'', mat_date:'', mat_amount:'', early_rate:'', early_date:'', early_amount:'', memo:'' };
   const res = await apiPost({ action:'addSaving', ...blank });
   if (res && res.id) { svData.push({ id:res.id, ...blank }); renderSavings(); }
 }
@@ -3120,7 +3127,7 @@ async function svMove(id, dir) {
   const j = i + dir;
   if (i < 0 || j < 0 || j >= svData.length) return;
   const a = svData[i], b = svData[j];
-  ['name','principal','mat_rate','mat_date','mat_amount','early_rate','early_date','early_amount']
+  ['name','principal','mat_rate','mat_date','mat_amount','early_rate','early_date','early_amount','memo']
     .forEach(f => { const t = a[f]; a[f] = b[f]; b[f] = t; });
   renderSavings();
   await apiPost({ action:'updateSaving', id:a.id, ...svVals(a) });

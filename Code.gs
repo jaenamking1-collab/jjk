@@ -192,7 +192,7 @@ function getSavingsSheet() {
   let sheet = ss.getSheetByName('은경저축');
   if (!sheet) {
     sheet = ss.insertSheet('은경저축');
-    sheet.appendRow(['id','계좌명','원금','만기이율','만기날짜','만기시금액','중도해지이율','중도해지일','중도해지금액','created_at']);
+    sheet.appendRow(['id','계좌명','원금','만기이율','만기날짜','만기시금액','중도해지이율','중도해지일','중도해지금액','created_at','비고']);
   }
   return sheet;
 }
@@ -202,7 +202,8 @@ function getSavings() {
   if (rows.length <= 1) return [];
   return rows.slice(1).filter(r => r[0]).map(r => ({
     id: r[0], name: r[1], principal: r[2], mat_rate: r[3], mat_date: r[4],
-    mat_amount: r[5], early_rate: r[6], early_date: r[7], early_amount: r[8], created_at: r[9]
+    mat_amount: r[5], early_rate: r[6], early_date: r[7], early_amount: r[8], created_at: r[9],
+    memo: r[10] != null ? r[10] : ''
   }));
 }
 function addSaving(data) {
@@ -210,7 +211,7 @@ function addSaving(data) {
   const id = new Date().getTime().toString();
   sheet.appendRow([id, data.name||'', data.principal||'', data.mat_rate||'',
     data.mat_date ? "'"+data.mat_date : '', data.mat_amount||'', data.early_rate||'',
-    data.early_date ? "'"+data.early_date : '', data.early_amount||'', new Date().toISOString()]);
+    data.early_date ? "'"+data.early_date : '', data.early_amount||'', new Date().toISOString(), data.memo||'']);
   return { success: true, id };
 }
 function updateSaving(data) {
@@ -226,6 +227,7 @@ function updateSaving(data) {
       sheet.getRange(i+1, 7).setValue(data.early_rate||'');
       sheet.getRange(i+1, 8).setValue(data.early_date ? "'"+data.early_date : '');
       sheet.getRange(i+1, 9).setValue(data.early_amount||'');
+      sheet.getRange(i+1, 11).setValue(data.memo||'');
       return { success: true };
     }
   }
