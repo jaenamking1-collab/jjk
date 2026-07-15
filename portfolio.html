@@ -349,9 +349,9 @@
   .sv-in:hover, .sv-in:focus { background:var(--bg2); border-color:var(--border); outline:none; box-shadow:0 0 0 2px rgba(91,91,240,.14); }
   .sv-in.nm   { text-align:left; width:110px; font-family:var(--sans); font-weight:600; }
   .sv-in.amt  { text-align:right; width:94px; }
-  .sv-in.rt   { width:48px; }
+  .sv-in.rt   { width:64px; }
   .sv-in.dt   { width:112px; text-align:center; color:var(--text2); }
-  .sv-in.memo { text-align:left; width:120px; font-family:var(--sans); color:var(--text2); }
+  .sv-in.memo { text-align:left; width:360px; font-size:11px; font-family:var(--sans); color:var(--text2); }
   .sv-del { padding:2px 8px; font-size:14px; background:transparent; border:1px solid #ef444433;
             color:var(--red); border-radius:6px; cursor:pointer; }
   .sv-del:hover { background:#ef44441a; }
@@ -360,6 +360,11 @@
   .sv-mv:hover { background:var(--bg3); color:var(--accent); border-color:var(--accent); }
   .sv-mv:disabled { opacity:.3; cursor:default; }
   .sv-act { display:inline-flex; align-items:center; gap:3px; }
+  /* 방금 순서 이동한 행 강조 — 여러 번 올려도 어느 행인지 눈으로 추적 */
+  .sv-tbl tbody tr.sv-moved td { box-shadow: inset 0 0 0 9999px rgba(91,91,240,.13); }
+  .sv-tbl tbody tr.sv-moved td:first-child { box-shadow: inset 0 0 0 9999px rgba(91,91,240,.13); border-left:3px solid var(--accent); }
+  @keyframes svFlash { 0% { box-shadow: inset 0 0 0 9999px rgba(91,91,240,.5); } 100% { box-shadow: inset 0 0 0 9999px rgba(91,91,240,.13); } }
+  .sv-tbl tbody tr.sv-flash td { animation: svFlash .7s ease-out; }
 </style>
 </head>
 <body>
@@ -3014,13 +3019,14 @@ function showTab(name) {
 
 // ── 은경 저축 ─────────────────────────────
 let svData = [];
+let svLastMovedId = null; // 방금 ▲▼로 옮긴 행 강조용
 // 클릭/포커스 시 전체 선택 → 바로 숫자 입력하면 덮어쓰기 (onmouseup return false로 클릭 후 해제 방지)
 const SV_SEL = 'onfocus="this.select()" onmouseup="return false"';
 function svEsc(s) { return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
 function svNum(v) { const n = parseFloat(String(v).replace(/,/g,'')); return isFinite(n) ? n : 0; }
 function svFmtIn(n) { n = svNum(n); return n ? Math.round(n).toLocaleString() : ''; }
 function svRate(v) { const n = parseFloat(String(v).replace(/[%,\s]/g,'')); return isFinite(n) ? n : ''; }
-function svRateShow(v) { return (v !== '' && v != null && isFinite(v)) ? v : ''; }
+function svRateShow(v) { return (v !== '' && v != null && isFinite(v)) ? Number(v).toFixed(3) : ''; }
 
 async function loadSavings() {
   const box = document.getElementById('sv-table');
@@ -3044,7 +3050,8 @@ function svVals(s) {
 }
 
 function svRow(s, idx, isLast) {
-  return `<tr>
+  const moved = svLastMovedId != null && String(s.id) === String(svLastMovedId);
+  return `<tr${moved ? ' class="sv-moved"' : ''}>
     <td><input type="text" class="sv-in nm" value="${svEsc(s.name)}" onchange="svSet('${s.id}','name',this)"></td>
     <td class="g-prin bd-b"><input type="text" class="sv-in amt" inputmode="numeric" ${SV_SEL} value="${svFmtIn(s.principal)}" onchange="svSet('${s.id}','principal',this)"></td>
     <td class="g-mat bd-g"><input type="text" class="sv-in rt" inputmode="decimal" ${SV_SEL} value="${svRateShow(s.mat_rate)}" onchange="svSet('${s.id}','mat_rate',this)"></td>
@@ -3111,7 +3118,7 @@ function renderSavings() {
 async function svAdd() {
   const blank = { name:'', principal:'', mat_rate:'', mat_date:'', mat_amount:'', early_rate:'', early_date:'', early_amount:'', memo:'' };
   const res = await apiPost({ action:'addSaving', ...blank });
-  if (res && res.id) { svData.push({ id:res.id, ...blank }); renderSavings(); }
+  if (res && res.id) { svData.push({ id:res.id, ...blank }); svLastMovedId = null; renderSavings(); }
 }
 
 // 편집: 전체 재렌더 없이 해당 칸만 정리 → Tab 포커스 유지(옆 칸으로 이동)
@@ -3134,7 +3141,16 @@ async function svMove(id, dir) {
   const a = svData[i], b = svData[j];
   ['name','principal','mat_rate','mat_date','mat_amount','early_rate','early_date','early_amount','memo']
     .forEach(f => { const t = a[f]; a[f] = b[f]; b[f] = t; });
+  // 데이터가 j 위치로 옮겨감 → 그 행(svData[j].id)을 강조해 눈으로 따라가게
+  svLastMovedId = svData[j].id;
   renderSavings();
+  const rows = document.querySelectorAll('#sv-table .sv-tbl tbody tr');
+  const tr = rows[j];
+  if (tr) {
+    tr.classList.add('sv-flash');
+    tr.scrollIntoView({ block:'nearest' });
+    setTimeout(() => tr.classList.remove('sv-flash'), 700);
+  }
   await apiPost({ action:'updateSaving', id:a.id, ...svVals(a) });
   await apiPost({ action:'updateSaving', id:b.id, ...svVals(b) });
 }
@@ -3143,6 +3159,7 @@ async function svDel(id) {
   if (!confirm('이 저축 계좌를 삭제할까요?')) return;
   await apiPost({ action:'deleteSaving', id });
   svData = svData.filter(x => String(x.id) !== String(id));
+  svLastMovedId = null;
   renderSavings();
 }
 
