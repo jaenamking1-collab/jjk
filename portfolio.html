@@ -313,10 +313,42 @@
   /* 연금플랜 표 안 편집칸 — 평소엔 일반 셀처럼 보이고 hover/focus 때만 입력칸 표시 */
   .pp-plain { width:100%; padding:3px 4px; background:transparent; border:1px solid transparent; border-radius:6px; color:var(--text); font-size:12px; text-align:right; font-family:var(--mono); }
   .pp-plain:hover, .pp-plain:focus { background:var(--bg3); border-color:var(--border); outline:none; }
-  .sv-tbl { width:100%; border-collapse:collapse; font-size:12px; min-width:820px; }
-  .sv-tbl th, .sv-tbl td { border:1px solid var(--border); padding:3px 5px; }
-  .sv-tbl th { background:var(--bg3); color:var(--text2); font-weight:600; font-size:11px; white-space:nowrap; }
-  .sv-tbl tfoot td { background:var(--bg3); }
+  /* ── 은경 저축 표 ── */
+  .sv-wrap { overflow-x:auto; padding:2px; }
+  .sv-tbl { border-collapse:separate; border-spacing:0; font-size:12px; background:var(--bg2);
+            width:fit-content; max-width:100%; margin:0 auto;
+            border:1px solid var(--border); border-radius:12px; overflow:hidden; box-shadow:0 2px 12px rgba(2,6,23,.05); }
+  .sv-tbl th, .sv-tbl td { padding:5px 9px; border-bottom:1px solid var(--border); white-space:nowrap; }
+  .sv-tbl tbody tr:hover td { background:rgba(91,91,240,.04); }
+  .sv-tbl thead .grp { font-size:11px; font-weight:800; letter-spacing:.6px; padding:7px 9px; text-align:center; }
+  .sv-tbl thead .col { font-size:10.5px; font-weight:600; color:var(--text2); text-align:center; }
+  .sv-tbl tfoot td { background:var(--bg3); font-weight:800; }
+  .sv-tbl .num { text-align:right; font-family:var(--mono); }
+  /* 구역 옅은 배경 */
+  .sv-tbl td.g-prin  { background:rgba(59,130,246,.055); }
+  .sv-tbl td.g-mat   { background:rgba(16,185,129,.055); }
+  .sv-tbl td.g-early { background:rgba(245,158,11,.07); }
+  .sv-tbl tbody tr:hover td.g-prin  { background:rgba(59,130,246,.11); }
+  .sv-tbl tbody tr:hover td.g-mat   { background:rgba(16,185,129,.11); }
+  .sv-tbl tbody tr:hover td.g-early { background:rgba(245,158,11,.13); }
+  .sv-tbl thead .g-prin  { background:rgba(59,130,246,.16);  color:#2563eb; }
+  .sv-tbl thead .g-mat   { background:rgba(16,185,129,.16);  color:#0f766e; }
+  .sv-tbl thead .g-early { background:rgba(245,158,11,.20);  color:#b45309; }
+  /* 구역 경계 굵은 세로선 */
+  .sv-tbl .bd-b { border-left:3px solid #3b82f6; }
+  .sv-tbl .bd-g { border-left:3px solid #10b981; }
+  .sv-tbl .bd-a { border-left:3px solid #f59e0b; }
+  /* 입력칸 */
+  .sv-in { padding:3px 5px; background:transparent; border:1px solid transparent; border-radius:6px;
+           color:var(--text); font-size:12px; text-align:center; font-family:var(--mono); }
+  .sv-in:hover, .sv-in:focus { background:var(--bg2); border-color:var(--border); outline:none; box-shadow:0 0 0 2px rgba(91,91,240,.14); }
+  .sv-in.nm  { text-align:left; width:118px; font-family:var(--sans); font-weight:600; }
+  .sv-in.amt { text-align:right; width:92px; }
+  .sv-in.rt  { width:46px; }
+  .sv-in.dt  { width:118px; text-align:center; color:var(--text2); }
+  .sv-del { padding:2px 8px; font-size:12px; background:transparent; border:1px solid #ef444433;
+            color:var(--red); border-radius:6px; cursor:pointer; }
+  .sv-del:hover { background:#ef44441a; }
 </style>
 </head>
 <body>
@@ -685,11 +717,11 @@
   <!-- ── 은경 저축 탭 ── -->
   <div id="tab-savings" class="page">
     <div class="card">
-      <div class="card-header">
-        <div class="card-title">💵 은경 저축</div>
-        <button class="btn btn-primary" style="font-size:12px;padding:6px 14px" onclick="svAdd()">➕ 추가</button>
+      <div style="position:relative;text-align:center;margin-bottom:16px;padding:0 90px">
+        <div style="font-size:18px;font-weight:800;color:var(--text);letter-spacing:.3px">💵 은경 저축</div>
+        <button class="btn btn-primary" style="position:absolute;right:0;top:50%;transform:translateY(-50%);font-size:12px;padding:6px 14px" onclick="svAdd()">➕ 추가</button>
       </div>
-      <div id="sv-table" style="overflow-x:auto"></div>
+      <div id="sv-table"></div>
     </div>
   </div>
 
@@ -2989,15 +3021,15 @@ async function loadSavings() {
 
 function svRow(s) {
   return `<tr>
-    <td><input type="text" class="pp-plain" style="text-align:left" value="${svEsc(s.name)}" onchange="svSet('${s.id}','name',this.value)"></td>
-    <td><input type="text" class="pp-plain" inputmode="numeric" value="${svFmtIn(s.principal)}" onchange="svSet('${s.id}','principal',this.value)"></td>
-    <td><input type="text" class="pp-plain" inputmode="decimal" style="text-align:center" value="${svRateShow(s.mat_rate)}" onchange="svSet('${s.id}','mat_rate',this.value)"></td>
-    <td><input type="date" class="pp-plain" style="text-align:center" value="${svEsc(s.mat_date)}" onchange="svSet('${s.id}','mat_date',this.value)"></td>
-    <td><input type="text" class="pp-plain" inputmode="numeric" value="${svFmtIn(s.mat_amount)}" onchange="svSet('${s.id}','mat_amount',this.value)"></td>
-    <td><input type="text" class="pp-plain" inputmode="decimal" style="text-align:center" value="${svRateShow(s.early_rate)}" onchange="svSet('${s.id}','early_rate',this.value)"></td>
-    <td><input type="date" class="pp-plain" style="text-align:center" value="${svEsc(s.early_date)}" onchange="svSet('${s.id}','early_date',this.value)"></td>
-    <td><input type="text" class="pp-plain" inputmode="numeric" value="${svFmtIn(s.early_amount)}" onchange="svSet('${s.id}','early_amount',this.value)"></td>
-    <td style="text-align:center"><button class="btn" style="padding:2px 8px;font-size:12px" onclick="svDel('${s.id}')">✕</button></td>
+    <td><input type="text" class="sv-in nm" value="${svEsc(s.name)}" onchange="svSet('${s.id}','name',this.value)"></td>
+    <td class="g-prin bd-b"><input type="text" class="sv-in amt" inputmode="numeric" value="${svFmtIn(s.principal)}" onchange="svSet('${s.id}','principal',this.value)"></td>
+    <td class="g-mat bd-g"><input type="text" class="sv-in rt" inputmode="decimal" value="${svRateShow(s.mat_rate)}" onchange="svSet('${s.id}','mat_rate',this.value)"></td>
+    <td class="g-mat"><input type="date" class="sv-in dt" value="${svEsc(s.mat_date)}" onchange="svSet('${s.id}','mat_date',this.value)"></td>
+    <td class="g-mat"><input type="text" class="sv-in amt" inputmode="numeric" value="${svFmtIn(s.mat_amount)}" onchange="svSet('${s.id}','mat_amount',this.value)"></td>
+    <td class="g-early bd-a"><input type="text" class="sv-in rt" inputmode="decimal" value="${svRateShow(s.early_rate)}" onchange="svSet('${s.id}','early_rate',this.value)"></td>
+    <td class="g-early"><input type="date" class="sv-in dt" value="${svEsc(s.early_date)}" onchange="svSet('${s.id}','early_date',this.value)"></td>
+    <td class="g-early"><input type="text" class="sv-in amt" inputmode="numeric" value="${svFmtIn(s.early_amount)}" onchange="svSet('${s.id}','early_amount',this.value)"></td>
+    <td style="text-align:center"><button class="sv-del" onclick="svDel('${s.id}')">✕</button></td>
   </tr>`;
 }
 
@@ -3007,24 +3039,33 @@ function renderSavings() {
   svData.forEach(s => { sumP += svNum(s.principal); sumM += svNum(s.mat_amount); sumE += svNum(s.early_amount); });
   const body = svData.length
     ? svData.map(svRow).join('')
-    : `<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:20px">➕ 추가로 저축 계좌를 입력하세요</td></tr>`;
+    : `<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:22px">➕ 추가로 저축 계좌를 입력하세요</td></tr>`;
   box.innerHTML = `
-    <table class="sv-tbl">
-      <thead><tr>
-        <th>계좌명</th><th>원금</th><th>만기이율(%)</th><th>만기날짜</th><th>만기시금액</th>
-        <th>중도해지이율(%)</th><th>중도해지일</th><th>중도해지금액</th><th></th>
-      </tr></thead>
+    <div class="sv-wrap"><table class="sv-tbl">
+      <thead>
+        <tr>
+          <th class="col" rowspan="2">계좌명</th>
+          <th class="grp g-prin bd-b" rowspan="2">원금</th>
+          <th class="grp g-mat bd-g" colspan="3">만기</th>
+          <th class="grp g-early bd-a" colspan="3">중도해지</th>
+          <th rowspan="2"></th>
+        </tr>
+        <tr>
+          <th class="col g-mat bd-g">이율(%)</th><th class="col g-mat">날짜</th><th class="col g-mat">금액</th>
+          <th class="col g-early bd-a">이율(%)</th><th class="col g-early">날짜</th><th class="col g-early">금액</th>
+        </tr>
+      </thead>
       <tbody>${body}</tbody>
       <tfoot><tr>
-        <td style="text-align:right;font-weight:700">합계</td>
-        <td style="text-align:right;font-weight:700;font-family:var(--mono)">${sumP.toLocaleString()}</td>
-        <td></td><td></td>
-        <td style="text-align:right;font-weight:700;font-family:var(--mono)">${sumM.toLocaleString()}</td>
-        <td></td><td></td>
-        <td style="text-align:right;font-weight:700;font-family:var(--mono)">${sumE.toLocaleString()}</td>
+        <td class="num">합계</td>
+        <td class="g-prin bd-b num">${sumP.toLocaleString()}</td>
+        <td class="g-mat bd-g"></td><td class="g-mat"></td>
+        <td class="g-mat num">${sumM.toLocaleString()}</td>
+        <td class="g-early bd-a"></td><td class="g-early"></td>
+        <td class="g-early num">${sumE.toLocaleString()}</td>
         <td></td>
       </tr></tfoot>
-    </table>`;
+    </table></div>`;
 }
 
 async function svAdd() {
