@@ -9,6 +9,11 @@
 
 ---
 
+## 2026-07-15 (17) / 직장 — 표 마지막 행 아래 테두리 복구 (전역 규칙 범위 축소)
+- 전역 CSS `tr:last-child td { border-bottom:none; }`가 **모든 표** 마지막 행 바닥선을 지우고 있었음(연금플랜·보유종목·분배금 등) → `.sv-tbl tr:last-child td { … }`로 범위 축소. 은경 저축 표(자체 2px 프레임)만 규칙 유지, 나머지 표는 마지막 행에도 아래 테두리 살아남.
+- 연금플랜 표의 테두리 없는 액션·빈 칸(inline `border:none`)은 그대로 유지 → 바닥선은 데이터 칸(계좌명~평가금액/개시년도)에만 생김(의도대로).
+- 반복 지적 사항이라 **피드백 메모리(table-bottom-border) 저장**. 검증: 로컬 computed-style — ISA·연금계좌 표 마지막 행 데이터칸 border-bottom 1px solid, 액션칸 0px none, 콘솔 무에러. (스크린샷 서브시스템은 이 세션도 타임아웃 → 측정값으로 검증) 프론트만 — 재배포 불필요.
+
 ## 2026-07-15 (16) / 집 — 은경 저축 클릭 전체선택 + 추가버튼 표 우상단 이동
 - **입력칸 클릭 시 전체선택**: 상수 `SV_SEL = 'onfocus="this.select()" onmouseup="return false"'`을 날짜·금액·이율 칸에 적용 — 클릭하면 값 전체 선택돼 바로 숫자 입력하면 덮어써짐(onmouseup return false로 클릭 후 해제 방지). 이름·비고는 부분수정 위해 제외.
 - **추가 버튼 위치**: 카드 헤더에서 제거 → 표 바로 위 우측정렬 바(`.sv-topbar` flex justify-end)로 이동. 표+버튼을 `.sv-inner`(width:fit-content, margin auto)로 감싸 버튼 우측이 표 우측 끝과 정렬(간격 0px). 제목은 순수 중앙정렬만 남김.
