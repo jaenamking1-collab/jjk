@@ -313,6 +313,10 @@
   /* 연금플랜 표 안 편집칸 — 평소엔 일반 셀처럼 보이고 hover/focus 때만 입력칸 표시 */
   .pp-plain { width:100%; padding:3px 4px; background:transparent; border:1px solid transparent; border-radius:6px; color:var(--text); font-size:12px; text-align:right; font-family:var(--mono); }
   .pp-plain:hover, .pp-plain:focus { background:var(--bg3); border-color:var(--border); outline:none; }
+  .sv-tbl { width:100%; border-collapse:collapse; font-size:12px; min-width:820px; }
+  .sv-tbl th, .sv-tbl td { border:1px solid var(--border); padding:3px 5px; }
+  .sv-tbl th { background:var(--bg3); color:var(--text2); font-weight:600; font-size:11px; white-space:nowrap; }
+  .sv-tbl tfoot td { background:var(--bg3); }
 </style>
 </head>
 <body>
@@ -352,6 +356,7 @@
   <button class="tab" onclick="showTab('dividends')"><span class="tab-icon">💰</span><span>분배금</span></button>
   <button class="tab" onclick="showTab('dashboard')"><span class="tab-icon">📈</span><span>대시보드</span></button>
   <button class="tab" onclick="showTab('pension')"><span class="tab-icon">🪙</span><span>연금플랜</span></button>
+  <button class="tab" onclick="showTab('savings')"><span class="tab-icon">💵</span><span>은경 저축</span></button>
   <button class="tab" onclick="showTab('screener')"><span class="tab-icon">🔎</span><span>월배당 스크리너</span></button>
   <button class="tab" onclick="showTab('distributions')"><span class="tab-icon">📢</span><span>분배금공지</span></button>
   <button class="tab" onclick="showTab('excel')"><span class="tab-icon">📁</span><span>엑셀</span></button>
@@ -674,6 +679,17 @@
       </div>
       <div id="pp-years" style="overflow-x:auto"></div>
       <div style="font-size:11px;color:var(--text3);margin-top:8px">개시년도가 비어 있으면 지금부터 포함. 퇴직 전에 쓸 수 있는 건 ISA·일반계좌 분배금뿐이므로 연금 행에는 개시년도(55세/60세 도달 연도 등)를 넣어서 확인.</div>
+    </div>
+  </div>
+
+  <!-- ── 은경 저축 탭 ── -->
+  <div id="tab-savings" class="page">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">💵 은경 저축</div>
+        <button class="btn btn-primary" style="font-size:12px;padding:6px 14px" onclick="svAdd()">➕ 추가</button>
+      </div>
+      <div id="sv-table" style="overflow-x:auto"></div>
     </div>
   </div>
 
@@ -2946,10 +2962,92 @@ function showTab(name) {
   if (name === 'dividends') loadDividendGrid();
   if (name === 'dashboard') loadDashboard();
   if (name === 'pension') loadPensionPlan();
+  if (name === 'savings') loadSavings();
   if (name === 'screener') loadScreener();
   if (name === 'distributions') { loadDistributions(); loadAllNotices(); }
   if (name === 'holdings' && state.holdings.length) loadHoldingPrices(state.holdings);
   if (name === 'excel' && !state.holdings.length) loadAccountStats();
+}
+
+// ── 은경 저축 ─────────────────────────────
+let svData = [];
+function svEsc(s) { return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
+function svNum(v) { const n = parseFloat(String(v).replace(/,/g,'')); return isFinite(n) ? n : 0; }
+function svFmtIn(n) { n = svNum(n); return n ? Math.round(n).toLocaleString() : ''; }
+function svRate(v) { const n = parseFloat(String(v).replace(/[%,\s]/g,'')); return isFinite(n) ? n : ''; }
+function svRateShow(v) { return (v !== '' && v != null && isFinite(v)) ? v : ''; }
+
+async function loadSavings() {
+  const box = document.getElementById('sv-table');
+  box.innerHTML = '<div style="color:var(--text3);padding:20px">불러오는 중…</div>';
+  try {
+    const res = await api({ action:'getSavings' });
+    svData = Array.isArray(res) ? res : [];
+  } catch(e) { svData = []; }
+  renderSavings();
+}
+
+function svRow(s) {
+  return `<tr>
+    <td><input type="text" class="pp-plain" style="text-align:left" value="${svEsc(s.name)}" onchange="svSet('${s.id}','name',this.value)"></td>
+    <td><input type="text" class="pp-plain" inputmode="numeric" value="${svFmtIn(s.principal)}" onchange="svSet('${s.id}','principal',this.value)"></td>
+    <td><input type="text" class="pp-plain" inputmode="decimal" style="text-align:center" value="${svRateShow(s.mat_rate)}" onchange="svSet('${s.id}','mat_rate',this.value)"></td>
+    <td><input type="date" class="pp-plain" style="text-align:center" value="${svEsc(s.mat_date)}" onchange="svSet('${s.id}','mat_date',this.value)"></td>
+    <td><input type="text" class="pp-plain" inputmode="numeric" value="${svFmtIn(s.mat_amount)}" onchange="svSet('${s.id}','mat_amount',this.value)"></td>
+    <td><input type="text" class="pp-plain" inputmode="decimal" style="text-align:center" value="${svRateShow(s.early_rate)}" onchange="svSet('${s.id}','early_rate',this.value)"></td>
+    <td><input type="date" class="pp-plain" style="text-align:center" value="${svEsc(s.early_date)}" onchange="svSet('${s.id}','early_date',this.value)"></td>
+    <td><input type="text" class="pp-plain" inputmode="numeric" value="${svFmtIn(s.early_amount)}" onchange="svSet('${s.id}','early_amount',this.value)"></td>
+    <td style="text-align:center"><button class="btn" style="padding:2px 8px;font-size:12px" onclick="svDel('${s.id}')">✕</button></td>
+  </tr>`;
+}
+
+function renderSavings() {
+  const box = document.getElementById('sv-table');
+  let sumP = 0, sumM = 0, sumE = 0;
+  svData.forEach(s => { sumP += svNum(s.principal); sumM += svNum(s.mat_amount); sumE += svNum(s.early_amount); });
+  const body = svData.length
+    ? svData.map(svRow).join('')
+    : `<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:20px">➕ 추가로 저축 계좌를 입력하세요</td></tr>`;
+  box.innerHTML = `
+    <table class="sv-tbl">
+      <thead><tr>
+        <th>계좌명</th><th>원금</th><th>만기이율(%)</th><th>만기날짜</th><th>만기시금액</th>
+        <th>중도해지이율(%)</th><th>중도해지일</th><th>중도해지금액</th><th></th>
+      </tr></thead>
+      <tbody>${body}</tbody>
+      <tfoot><tr>
+        <td style="text-align:right;font-weight:700">합계</td>
+        <td style="text-align:right;font-weight:700;font-family:var(--mono)">${sumP.toLocaleString()}</td>
+        <td></td><td></td>
+        <td style="text-align:right;font-weight:700;font-family:var(--mono)">${sumM.toLocaleString()}</td>
+        <td></td><td></td>
+        <td style="text-align:right;font-weight:700;font-family:var(--mono)">${sumE.toLocaleString()}</td>
+        <td></td>
+      </tr></tfoot>
+    </table>`;
+}
+
+async function svAdd() {
+  const blank = { name:'', principal:'', mat_rate:'', mat_date:'', mat_amount:'', early_rate:'', early_date:'', early_amount:'' };
+  const res = await apiPost({ action:'addSaving', ...blank });
+  if (res && res.id) { svData.push({ id:res.id, ...blank }); renderSavings(); }
+}
+
+function svSet(id, k, v) {
+  const s = svData.find(x => String(x.id) === String(id)); if (!s) return;
+  if (k === 'principal' || k === 'mat_amount' || k === 'early_amount') s[k] = svNum(v);
+  else if (k === 'mat_rate' || k === 'early_rate') s[k] = svRate(v);
+  else s[k] = v;
+  renderSavings();
+  apiPost({ action:'updateSaving', id:s.id, name:s.name, principal:s.principal, mat_rate:s.mat_rate,
+    mat_date:s.mat_date, mat_amount:s.mat_amount, early_rate:s.early_rate, early_date:s.early_date, early_amount:s.early_amount });
+}
+
+async function svDel(id) {
+  if (!confirm('이 저축 계좌를 삭제할까요?')) return;
+  await apiPost({ action:'deleteSaving', id });
+  svData = svData.filter(x => String(x.id) !== String(id));
+  renderSavings();
 }
 
 // ── 분배금 공지 정리 ──────────────────────
