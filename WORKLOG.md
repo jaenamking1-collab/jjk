@@ -12,8 +12,7 @@
 ## 2026-07-15 (2) / — ACE 파서 수정 (papi WAF 차단 대응)
 - **원인 조사**: papi.aceetf.co.kr가 Apps Script 요청에만 HTML 차단 페이지 반환(로컬 PC에선 UA 무관 200, 타 사이트 Origin 헤더면 403). 구글 IP/봇 필터로 추정.
 - **수정**: `fetchAceApi()` 헬퍼 신설 — 브라우저형 헤더(Chrome UA, Accept, Accept-Language, Referer)로 요청, HTML 응답이면 `ACE API 차단 (HTTP xxx)` 명시적 에러. `getEtfNotices(ace)`·`fetchDist_ace`(목록/본문/body 3곳) 모두 이 헬퍼로 교체.
-- **⚠️ 재배포 필요**: Code.gs를 Apps Script 편집기에 다시 붙여넣고 **배포 관리 → 연필(편집) → 버전: 새 버전 → 배포**. ("새 배포"를 만들면 URL이 바뀌어 앱이 끊김 — 반드시 기존 배포의 새 버전으로.)
-- 만약 헤더로도 안 뚫리면(IP 차단 확정) 다음 후보: ACE만 별도 우회 경로 또는 실패 시 카드에 안내만 표시.
+- **재배포 완료 + 복구 확인**: 헤더 우회 성공(IP 차단 아니었음 — 봇 핑거프린트 필터). getEtfNotices(ace) 공지 5건, getDistribution(ace) 19종목·일정(공시 7/13·기준 7/15·지급 7/16) 정상. 공지 페이지에서 ACE 카드·달력·일정 표 복귀 실측.
 
 ## 2026-07-15 / — 분배금 공지 카드: 월중/월말 빈 슬롯 유지
 - **공지 카드 월중/월말 슬롯 고정**: 해당 회차 공지가 없어도 자리를 비워둠(회색 라벨 + 날짜 `-`) — 카드 높이·순서가 달마다 안 흔들림. 특별/기타는 있을 때만. `dist_notice.html`·`portfolio.html` 둘 다 반영, jjk-dist/index.html 복사·푸시.
