@@ -27,6 +27,7 @@ function doGet(e) {
       case 'getAccounts':     result = getAccounts(); break;
       case 'getHoldings':     result = getHoldings(e.parameter.account_id); break;
       case 'getDividends':    result = getDividends(e.parameter.year, e.parameter.account_id); break;
+      case 'getSavings':      result = getSavings(); break;
       case 'getExchangeRate': result = { rate: fetchExchangeRate() }; break;
       case 'getStockInfo':    result = getStockInfo(e.parameter.ticker, e.parameter.currency); break;
       case 'getStockList':    result = getStockList(); break;
@@ -69,6 +70,9 @@ function doPost(e) {
       case 'deleteHolding':  result = deleteHolding(data.id); break;
       case 'saveDividend':   result = saveDividend(data); break;
       case 'deleteDividend': result = deleteDividend(data.id); break;
+      case 'addSaving':      result = addSaving(data); break;
+      case 'updateSaving':   result = updateSaving(data); break;
+      case 'deleteSaving':   result = deleteSaving(data.id); break;
       default: result = { error: 'Unknown action' };
     }
   } catch(err) {
@@ -181,6 +185,53 @@ function saveDividend(data) {
   return { success: true, id };
 }
 function deleteDividend(id) { deleteRowById('dividends', id); return { success: true }; }
+
+// ── 은경 저축 ──────────────────────────────
+function getSavingsSheet() {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  let sheet = ss.getSheetByName('은경저축');
+  if (!sheet) {
+    sheet = ss.insertSheet('은경저축');
+    sheet.appendRow(['id','계좌명','원금','만기이율','만기날짜','만기시금액','중도해지이율','중도해지일','중도해지금액','created_at']);
+  }
+  return sheet;
+}
+function getSavings() {
+  const sheet = getSavingsSheet();
+  const rows = sheet.getDataRange().getValues();
+  if (rows.length <= 1) return [];
+  return rows.slice(1).filter(r => r[0]).map(r => ({
+    id: r[0], name: r[1], principal: r[2], mat_rate: r[3], mat_date: r[4],
+    mat_amount: r[5], early_rate: r[6], early_date: r[7], early_amount: r[8], created_at: r[9]
+  }));
+}
+function addSaving(data) {
+  const sheet = getSavingsSheet();
+  const id = new Date().getTime().toString();
+  sheet.appendRow([id, data.name||'', data.principal||'', data.mat_rate||'',
+    data.mat_date ? "'"+data.mat_date : '', data.mat_amount||'', data.early_rate||'',
+    data.early_date ? "'"+data.early_date : '', data.early_amount||'', new Date().toISOString()]);
+  return { success: true, id };
+}
+function updateSaving(data) {
+  const sheet = getSavingsSheet();
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][0].toString() === data.id.toString()) {
+      sheet.getRange(i+1, 2).setValue(data.name||'');
+      sheet.getRange(i+1, 3).setValue(data.principal||'');
+      sheet.getRange(i+1, 4).setValue(data.mat_rate||'');
+      sheet.getRange(i+1, 5).setValue(data.mat_date ? "'"+data.mat_date : '');
+      sheet.getRange(i+1, 6).setValue(data.mat_amount||'');
+      sheet.getRange(i+1, 7).setValue(data.early_rate||'');
+      sheet.getRange(i+1, 8).setValue(data.early_date ? "'"+data.early_date : '');
+      sheet.getRange(i+1, 9).setValue(data.early_amount||'');
+      return { success: true };
+    }
+  }
+  return { error: 'Not found' };
+}
+function deleteSaving(id) { deleteRowById('은경저축', id); return { success: true }; }
 
 // ── 환율 ──────────────────────────────────
 function fetchExchangeRate() {
