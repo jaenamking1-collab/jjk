@@ -9,6 +9,13 @@
 
 ---
 
+## 2026-07-15 (15) / 집 — 은경 저축 글자↑·직각테두리·비고칸 추가
+- **글자 +2px 전체**: 표 12→14, 그룹헤더 11→13, 컬럼헤더 10.5→12.5, 입력칸 12→14, ▲▼ 10→12, ✕ 12→14, 제목 18→20, 힌트 11→13. 입력칸 폭도 소폭 확대(이름118→128·금액92→104·이율46→54·날짜118→130).
+- **직각 + 진한 외곽선**: `.sv-tbl` border-radius 12→0, 외곽 border 1px var(--border)→**2px var(--text)**(짙은색·테마안전). thead 하단·tfoot 상단도 2px var(--text)로 프레임. box-shadow 제거.
+- **비고칸 추가(맨 오른쪽)**: 중도해지금액 뒤·액션 앞에 비고 컬럼(rowspan2 헤더, `.sv-in.memo` 좌측정렬 150px, 중립 구분선 `.bd-n` 2px var(--text2)). 컬럼수 9→10(본문·푸터·빈상태 colspan 갱신). memo가 svRow·svVals·svAdd blank·svMove 스왑·svSet(else 분기)에 모두 반영.
+- **Code.gs 비고 컬럼**: 시트 11열에 비고 저장 — getSavingsSheet 헤더에 '비고', getSavings `memo:r[10]`, addSaving 11번째 값, updateSaving `getRange(i+1,11)`. created_at(10열)은 그대로. **⚠️ 비고 저장은 재배포 필요**(기존 시트는 헤더 라벨 미갱신이나 데이터엔 무관). 글자·테두리·비고 렌더는 프론트라 재배포 불필요.
+- 검증: 로컬 computed-style — 헤더 '비고' 포함·본문/푸터 10칸·글자 14/13px·radius 0·외곽 2px 짙은색·비고 구분선 2px·memo 값 렌더·svSet 편집→updateSaving 페이로드에 memo 포함·콘솔 무에러. (memo 백엔드 persist는 재배포 후 실측 예정)
+
 ## 2026-07-15 (14) / 집 — 은경 저축 편의기능 5종 (Tab이동·날짜자동포맷·순서변경·메뉴맨끝)
 - **Tab 옆칸 이동**: 편집 시 `renderSavings()` 전체 재렌더 제거가 핵심 — `svSet(id,k,el)`가 해당 칸만 재포맷(`el.value`)하고 합계는 `svUpdateTotals()`로 인플레이스 갱신(합계 셀에 `sv-sum-p/m/e` id). 재렌더 안 하니 네이티브 Tab이 그대로 옆 input으로 이동. ▲▼✕ 버튼은 `tabindex=-1`로 Tab에서 제외 → 데이터 칸끼리만 이동.
 - **날짜 자동 포맷**: 날짜칸을 `type=date`→`type=text`(placeholder 20261101)로 교체. `svFmtDate`가 숫자만 추출해 8자리면 `YYYY-MM-DD`로 변환. 텍스트라 월/일 클릭 후 키보드 수정도 됨(수정 후 blur에 재포맷).
