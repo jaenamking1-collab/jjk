@@ -4189,6 +4189,7 @@ const PP_BASE_KEYS = ['재남_ISA','재남_일반','은경_ISA','은경_일반']
 function ppDefaultCfg() {
   return {
     v: 3,
+    baseNames: {}, // ISA·일반 표 계좌명 표시 이름 오버라이드 {'재남_ISA':'…'} — 없으면 기본(ISA/일반계좌)
     pension: [ // {id, owner, accountId(자동행)|null, name, tax:'세공'|'안세공', annual:null(자동)|숫자, startYear}
       { id:'postal-jn', owner:'재남', accountId:null, name:'우체국연금', tax:'세공', annual:529000*12, startYear:'2037' },
       { id:'postal-ek', owner:'은경', accountId:null, name:'우체국연금', tax:'세공', annual:408000*12, startYear:'2037' }
@@ -4338,7 +4339,8 @@ function ppRenderOwnerCol(owner, thisYear, full) {
   const baseRows = ['ISA','일반'].map(t => {
     const k = `${owner}_${t}`;
     const a = ppAuto.byBase[k] || { sum:0, avg:0, months:0, val:0 };
-    return `<tr><td style="font-weight:600">${t === '일반' ? '일반계좌' : t}</td>
+    const label = (ppCfg.baseNames||{})[k] || (t === '일반' ? '일반계좌' : t);
+    return `<tr><td><input type="text" class="pp-plain" value="${ppEsc(label)}" onchange="ppSetBaseName('${k}',this.value)" title="비우면 기본 이름으로 복귀" style="text-align:left;font-weight:600"></td>
       <td style="text-align:right;font-family:var(--mono);font-weight:700;color:var(--green)">${ppFmt(a.avg)} <span style="font-size:10px;font-weight:400;color:var(--text3)">(${a.months}개월)</span></td>
       <td style="text-align:right;font-family:var(--mono);color:var(--text2)">${ppFmt(a.sum)}</td>
       <td style="text-align:right;font-family:var(--mono);color:var(--text2)">${ppFmt(a.val||0)}</td></tr>`;
@@ -4454,6 +4456,12 @@ function renderPensionPlan() {
   });
 }
 
+function ppSetBaseName(k, v) {
+  if (!ppCfg.baseNames) ppCfg.baseNames = {};
+  v = String(v).trim();
+  if (v) ppCfg.baseNames[k] = v; else delete ppCfg.baseNames[k];
+  ppSave(); renderPensionPlan();
+}
 function ppSetPension(id, k, v) {
   const p = ppCfg.pension.find(x => x.id === id); if (!p) return;
   if (k === 'annual') p.annual = String(v).trim() === '' ? (p.accountId != null ? null : 0) : ppNum(v);
