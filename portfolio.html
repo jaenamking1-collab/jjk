@@ -365,6 +365,17 @@
   .sv-tbl tbody tr.sv-moved td:first-child { box-shadow: inset 0 0 0 9999px rgba(91,91,240,.13); border-left:3px solid var(--accent); }
   @keyframes svFlash { 0% { box-shadow: inset 0 0 0 9999px rgba(91,91,240,.5); } 100% { box-shadow: inset 0 0 0 9999px rgba(91,91,240,.13); } }
   .sv-tbl tbody tr.sv-flash td { animation: svFlash .7s ease-out; }
+  /* 만기 알림 공지판 (표 왼쪽) */
+  .sv-layout { display:flex; gap:16px; align-items:flex-start; }
+  .sv-main { flex:1 1 auto; min-width:0; }
+  .sv-notice { flex:0 0 240px; border:2px solid var(--text); background:var(--bg2); padding:10px; }
+  .sv-notice-h { font-size:14px; font-weight:800; text-align:center; margin-bottom:9px; color:var(--text); }
+  .sv-note { border-left:5px solid; border-radius:6px; padding:7px 9px; margin-bottom:7px; }
+  .sv-note-nm { font-size:13px; font-weight:800; color:var(--text); }
+  .sv-note-d { font-size:12px; font-weight:700; font-family:var(--mono); margin-top:2px; }
+  .sv-note-empty { font-size:12px; color:var(--text2); padding:12px 4px; text-align:center; line-height:1.5; }
+  .sv-notice-legend { display:flex; flex-wrap:wrap; gap:5px 10px; font-size:10px; font-weight:800; margin-top:9px; padding-top:8px; border-top:1px solid var(--border); }
+  @media (max-width:900px) { .sv-layout { flex-direction:column; } .sv-notice { flex-basis:auto; width:100%; box-sizing:border-box; } }
 </style>
 </head>
 <body>
@@ -3049,6 +3060,45 @@ function svVals(s) {
     mat_amount:s.mat_amount, early_rate:s.early_rate, early_date:s.early_date, early_amount:s.early_amount, memo:s.memo };
 }
 
+// 만기 임박도 → 색/문구. 6개월 초과나 날짜 없으면 null(공지 미표시)
+function svMatInfo(s) {
+  const raw = (s.mat_date || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  const d = new Date(raw + 'T00:00:00');
+  if (isNaN(d) || d.getFullYear() < 2000) return null;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const days = Math.round((d - today) / 86400000);
+  const mon = Math.floor(Math.abs(days) / 30);
+  let color, tint, label;
+  if (days < 0)        { color='#16a34a'; tint='rgba(34,197,94,.12)';  label=`만기 지남 · ${-days}일 경과`; }
+  else if (days <= 30) { color='#dc2626'; tint='rgba(239,68,68,.12)';  label=`만기까지 ${days}일`; }
+  else if (days <= 91) { color='#ea580c'; tint='rgba(245,158,11,.15)'; label=`만기까지 ${days}일 (약 ${mon}개월)`; }
+  else if (days <= 183){ color='#2563eb'; tint='rgba(59,130,246,.12)'; label=`만기까지 ${days}일 (약 ${mon}개월)`; }
+  else return null;
+  return { days, color, tint, label, name: s.name || '(이름 없음)' };
+}
+
+function svNoticeHTML() {
+  const items = svData.map(svMatInfo).filter(Boolean).sort((a,b) => a.days - b.days);
+  const body = items.length
+    ? items.map(it => `<div class="sv-note" style="border-left-color:${it.color};background:${it.tint}">
+        <div class="sv-note-nm">${svEsc(it.name)}</div>
+        <div class="sv-note-d" style="color:${it.color}">${it.label}</div>
+      </div>`).join('')
+    : `<div class="sv-note-empty">6개월 안에 만기 예정인<br>계좌가 없습니다.</div>`;
+  return `<aside class="sv-notice">
+    <div class="sv-notice-h">📢 만기 알림</div>
+    ${body}
+    <div class="sv-notice-legend">
+      <span style="color:#2563eb">■ 6개월</span><span style="color:#ea580c">■ 3개월</span><span style="color:#dc2626">■ 1개월</span><span style="color:#16a34a">■ 만기 지남</span>
+    </div>
+  </aside>`;
+}
+function svRefreshNotice() {
+  const el = document.querySelector('#sv-table .sv-notice');
+  if (el) el.outerHTML = svNoticeHTML();
+}
+
 function svRow(s, idx, isLast) {
   const moved = svLastMovedId != null && String(s.id) === String(svLastMovedId);
   return `<tr${moved ? ' class="sv-moved"' : ''}>
@@ -3083,7 +3133,9 @@ function renderSavings() {
     ? svData.map((s, i) => svRow(s, i, i === n - 1)).join('')
     : `<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:22px">➕ 추가로 저축 계좌를 입력하세요</td></tr>`;
   box.innerHTML = `
-    <div class="sv-wrap"><div class="sv-inner">
+    <div class="sv-layout">
+    ${svNoticeHTML()}
+    <div class="sv-main"><div class="sv-wrap"><div class="sv-inner">
       <div class="sv-topbar"><button class="btn btn-primary" style="font-size:13px;padding:6px 14px" onclick="svAdd()">➕ 추가</button></div>
       <table class="sv-tbl">
       <thead>
@@ -3111,7 +3163,7 @@ function renderSavings() {
         <td class="bd-n"></td>
         <td></td>
       </tr></tfoot>
-    </table></div></div>`;
+    </table></div></div></div></div>`;
   svUpdateTotals();
 }
 
@@ -3130,6 +3182,7 @@ function svSet(id, k, el) {
   else if (k === 'mat_date' || k === 'early_date') { s[k] = svFmtDate(v); el.value = s[k]; }
   else s[k] = v;
   svUpdateTotals();
+  if (k === 'mat_date' || k === 'name') svRefreshNotice(); // 만기일·이름 바뀌면 공지판만 갱신(표 포커스 유지)
   apiPost({ action:'updateSaving', id:s.id, ...svVals(s) });
 }
 
