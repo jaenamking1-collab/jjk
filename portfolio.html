@@ -4198,9 +4198,9 @@ function ppDefaultCfg() {
   };
 }
 function ppOwnerOf(n) { return (n||'').includes('은경') ? '은경' : '재남'; }
-function ppAccClass(a) { // 계좌 유형: type 필드가 표준값이면 그대로, 아니면 계좌명으로 판별
+function ppAccClass(a) { // 계좌 유형: type이 ISA·연금저축·IRP면 그대로, '일반'은 기본값일 수 있어 계좌명으로 판별
   const t = (a.type||'').trim();
-  if (['ISA','연금저축','IRP','일반'].includes(t)) return t;
+  if (['ISA','연금저축','IRP'].includes(t)) return t;
   const n = a.name||'';
   if (n.toUpperCase().includes('ISA')) return 'ISA';
   if (n.toUpperCase().includes('IRP')) return 'IRP';
