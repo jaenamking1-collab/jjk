@@ -346,9 +346,14 @@
   .sv-in.amt { text-align:right; width:92px; }
   .sv-in.rt  { width:46px; }
   .sv-in.dt  { width:118px; text-align:center; color:var(--text2); }
-  .sv-del { padding:2px 8px; font-size:12px; background:transparent; border:1px solid #ef444433;
+  .sv-del { padding:2px 7px; font-size:12px; background:transparent; border:1px solid #ef444433;
             color:var(--red); border-radius:6px; cursor:pointer; }
   .sv-del:hover { background:#ef44441a; }
+  .sv-mv { padding:1px 5px; font-size:10px; line-height:1.2; background:transparent; border:1px solid var(--border);
+           color:var(--text2); border-radius:5px; cursor:pointer; }
+  .sv-mv:hover { background:var(--bg3); color:var(--accent); border-color:var(--accent); }
+  .sv-mv:disabled { opacity:.3; cursor:default; }
+  .sv-act { display:inline-flex; align-items:center; gap:3px; }
 </style>
 </head>
 <body>
@@ -388,10 +393,10 @@
   <button class="tab" onclick="showTab('dividends')"><span class="tab-icon">💰</span><span>분배금</span></button>
   <button class="tab" onclick="showTab('dashboard')"><span class="tab-icon">📈</span><span>대시보드</span></button>
   <button class="tab" onclick="showTab('pension')"><span class="tab-icon">🪙</span><span>연금플랜</span></button>
-  <button class="tab" onclick="showTab('savings')"><span class="tab-icon">💵</span><span>은경 저축</span></button>
   <button class="tab" onclick="showTab('screener')"><span class="tab-icon">🔎</span><span>월배당 스크리너</span></button>
   <button class="tab" onclick="showTab('distributions')"><span class="tab-icon">📢</span><span>분배금공지</span></button>
   <button class="tab" onclick="showTab('excel')"><span class="tab-icon">📁</span><span>엑셀</span></button>
+  <button class="tab" onclick="showTab('savings')"><span class="tab-icon">💵</span><span>은경 저축</span></button>
 </div>
 
 <div class="content">
@@ -722,6 +727,7 @@
         <button class="btn btn-primary" style="position:absolute;right:0;top:50%;transform:translateY(-50%);font-size:12px;padding:6px 14px" onclick="svAdd()">➕ 추가</button>
       </div>
       <div id="sv-table"></div>
+      <div style="text-align:center;font-size:11px;color:var(--text3);margin-top:10px">💡 날짜는 <b>20261101</b>처럼 8자리 숫자로 입력하면 자동으로 <b>2026-11-01</b>로 바뀝니다. · Tab 키로 옆 칸 이동 · ▲▼로 순서 변경</div>
     </div>
   </div>
 
@@ -3019,26 +3025,47 @@ async function loadSavings() {
   renderSavings();
 }
 
-function svRow(s) {
+function svFmtDate(v) {
+  const raw = String(v == null ? '' : v);
+  const d = raw.replace(/\D/g, '');
+  if (d.length === 8) return d.slice(0,4) + '-' + d.slice(4,6) + '-' + d.slice(6,8);
+  return raw.trim();
+}
+function svVals(s) {
+  return { name:s.name, principal:s.principal, mat_rate:s.mat_rate, mat_date:s.mat_date,
+    mat_amount:s.mat_amount, early_rate:s.early_rate, early_date:s.early_date, early_amount:s.early_amount };
+}
+
+function svRow(s, idx, isLast) {
   return `<tr>
-    <td><input type="text" class="sv-in nm" value="${svEsc(s.name)}" onchange="svSet('${s.id}','name',this.value)"></td>
-    <td class="g-prin bd-b"><input type="text" class="sv-in amt" inputmode="numeric" value="${svFmtIn(s.principal)}" onchange="svSet('${s.id}','principal',this.value)"></td>
-    <td class="g-mat bd-g"><input type="text" class="sv-in rt" inputmode="decimal" value="${svRateShow(s.mat_rate)}" onchange="svSet('${s.id}','mat_rate',this.value)"></td>
-    <td class="g-mat"><input type="date" class="sv-in dt" value="${svEsc(s.mat_date)}" onchange="svSet('${s.id}','mat_date',this.value)"></td>
-    <td class="g-mat"><input type="text" class="sv-in amt" inputmode="numeric" value="${svFmtIn(s.mat_amount)}" onchange="svSet('${s.id}','mat_amount',this.value)"></td>
-    <td class="g-early bd-a"><input type="text" class="sv-in rt" inputmode="decimal" value="${svRateShow(s.early_rate)}" onchange="svSet('${s.id}','early_rate',this.value)"></td>
-    <td class="g-early"><input type="date" class="sv-in dt" value="${svEsc(s.early_date)}" onchange="svSet('${s.id}','early_date',this.value)"></td>
-    <td class="g-early"><input type="text" class="sv-in amt" inputmode="numeric" value="${svFmtIn(s.early_amount)}" onchange="svSet('${s.id}','early_amount',this.value)"></td>
-    <td style="text-align:center"><button class="sv-del" onclick="svDel('${s.id}')">✕</button></td>
+    <td><input type="text" class="sv-in nm" value="${svEsc(s.name)}" onchange="svSet('${s.id}','name',this)"></td>
+    <td class="g-prin bd-b"><input type="text" class="sv-in amt" inputmode="numeric" value="${svFmtIn(s.principal)}" onchange="svSet('${s.id}','principal',this)"></td>
+    <td class="g-mat bd-g"><input type="text" class="sv-in rt" inputmode="decimal" value="${svRateShow(s.mat_rate)}" onchange="svSet('${s.id}','mat_rate',this)"></td>
+    <td class="g-mat"><input type="text" class="sv-in dt" inputmode="numeric" placeholder="20261101" value="${svEsc(s.mat_date)}" onchange="svSet('${s.id}','mat_date',this)"></td>
+    <td class="g-mat"><input type="text" class="sv-in amt" inputmode="numeric" value="${svFmtIn(s.mat_amount)}" onchange="svSet('${s.id}','mat_amount',this)"></td>
+    <td class="g-early bd-a"><input type="text" class="sv-in rt" inputmode="decimal" value="${svRateShow(s.early_rate)}" onchange="svSet('${s.id}','early_rate',this)"></td>
+    <td class="g-early"><input type="text" class="sv-in dt" inputmode="numeric" placeholder="20261101" value="${svEsc(s.early_date)}" onchange="svSet('${s.id}','early_date',this)"></td>
+    <td class="g-early"><input type="text" class="sv-in amt" inputmode="numeric" value="${svFmtIn(s.early_amount)}" onchange="svSet('${s.id}','early_amount',this)"></td>
+    <td style="text-align:center"><span class="sv-act">
+      <button class="sv-mv" tabindex="-1" title="위로" onclick="svMove('${s.id}',-1)"${idx === 0 ? ' disabled' : ''}>▲</button>
+      <button class="sv-mv" tabindex="-1" title="아래로" onclick="svMove('${s.id}',1)"${isLast ? ' disabled' : ''}>▼</button>
+      <button class="sv-del" tabindex="-1" title="삭제" onclick="svDel('${s.id}')">✕</button>
+    </span></td>
   </tr>`;
+}
+
+function svUpdateTotals() {
+  let p = 0, m = 0, e = 0;
+  svData.forEach(s => { p += svNum(s.principal); m += svNum(s.mat_amount); e += svNum(s.early_amount); });
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v.toLocaleString(); };
+  set('sv-sum-p', p); set('sv-sum-m', m); set('sv-sum-e', e);
 }
 
 function renderSavings() {
   const box = document.getElementById('sv-table');
-  let sumP = 0, sumM = 0, sumE = 0;
-  svData.forEach(s => { sumP += svNum(s.principal); sumM += svNum(s.mat_amount); sumE += svNum(s.early_amount); });
-  const body = svData.length
-    ? svData.map(svRow).join('')
+  const n = svData.length;
+  const body = n
+    ? svData.map((s, i) => svRow(s, i, i === n - 1)).join('')
     : `<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:22px">➕ 추가로 저축 계좌를 입력하세요</td></tr>`;
   box.innerHTML = `
     <div class="sv-wrap"><table class="sv-tbl">
@@ -3058,14 +3085,15 @@ function renderSavings() {
       <tbody>${body}</tbody>
       <tfoot><tr>
         <td class="num">합계</td>
-        <td class="g-prin bd-b num">${sumP.toLocaleString()}</td>
+        <td class="g-prin bd-b num" id="sv-sum-p">0</td>
         <td class="g-mat bd-g"></td><td class="g-mat"></td>
-        <td class="g-mat num">${sumM.toLocaleString()}</td>
+        <td class="g-mat num" id="sv-sum-m">0</td>
         <td class="g-early bd-a"></td><td class="g-early"></td>
-        <td class="g-early num">${sumE.toLocaleString()}</td>
+        <td class="g-early num" id="sv-sum-e">0</td>
         <td></td>
       </tr></tfoot>
     </table></div>`;
+  svUpdateTotals();
 }
 
 async function svAdd() {
@@ -3074,14 +3102,29 @@ async function svAdd() {
   if (res && res.id) { svData.push({ id:res.id, ...blank }); renderSavings(); }
 }
 
-function svSet(id, k, v) {
+// 편집: 전체 재렌더 없이 해당 칸만 정리 → Tab 포커스 유지(옆 칸으로 이동)
+function svSet(id, k, el) {
   const s = svData.find(x => String(x.id) === String(id)); if (!s) return;
-  if (k === 'principal' || k === 'mat_amount' || k === 'early_amount') s[k] = svNum(v);
-  else if (k === 'mat_rate' || k === 'early_rate') s[k] = svRate(v);
+  const v = el.value;
+  if (k === 'principal' || k === 'mat_amount' || k === 'early_amount') { s[k] = svNum(v); el.value = svFmtIn(s[k]); }
+  else if (k === 'mat_rate' || k === 'early_rate') { s[k] = svRate(v); el.value = svRateShow(s[k]); }
+  else if (k === 'mat_date' || k === 'early_date') { s[k] = svFmtDate(v); el.value = s[k]; }
   else s[k] = v;
+  svUpdateTotals();
+  apiPost({ action:'updateSaving', id:s.id, ...svVals(s) });
+}
+
+// 순서 변경: 인접 두 행의 데이터를 맞바꿈(id는 고정) → 백엔드 재배포 불필요
+async function svMove(id, dir) {
+  const i = svData.findIndex(x => String(x.id) === String(id));
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= svData.length) return;
+  const a = svData[i], b = svData[j];
+  ['name','principal','mat_rate','mat_date','mat_amount','early_rate','early_date','early_amount']
+    .forEach(f => { const t = a[f]; a[f] = b[f]; b[f] = t; });
   renderSavings();
-  apiPost({ action:'updateSaving', id:s.id, name:s.name, principal:s.principal, mat_rate:s.mat_rate,
-    mat_date:s.mat_date, mat_amount:s.mat_amount, early_rate:s.early_rate, early_date:s.early_date, early_amount:s.early_amount });
+  await apiPost({ action:'updateSaving', id:a.id, ...svVals(a) });
+  await apiPost({ action:'updateSaving', id:b.id, ...svVals(b) });
 }
 
 async function svDel(id) {
