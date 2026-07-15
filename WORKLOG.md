@@ -9,6 +9,11 @@
 
 ---
 
+## 2026-07-15 (3) / — 지난 회차 이력 + NEW 7일 + force 타임아웃 90초
+- **분배캐시 회차별 이력(Code.gs)**: `writeDistCache`를 source당 회차별 행(최근 3회차 유지)으로 변경, `attachDistHistory`가 이전 2회차 종목을 items에 병합(종목 sched 없으면 그 회차 대표 일정 주입, `hist:true` 표시). 모든 반환 경로를 `finishDist` 헬퍼로 통일 — 기존엔 kodex~plus 분기가 시트캐시를 아예 안 썼음(버그). → **지난 달 운용사별 일정·공지 종목이 계속 보임**(이력은 지금부터 쌓임 — 6월 월중 소급은 ACE 등 시트에 6월 행 남은 소스만 가능). **⚠️ 재배포 필요.**
+- **NEW 배지 5일→7일**(양쪽 프론트): 월중 공시(10~13일) 흐름을 다 덮게. 7/10 등록 PLUS·RISE가 5일째에 꺼지던 문제.
+- **force 새로고침 타임아웃 25→90초**(양쪽 프론트): KODEX OCR 재파싱이 25초 초과 → 새로고침 직후 달력·표에서 KODEX 통째 누락되던 원인.
+
 ## 2026-07-15 (2) / — ACE 파서 수정 (papi WAF 차단 대응)
 - **원인 조사**: papi.aceetf.co.kr가 Apps Script 요청에만 HTML 차단 페이지 반환(로컬 PC에선 UA 무관 200, 타 사이트 Origin 헤더면 403). 구글 IP/봇 필터로 추정.
 - **수정**: `fetchAceApi()` 헬퍼 신설 — 브라우저형 헤더(Chrome UA, Accept, Accept-Language, Referer)로 요청, HTML 응답이면 `ACE API 차단 (HTTP xxx)` 명시적 에러. `getEtfNotices(ace)`·`fetchDist_ace`(목록/본문/body 3곳) 모두 이 헬퍼로 교체.

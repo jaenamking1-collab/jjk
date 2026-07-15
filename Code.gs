@@ -407,7 +407,7 @@ function getDistribution(source, force) {
         const saved = sc.savedAt instanceof Date
           ? sc.savedAt
           : new Date(String(sc.savedAt).replace(' ', 'T') + ':00+09:00');
-        if (!isNaN(saved) && (Date.now() - saved.getTime()) < distCacheTtlSec() * 1000) return sc.payload;
+        if (!isNaN(saved) && (Date.now() - saved.getTime()) < distCacheTtlSec() * 1000) return attachDistHistory(source, sc.payload);
       }
     }
     const cached = cache.get(cacheKey);              // 스크립트캐시 폴백
@@ -431,8 +431,7 @@ function getDistribution(source, force) {
           }
         } catch(e) {}
       }
-      if (result.items && result.items.length) cache.put(cacheKey, JSON.stringify(result), distCacheTtlSec());
-      return result;
+      return finishDist(source, result, cache, cacheKey);
     }
     if (source === 'tiger') {
       result = fetchDist_tiger();
@@ -440,8 +439,7 @@ function getDistribution(source, force) {
         const all = fetchDist_smarttoday(force);
         result = all[source] || { items: [], error: 'TIGER 양쪽 실패' };
       }
-      if (result.items && result.items.length) cache.put(cacheKey, JSON.stringify(result), distCacheTtlSec());
-      return result;
+      return finishDist(source, result, cache, cacheKey);
     }
     if (source === 'ace') {
       result = fetchDist_ace();
@@ -449,8 +447,7 @@ function getDistribution(source, force) {
         const all = fetchDist_smarttoday(force);
         result = all[source] || { items: [], error: 'ACE 양쪽 실패' };
       }
-      if (result.items && result.items.length) cache.put(cacheKey, JSON.stringify(result), distCacheTtlSec());
-      return result;
+      return finishDist(source, result, cache, cacheKey);
     }
     if (source === 'rise') {
       result = fetchDist_rise();
@@ -458,8 +455,7 @@ function getDistribution(source, force) {
         const all = fetchDist_smarttoday(force);
         result = all[source] || { items: [], error: 'RISE 양쪽 실패' };
       }
-      if (result.items && result.items.length) cache.put(cacheKey, JSON.stringify(result), distCacheTtlSec());
-      return result;
+      return finishDist(source, result, cache, cacheKey);
     }
     if (source === 'plus') {
       result = fetchDist_plus();
@@ -467,8 +463,7 @@ function getDistribution(source, force) {
         const all = fetchDist_smarttoday(force);
         result = all[source] || { items: [], error: 'PLUS 양쪽 실패' };
       }
-      if (result.items && result.items.length) cache.put(cacheKey, JSON.stringify(result), distCacheTtlSec());
-      return result;
+      return finishDist(source, result, cache, cacheKey);
     }
     const all = fetchDist_smarttoday(force);
     result = all[source];
@@ -501,11 +496,7 @@ function getDistribution(source, force) {
       result = { items: [], error: e.toString() };
     }
   }
-  if (result.items && result.items.length > 0) {
-    cache.put(cacheKey, JSON.stringify(result), distCacheTtlSec());
-    writeDistCache(source, result, currentCycleKey());   // 시트 영속 저장
-  }
-  return result;
+  return finishDist(source, result, cache, cacheKey);
 }
 
 // ── 적응형 분배캐시 유틸 ──
@@ -531,15 +522,25 @@ function _distCacheSheet() {
   if (!sh) { sh = ss.insertSheet('분배캐시'); sh.appendRow(['source','payload','savedAt','cycleKey']); }
   return sh;
 }
+// 회차키 → 시간순 정렬용 숫자 ('2026-07-중' < '2026-07-말')
+function cycleRank(key) {
+  const m = String(key || '').match(/(\d{4})-(\d{2})-(중|말)/);
+  if (!m) return -1;
+  return (parseInt(m[1]) * 12 + parseInt(m[2])) * 2 + (m[3] === '말' ? 1 : 0);
+}
+// 분배캐시는 source당 회차별 여러 행(최근 3회차) — 읽기는 최신 회차 행.
 function readDistCache(source) {
   try {
     const sh = _distCacheSheet();
     const rows = sh.getDataRange().getValues();
+    let best = null;
     for (let i = 1; i < rows.length; i++) {
-      if (rows[i][0] === source) {
-        return { payload: JSON.parse(rows[i][1]), savedAt: rows[i][2], cycleKey: rows[i][3], row: i + 1 };
+      if (rows[i][0] !== source) continue;
+      if (!best || cycleRank(rows[i][3]) > cycleRank(best.cycleKey)) {
+        best = { raw: rows[i][1], savedAt: rows[i][2], cycleKey: rows[i][3], row: i + 1 };
       }
     }
+    if (best) return { payload: JSON.parse(best.raw), savedAt: best.savedAt, cycleKey: best.cycleKey, row: best.row };
   } catch(e) {}
   return null;
 }
@@ -549,11 +550,62 @@ function writeDistCache(source, payload, cycleKey) {
     const rows = sh.getDataRange().getValues();
     const now = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm');
     const rec = [source, JSON.stringify(payload), now, cycleKey];
+    const mine = [];   // 같은 source의 다른 회차 행들
     for (let i = 1; i < rows.length; i++) {
-      if (rows[i][0] === source) { sh.getRange(i + 1, 1, 1, 4).setValues([rec]); return; }
+      if (rows[i][0] !== source) continue;
+      if (rows[i][3] === cycleKey) { sh.getRange(i + 1, 1, 1, 4).setValues([rec]); return; }
+      mine.push({ row: i + 1, rank: cycleRank(rows[i][3]) });
     }
     sh.appendRow(rec);
+    // source당 최근 3회차만 유지(방금 쓴 행 + 이전 2회차) — 나머지는 아래쪽 행부터 삭제
+    if (mine.length > 2) {
+      mine.sort((a, b) => b.rank - a.rank);
+      mine.slice(2).sort((a, b) => b.row - a.row).forEach(r => sh.deleteRow(r.row));
+    }
   } catch(e) {}
+}
+// 이전 회차(최근 2개) 종목을 items 뒤에 병합 — 지난 달 일정 표·공지 종목이 계속 보이게.
+// 종목별 sched가 없으면 그 회차 대표 일정을 채워 현재 회차 일정과 섞이지 않게 한다.
+function attachDistHistory(source, payload) {
+  try {
+    if (!payload || !payload.items) return payload;
+    const cur = currentCycleKey();
+    const sh = _distCacheSheet();
+    const rows = sh.getDataRange().getValues();
+    const hist = [];
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][0] !== source || rows[i][3] === cur) continue;
+      hist.push({ rank: cycleRank(rows[i][3]), raw: rows[i][1] });
+    }
+    if (!hist.length) return payload;
+    hist.sort((a, b) => b.rank - a.rank);
+    const out = JSON.parse(JSON.stringify(payload));
+    const keyOf = (it, sched) => (it.ticker || it.name) + '|' + (it.cycle || '') + '|' + ((sched || {})['기준일'] || '');
+    const seen = new Set(out.items.map(it => keyOf(it, it.sched)));
+    hist.slice(0, 2).forEach(h => {
+      let p; try { p = JSON.parse(h.raw); } catch(e) { return; }
+      (p.items || []).forEach(it => {
+        const sched = (it.sched && Object.keys(it.sched).length) ? it.sched : (p.schedule || {});
+        const key = keyOf(it, sched);
+        if (seen.has(key)) return;
+        seen.add(key);
+        const copy = JSON.parse(JSON.stringify(it));
+        copy.sched = sched;
+        copy.hist = true;
+        out.items.push(copy);
+      });
+    });
+    return out;
+  } catch(e) { return payload; }
+}
+// 파싱 결과 마무리: 시트캐시(회차별) 저장 → 이력 병합 → 스크립트캐시 → 반환
+function finishDist(source, result, cache, cacheKey) {
+  if (result && result.items && result.items.length) {
+    writeDistCache(source, result, currentCycleKey());
+    result = attachDistHistory(source, result);
+    cache.put(cacheKey, JSON.stringify(result), distCacheTtlSec());
+  }
+  return result;
 }
 
 function fetchDist_fallback(source) {

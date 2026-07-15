@@ -208,9 +208,10 @@ async function loadDistributions(force){
   if (cal) cal.innerHTML = '<div style="color:var(--text3);font-size:13px"><span class="spinner"></span> 불러오는 중...</div>';
 
   const timeout = ms => new Promise((_,rej) => setTimeout(() => rej(new Error('timeout')), ms));
+  // force 재파싱은 OCR(특히 KODEX) 때문에 25초를 넘길 수 있어 여유를 크게 준다
   const fetchOne = s => Promise.race([
     api({ action:'getDistribution', source:s.id, force: force?'1':'' }).then(d => ({ ...s, data:d })),
-    timeout(25000).then(() => ({ ...s, data:{ items:[], error:'응답 시간 초과' } }))
+    timeout(force ? 90000 : 25000).then(() => ({ ...s, data:{ items:[], error:'응답 시간 초과' } }))
   ]).catch(e => ({ ...s, data:{ items:[], error:String(e) } }));
 
   const results = await Promise.allSettled(DIST_SOURCES.map(fetchOne));
@@ -510,11 +511,11 @@ function renderNotices(){
     // 월중/월말 슬롯은 공지가 없어도 자리를 비워둔다(카드 높이·순서 고정). 특별·기타는 있을 때만.
     const picks = [pickByCycle('월중'), pickByCycle('월말'), pickByCycle('특별')];
     const extra = picks.every(p => !p) ? inMonth.slice(0, 1) : []; // 회차 분류 안 된 공지 폴백
-    // 등록 5일 이내 공지엔 NEW 배지
+    // 등록 7일 이내 공지엔 NEW 배지 — 월중 공시(10~13일)→기준일(15일) 흐름을 다 덮게
     const isNew = n => {
       const m = String(n.date || '').match(/(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
       if (!m) return false;
-      return (Date.now() - new Date(+m[1], +m[2] - 1, +m[3]).getTime()) < 5 * 86400000;
+      return (Date.now() - new Date(+m[1], +m[2] - 1, +m[3]).getTime()) < 7 * 86400000;
     };
     const itemHtml = n => `
           <div class="notice-item">
