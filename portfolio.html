@@ -158,7 +158,7 @@
   .holdings-compact td { padding:1px 8px; line-height:1.2; font-size:13px; }
   .holdings-compact th { padding:4px 8px; border-bottom:2px solid #111827; text-align:center; }
   tr:hover td { background:var(--bg4); }
-  tr:last-child td { border-bottom:none; }
+  .sv-tbl tr:last-child td { border-bottom:none; } /* 은경 저축 표만: 자체 2px 프레임이 아래선 담당. 나머지 표는 마지막 행에도 아래 테두리 유지 */
   /* ── 스크리너: 바깥 테두리 + 그룹 구분선 진하게 ──
      그룹: [티커·종목명][추종][연분배율·당월분배금][현재가~1년][보수~괴리율][개인~기관][운용사·상장일] */
   .scr-table { border:2px solid #111827; }
