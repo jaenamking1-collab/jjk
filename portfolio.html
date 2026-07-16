@@ -38,6 +38,8 @@
       var(--bg);
     background-attachment:fixed;
     color:var(--text); font-family:var(--sans); min-height:100vh; font-feature-settings:"tnum"; font-variant-numeric:tabular-nums; }
+  /* 폼 컨트롤은 body의 tabular-nums를 상속받지 못함 → 명시. 숫자 자릿수 폭 균일 = 오른쪽정렬 콤마 정렬 */
+  input, select, textarea { font-feature-settings:"tnum"; font-variant-numeric:tabular-nums; }
 
   /* ── HEADER ── */
   header {
