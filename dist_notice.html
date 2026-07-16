@@ -268,15 +268,16 @@ function renderMasterCalendar(allData){
   const nextMonth = month === 12 ? 1 : month + 1;
   const prevMonth = month === 1 ? 12 : month - 1;
   const marks = {};
-  const addMark = (p, source, sourceColor, label, labelColor, shortLabel) => {
+  const addMark = (p, source, sourceColor, label, labelColor, shortLabel, uncertain) => {
     if (!p) return;
     if (p.m !== month && p.m !== nextMonth && p.m !== prevMonth) return;
     const k = `${p.m}-${p.d}`;
     if (!marks[k]) marks[k] = [];
     if (marks[k].some(x => x.source === source && x.label === label)) return;
-    marks[k].push({ source, sourceColor, label, labelColor, shortLabel: shortLabel || label });
+    marks[k].push({ source, sourceColor, label, labelColor, shortLabel: shortLabel || label, uncertain: !!uncertain });
   };
   allData.forEach(c => {
+    if (c.id === 'sol') return; // SOL은 확정 공지가 없어 아래에서 공통 지급일에 '?'로 별도 표기
     const repSched = (c.data && c.data.schedule) || {};
     const items = (c.data && c.data.items) || [];
     const inRange = sch => {
@@ -305,6 +306,26 @@ function renderMasterCalendar(allData){
       if (inRange(sch)) addAll(c, sch);
     }
   });
+
+  // SOL: 확정 공지가 없어 실제 회차 날짜 대신, 다른 운용사들의 공통 지급일에 '?'로 얹는다.
+  const sol = allData.find(c => c.id === 'sol');
+  if (sol) {
+    const solCycles = new Set(((sol.data && sol.data.items) || []).map(it => it.cycle).filter(Boolean));
+    ['월중','월말'].forEach(cyc => {
+      if (!solCycles.has(cyc)) return;
+      const lbl = `${cyc} 지급일`;
+      // 해당 회차 지급일이 가장 많이 몰린 날짜 = 공통 지급일
+      let bestKey = null, bestN = 0;
+      Object.keys(marks).forEach(k => {
+        const n = marks[k].filter(mk => mk.label === lbl).length;
+        if (n > bestN) { bestN = n; bestKey = k; }
+      });
+      if (bestKey) {
+        const [pm, pd] = bestKey.split('-').map(Number);
+        addMark({ m: pm, d: pd }, sol.name, sol.color, lbl, '#ef4444', lbl, true);
+      }
+    });
+  }
 
   const today = now.getDate();
   const dowsShow = ['월','화','수','목','금']; // 평일만
@@ -339,17 +360,18 @@ function renderMasterCalendar(allData){
     const byLabel = {};
     ms.forEach(mk => {
       if (!byLabel[mk.label]) byLabel[mk.label] = { labelColor: mk.labelColor, shortLabel: mk.shortLabel, sources: [] };
-      byLabel[mk.label].sources.push({ name: mk.source, color: mk.sourceColor });
+      byLabel[mk.label].sources.push({ name: mk.source, color: mk.sourceColor, uncertain: mk.uncertain });
     });
     const eventHtml = Object.keys(byLabel).map(label => {
       const g = byLabel[label];
       // 고정 슬롯: 윗줄 KODEX·TIGER·ACE / 아랫줄 PLUS·RISE·SOL, 없는 회사는 빈칸
       const bySource = {};
-      g.sources.forEach(s => { bySource[s.name] = s.color; });
-      const icons = DIST_SOURCES.map(s => bySource[s.name]
-        ? `<span class="cal-chip" style="background:${bySource[s.name]}"><span class="chip-full">${s.name}</span><span class="chip-min">${s.name.slice(0,3)}</span></span>`
-        : '<span class="cal-chip"></span>'
-      ).join('');
+      g.sources.forEach(s => { bySource[s.name] = { color: s.color, uncertain: s.uncertain }; });
+      const icons = DIST_SOURCES.map(s => { const b = bySource[s.name]; const q = b && b.uncertain ? '?' : '';
+        return b
+        ? `<span class="cal-chip" style="background:${b.color}"><span class="chip-full">${s.name}${q}</span><span class="chip-min">${s.name.slice(0,3)}${q}</span></span>`
+        : '<span class="cal-chip"></span>';
+      }).join('');
       return `<div style="margin-top:4px">
         <div class="cal-icons">${icons}</div>
         <div class="cal-evt" style="background:${g.labelColor}1a;color:${g.labelColor}"><span class="lbl-full">${label}</span><span class="lbl-short">${g.shortLabel || label}</span></div>
@@ -394,7 +416,7 @@ function renderMasterCalendar(allData){
     };
     const mid = pickCycle('월중'), end = pickCycle('월말');
     if (!mid.hasNotice && !end.hasNotice) return;
-    rowsData.push({ name: c.name, color: c.color, mid, end });
+    rowsData.push({ name: c.name, color: c.color, mid, end, isSol: c.id === 'sol' });
   });
 
   const dcell = (info, key) => {
@@ -408,9 +430,11 @@ function renderMasterCalendar(allData){
   // 월중/월말은 행 전체 배경색으로 구분, 회차엔 해당 월을 붙여 표시(예: 7월 월중).
   // 공지 없는 회차도 줄은 유지(날짜만 비움).
   const CYC = { '월중': ['#ecfeff', '#0e7490'], '월말': ['#f5f3ff', '#6d28d9'] };
-  const dateCell = (info, key, col, bg) => {
-    const v = dcell(info, key);
-    return `<td style="text-align:center;padding:5px 3px;font-family:var(--mono);white-space:nowrap;font-weight:600;background:${bg};color:${v ? col : '#cbd5e1'}">${v || '·'}</td>`;
+  const dateCell = (info, key, col, bg, isSol) => {
+    // SOL은 확정 공지가 없어 날짜를 표기하지 않고 '-'로 둔다.
+    const v = isSol ? '' : dcell(info, key);
+    const txt = isSol ? '-' : (v || '·');
+    return `<td style="text-align:center;padding:5px 3px;font-family:var(--mono);white-space:nowrap;font-weight:600;background:${bg};color:${v ? col : '#cbd5e1'}">${txt}</td>`;
   };
   const tableHtml = rowsData.length ? `
     <table>
@@ -433,10 +457,10 @@ function renderMasterCalendar(allData){
           return `<tr>
             ${nameCell}
             <td style="padding:5px 6px;white-space:nowrap;background:${bg};color:${col};font-weight:700">${monLabel}</td>
-            ${dateCell(m, '공시일', '#d97706', bg)}
-            ${dateCell(m, '분배락일', '#16a34a', bg)}
-            ${dateCell(m, '기준일', '#2563eb', bg)}
-            ${dateCell(m, '지급일', '#dc2626', bg)}
+            ${dateCell(m, '공시일', '#d97706', bg, r.isSol)}
+            ${dateCell(m, '분배락일', '#16a34a', bg, r.isSol)}
+            ${dateCell(m, '기준일', '#2563eb', bg, r.isSol)}
+            ${dateCell(m, '지급일', '#dc2626', bg, r.isSol)}
           </tr>`;
         }).join('');
       }).join('')}</tbody>
