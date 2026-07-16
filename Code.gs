@@ -192,7 +192,9 @@ function getSavingsSheet() {
   let sheet = ss.getSheetByName('은경저축');
   if (!sheet) {
     sheet = ss.insertSheet('은경저축');
-    sheet.appendRow(['id','계좌명','원금','만기이율','만기날짜','만기시금액','중도해지이율','중도해지일','중도해지금액','created_at','비고']);
+    sheet.appendRow(['id','계좌명','원금','만기이율','만기날짜','만기시금액','중도해지이율','중도해지일','중도해지금액','created_at','비고','가입일']);
+  } else if (!sheet.getRange(1, 12).getValue()) {
+    sheet.getRange(1, 12).setValue('가입일'); // 기존 시트에 가입일 열 헤더 보강
   }
   return sheet;
 }
@@ -203,7 +205,7 @@ function getSavings() {
   return rows.slice(1).filter(r => r[0]).map(r => ({
     id: r[0], name: r[1], principal: r[2], mat_rate: r[3], mat_date: r[4],
     mat_amount: r[5], early_rate: r[6], early_date: r[7], early_amount: r[8], created_at: r[9],
-    memo: r[10] != null ? r[10] : ''
+    memo: r[10] != null ? r[10] : '', join_date: r[11] != null ? r[11] : ''
   }));
 }
 function addSaving(data) {
@@ -211,7 +213,8 @@ function addSaving(data) {
   const id = new Date().getTime().toString();
   sheet.appendRow([id, data.name||'', data.principal||'', data.mat_rate||'',
     data.mat_date ? "'"+data.mat_date : '', data.mat_amount||'', data.early_rate||'',
-    data.early_date ? "'"+data.early_date : '', data.early_amount||'', new Date().toISOString(), data.memo||'']);
+    data.early_date ? "'"+data.early_date : '', data.early_amount||'', new Date().toISOString(), data.memo||'',
+    data.join_date ? "'"+data.join_date : '']);
   return { success: true, id };
 }
 function updateSaving(data) {
@@ -228,6 +231,7 @@ function updateSaving(data) {
       sheet.getRange(i+1, 8).setValue(data.early_date ? "'"+data.early_date : '');
       sheet.getRange(i+1, 9).setValue(data.early_amount||'');
       sheet.getRange(i+1, 11).setValue(data.memo||'');
+      sheet.getRange(i+1, 12).setValue(data.join_date ? "'"+data.join_date : '');
       return { success: true };
     }
   }
@@ -513,8 +517,10 @@ function getDistribution(source, force) {
     if (source === 'plus') {
       result = fetchDist_plus();
       if (!result || !result.items || !result.items.length) {
+        const plusErr = (result && result.error) || 'PLUS 자사 파서 empty';
         const all = fetchDist_smarttoday(force);
         result = all[source] || { items: [], error: 'PLUS 양쪽 실패' };
+        result._plusErr = plusErr; // 자사(OCR) 파서 실패 사유 보존 → API 응답으로 진단
       }
       return finishDist(source, result, cache, cacheKey);
     }
@@ -781,20 +787,30 @@ function refreshAllDistributions() {
 }
 // ===== OCR 공용 함수 (Google Cloud Vision) =====
 // 이미지 URL을 받아 OCR 텍스트 반환. 실패 시 '' 반환.
+// 실패 사유는 _ocrDbg 에 남겨 호출측(fetchDist_plus 등)이 에러 응답에 실어 진단할 수 있게 한다.
+var _ocrDbg = '';
 function ocrImageText(imgUrl) {
+  _ocrDbg = '';
   try {
     const key = PropertiesService.getScriptProperties().getProperty('VISION_API_KEY');
-    if (!key) return '';
-    const blob = UrlFetchApp.fetch(imgUrl, { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } }).getBlob();
-    const b64 = Utilities.base64Encode(blob.getBytes());
+    if (!key) { _ocrDbg = 'no VISION_API_KEY'; return ''; }
+    const resp = UrlFetchApp.fetch(imgUrl, { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } });
+    const code = resp.getResponseCode();
+    const bytes = resp.getBlob().getBytes();
+    if (code !== 200 || !bytes.length) { _ocrDbg = 'img fetch code=' + code + ' bytes=' + bytes.length + ' url=' + imgUrl; return ''; }
+    const b64 = Utilities.base64Encode(bytes);
     const payload = { requests: [{ image: { content: b64 }, features: [{ type: 'DOCUMENT_TEXT_DETECTION' }] }] };
     const res = UrlFetchApp.fetch('https://vision.googleapis.com/v1/images:annotate?key=' + key, {
       method: 'post', contentType: 'application/json', payload: JSON.stringify(payload), muteHttpExceptions: true
     });
     const json = JSON.parse(res.getContentText('UTF-8'));
-    if (json.error) return '';
-    return json.responses && json.responses[0] && json.responses[0].fullTextAnnotation ? json.responses[0].fullTextAnnotation.text : '';
-  } catch(e) { return ''; }
+    if (json.error) { _ocrDbg = 'vision err ' + JSON.stringify(json.error).slice(0, 180); return ''; }
+    const r0 = json.responses && json.responses[0];
+    if (r0 && r0.error) { _ocrDbg = 'vision resp err ' + JSON.stringify(r0.error).slice(0, 180); return ''; }
+    const text = r0 && r0.fullTextAnnotation ? r0.fullTextAnnotation.text : '';
+    _ocrDbg = 'ok textLen=' + (text ? text.length : 0);
+    return text;
+  } catch(e) { _ocrDbg = 'ocr exception ' + e; return ''; }
 }
 
 // OCR 텍스트에서 일정 추출. 형식 예: "6.26 분배금 공시일", "6.30 분배금 지급기준일", "7.2 분배금 지급일"
@@ -1275,22 +1291,13 @@ function fetchDist_ace() {
       const refMonth = refM ? parseInt(refM[1]) : entry.mon;
       const refDay   = refM ? parseInt(refM[2]) : null;
 
-      // 일정 계산
+      // 일정 계산 (근사치) — 실제값은 아래 OCR로 덮어씀
       let calcSched = { '공시일': entry.mon + '월 ' + entry.day + '일' };
       if (cycleLabel === '월말') {
         const base = lastBizDay(curYear, refMonth);
         const pay  = nextBizDay(curYear, base.m, base.d);
         calcSched['기준일'] = base.m + '월 ' + base.d + '일';
         calcSched['지급일'] = pay.m + '월 ' + pay.d + '일';
-        // 일정이 본문 base64 이미지라 계산 부정확 → OCR로 실제값 우선
-        const ocrSched = ocrScheduleFromBase64Html(content);
-        if (ocrSched && (ocrSched['기준일'] || ocrSched['지급일'])) {
-          if (ocrSched['공시일']) calcSched['공시일'] = ocrSched['공시일'];
-          if (ocrSched['분배락일']) calcSched['분배락일'] = ocrSched['분배락일'];
-          if (ocrSched['기준일']) calcSched['기준일'] = ocrSched['기준일'];
-          if (ocrSched['지급일']) calcSched['지급일'] = ocrSched['지급일'];
-          calcSched['_ocr'] = true;
-        }
       } else {
         // ACE 월중: 본문 "매월 15일을 지급기준일" → 기준일=15일(휴일이면 직전 영업일), 지급일=다음 영업일
         const baseMon = refMonth || entry.mon;
@@ -1300,6 +1307,17 @@ function fetchDist_ace() {
         const pay = nextBizDay(curYear, base.m, base.d);
         calcSched['기준일'] = base.m + '월 ' + base.d + '일';
         calcSched['지급일'] = pay.m + '월 ' + pay.d + '일';
+      }
+
+      // 월중·월말 공통: 실제 일정은 본문 base64 이미지에 있음. 계산값은 근사치라
+      // (특히 월중 지급일은 기준일 다음 영업일이 아니라 T+3인 경우 多) OCR 실제값을 우선한다.
+      const ocrSched = ocrScheduleFromBase64Html(content);
+      if (ocrSched && (ocrSched['기준일'] || ocrSched['지급일'])) {
+        if (ocrSched['공시일']) calcSched['공시일'] = ocrSched['공시일'];
+        if (ocrSched['분배락일']) calcSched['분배락일'] = ocrSched['분배락일'];
+        if (ocrSched['기준일']) calcSched['기준일'] = ocrSched['기준일'];
+        if (ocrSched['지급일']) calcSched['지급일'] = ocrSched['지급일'];
+        calcSched['_ocr'] = true;
       }
 
       // 표: [종목명, 종목코드, 분배금, 분배율, 기호]
@@ -1382,10 +1400,13 @@ function fetchDist_plus() {
       }
 
       // 방어 2: 텍스트 표에서 못 얻으면 본문 이미지 OCR
+      let dbg = 'n=' + entry.n + ' htmlLen=' + html.length + ' tbl=' + tables.length + ' out1=' + out.length;
       if (!out.length) {
         const imgM = html.match(/<img[^>]+src=["'](https?:\/\/[^"']*\/upload\/[^"']+\.(?:png|jpg|jpeg|PNG|JPG))["']/i);
+        dbg += ' img=' + (imgM ? imgM[1].slice(-40) : 'NONE');
         if (imgM) {
           const ocrText = ocrImageText(imgM[1]);
+          dbg += ' ocr[' + _ocrDbg + ']';
           if (ocrText) {
             usedOcr = true;
             const t = ocrText.replace(/\s+/g, ' ');
@@ -1428,14 +1449,15 @@ function fetchDist_plus() {
       }
 
       if (usedOcr) sched['_ocr'] = true;
+      dbg += ' outFinal=' + out.length;
       out.forEach(it => { it.sched = { ...sched }; });
-      return { items: out, schedule: sched, usedOcr };
+      return { items: out, schedule: sched, usedOcr, dbg };
     };
 
-    let items = [], schedule = {}, anyOcr = false;
-    if (midE) { const r = parsePlusNotice(midE); items = items.concat(r.items); if (Object.keys(r.schedule).length) schedule = r.schedule; if (r.usedOcr) anyOcr = true; }
-    if (endE) { const r = parsePlusNotice(endE); items = items.concat(r.items); if (!Object.keys(schedule).length && Object.keys(r.schedule).length) schedule = r.schedule; if (r.usedOcr) anyOcr = true; }
-    if (!items.length) return { items: [], error: 'PLUS: 종목 파싱 0건' };
+    let items = [], schedule = {}, anyOcr = false, dbgs = [];
+    if (midE) { const r = parsePlusNotice(midE); items = items.concat(r.items); if (Object.keys(r.schedule).length) schedule = r.schedule; if (r.usedOcr) anyOcr = true; dbgs.push('월중 ' + r.dbg); }
+    if (endE) { const r = parsePlusNotice(endE); items = items.concat(r.items); if (!Object.keys(schedule).length && Object.keys(r.schedule).length) schedule = r.schedule; if (r.usedOcr) anyOcr = true; dbgs.push('월말 ' + r.dbg); }
+    if (!items.length) return { items: [], error: 'PLUS: 종목 파싱 0건 || ' + dbgs.join(' || ') };
     return { success: true, items, schedule, title: 'PLUS 분배금 (자사 공지 파싱)' + (anyOcr ? ' [OCR]' : ''), _usedOcr: anyOcr };
   } catch(e) {
     return { items: [], error: 'PLUS: ' + e.toString() };

@@ -331,16 +331,20 @@
   .sv-tbl .num { text-align:right; font-family:var(--mono); }
   /* 구역 옅은 배경 */
   .sv-tbl td.g-prin  { background:rgba(59,130,246,.055); }
+  .sv-tbl td.g-join  { background:rgba(99,102,241,.05); }
   .sv-tbl td.g-mat   { background:rgba(16,185,129,.055); }
   .sv-tbl td.g-early { background:rgba(245,158,11,.07); }
   .sv-tbl tbody tr:hover td.g-prin  { background:rgba(59,130,246,.11); }
+  .sv-tbl tbody tr:hover td.g-join  { background:rgba(99,102,241,.11); }
   .sv-tbl tbody tr:hover td.g-mat   { background:rgba(16,185,129,.11); }
   .sv-tbl tbody tr:hover td.g-early { background:rgba(245,158,11,.13); }
   .sv-tbl thead .g-prin  { background:rgba(59,130,246,.16);  color:#2563eb; }
+  .sv-tbl thead .g-join  { background:rgba(99,102,241,.15);  color:#4f46e5; }
   .sv-tbl thead .g-mat   { background:rgba(16,185,129,.16);  color:#0f766e; }
   .sv-tbl thead .g-early { background:rgba(245,158,11,.20);  color:#b45309; }
   /* 구역 경계 굵은 세로선 */
   .sv-tbl .bd-b { border-left:3px solid #3b82f6; }
+  .sv-tbl .bd-j { border-left:3px solid #6366f1; }
   .sv-tbl .bd-g { border-left:3px solid #10b981; }
   .sv-tbl .bd-a { border-left:3px solid #f59e0b; }
   /* 비고 구분선(중립) */
@@ -3060,7 +3064,7 @@ function svFmtDate(v) {
   return raw.trim();
 }
 function svVals(s) {
-  return { name:s.name, principal:s.principal, mat_rate:s.mat_rate, mat_date:s.mat_date,
+  return { name:s.name, principal:s.principal, join_date:s.join_date, mat_rate:s.mat_rate, mat_date:s.mat_date,
     mat_amount:s.mat_amount, early_rate:s.early_rate, early_date:s.early_date, early_amount:s.early_amount, memo:s.memo };
 }
 
@@ -3108,6 +3112,7 @@ function svRow(s, idx, isLast) {
   return `<tr${moved ? ' class="sv-moved"' : ''}>
     <td><input type="text" class="sv-in nm" value="${svEsc(s.name)}" onchange="svSet('${s.id}','name',this)"></td>
     <td class="g-prin bd-b"><input type="text" class="sv-in amt" inputmode="numeric" ${SV_SEL} value="${svFmtIn(s.principal)}" onchange="svSet('${s.id}','principal',this)"></td>
+    <td class="g-join bd-j"><input type="text" class="sv-in dt" inputmode="numeric" placeholder="20261101" ${SV_SEL} value="${svEsc(s.join_date)}" onchange="svSet('${s.id}','join_date',this)"></td>
     <td class="g-mat bd-g"><input type="text" class="sv-in rt" inputmode="decimal" ${SV_SEL} value="${svRateShow(s.mat_rate)}" onchange="svSet('${s.id}','mat_rate',this)"></td>
     <td class="g-mat"><input type="text" class="sv-in dt" inputmode="numeric" placeholder="20261101" ${SV_SEL} value="${svEsc(s.mat_date)}" onchange="svSet('${s.id}','mat_date',this)"></td>
     <td class="g-mat"><input type="text" class="sv-in amt" inputmode="numeric" ${SV_SEL} value="${svFmtIn(s.mat_amount)}" onchange="svSet('${s.id}','mat_amount',this)"></td>
@@ -3135,7 +3140,7 @@ function renderSavings() {
   const n = svData.length;
   const body = n
     ? svData.map((s, i) => svRow(s, i, i === n - 1)).join('')
-    : `<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:22px">➕ 추가로 저축 계좌를 입력하세요</td></tr>`;
+    : `<tr><td colspan="11" style="text-align:center;color:var(--text3);padding:22px">➕ 추가로 저축 계좌를 입력하세요</td></tr>`;
   box.innerHTML = `
     <div class="sv-topbar"><button class="btn btn-primary" style="font-size:13px;padding:6px 14px" onclick="svAdd()">➕ 추가</button></div>
     <div class="sv-layout">
@@ -3146,6 +3151,7 @@ function renderSavings() {
         <tr>
           <th class="col" rowspan="2">계좌명</th>
           <th class="grp g-prin bd-b" rowspan="2">원금</th>
+          <th class="grp g-join bd-j" rowspan="2">가입일</th>
           <th class="grp g-mat bd-g" colspan="3">만기</th>
           <th class="grp g-early bd-a" colspan="3">중도해지</th>
           <th class="col bd-n" rowspan="2">비고</th>
@@ -3160,6 +3166,7 @@ function renderSavings() {
       <tfoot><tr>
         <td class="num">합계</td>
         <td class="g-prin bd-b num" id="sv-sum-p">0</td>
+        <td class="g-join bd-j"></td>
         <td class="g-mat bd-g"></td><td class="g-mat"></td>
         <td class="g-mat num" id="sv-sum-m">0</td>
         <td class="g-early bd-a"></td><td class="g-early"></td>
@@ -3172,7 +3179,7 @@ function renderSavings() {
 }
 
 async function svAdd() {
-  const blank = { name:'', principal:'', mat_rate:'', mat_date:'', mat_amount:'', early_rate:'', early_date:'', early_amount:'', memo:'' };
+  const blank = { name:'', principal:'', join_date:'', mat_rate:'', mat_date:'', mat_amount:'', early_rate:'', early_date:'', early_amount:'', memo:'' };
   const res = await apiPost({ action:'addSaving', ...blank });
   if (res && res.id) { svData.push({ id:res.id, ...blank }); svLastMovedId = null; renderSavings(); }
 }
@@ -3183,7 +3190,7 @@ function svSet(id, k, el) {
   const v = el.value;
   if (k === 'principal' || k === 'mat_amount' || k === 'early_amount') { s[k] = svNum(v); el.value = svFmtIn(s[k]); }
   else if (k === 'mat_rate' || k === 'early_rate') { s[k] = svRate(v); el.value = svRateShow(s[k]); }
-  else if (k === 'mat_date' || k === 'early_date') { s[k] = svFmtDate(v); el.value = s[k]; }
+  else if (k === 'mat_date' || k === 'early_date' || k === 'join_date') { s[k] = svFmtDate(v); el.value = s[k]; }
   else s[k] = v;
   svUpdateTotals();
   if (k === 'mat_date' || k === 'name') svRefreshNotice(); // 만기일·이름 바뀌면 공지판만 갱신(표 포커스 유지)
@@ -3196,7 +3203,7 @@ async function svMove(id, dir) {
   const j = i + dir;
   if (i < 0 || j < 0 || j >= svData.length) return;
   const a = svData[i], b = svData[j];
-  ['name','principal','mat_rate','mat_date','mat_amount','early_rate','early_date','early_amount','memo']
+  ['name','principal','join_date','mat_rate','mat_date','mat_amount','early_rate','early_date','early_amount','memo']
     .forEach(f => { const t = a[f]; a[f] = b[f]; b[f] = t; });
   // 데이터가 j 위치로 옮겨감 → 그 행(svData[j].id)을 강조해 눈으로 따라가게
   svLastMovedId = svData[j].id;
