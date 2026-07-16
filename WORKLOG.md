@@ -9,6 +9,10 @@
 
 ---
 
+## 2026-07-15 (23) / 직장 — 만기 알림 공지판 top을 표 top과 정렬
+- 공지판이 표보다 위에서 시작하던 원인: `.sv-topbar`(➕ 추가)가 `.sv-inner` 안(표 위)에 있어 표만 아래로 밀림. 토픽바를 `.sv-layout` **위(바깥)**로 이동 → 공지판·표가 같은 Y에서 시작(측정 noticeTop 198 vs tableTop 200, 2px=공지판 테두리). 버튼은 계속 우측 정렬.
+- 검증: 로컬 — top 정렬 2px 이내, topbar가 layout보다 앞, 버튼 우측정렬, 콘솔 무에러. 프론트만 — 재배포 불필요.
+
 ## 2026-07-15 (22) / 직장 — 숫자 콤마 정렬: 입력칸에 tabular-nums 적용
 - **증상**: 은경 저축 금액칸 등 오른쪽정렬 숫자의 콤마가 행마다 어긋남. **원인**: `--mono`가 실은 'Pretendard'(등폭 아님)이고, body의 `font-variant-numeric:tabular-nums`가 **`<input>`엔 상속 안 됨**(computed normal). 그래서 자릿수 폭 제각각("111"18.4px vs "444"26.2px) → 콤마 미정렬.
 - **수정**: 전역 `input, select, textarea { font-feature-settings:"tnum"; font-variant-numeric:tabular-nums }` 한 줄. 저축·연금(pp-plain)·분배금 입력칸 전부 등폭 숫자로. 검증: 로컬 — 적용 후 "111"="444"=25.81px, "1,111,111"="4,444,444"=67.31px(콤마 정렬), 콘솔 무에러. 프론트만 — 재배포 불필요.

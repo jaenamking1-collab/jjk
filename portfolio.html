@@ -3137,10 +3137,10 @@ function renderSavings() {
     ? svData.map((s, i) => svRow(s, i, i === n - 1)).join('')
     : `<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:22px">➕ 추가로 저축 계좌를 입력하세요</td></tr>`;
   box.innerHTML = `
+    <div class="sv-topbar"><button class="btn btn-primary" style="font-size:13px;padding:6px 14px" onclick="svAdd()">➕ 추가</button></div>
     <div class="sv-layout">
     ${svNoticeHTML()}
     <div class="sv-main"><div class="sv-wrap"><div class="sv-inner">
-      <div class="sv-topbar"><button class="btn btn-primary" style="font-size:13px;padding:6px 14px" onclick="svAdd()">➕ 추가</button></div>
       <table class="sv-tbl">
       <thead>
         <tr>
