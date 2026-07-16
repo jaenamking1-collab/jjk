@@ -9,6 +9,11 @@
 
 ---
 
+## 2026-07-15 (22) / 직장 — 숫자 콤마 정렬: 입력칸에 tabular-nums 적용
+- **증상**: 은경 저축 금액칸 등 오른쪽정렬 숫자의 콤마가 행마다 어긋남. **원인**: `--mono`가 실은 'Pretendard'(등폭 아님)이고, body의 `font-variant-numeric:tabular-nums`가 **`<input>`엔 상속 안 됨**(computed normal). 그래서 자릿수 폭 제각각("111"18.4px vs "444"26.2px) → 콤마 미정렬.
+- **수정**: 전역 `input, select, textarea { font-feature-settings:"tnum"; font-variant-numeric:tabular-nums }` 한 줄. 저축·연금(pp-plain)·분배금 입력칸 전부 등폭 숫자로. 검증: 로컬 — 적용 후 "111"="444"=25.81px, "1,111,111"="4,444,444"=67.31px(콤마 정렬), 콘솔 무에러. 프론트만 — 재배포 불필요.
+- ※ 검증 중 프리뷰 HTTP 캐시로 새 CSS가 안 잡혀 `?v=` 캐시버스터로 재확인함(코드 문제 아님).
+
 ## 2026-07-15 (21) / 직장 — 은경 저축: 모바일 가로밀림 수정 + "은경 저축" 제목 삭제
 - **모바일 표 잘림/페이지 가로밀림 수정**: `.sv-layout`이 세로 스택될 때 `align-items:flex-start`라 표영역(.sv-main)이 표 너비(1400+px)만큼 부풀어 **페이지 전체가 가로로 밀림**(deScrollW 1471). 미디어쿼리(≤900px)에 `align-items:stretch` + `.sv-main{width:100%;min-width:0}` 추가 → 표는 카드 안(285px)에서 가로 스크롤(scrollWidth 1424), 페이지는 안 밀림(375=375).
 - **제목 삭제**: 탭 상단 "💵 은경 저축" 큰 제목 div 제거(탭 버튼 라벨은 유지).
