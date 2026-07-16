@@ -28,6 +28,7 @@ function doGet(e) {
       case 'getHoldings':     result = getHoldings(e.parameter.account_id); break;
       case 'getDividends':    result = getDividends(e.parameter.year, e.parameter.account_id); break;
       case 'getSavings':      result = getSavings(); break;
+      case 'maturityAlertPreview': result = previewMaturityAlerts(); break;
       case 'getExchangeRate': result = { rate: fetchExchangeRate() }; break;
       case 'getStockInfo':    result = getStockInfo(e.parameter.ticker, e.parameter.currency); break;
       case 'getStockList':    result = getStockList(); break;
@@ -238,6 +239,92 @@ function updateSaving(data) {
   return { error: 'Not found' };
 }
 function deleteSaving(id) { deleteRowById('은경저축', id); return { success: true }; }
+
+// ── 만기 알림 이메일 ─────────────────────────
+// installMaturityTrigger()로 매일 1회 실행 → 만기 임박 저축 계좌를 이메일로 알림.
+// 시점: 6개월·3개월·1개월 진입 시 각 1회 → 만기 7일 전부터 매일(7·6·…·1일) → 만기 당일.
+// (계좌 + 만기일 + 시점) 조합마다 1회만 발송. 발송 이력은 Script 속성에 기록해 중복 방지.
+const MATURITY_ALERT_TO = 'azsxdcd@naver.com,divayeyo@gmail.com';
+
+// 오늘(KST) 자정 기준 만기까지 남은 일수. 날짜 형식 아니면 null.
+function _matDaysLeft(matDate) {
+  const raw = String(matDate == null ? '' : matDate).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  const todayStr = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
+  const t = Date.parse(todayStr + 'T00:00:00Z');
+  const m = Date.parse(raw + 'T00:00:00Z');
+  if (isNaN(m) || isNaN(t)) return null;
+  return Math.round((m - t) / 86400000);
+}
+
+// 남은 일수 → 알림 시점 라벨. 알림 불필요(6개월 초과)면 null.
+function maturityBucket(days) {
+  if (days <= 0)   return '만기일';
+  if (days <= 7)   return days + '일';   // 7·6·5·4·3·2·1일: 마지막 주 매일
+  if (days <= 30)  return '1개월';
+  if (days <= 91)  return '3개월';
+  if (days <= 183) return '6개월';
+  return null;
+}
+
+function _matAlertBody(s, days, bucket) {
+  const won = n => { const v = parseFloat(String(n == null ? '' : n).replace(/,/g, '')); return isFinite(v) && v ? Math.round(v).toLocaleString() + '원' : '-'; };
+  const head = bucket === '만기일'
+    ? (days < 0 ? '만기일이 ' + (-days) + '일 지났습니다.' : '오늘이 만기일입니다.')
+    : '만기까지 ' + days + '일 남았습니다.';
+  const lines = [head, '',
+    '계좌: ' + (s.name || '-'),
+    '원금: ' + won(s.principal),
+    '만기일: ' + (s.mat_date || '-')];
+  if (s.mat_rate)   lines.push('만기이율: ' + s.mat_rate + '%');
+  if (s.mat_amount) lines.push('만기시 금액: ' + won(s.mat_amount));
+  return lines.join('\n');
+}
+
+// 실제 발송(트리거·수동 실행). 조건 충족 + 미발송 건만 메일. 제목 예:[만기알림][SMART-1][6개월]
+function sendMaturityAlerts() {
+  const savings = getSavings();
+  const props = PropertiesService.getScriptProperties();
+  let sent; try { sent = JSON.parse(props.getProperty('sentMaturityAlerts') || '{}'); } catch(e) { sent = {}; }
+  const outbox = [];
+  savings.forEach(function(s) {
+    const days = _matDaysLeft(s.mat_date);
+    if (days == null) return;
+    const bucket = maturityBucket(days);
+    if (!bucket) return;
+    const key = s.id + '|' + s.mat_date + '|' + bucket; // 만기일 포함 → 재예치 시 새 회차로 재알림
+    if (sent[key]) return;
+    const subject = '[만기알림][' + (s.name || '이름없음') + '][' + bucket + ']';
+    MailApp.sendEmail({ to: MATURITY_ALERT_TO, subject: subject, body: _matAlertBody(s, days, bucket) });
+    sent[key] = new Date().toISOString();
+    outbox.push(subject);
+  });
+  if (outbox.length) props.setProperty('sentMaturityAlerts', JSON.stringify(sent));
+  return { success: true, sent: outbox };
+}
+
+// 드라이런: 메일 안 보내고 '지금 보낼 대상'만 반환(테스트용, 계좌 데이터 포함이라 token 필요).
+function previewMaturityAlerts() {
+  const savings = getSavings();
+  const props = PropertiesService.getScriptProperties();
+  let sent; try { sent = JSON.parse(props.getProperty('sentMaturityAlerts') || '{}'); } catch(e) { sent = {}; }
+  const rows = savings.map(function(s) {
+    const days = _matDaysLeft(s.mat_date);
+    const bucket = days == null ? null : maturityBucket(days);
+    const key = bucket ? (s.id + '|' + s.mat_date + '|' + bucket) : null;
+    return { name: s.name, mat_date: s.mat_date, days: days, bucket: bucket, willSend: !!(bucket && !sent[key]) };
+  });
+  return { to: MATURITY_ALERT_TO, candidates: rows.filter(function(r){ return r.willSend; }), all: rows };
+}
+
+// 하루 1회(오전 8시 KST) 트리거 설치 — 편집기에서 한 번만 실행하면 됨.
+function installMaturityTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === 'sendMaturityAlerts') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('sendMaturityAlerts').timeBased().everyDays(1).atHour(8).create();
+  return { success: true, msg: '매일 오전 8시(KST) 만기 알림 트리거 설치됨' };
+}
 
 // ── 환율 ──────────────────────────────────
 function fetchExchangeRate() {
