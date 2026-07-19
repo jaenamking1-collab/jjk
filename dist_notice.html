@@ -146,7 +146,11 @@
     </div>
   </div>
   <div style="background:#fffbeb;border:1px solid #fef3c7;border-radius:12px;padding:16px;margin-top:14px">
-    <div style="font-size:15px;font-weight:700;margin-bottom:12px">📋 공지 종목 전체</div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+      <div id="gridTitle" style="font-size:15px;font-weight:700">📋 공지 종목 전체</div>
+      <button onclick="gridShiftMonth(-1)" title="이전 달" style="width:24px;height:24px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;line-height:1">←</button>
+      <button onclick="gridShiftMonth(1)" title="다음 달" style="width:24px;height:24px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;line-height:1">→</button>
+    </div>
     <div id="distGrid"><div style="color:var(--text3);font-size:13px"><span class="spinner"></span>불러오는 중...</div></div>
   </div>
 </div>
@@ -185,6 +189,13 @@ const NOTICE_SOURCES = DIST_SOURCES.map(s => ({
 let _distData = [];
 let _calWeekOffset = 0;   // 달력 주 단위 이동 (←/→ 버튼)
 let _schedMonthOffset = 0; // 운용사별 일정 표: 월 단위 이동 (0=이번 달)
+let _gridMonthOffset = 0;  // 공지 종목 전체 그리드: 월 단위 이동 (0=이번 달)
+
+function gridShiftMonth(dir){
+  if (!_distData.length) return;
+  _gridMonthOffset = Math.max(-1, Math.min(1, _gridMonthOffset + dir));
+  renderDistGrid(_distData);
+}
 
 // dir: -1 한 주 앞으로, +1 한 주 뒤로, 0 오늘 주로 리셋
 function calShiftWeek(dir){
@@ -565,11 +576,21 @@ function renderNotices(){
 
 // ── 공지 종목 전체 (하단 섹션) ──
 // 포트폴리오 앱의 '내 보유 종목 분배 내역'과 같은 레이아웃(운용사별 카드 3×2, 표)로
-// 현재 공지의 전체 종목을 표시. 이력(hist)·기준일이 전월~익월 밖인 종목은 제외.
+// 공지 종목을 ←/→로 고른 달(기준일 기준)만 표시. 이력(hist)·SOL(확정 공지 없음)은 제외.
 function renderDistGrid(allData){
   const grid = document.getElementById('distGrid');
   if (!grid) return;
   const curMonth = new Date().getMonth() + 1;
+  // ←/→ 로 고른 달만 표시(기준일 없으면 지급일의 월로 귀속)
+  const selM = ((curMonth - 1 + _gridMonthOffset) % 12 + 12) % 12 + 1;
+  const gridTitle = document.getElementById('gridTitle');
+  if (gridTitle) gridTitle.textContent = `📋 ${selM}월 공지 종목 전체`;
+  const monthOf = (s) => {
+    s = String(s || '');
+    let m = s.match(/(\d{1,2})월/);            if (m) return parseInt(m[1]);
+    m = s.match(/(\d{1,2})[\/\.]\d{1,2}/);      if (m) return parseInt(m[1]);
+    return null;
+  };
   const cycleOf = (it, repSched) => {
     if (it && it.cycle) return it.cycle;
     const sch = (it.sched && Object.keys(it.sched).length) ? it.sched : (repSched || {});
@@ -582,17 +603,12 @@ function renderDistGrid(allData){
   const esc = s => String(s || '').replace(/</g, '&lt;').replace(/"/g, '&quot;');
   const cards = allData.map(c => {
     const d = c.data || {};
-    const items = (d.items || []).filter(it => {
+    // SOL은 확정 공지가 없어 종목을 표시하지 않는다.
+    const items = c.id === 'sol' ? [] : (d.items || []).filter(it => {
       if (it.hist) return false;
       const sch = (it.sched && Object.keys(it.sched).length) ? it.sched : (d.schedule || {});
-      const mm = (sch['기준일'] || '').match(/(\d{1,2})월/);
-      if (mm) {
-        const rm = parseInt(mm[1]);
-        const nextM = curMonth === 12 ? 1 : curMonth + 1;
-        const prevM = curMonth === 1 ? 12 : curMonth - 1;
-        if (rm !== curMonth && rm !== nextM && rm !== prevM) return false;
-      }
-      return true;
+      const rm = monthOf(sch['기준일'] || sch['지급일']);
+      return rm === selM; // 선택한 달의 회차만
     });
     let body;
     if (items.length) {
@@ -618,8 +634,10 @@ function renderDistGrid(allData){
       </table></div>`;
     } else if (d.error) {
       body = `<div style="padding:10px 12px;font-size:12px;color:var(--text3)">⚠️ ${d.error}</div>`;
+    } else if (c.id === 'sol') {
+      body = `<div style="padding:10px 12px;font-size:12px;color:var(--text3)">확정 공지 없음</div>`;
     } else {
-      body = `<div style="padding:10px 12px;font-size:12px;color:var(--text3)">공지 종목 없음</div>`;
+      body = `<div style="padding:10px 12px;font-size:12px;color:var(--text3)">${selM}월 공지 종목 없음</div>`;
     }
     return `<div style="background:${c.color}0a;border:1px solid ${c.color}33;border-radius:10px;overflow:hidden">
       <div style="padding:8px 12px;border-bottom:1px solid ${c.color}33;display:flex;align-items:center;gap:6px;background:${c.color}1f">
