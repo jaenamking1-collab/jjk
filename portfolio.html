@@ -2607,7 +2607,7 @@ async function syncFromSheet() {
 
   let sheetData;
   try {
-    sheetData = await api({ action: 'getSheetData' });
+    sheetData = await api({ action: 'getSheetData', force: 1 });
   } catch(e) {
     body.innerHTML = `<div style="color:#dc2626;padding:16px;">오류: ${e}</div>`;
     return;
