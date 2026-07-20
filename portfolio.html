@@ -3396,7 +3396,6 @@ function renderMasterCalendar(allData) {
     marks[k].push({ source, sourceColor, label, labelColor, uncertain: !!uncertain });
   };
   allData.forEach(c => {
-    if (c.id === 'sol') return; // SOL은 확정 공지가 없어 아래에서 공통 지급일에 '?'로 별도 표기
     const repSched = (c.data && c.data.schedule) || {};
     const items = (c.data && c.data.items) || [];
     const heldItems = items.filter(isHeld);
@@ -3438,25 +3437,6 @@ function renderMasterCalendar(allData) {
       if (inRange(sch)) addAll(c, sch);
     }
   });
-
-  // SOL: 확정 공지가 없어 실제 회차 날짜 대신, 다른 운용사들의 공통 지급일에 '?'로 얹는다.
-  const solCo = allData.find(c => c.id === 'sol');
-  if (solCo) {
-    const solCycles = new Set(((solCo.data && solCo.data.items) || []).map(it => it.cycle).filter(Boolean));
-    ['월중','월말'].forEach(cyc => {
-      if (!solCycles.has(cyc)) return;
-      const lbl = `${cyc} 지급일`;
-      let bestKey = null, bestN = 0;
-      Object.keys(marks).forEach(k => {
-        const n = marks[k].filter(mk => mk.label === lbl).length;
-        if (n > bestN) { bestN = n; bestKey = k; }
-      });
-      if (bestKey) {
-        const [pm, pd] = bestKey.split('-').map(Number);
-        addMark({ m: pm, d: pd }, solCo.name, solCo.color, lbl, '#ef4444', true);
-      }
-    });
-  }
 
   const startDow = new Date(year, month - 1, 1).getDay();
   const dim = new Date(year, month, 0).getDate();
@@ -3579,7 +3559,7 @@ function renderMasterCalendar(allData) {
     };
     const mid = pickCycle('월중'), end = pickCycle('월말');
     if (!mid.hasNotice && !end.hasNotice) return;
-    rowsData.push({ name: c.name, color: c.color, mid, end, isSol: c.id === 'sol' });
+    rowsData.push({ name: c.name, color: c.color, mid, end });
   });
 
   const dcell = (info, key) => {
@@ -3592,10 +3572,9 @@ function renderMasterCalendar(allData) {
   // 회차(월중/월말)마다 실제 행을 나눠 그린다. 운용사명은 rowspan.
   // 월중/월말은 행 전체 배경색으로 구분, 회차엔 해당 월을 붙여 표시(예: 7월 월중).
   const CYC = { '월중': ['#ecfeff', '#0e7490'], '월말': ['#f5f3ff', '#6d28d9'] };
-  const dateCell = (info, key, col, bg, isSol) => {
-    // SOL은 확정 공지가 없어 날짜를 표기하지 않고 '-'로 둔다.
-    const v = isSol ? '' : dcell(info, key);
-    const txt = isSol ? '-' : (v || '·');
+  const dateCell = (info, key, col, bg) => {
+    const v = dcell(info, key);
+    const txt = v || '·';
     return `<td style="text-align:center;padding:5px 3px;font-family:var(--mono);white-space:nowrap;font-weight:600;background:${bg};color:${v ? col : '#cbd5e1'}">${txt}</td>`;
   };
   const tableHtml = rowsData.length ? `
@@ -3621,10 +3600,10 @@ function renderMasterCalendar(allData) {
           return `<tr>
             ${nameCell}
             <td style="padding:5px 6px;white-space:nowrap;background:${bg};color:${col};font-weight:700">${monLabel}${noHold}</td>
-            ${dateCell(m, '공시일', '#d97706', bg, r.isSol)}
-            ${dateCell(m, '분배락일', '#16a34a', bg, r.isSol)}
-            ${dateCell(m, '기준일', '#2563eb', bg, r.isSol)}
-            ${dateCell(m, '지급일', '#dc2626', bg, r.isSol)}
+            ${dateCell(m, '공시일', '#d97706', bg)}
+            ${dateCell(m, '분배락일', '#16a34a', bg)}
+            ${dateCell(m, '기준일', '#2563eb', bg)}
+            ${dateCell(m, '지급일', '#dc2626', bg)}
           </tr>`;
         }).join('');
       }).join('')}</tbody>

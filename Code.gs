@@ -1648,7 +1648,8 @@ function fetchDist_rise() {
   }
 }
 
-// SOL 공지 목록 [{title, date:'yyyy-MM-dd HH:mm'}] — 네이버 블로그 RSS 우선, 실패 시 홈페이지 공지 API
+// SOL 공지 목록 [{title, date:'yyyy-MM-dd HH:mm', logNo}] — 네이버 블로그 RSS 우선, 실패 시 홈페이지 공지 API
+// logNo는 블로그 글 번호. 본문 파싱(_solParsePost)에 쓴다.
 function _solNotices() {
   try {
     const xml = UrlFetchApp.fetch('https://rss.blog.naver.com/soletf.xml', { muteHttpExceptions:true, headers:{'User-Agent':'Mozilla/5.0'} });
@@ -1657,7 +1658,8 @@ function _solNotices() {
       String(xml.getContentText('UTF-8')).split('<item>').slice(1).forEach(chunk => {
         const t = chunk.match(/<title>\s*(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?\s*<\/title>/);
         const d = chunk.match(/<pubDate>\s*([\s\S]*?)\s*<\/pubDate>/);
-        if (t && d) out.push({ title: t[1], date: Utilities.formatDate(new Date(d[1]), 'Asia/Seoul', 'yyyy-MM-dd HH:mm') });
+        const l = chunk.match(/blog\.naver\.com\/soletf\/(\d{6,})/);
+        if (t && d) out.push({ title: t[1], date: Utilities.formatDate(new Date(d[1]), 'Asia/Seoul', 'yyyy-MM-dd HH:mm'), logNo: l ? l[1] : '' });
       });
       if (out.length) return out;
     }
@@ -1665,69 +1667,76 @@ function _solNotices() {
   try {
     const res = UrlFetchApp.fetch('https://www.soletf.com/api/cs/notice?pageNo=1&pageSize=20', { muteHttpExceptions:true, headers:{'User-Agent':'Mozilla/5.0','Accept':'application/json'} });
     if (res.getResponseCode() === 200) {
-      return (JSON.parse(res.getContentText('UTF-8')).items||[]).map(it => ({ title: String(it.TITLE||''), date: String(it.REG_DATE||'') }));
+      return (JSON.parse(res.getContentText('UTF-8')).items||[]).map(it => {
+        const l = String(it.CONTENT||'').match(/blog\.naver\.com\/soletf\/(\d{6,})/);
+        return { title: String(it.TITLE||''), date: String(it.REG_DATE||''), logNo: l ? l[1] : '' };
+      });
     }
   } catch(e) {}
   return [];
 }
 
-function fetchDist_sol() {
-  const FUND_MAP = {
-    '0040Y0': { fundCd:'211088', name:'SOL 팔란티어커버드콜OTM채권혼합' },
-    '0040X0': { fundCd:'211089', name:'SOL 팔란티어미국채커버드콜혼합' },
-    '484880': { fundCd:'211061', name:'SOL 금융지주플러스고배당' },
-    '473330': { fundCd:'211044', name:'SOL 미국30년국채커버드콜(합성)' },
-    '446720': { fundCd:'210942', name:'SOL 미국배당다우존스' },
-    '493420': { fundCd:'211069', name:'SOL 미국배당다우존스2호' }
-  };
+// 블로그 이름 → 종목코드. 표시용이라 없는 종목은 빈칸으로 두면 된다.
+const SOL_TICKER = {
+  'SOL 팔란티어커버드콜OTM채권혼합':'0040Y0', 'SOL 팔란티어미국채커버드콜혼합':'0040X0',
+  'SOL 금융지주플러스고배당':'484880', 'SOL 미국30년국채커버드콜(합성)':'473330',
+  'SOL 미국배당다우존스':'446720', 'SOL 미국배당다우존스2호':'493420'
+};
+
+// 블로그 분배금 공지 1건 파싱 → {sched, items:[{name,amount,rate}]}
+// 본문이 HTML 표(텍스트)라 OCR 불필요. 일정·종목별 분배금·분배율이 전부 여기 들어있다.
+function _solParsePost(logNo) {
+  const url = 'https://blog.naver.com/PostView.naver?blogId=soletf&logNo=' + logNo + '&redirect=Dlog&widgetTypeCall=true';
+  const res = UrlFetchApp.fetch(url, { muteHttpExceptions:true, headers:{'User-Agent':'Mozilla/5.0'} });
+  if (res.getResponseCode() !== 200) return null;
+  const html = res.getContentText('UTF-8');
+  const bi = html.indexOf('se-main-container'); // 본문 컨테이너
+  if (bi < 0) return null;
+  const txt = html.slice(bi).replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/[\s​]+/g, ' ');
+  const md = re => { const m = txt.match(re); return m ? (parseInt(m[1]) + '월 ' + parseInt(m[2]) + '일') : ''; };
+  const sched = {};
+  const set = (k, v) => { if (v) sched[k] = v; };
+  set('공시일',   md(/분배금\s*공시일\s*:?\s*(?:\d+\s*년)?\s*(\d{1,2})월\s*(\d{1,2})일/));
+  set('분배락일', md(/분배락\s*(\d{1,2})월\s*(\d{1,2})일/));
+  set('기준일',   md(/지급\s*기준일\s*(\d{1,2})월\s*(\d{1,2})일/));
+  set('지급일',   md(/지급\s*예정일\s*(\d{1,2})월\s*(\d{1,2})일/));
+  // '분배금 내역' 표: "1 SOL 코리아고배당 60 0.46" — 종목명에도 숫자가 들어가므로 끝의 분배율(소수)로 행을 끊는다
+  const seg = txt.split(/분배금\s*내역/)[1] || '';
   const items = [];
-  let schedule = {};
-  let latestWorkDt = '';
+  const re = /(?:^|\s)\d{1,2}\s+(SOL\s.+?)\s+([\d,]+)\s+(\d{1,3}\.\d{1,2})(?=\s|$)/g;
+  let m;
+  while ((m = re.exec(seg)) !== null) {
+    items.push({ name: m[1].trim(), amount: Number(m[2].replace(/,/g, '')), rate: Number(m[3]) });
+  }
+  return { sched, items };
+}
+
+// SOL은 홈페이지 대신 네이버 블로그에 분배금 공지를 올린다(홈페이지는 늦거나 누락).
+// 최신 월중(①)·월말(②) 공지 본문을 각각 파싱해 회차별 종목을 만든다.
+function fetchDist_sol() {
   try {
-    Object.keys(FUND_MAP).forEach(ticker => {
-      const info = FUND_MAP[ticker];
-      try {
-        const res = UrlFetchApp.fetch('https://www.soletf.com/api/etf/pds/dividend/' + info.fundCd, { muteHttpExceptions:true, headers:{'User-Agent':'Mozilla/5.0','Accept':'application/json'} });
-        if (res.getResponseCode() !== 200) return;
-        const j = JSON.parse(res.getContentText('UTF-8'));
-        const arr = j.items || [];
-        if (!arr.length) return;
-        const latest = arr[0];
-        const amount = Number(latest.DIVIDEND_PRI) || null;
-        if (amount == null) return;
-        const base = Number(latest.BFAS_STAS_STPR) || Number(latest.TAX_PRI) || null;
-        const rate = base ? Math.round(amount / base * 10000) / 100 : null;
-        // 기준일(WORK_DT)의 일자로 월중/월말 판별: 25일 이후=월말
-        const wd = String(latest.WORK_DT || ''), dd = String(latest.DIVIDEND_DT || '');
-        const workDay = wd.length >= 8 ? parseInt(wd.substr(6,2)) : 0;
-        const cycle = workDay >= 25 ? '월말' : '월중';
-        const itemSched = (wd.length >= 8 && dd.length >= 8) ? {
-          '기준일': parseInt(wd.substr(4,2)) + '월 ' + parseInt(wd.substr(6,2)) + '일',
-          '지급일': parseInt(dd.substr(4,2)) + '월 ' + parseInt(dd.substr(6,2)) + '일'
-        } : {};
-        items.push({ name: info.name, ticker, amount, rate, cycle, sched: itemSched });
-        if (latest.WORK_DT > latestWorkDt) {
-          latestWorkDt = latest.WORK_DT;
-          schedule = { '기준일': parseInt(wd.substr(4,2)) + '월 ' + parseInt(wd.substr(6,2)) + '일', '지급일': parseInt(dd.substr(4,2)) + '월 ' + parseInt(dd.substr(6,2)) + '일' };
-        }
-      } catch(e2) {}
+    const notices = _solNotices().filter(n => n.logNo && /분배금\s*안내/.test(n.title));
+    const latest = f => notices.filter(f).sort((a,b) => b.date.localeCompare(a.date))[0];
+    const rounds = [
+      { cycle:'월중', n: latest(n => /중순/.test(n.title)) },
+      { cycle:'월말', n: latest(n => /②/.test(n.title) && !/중순/.test(n.title)) }
+    ];
+    const items = [];
+    let schedule = {};
+    rounds.forEach(r => {
+      if (!r.n) return;
+      const p = _solParsePost(r.n.logNo);
+      if (!p || !p.items.length) return;
+      p.items.forEach(it => items.push({
+        name: it.name, ticker: SOL_TICKER[it.name] || '', amount: it.amount, rate: it.rate,
+        cycle: r.cycle, sched: p.sched
+      }));
+      if (r.cycle === '월중' || !Object.keys(schedule).length) schedule = p.sched;
     });
-    if (!items.length) return { items: [], error: 'SOL: dividend API 결과 없음' };
-    // 공지는 홈페이지보다 네이버 블로그가 빠르고(홈페이지는 누락도 잦음) 제목에 지급예정일이 들어있다.
-    const notices = _solNotices();
-    const pick = re => notices.filter(n => re.test(n.title)).sort((a,b) => b.date.localeCompare(a.date))[0];
-    const mid = pick(/중순\s*분배금\s*안내/);
-    if (mid) {
-      const m = mid.date.match(/^\d{4}-(\d{2})-(\d{2})/);
-      if (m) schedule['공시일'] = parseInt(m[1]) + '월 ' + parseInt(m[2]) + '일';
-    }
-    // 제목에서 월말(②) 지급예정일 추출: "6월 분배금 안내 ② (지급 예정일 7월 1일)"
-    const end = pick(/분배금\s*안내\s*②/);
-    if (end && !/중순/.test(end.title)) {
-      const pm = end.title.match(/지급\s*예정일\s*(\d{1,2})월\s*(\d{1,2})일/);
-      if (pm) schedule['_월말지급예정'] = parseInt(pm[1]) + '월 ' + parseInt(pm[2]) + '일';
-    }
-    return { success: true, items, schedule, title: 'SOL 월배당 분배금 (자사 API)', _source: 'api' };
+    if (!items.length) return { items: [], error: 'SOL: 블로그 공지 파싱 0건' };
+    return { success: true, items, schedule, title: 'SOL 월배당 분배금 (블로그 공지)', _source: 'blog' };
   } catch(e) {
     return { items: [], error: 'SOL: ' + e.toString() };
   }
