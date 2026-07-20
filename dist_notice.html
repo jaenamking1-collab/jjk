@@ -160,7 +160,8 @@
 <script>
 // ⚠️ 공개 프록시 GAS의 exec URL 을 여기에 넣는다 (public_dist_proxy.gs 배포 후 발급된 URL).
 //    개인 GAS URL 이 아니라 '공개 프록시' URL 이어야 함 — 개인 데이터가 노출되지 않음.
-const API = 'https://script.google.com/macros/s/AKfycbwdk4_x3iwTQRjmGhNS2q0WLnVE9ihsPc_NOd3co6Juidedaf89ULVzCK8CYAYZXf8/exec';
+// 앱(portfolio.html)과 같은 배포를 쓴다. 배포가 2개면 한쪽만 갱신돼 값이 어긋나므로 하나로 합침.
+const API = 'https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec';
 
 async function api(params){
   const url = API + '?' + new URLSearchParams(params);
