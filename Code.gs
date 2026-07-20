@@ -867,7 +867,9 @@ function parseSmartTodayArticle(html) {
   return { items, schedule };
 }
 
+// 트리거용. checkAndLogAlerts가 6개 운용사를 강제 갱신하면서 신규공지·구조변경까지 감지해 알림로그에 남긴다.
 function refreshAllDistributions() {
+  try { return checkAndLogAlerts(); } catch(e) { console.log('checkAndLogAlerts', e); }
   ['kodex','tiger','ace','plus','rise','sol'].forEach(s => {
     try { getDistribution(s, true); } catch(e) { console.log(s, e); }
   });
@@ -1634,6 +1636,29 @@ function fetchDist_rise() {
   }
 }
 
+// SOL 공지 목록 [{title, date:'yyyy-MM-dd HH:mm'}] — 네이버 블로그 RSS 우선, 실패 시 홈페이지 공지 API
+function _solNotices() {
+  try {
+    const xml = UrlFetchApp.fetch('https://rss.blog.naver.com/soletf.xml', { muteHttpExceptions:true, headers:{'User-Agent':'Mozilla/5.0'} });
+    if (xml.getResponseCode() === 200) {
+      const out = [];
+      String(xml.getContentText('UTF-8')).split('<item>').slice(1).forEach(chunk => {
+        const t = chunk.match(/<title>\s*(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?\s*<\/title>/);
+        const d = chunk.match(/<pubDate>\s*([\s\S]*?)\s*<\/pubDate>/);
+        if (t && d) out.push({ title: t[1], date: Utilities.formatDate(new Date(d[1]), 'Asia/Seoul', 'yyyy-MM-dd HH:mm') });
+      });
+      if (out.length) return out;
+    }
+  } catch(e) {}
+  try {
+    const res = UrlFetchApp.fetch('https://www.soletf.com/api/cs/notice?pageNo=1&pageSize=20', { muteHttpExceptions:true, headers:{'User-Agent':'Mozilla/5.0','Accept':'application/json'} });
+    if (res.getResponseCode() === 200) {
+      return (JSON.parse(res.getContentText('UTF-8')).items||[]).map(it => ({ title: String(it.TITLE||''), date: String(it.REG_DATE||'') }));
+    }
+  } catch(e) {}
+  return [];
+}
+
 function fetchDist_sol() {
   const FUND_MAP = {
     '0040Y0': { fundCd:'211088', name:'SOL 팔란티어커버드콜OTM채권혼합' },
@@ -1676,25 +1701,20 @@ function fetchDist_sol() {
       } catch(e2) {}
     });
     if (!items.length) return { items: [], error: 'SOL: dividend API 결과 없음' };
-    try {
-      const noticeRes = UrlFetchApp.fetch('https://www.soletf.com/api/cs/notice?pageNo=1&pageSize=20', { muteHttpExceptions:true, headers:{'User-Agent':'Mozilla/5.0','Accept':'application/json'} });
-      if (noticeRes.getResponseCode() === 200) {
-        const nj = JSON.parse(noticeRes.getContentText('UTF-8'));
-        const cand = (nj.items||[]).filter(it => /중순\s*분배금\s*안내/.test(it.TITLE||'')).sort((a,b) => String(b.REG_DATE||'').localeCompare(String(a.REG_DATE||'')));
-        if (cand.length) {
-          const reg = String(cand[0].REG_DATE||'');
-          const m = reg.match(/^\d{4}-(\d{2})-(\d{2})/);
-          if (m) schedule['공시일'] = parseInt(m[1]) + '월 ' + parseInt(m[2]) + '일';
-        }
-        // 제목에서 월말(②) 지급예정일 추출: "6월 분배금 안내 ② (지급 예정일 7월 1일)"
-        const endCand = (nj.items||[]).filter(it => /분배금\s*안내\s*②/.test(it.TITLE||'') && !/중순/.test(it.TITLE||''))
-          .sort((a,b) => String(b.REG_DATE||'').localeCompare(String(a.REG_DATE||'')));
-        if (endCand.length) {
-          const pm = (endCand[0].TITLE||'').match(/지급\s*예정일\s*(\d{1,2})월\s*(\d{1,2})일/);
-          if (pm) schedule['_월말지급예정'] = parseInt(pm[1]) + '월 ' + parseInt(pm[2]) + '일';
-        }
-      }
-    } catch(eNotice) {}
+    // 공지는 홈페이지보다 네이버 블로그가 빠르고(홈페이지는 누락도 잦음) 제목에 지급예정일이 들어있다.
+    const notices = _solNotices();
+    const pick = re => notices.filter(n => re.test(n.title)).sort((a,b) => b.date.localeCompare(a.date))[0];
+    const mid = pick(/중순\s*분배금\s*안내/);
+    if (mid) {
+      const m = mid.date.match(/^\d{4}-(\d{2})-(\d{2})/);
+      if (m) schedule['공시일'] = parseInt(m[1]) + '월 ' + parseInt(m[2]) + '일';
+    }
+    // 제목에서 월말(②) 지급예정일 추출: "6월 분배금 안내 ② (지급 예정일 7월 1일)"
+    const end = pick(/분배금\s*안내\s*②/);
+    if (end && !/중순/.test(end.title)) {
+      const pm = end.title.match(/지급\s*예정일\s*(\d{1,2})월\s*(\d{1,2})일/);
+      if (pm) schedule['_월말지급예정'] = parseInt(pm[1]) + '월 ' + parseInt(pm[2]) + '일';
+    }
     return { success: true, items, schedule, title: 'SOL 월배당 분배금 (자사 API)', _source: 'api' };
   } catch(e) {
     return { items: [], error: 'SOL: ' + e.toString() };
