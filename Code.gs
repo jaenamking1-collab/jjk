@@ -877,12 +877,13 @@ function checkDistNotices() {
   return checkAndLogAlerts();
 }
 
-// 편집기에서 1회 실행. 기존 checkDistNotices 트리거를 지우고 10시·14시 2개를 만든다.
+// 편집기에서 1회 실행. 기존 checkDistNotices 트리거를 지우고 10·14·18시 3개를 만든다.
+// 18시는 SOL 실제 게시가 17시 전후라 당일에 잡기 위한 슬롯.
 function setupDistTriggers() {
   ScriptApp.getProjectTriggers()
     .filter(t => t.getHandlerFunction() === 'checkDistNotices')
     .forEach(t => ScriptApp.deleteTrigger(t));
-  [10, 14].forEach(h => ScriptApp.newTrigger('checkDistNotices').timeBased().atHour(h).nearMinute(5).everyDays(1).create());
+  [10, 14, 18].forEach(h => ScriptApp.newTrigger('checkDistNotices').timeBased().atHour(h).nearMinute(5).everyDays(1).create());
 }
 
 function _testNoticeWindow() {
