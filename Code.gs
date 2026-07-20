@@ -877,20 +877,7 @@ function checkDistNotices() {
   return checkAndLogAlerts();
 }
 
-// 편집기에서 1회 실행. 기존 checkDistNotices 트리거를 지우고 10·14·18시 3개를 만든다.
-// 18시는 SOL 실제 게시가 17시 전후라 당일에 잡기 위한 슬롯.
-function setupDistTriggers() {
-  ScriptApp.getProjectTriggers()
-    .filter(t => t.getHandlerFunction() === 'checkDistNotices')
-    .forEach(t => ScriptApp.deleteTrigger(t));
-  [10, 14, 18].forEach(h => ScriptApp.newTrigger('checkDistNotices').timeBased().atHour(h).nearMinute(5).everyDays(1).create());
-}
-
-function _testNoticeWindow() {
-  [8,10,12,23,25,27].forEach(d => { if (!_inNoticeWindow(d)) throw new Error('창 안인데 false: ' + d); });
-  [1,7,13,22,28,31].forEach(d => { if (_inNoticeWindow(d)) throw new Error('창 밖인데 true: ' + d); });
-  return 'ok';
-}
+// 트리거 설정은 파일 맨 아래 '수동 실행' 섹션의 setupDistTriggers() 참고.
 
 // 트리거용. checkAndLogAlerts가 6개 운용사를 강제 갱신하면서 신규공지·구조변경까지 감지해 알림로그에 남긴다.
 function refreshAllDistributions() {
@@ -2423,15 +2410,7 @@ function snapshotPortfolio() {
 }
 
 // 수익로그 스냅샷 트리거를 10·13·16시 3개로 재설정. 스크립트 편집기에서 1회만 실행하면 된다.
-function setupPortfolioTriggers() {
-  ScriptApp.getProjectTriggers()
-    .filter(t => t.getHandlerFunction() === 'snapshotPortfolio')
-    .forEach(t => ScriptApp.deleteTrigger(t));
-  [10, 13, 16].forEach(h => {
-    ScriptApp.newTrigger('snapshotPortfolio').timeBased().atHour(h).nearMinute(5).everyDays(1).create();
-  });
-  console.log('snapshotPortfolio 트리거 3개(10·13·16시) 재설정 완료');
-}
+// setupPortfolioTriggers()는 파일 맨 아래 '수동 실행' 섹션으로 옮김.
 
 function getPortfolioLog() {
   const ss = SpreadsheetApp.openById(SHEET_ID);
@@ -2511,4 +2490,39 @@ function debugSheetAcc(){
   const s = {};
   r.forEach(i => s[i.account] = (s[i.account]||0) + 1);
   console.log(JSON.stringify(s, null, 2));
+}
+
+// ===================================================================
+// ===== 수동 실행 (편집기에서 함수 골라 ▶실행. 재배포와 별개) =====
+// 새로 만드는 "손으로 한 번 돌려야 하는" 함수는 전부 여기 아래에 둘 것.
+// ===================================================================
+
+// 분배금 공지 탐지 트리거: 매일 10·14·18시.
+// 실행 대상 checkDistNotices()가 공지 몰리는 날(8~12, 23~27)만 통과시킨다.
+// 18시는 SOL 게시가 17시 전후라 당일에 잡기 위한 슬롯.
+function setupDistTriggers() {
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'checkDistNotices')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+  [10, 14, 18].forEach(h => ScriptApp.newTrigger('checkDistNotices').timeBased().atHour(h).nearMinute(5).everyDays(1).create());
+  console.log('checkDistNotices 트리거 3개(10·14·18시) 재설정 완료');
+}
+
+// 수익로그 스냅샷 트리거: 매일 10·13·16시.
+function setupPortfolioTriggers() {
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'snapshotPortfolio')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+  [10, 13, 16].forEach(h => {
+    ScriptApp.newTrigger('snapshotPortfolio').timeBased().atHour(h).nearMinute(5).everyDays(1).create();
+  });
+  console.log('snapshotPortfolio 트리거 3개(10·13·16시) 재설정 완료');
+}
+
+// 공지 창 경계값 자체 점검. 통과하면 'ok' 반환, 틀리면 예외.
+function _testNoticeWindow() {
+  [8,10,12,23,25,27].forEach(d => { if (!_inNoticeWindow(d)) throw new Error('창 안인데 false: ' + d); });
+  [1,7,13,22,28,31].forEach(d => { if (_inNoticeWindow(d)) throw new Error('창 밖인데 true: ' + d); });
+  console.log('ok');
+  return 'ok';
 }
