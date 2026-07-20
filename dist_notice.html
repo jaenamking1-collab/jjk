@@ -305,7 +305,6 @@ function renderMasterCalendar(allData){
     marks[k].push({ source, sourceColor, label, labelColor, shortLabel: shortLabel || label, uncertain: !!uncertain });
   };
   allData.forEach(c => {
-    if (c.id === 'sol') return; // SOL은 확정 공지가 없어 아래에서 공통 지급일에 '?'로 별도 표기
     const repSched = (c.data && c.data.schedule) || {};
     const items = (c.data && c.data.items) || [];
     const inRange = sch => {
@@ -334,26 +333,6 @@ function renderMasterCalendar(allData){
       if (inRange(sch)) addAll(c, sch);
     }
   });
-
-  // SOL: 확정 공지가 없어 실제 회차 날짜 대신, 다른 운용사들의 공통 지급일에 '?'로 얹는다.
-  const sol = allData.find(c => c.id === 'sol');
-  if (sol) {
-    const solCycles = new Set(((sol.data && sol.data.items) || []).map(it => it.cycle).filter(Boolean));
-    ['월중','월말'].forEach(cyc => {
-      if (!solCycles.has(cyc)) return;
-      const lbl = `${cyc} 지급일`;
-      // 해당 회차 지급일이 가장 많이 몰린 날짜 = 공통 지급일
-      let bestKey = null, bestN = 0;
-      Object.keys(marks).forEach(k => {
-        const n = marks[k].filter(mk => mk.label === lbl).length;
-        if (n > bestN) { bestN = n; bestKey = k; }
-      });
-      if (bestKey) {
-        const [pm, pd] = bestKey.split('-').map(Number);
-        addMark({ m: pm, d: pd }, sol.name, sol.color, lbl, '#ef4444', lbl, true);
-      }
-    });
-  }
 
   const today = now.getDate();
   const dowsShow = ['월','화','수','목','금']; // 평일만
@@ -445,7 +424,7 @@ function renderMasterCalendar(allData){
     };
     const mid = pickCycle('월중'), end = pickCycle('월말');
     if (!mid.hasNotice && !end.hasNotice) return;
-    rowsData.push({ name: c.name, color: c.color, mid, end, isSol: c.id === 'sol' });
+    rowsData.push({ name: c.name, color: c.color, mid, end });
   });
 
   const dcell = (info, key) => {
@@ -459,10 +438,9 @@ function renderMasterCalendar(allData){
   // 월중/월말은 행 전체 배경색으로 구분, 회차엔 해당 월을 붙여 표시(예: 7월 월중).
   // 공지 없는 회차도 줄은 유지(날짜만 비움).
   const CYC = { '월중': ['#ecfeff', '#0e7490'], '월말': ['#f5f3ff', '#6d28d9'] };
-  const dateCell = (info, key, col, bg, isSol) => {
-    // SOL은 확정 공지가 없어 날짜를 표기하지 않고 '-'로 둔다.
-    const v = isSol ? '' : dcell(info, key);
-    const txt = isSol ? '-' : (v || '·');
+  const dateCell = (info, key, col, bg) => {
+    const v = dcell(info, key);
+    const txt = v || '·';
     return `<td style="text-align:center;padding:5px 3px;font-family:var(--mono);white-space:nowrap;font-weight:600;background:${bg};color:${v ? col : '#cbd5e1'}">${txt}</td>`;
   };
   const tableHtml = rowsData.length ? `
@@ -486,10 +464,10 @@ function renderMasterCalendar(allData){
           return `<tr>
             ${nameCell}
             <td style="padding:5px 6px;white-space:nowrap;background:${bg};color:${col};font-weight:700">${monLabel}</td>
-            ${dateCell(m, '공시일', '#d97706', bg, r.isSol)}
-            ${dateCell(m, '분배락일', '#16a34a', bg, r.isSol)}
-            ${dateCell(m, '기준일', '#2563eb', bg, r.isSol)}
-            ${dateCell(m, '지급일', '#dc2626', bg, r.isSol)}
+            ${dateCell(m, '공시일', '#d97706', bg)}
+            ${dateCell(m, '분배락일', '#16a34a', bg)}
+            ${dateCell(m, '기준일', '#2563eb', bg)}
+            ${dateCell(m, '지급일', '#dc2626', bg)}
           </tr>`;
         }).join('');
       }).join('')}</tbody>
@@ -594,7 +572,7 @@ function renderNotices(){
 
 // ── 공지 종목 전체 (하단 섹션) ──
 // 포트폴리오 앱의 '내 보유 종목 분배 내역'과 같은 레이아웃(운용사별 카드 3×2, 표)로
-// 공지 종목을 ←/→로 고른 달(기준일 기준)만 표시. 이력(hist)·SOL(확정 공지 없음)은 제외.
+// 공지 종목을 ←/→로 고른 달(기준일 기준)만 표시. 이력(hist)은 제외.
 function renderDistGrid(allData){
   const grid = document.getElementById('distGrid');
   if (!grid) return;
@@ -621,8 +599,7 @@ function renderDistGrid(allData){
   const esc = s => String(s || '').replace(/</g, '&lt;').replace(/"/g, '&quot;');
   const cards = allData.map(c => {
     const d = c.data || {};
-    // SOL은 확정 공지가 없어 종목을 표시하지 않는다.
-    const items = c.id === 'sol' ? [] : (d.items || []).filter(it => {
+    const items = (d.items || []).filter(it => {
       if (it.hist) return false;
       const sch = (it.sched && Object.keys(it.sched).length) ? it.sched : (d.schedule || {});
       const rm = monthOf(sch['기준일'] || sch['지급일']);
@@ -652,8 +629,6 @@ function renderDistGrid(allData){
       </table></div>`;
     } else if (d.error) {
       body = `<div style="padding:10px 12px;font-size:12px;color:var(--text3)">⚠️ ${d.error}</div>`;
-    } else if (c.id === 'sol') {
-      body = `<div style="padding:10px 12px;font-size:12px;color:var(--text3)">확정 공지 없음</div>`;
     } else {
       body = `<div style="padding:10px 12px;font-size:12px;color:var(--text3)">${selM}월 공지 종목 없음</div>`;
     }
