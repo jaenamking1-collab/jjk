@@ -3243,6 +3243,21 @@ const SCHED_CFG = [
   { key:'기준일',  color:'#3b82f6', label:'분배금지급기준일' },
   { key:'지급일',  color:'#ef4444', label:'분배금지급일' },
 ];
+// 한국 공휴일(증시 휴장) — 근로자의날 포함. '대체'는 대체공휴일.
+// 제헌절은 2026년부터 공휴일로 재지정됨(2026-07-17). 달력은 평일만 그리므로 주말 공휴일은 표시되지 않는다.
+const HOLIDAYS = {
+  '2026-1-1':'신정',      '2026-2-16':'설날',    '2026-2-17':'설날',   '2026-2-18':'설날',
+  '2026-3-2':'삼일절(대체)', '2026-5-1':'근로자의날', '2026-5-5':'어린이날',
+  '2026-5-25':'부처님오신날(대체)', '2026-6-3':'지방선거일', '2026-6-6':'현충일',
+  '2026-7-17':'제헌절',   '2026-8-17':'광복절(대체)',
+  '2026-9-24':'추석',     '2026-9-25':'추석',    '2026-9-26':'추석',
+  '2026-10-5':'개천절(대체)', '2026-10-9':'한글날', '2026-12-25':'성탄절',
+  '2027-1-1':'신정',      '2027-2-6':'설날',     '2027-2-8':'설날',    '2027-2-9':'설날(대체)',
+  '2027-3-1':'삼일절',    '2027-5-5':'어린이날', '2027-5-13':'부처님오신날',
+  '2027-6-6':'현충일',    '2027-7-19':'제헌절(대체)', '2027-8-16':'광복절(대체)',
+  '2027-9-14':'추석',     '2027-9-15':'추석',    '2027-9-16':'추석',
+  '2027-10-4':'개천절(대체)', '2027-10-11':'한글날(대체)', '2027-12-25':'성탄절'
+};
 
 let _distData = [];
 let _calWeekOffset = 0;   // 달력 주 단위 이동 (←/→ 버튼)
@@ -3442,21 +3457,22 @@ function renderMasterCalendar(allData) {
   while (cur <= rangeEnd) {
     const dw = cur.getDay();
     if (dw !== 0 && dw !== 6) { // 주말 제외
-      cells.push({ m: cur.getMonth() + 1, d: cur.getDate(), next: false });
+      cells.push({ y: cur.getFullYear(), m: cur.getMonth() + 1, d: cur.getDate(), next: false });
     }
     cur.setDate(cur.getDate() + 1);
   }
 
   const cellHtml = (cell) => {
     if (!cell) return '<div style="min-height:95px"></div>';
-    const { m, d, next } = cell;
+    const { y, m, d, next } = cell;
     const dow = new Date(year, m - 1, d).getDay();
     const ms = marks[`${m}-${d}`] || [];
+    const hol = HOLIDAYS[`${y}-${m}-${d}`];
     const isToday = m === month && d === today;
     const weekendBg = dow === 0 ? 'background:#fef6f6;' : dow === 6 ? 'background:#f5f8ff;' : '';
     const bg = isToday ? 'background:#eff6ff;' : ms.length ? 'background:var(--bg3);' : weekendBg;
     const border = isToday ? 'border:2px solid #3b82f6;' : 'border:1px solid var(--border);';
-    const dateColor = isToday ? '#2563eb' : dow === 0 ? '#dc2626' : dow === 6 ? '#2563eb' : 'var(--text)';
+    const dateColor = isToday ? '#2563eb' : (hol || dow === 0) ? '#dc2626' : dow === 6 ? '#2563eb' : 'var(--text)';
     // 같은 라벨끼리 회사명 그룹핑
     const byLabel = {};
     ms.forEach(mk => {
@@ -3479,7 +3495,7 @@ function renderMasterCalendar(allData) {
       </div>`;
     }).join('');
     return `<div style="padding:5px;border-radius:6px;min-height:95px;display:flex;flex-direction:column;${bg}${border}">
-      <div style="font-size:13px;font-weight:${ms.length||isToday?'700':'400'};color:${dateColor};margin-bottom:2px">${m}/${d}</div>
+      <div style="font-size:13px;font-weight:${ms.length||isToday||hol?'700':'400'};color:${dateColor};margin-bottom:2px">${m}/${d}${hol ? `<span style="margin-left:3px;font-size:9px;font-weight:700;color:#dc2626;white-space:nowrap">${hol}</span>` : ''}</div>
       <div style="margin-top:auto">${eventHtml}</div>
     </div>`;
   };
