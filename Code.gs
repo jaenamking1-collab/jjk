@@ -867,6 +867,30 @@ function parseSmartTodayArticle(html) {
   return { items, schedule };
 }
 
+// 공지가 몰리는 날: 중순①은 10일, 월말②는 25일 전후 → 앞뒤 이틀씩
+function _inNoticeWindow(day) { return (day >= 8 && day <= 12) || (day >= 23 && day <= 27); }
+
+// 트리거용(매일 10시·14시). 공지 창 밖의 날은 그냥 넘어가 쿼터를 아낀다.
+function checkDistNotices() {
+  const day = Number(Utilities.formatDate(new Date(), 'Asia/Seoul', 'd'));
+  if (!_inNoticeWindow(day)) return;
+  return checkAndLogAlerts();
+}
+
+// 편집기에서 1회 실행. 기존 checkDistNotices 트리거를 지우고 10시·14시 2개를 만든다.
+function setupDistTriggers() {
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'checkDistNotices')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+  [10, 14].forEach(h => ScriptApp.newTrigger('checkDistNotices').timeBased().atHour(h).nearMinute(5).everyDays(1).create());
+}
+
+function _testNoticeWindow() {
+  [8,10,12,23,25,27].forEach(d => { if (!_inNoticeWindow(d)) throw new Error('창 안인데 false: ' + d); });
+  [1,7,13,22,28,31].forEach(d => { if (_inNoticeWindow(d)) throw new Error('창 밖인데 true: ' + d); });
+  return 'ok';
+}
+
 // 트리거용. checkAndLogAlerts가 6개 운용사를 강제 갱신하면서 신규공지·구조변경까지 감지해 알림로그에 남긴다.
 function refreshAllDistributions() {
   try { return checkAndLogAlerts(); } catch(e) { console.log('checkAndLogAlerts', e); }
