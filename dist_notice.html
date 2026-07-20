@@ -235,13 +235,26 @@ async function loadDistributions(force){
 
   const timeout = ms => new Promise((_,rej) => setTimeout(() => rej(new Error('timeout')), ms));
   // force 재파싱은 OCR(특히 KODEX) 때문에 25초를 넘길 수 있어 여유를 크게 준다
-  const fetchOne = s => Promise.race([
+  const fetchOne = (s, ms) => Promise.race([
     api({ action:'getDistribution', source:s.id, force: force?'1':'' }).then(d => ({ ...s, data:d })),
-    timeout(force ? 90000 : 25000).then(() => ({ ...s, data:{ items:[], error:'응답 시간 초과' } }))
+    timeout(ms).then(() => ({ ...s, data:{ items:[], error:'응답 시간 초과' } }))
   ]).catch(e => ({ ...s, data:{ items:[], error:String(e) } }));
 
-  const results = await Promise.allSettled(DIST_SOURCES.map(fetchOne));
+  const results = await Promise.allSettled(DIST_SOURCES.map(s => fetchOne(s, force ? 90000 : 25000)));
   _distData = results.map(r => r.value || {});
+  // 콜드 스크레이핑이 25초를 넘겨 에러로 빈 값이 온 운용사는 한 번 더(긴 타임아웃) 시도.
+  // 첫 호출이 서버 캐시를 데워놨으면 즉시, 아직이면 여유 시간 안에 채워진다. 정상 로드엔 안 돈다.
+  if (!force) {
+    const retry = DIST_SOURCES.filter((s,i) => _distData[i].data && _distData[i].data.error && !(_distData[i].data.items||[]).length);
+    if (retry.length) {
+      const r2 = await Promise.allSettled(retry.map(s => fetchOne(s, 45000)));
+      r2.forEach(x => {
+        const v = x.value; if (!v || !(v.data.items||[]).length) return;
+        const idx = DIST_SOURCES.findIndex(s => s.id === v.id);
+        if (idx >= 0) _distData[idx] = v;
+      });
+    }
+  }
   renderMasterCalendar(_distData);
   renderDistGrid(_distData);
   loadAllNotices();
