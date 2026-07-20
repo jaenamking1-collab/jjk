@@ -1438,8 +1438,19 @@ function fetchDist_ace() {
 }
 
 function fetchDist_plus() {
+  // PLUS 사이트는 정상인데도(curl 0.2초) Apps Script에서 간헐적으로 Timeout이 난다.
+  // 목록·상세 어느 쪽이 죽어도 6월짜리 뉴스 폴백으로 밀리므로 둘 다 재시도한다.
+  const fetchPlus = (url) => {
+    let lastErr;
+    for (let a = 0; a < 3; a++) {
+      try {
+        return UrlFetchApp.fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, muteHttpExceptions: true }).getContentText('UTF-8');
+      } catch (e) { lastErr = e; Utilities.sleep(1000 * (a + 1)); }
+    }
+    throw lastErr;
+  };
   try {
-    const listHtml = UrlFetchApp.fetch('https://www.plusetf.co.kr/customer/notice/list', { headers: { 'User-Agent': 'Mozilla/5.0' }, muteHttpExceptions: true }).getContentText('UTF-8');
+    const listHtml = fetchPlus('https://www.plusetf.co.kr/customer/notice/list');
     // 분배금 공지 목록: 제목에 (월말)/(월중) 명시
     const rowRe = /href="\/customer\/notice\/detail\?n=(\d+)"[\s\S]{0,300}?<\/a>/g;
     const cands = [];
@@ -1463,21 +1474,8 @@ function fetchDist_plus() {
     const midE = dated.find(c => c.cycle === '월중');
     const endE = dated.find(c => c.cycle === '월말');
 
-    // PLUS 상세페이지는 사이트가 정상인데도 Apps Script에서 간헐적으로 Timeout이 난다.
-    // 한 번 실패했다고 전체 파싱을 버리면 6월짜리 뉴스 폴백으로 밀리므로 재시도한다.
-    const fetchDetailHtml = (n) => {
-      const url = 'https://www.plusetf.co.kr/customer/notice/detail?n=' + n;
-      let lastErr;
-      for (let a = 0; a < 3; a++) {
-        try {
-          return UrlFetchApp.fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, muteHttpExceptions: true }).getContentText('UTF-8');
-        } catch (e) { lastErr = e; Utilities.sleep(1000 * (a + 1)); }
-      }
-      throw lastErr;
-    };
-
     const parsePlusNotice = (entry) => {
-      const html = fetchDetailHtml(entry.n);
+      const html = fetchPlus('https://www.plusetf.co.kr/customer/notice/detail?n=' + entry.n);
       const out = [];
       let sched = {};
       if (entry.pubMon) sched['공시일'] = entry.pubMon + '월 ' + entry.pubDay + '일';
