@@ -35,7 +35,7 @@ function doGet(e) {
       case 'getStockPrice':   result = getStockPrice(e.parameter.ticker, e.parameter.currency); break;
       case 'getStockHistory': result = getStockHistory(e.parameter.ticker, e.parameter.currency, e.parameter.days); break;
       case 'getEtfNotices':   result = getEtfNotices(e.parameter.source); break;
-      case 'getSheetData':    result = getSheetData(); break;
+      case 'getSheetData':    result = getSheetData(e.parameter.force === '1'); break;
       case 'getPriceLog':     result = getPriceLog(); break;
       case 'getEtfScreener':  result = getEtfScreener(); break;
       case 'getNavMap':       result = getNavMap(); break;
@@ -1850,11 +1850,12 @@ function parseScheduleFromText(text) {
   return schedule;
 }
 
-function getSheetData() {
+function getSheetData(force) {
   // '주식상황' 시트는 실시간 시세 수식 재계산 때문에 읽기에 최대 10초+ 걸림.
   // 프론트가 로드/탭전환/일괄적용마다 반복 호출하므로 3분 캐시 → 첫 호출 외에는 즉시 응답.
+  // 단 동기화(force=1)는 방금 수정한 시트 값을 봐야 하므로 캐시를 건너뛴다.
   const cache = CacheService.getScriptCache();
-  const hit = cache.get('sheetData_v1');
+  const hit = force ? null : cache.get('sheetData_v1');
   if (hit) return JSON.parse(hit);
 
   const sheet = SpreadsheetApp.openById('19UsD0Tz6YL2eDoLdocL0ify8NLbUYSHaOOV-jtDqNLU').getSheetByName('주식상황');
