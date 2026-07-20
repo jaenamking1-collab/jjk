@@ -1463,8 +1463,21 @@ function fetchDist_plus() {
     const midE = dated.find(c => c.cycle === '월중');
     const endE = dated.find(c => c.cycle === '월말');
 
+    // PLUS 상세페이지는 사이트가 정상인데도 Apps Script에서 간헐적으로 Timeout이 난다.
+    // 한 번 실패했다고 전체 파싱을 버리면 6월짜리 뉴스 폴백으로 밀리므로 재시도한다.
+    const fetchDetailHtml = (n) => {
+      const url = 'https://www.plusetf.co.kr/customer/notice/detail?n=' + n;
+      let lastErr;
+      for (let a = 0; a < 3; a++) {
+        try {
+          return UrlFetchApp.fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, muteHttpExceptions: true }).getContentText('UTF-8');
+        } catch (e) { lastErr = e; Utilities.sleep(1000 * (a + 1)); }
+      }
+      throw lastErr;
+    };
+
     const parsePlusNotice = (entry) => {
-      const html = UrlFetchApp.fetch('https://www.plusetf.co.kr/customer/notice/detail?n=' + entry.n, { headers: { 'User-Agent': 'Mozilla/5.0' }, muteHttpExceptions: true }).getContentText('UTF-8');
+      const html = fetchDetailHtml(entry.n);
       const out = [];
       let sched = {};
       if (entry.pubMon) sched['공시일'] = entry.pubMon + '월 ' + entry.pubDay + '일';
@@ -1542,8 +1555,9 @@ function fetchDist_plus() {
     };
 
     let items = [], schedule = {}, anyOcr = false, dbgs = [];
-    if (midE) { const r = parsePlusNotice(midE); items = items.concat(r.items); if (Object.keys(r.schedule).length) schedule = r.schedule; if (r.usedOcr) anyOcr = true; dbgs.push('월중 ' + r.dbg); }
-    if (endE) { const r = parsePlusNotice(endE); items = items.concat(r.items); if (!Object.keys(schedule).length && Object.keys(r.schedule).length) schedule = r.schedule; if (r.usedOcr) anyOcr = true; dbgs.push('월말 ' + r.dbg); }
+    // 회차별로 격리: 한쪽이 타임아웃/파싱 실패해도 나머지 회차는 살린다.
+    if (midE) { try { const r = parsePlusNotice(midE); items = items.concat(r.items); if (Object.keys(r.schedule).length) schedule = r.schedule; if (r.usedOcr) anyOcr = true; dbgs.push('월중 ' + r.dbg); } catch(e) { dbgs.push('월중 EXC ' + e); } }
+    if (endE) { try { const r = parsePlusNotice(endE); items = items.concat(r.items); if (!Object.keys(schedule).length && Object.keys(r.schedule).length) schedule = r.schedule; if (r.usedOcr) anyOcr = true; dbgs.push('월말 ' + r.dbg); } catch(e) { dbgs.push('월말 EXC ' + e); } }
     if (!items.length) return { items: [], error: 'PLUS: 종목 파싱 0건 || ' + dbgs.join(' || ') };
     return { success: true, items, schedule, title: 'PLUS 분배금 (자사 공지 파싱)' + (anyOcr ? ' [OCR]' : ''), _usedOcr: anyOcr };
   } catch(e) {
