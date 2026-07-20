@@ -9,6 +9,12 @@
 
 ---
 
+## 2026-07-20 (27) — PLUS 파서 수정: 상세 fetch 타임아웃에 전체가 폐기되던 문제 ⚠️재배포 필요
+- **원인 확정**: API 응답의 `_plusErr` = `"PLUS: Exception: Timeout: .../notice/detail?n=30822"`. PLUS 사이트는 정상(curl 0.18s, 200)인데 **Apps Script에서 간헐적 Timeout**. `fetchDist_plus`가 통째로 예외로 죽고 → smarttoday 뉴스 폴백(6월 기사)으로 밀려 **7월 화면에서 PLUS가 달력·일정표·그리드에서 전부 사라짐**.
+- **파싱 로직 자체는 정상**이었음: 목록에서 n=30822 = "PLUS ETF 7월 분배금 안내(월중)"(2026.07.10)를 정확히 선택. 7월 월말 공지는 아직 미게시라 endE는 6월(n=30821)이 맞음. 상세페이지 `<table>`은 티커가 `A415920`·값 `-`인 무관한 표라 건너뛰는 게 정상이고, 실제 데이터는 이미지 → **OCR 경로**로 처리됨(성공 시 `_ocr:true`로 공시 7/10·기준 7/15·지급 7/20 정상 산출 확인).
+- **수정 2곳**: ①`fetchDetailHtml(n)` 추가 — 상세 fetch 3회 재시도(1s·2s 백오프). ②`parsePlusNotice(midE)`/`(endE)` 호출을 각각 try/catch로 **회차별 격리** → 한쪽이 죽어도 나머지 회차는 살림.
+- ⚠️ **Code.gs는 수동 재배포해야 반영됨.** 재배포 후 검증: `?action=getDistribution&source=plus&force=1` 응답에 `_source`가 뉴스 폴백이 아니고 `schedule`이 7월(기준 7/15·지급 7/20), `_usedOcr:true`, `_plusErr` 없음이면 성공.
+
 ## 2026-07-20 (26) — 달력에 한국 공휴일 표시
 - 달력 날짜 옆에 공휴일명을 빨간 글씨로 표기(`HOLIDAYS` 상수, 키 `YYYY-M-D`). 공휴일이면 날짜도 빨강+굵게. `dist_notice.html`·`portfolio.html` 양쪽.
 - 셀에 `y`(연도) 추가해 연말연시에도 연도별로 정확히 조회되게 함(기존 셀은 m/d만 들고 있었음).
