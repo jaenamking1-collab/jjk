@@ -2075,7 +2075,7 @@ async function loadPortfolioLog() {
       _plLog = data;
       renderPlChart();
     } else {
-      if (el) el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:20px;text-align:center">데이터 없음 — GAS 트리거 실행 후 확인 (매일 오후 6시 자동 저장)</div>';
+      if (el) el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:20px;text-align:center">데이터 없음 — GAS 트리거 실행 후 확인 (매일 10·13·16시 자동 저장, 16시 확정)</div>';
     }
   } catch(e) {
     if (el) el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:20px;text-align:center">로드 실패</div>';
@@ -2096,8 +2096,15 @@ function renderPlChart() {
     const s = d.toString().trim();
     // 이미 yyyy-MM-dd 형식
     if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
-    // Date 문자열 파싱
-    try { const dt = new Date(s); if (!isNaN(dt)) return dt.toISOString().slice(0,10); } catch(e) {}
+    // Date 문자열 파싱. toISOString()은 UTC로 바꿔 KST 자정 데이터를 전날로 밀어버리므로
+    // 로컬 연/월/일을 직접 조합한다.
+    try {
+      const dt = new Date(s);
+      if (!isNaN(dt)) {
+        const p = n => String(n).padStart(2,'0');
+        return dt.getFullYear() + '-' + p(dt.getMonth()+1) + '-' + p(dt.getDate());
+      }
+    } catch(e) {}
     return s;
   };
 
@@ -2125,13 +2132,18 @@ function renderPlChart() {
     return k;
   };
 
+  // 하루 3회(10·13·16시) 스냅샷 중 가장 늦은 슬롯이 그 날의 값. 16시가 확정값이고
+  // 10·13시 값은 당일 중 임시로 쓰이다 16시 값으로 덮인다.
   const byAcc = {};
   _plLog.items.forEach(it => {
     const acc = it.account_name || it.account_id;
     if (!byAcc[acc]) byAcc[acc] = {};
     const k = getKey(it.date);
     const v = parseFloat(it.value) || 0;
-    if (!byAcc[acc][k] || it.date > (byAcc[acc][k]._d||'')) byAcc[acc][k] = { v, _d: it.date };
+    const slot = Number(it.slot) || 16;
+    const iso = toISO(it.date);
+    const prev = byAcc[acc][k];
+    if (!prev || iso > prev._d || (iso === prev._d && slot > prev._slot)) byAcc[acc][k] = { v, _d: iso, _slot: slot };
   });
 
   const allKeys = [...new Set(_plLog.items.map(it => getKey(it.date)))].sort();
@@ -2179,7 +2191,9 @@ function renderPlChart() {
     if(seg.length>1)path+=`<polyline points="${seg.join(' ')}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linejoin="round"/>`;
     const li=pts.reduceRight((f,v,i)=>f!=null?f:(v!=null?i:null),null);
     const lv=pts.reduceRight((f,v)=>f??v,null);
-    if(li!=null)path+=`<circle cx="${toX(li).toFixed(1)}" cy="${toY(lv).toFixed(1)}" r="3" fill="${color}"/>`;
+    // 16시 확정 전(10·13시 슬롯)이면 마지막 점을 속 빈 원으로 그려 미확정임을 표시
+    const prov = _plMode==='day' && li!=null && ((dataMap[keys[li]]||{})._slot||16) < 16;
+    if(li!=null)path+=`<circle cx="${toX(li).toFixed(1)}" cy="${toY(lv).toFixed(1)}" r="3" fill="${prov?'var(--bg2)':color}" stroke="${color}" stroke-width="${prov?1.5:0}"/>`;
     const diff=lv-valid[0], dc=diff>=0?'var(--red)':'var(--accent)';
     const label=acc.replace('재남 ','').replace('은경 ','');
     return `<div style="background:${bgColor};border:1px solid ${color}33;border-radius:8px;padding:10px">
@@ -2243,11 +2257,19 @@ function renderPlChart() {
       </div>`);
   }
 
+  // 마지막 날짜가 16시 확정 전이면(10·13시 슬롯) 안내를 붙인다.
+  const lastKey = keys[keys.length-1];
+  let lastSlot = 0;
+  Object.values(byAcc).forEach(m => { if (m[lastKey]) lastSlot = Math.max(lastSlot, m[lastKey]._slot||16); });
+  const slotNote = (_plMode==='day' && lastSlot && lastSlot < 16)
+    ? `<span style="font-size:11px;font-weight:600;color:#d97706;margin-left:8px">${fmtX(lastKey)}일 ${lastSlot}:00 기준 · 16:00 확정 전</span>`
+    : '';
+
   el.innerHTML = `
     <!-- 총합계 -->
     <div style="background:var(--bg2);border:1.5px solid #7c3aed55;border-radius:12px;padding:14px 16px;margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <span style="font-size:13px;font-weight:700;color:#7c3aed">📊 총합계</span>
+        <span style="font-size:13px;font-weight:700;color:#7c3aed">📊 총합계${slotNote}</span>
         <span style="font-family:var(--mono);font-size:18px;font-weight:700;color:#7c3aed">${fmt억(tLast)}
           <span style="font-size:11px;color:${tDiff>=0?'var(--red)':'var(--accent)'};margin-left:6px">${tDiff>=0?'+':''}${fmt억(tDiff)}</span>
         </span>

@@ -2336,11 +2336,19 @@ function snapshotPortfolio() {
   if (day === 0 || day === 6) return;
   const ss = SpreadsheetApp.openById(SHEET_ID);
   let log = ss.getSheetByName('수익로그');
-  if (!log) { log = ss.insertSheet('수익로그'); log.appendRow(['date','account_name','value']); }
+  if (!log) { log = ss.insertSheet('수익로그'); log.appendRow(['date','account_name','value','slot']); }
+  // 하루 3회(10·13·16시) 스냅샷. 슬롯은 실제 실행 시각(KST)으로 판정하며 16시가 그날 확정값.
+  const hour = parseInt(Utilities.formatDate(new Date(), 'Asia/Seoul', 'HH'), 10);
+  const slot = hour < 12 ? 10 : hour < 15 ? 13 : 16;
   const today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
+  if (log.getRange(1, 4).getValue() !== 'slot') log.getRange(1, 4).setValue('slot');
   const existing = log.getDataRange().getValues();
+  // 같은 날짜의 '같은 슬롯'만 교체 → 다른 슬롯 값은 보존.
+  // slot이 빈 과거 행(구 1회/일 트리거)은 확정값으로 보고 16으로 간주한다.
   for (let i = existing.length - 1; i >= 1; i--) {
-    if (existing[i][0] && existing[i][0].toString() === today) log.deleteRow(i + 1);
+    if (!existing[i][0] || existing[i][0].toString() !== today) continue;
+    const rowSlot = (existing[i][3] === '' || existing[i][3] == null) ? 16 : Number(existing[i][3]);
+    if (rowSlot === slot) log.deleteRow(i + 1);
   }
   const src = SpreadsheetApp.openById('19UsD0Tz6YL2eDoLdocL0ify8NLbUYSHaOOV-jtDqNLU').getSheetByName('주식상황');
   const srcRows = src.getDataRange().getValues();
@@ -2365,9 +2373,20 @@ function snapshotPortfolio() {
       const cur = priceMap[(x.ticker||'').toString().toUpperCase()] || avg;
       value += x.currency === 'USD' ? cur * qty * er : cur * qty;
     });
-    if (value > 0) out.push([today, acc.name, Math.round(value)]);
+    if (value > 0) out.push([today, acc.name, Math.round(value), slot]);
   });
-  if (out.length) log.getRange(log.getLastRow() + 1, 1, out.length, 3).setValues(out);
+  if (out.length) log.getRange(log.getLastRow() + 1, 1, out.length, 4).setValues(out);
+}
+
+// 수익로그 스냅샷 트리거를 10·13·16시 3개로 재설정. 스크립트 편집기에서 1회만 실행하면 된다.
+function setupPortfolioTriggers() {
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'snapshotPortfolio')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+  [10, 13, 16].forEach(h => {
+    ScriptApp.newTrigger('snapshotPortfolio').timeBased().atHour(h).nearMinute(5).everyDays(1).create();
+  });
+  console.log('snapshotPortfolio 트리거 3개(10·13·16시) 재설정 완료');
 }
 
 function getPortfolioLog() {
@@ -2379,7 +2398,9 @@ function getPortfolioLog() {
   const items = rows.slice(1).filter(r => r[0] && r[1]).map(r => ({
     date:         r[0].toString(),
     account_name: r[1].toString(),
-    value:        parseFloat(r[2]) || 0
+    value:        parseFloat(r[2]) || 0,
+    // slot 없는 과거 행은 확정값(16)으로 간주
+    slot:         (r[3] === '' || r[3] == null) ? 16 : (parseInt(r[3]) || 16)
   }));
   return { success: true, items };
 }
