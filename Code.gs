@@ -499,8 +499,13 @@ function getEtfNotices(source) {
         if (idM && titleM && titleM[1].includes('분배금')) items.push({ title: titleM[1].replace(/<[^>]+>/g, '').trim(), date: dateM ? dateM[1].trim() : '', url: 'https://www.riseetf.co.kr' + idM[1] });
       });
     } else if (source === 'sol') {
-      const json = JSON.parse(UrlFetchApp.fetch('https://www.soletf.com/api/cs/notice?keyword=%EB%B6%84%EB%B0%B0%EA%B8%88', { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' } }).getContentText('UTF-8'));
-      (json.items || []).filter(n => (n.TITLE||'').includes('분배금') && !(n.TITLE||'').includes('이벤트')).slice(0, 5).forEach(n => items.push({ title: n.TITLE || '', date: (n.REG_DATE||'').slice(0,10).replace(/-/g,'.'), url: 'https://www.soletf.com/ko/cs/notice?no=' + n.NO }));
+      // SOL은 홈페이지가 아니라 네이버 블로그에 분배금 공지를 올린다(홈페이지는 늦거나 누락).
+      // 그래서 목록도 블로그에서 받고, 클릭하면 블로그 글로 이동시킨다.
+      _solNotices().filter(n => /분배금/.test(n.title) && !/이벤트/.test(n.title)).slice(0, 5).forEach(n => items.push({
+        title: n.title,
+        date: String(n.date).slice(0, 10).replace(/-/g, '.'),
+        url: n.logNo ? 'https://blog.naver.com/soletf/' + n.logNo : 'https://blog.naver.com/soletf'
+      }));
     } else if (source === 'tiger') {
       // 서버측 파싱(브라우저 CORS 회피). 공개 프록시가 이 액션을 중계한다.
       const fd = 'firstIndex=0&listCnt=20&pageIndex=1&detailsKey=&q=';
