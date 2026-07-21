@@ -2261,7 +2261,24 @@ function renderPlChart() {
     if(seg.length>1)path+=`<polyline points="${seg.join(' ')}" fill="none" stroke="#7c3aed" stroke-width="2.5" stroke-linejoin="round"/>`;
     const li=pts.reduceRight((f,v,i)=>f!=null?f:(v?i:null),null);
     if(li!=null)path+=`<circle cx="${toX(li).toFixed(1)}" cy="${toY(pts[li]).toFixed(1)}" r="4" fill="#7c3aed"/>`;
-    return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;overflow:visible">${yLines}${xSvg}${path}</svg>`;
+    // 꺾인 지점(국소 고점·저점)과 마지막 점(오늘)에 금액 라벨. 고점은 위, 저점은 아래로 분산.
+    const vi=pts.map((v,i)=>({v,i})).filter(o=>o.v);
+    let lbl='';
+    vi.forEach((o,j)=>{
+      const isLast=j===vi.length-1;
+      let peak;
+      if(j>0 && j<vi.length-1){
+        const d1=o.v-vi[j-1].v, d2=vi[j+1].v-o.v;
+        if((d1>0)===(d2>0)) return;   // 방향 전환 아님 = 꺾임 아님 → 스킵
+        peak=d1>0;                    // 올라오다 꺾임 = 고점
+      } else {
+        if(!isLast) return;           // 첫 점은 스킵
+        peak=o.v>=vi[j-1].v;          // 마지막 점: 올라왔으면 위, 내려왔으면 아래
+      }
+      const x=toX(o.i), y=toY(o.v), dy=peak?-7:13;
+      lbl+=`<text x="${x.toFixed(1)}" y="${(y+dy).toFixed(1)}" text-anchor="middle" font-size="${isLast?10:9}" font-weight="${isLast?700:600}" fill="${isLast?'#7c3aed':'var(--text2)'}">${fmt억(o.v)}</text>`;
+    });
+    return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;overflow:visible">${yLines}${xSvg}${path}${lbl}</svg>`;
   };
 
   const jnAccs=['재남 키움 일반계좌','재남 키움 ISA','재남 키움 연금저축'];
