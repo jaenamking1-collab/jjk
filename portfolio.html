@@ -839,7 +839,11 @@
       </div>
     </div>
     <div style="background:#fffbeb;border:1px solid #fef3c7;border-radius:12px;padding:16px">
-      <div style="font-size:15px;font-weight:700;margin-bottom:12px">📋 내 보유 종목 분배 내역</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:12px">
+        <div id="distGridTitle" style="font-size:15px;font-weight:700">📋 내 보유 종목 분배 내역</div>
+        <button onclick="distGridShiftMonth(-1)" title="이전 달" style="width:24px;height:24px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;line-height:1">←</button>
+        <button onclick="distGridShiftMonth(1)" title="다음 달" style="width:24px;height:24px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;line-height:1">→</button>
+      </div>
       <div id="distGrid"></div>
     </div>
   </div>
@@ -3284,6 +3288,14 @@ const HOLIDAYS = {
 let _distData = [];
 let _calWeekOffset = 0;   // 달력 주 단위 이동 (←/→ 버튼)
 let _schedMonthOffset = 0; // 운용사별 일정 표: 월 단위 이동 (0=이번 달)
+let _distGridMonthOffset = 0; // 내 보유 종목 분배 내역: 월 단위 이동 (0=이번 달)
+
+// 내 보유 종목 분배 내역의 달 이동. ±1(전월~익월)로 제한.
+function distGridShiftMonth(dir) {
+  if (!_distData.length) return;
+  _distGridMonthOffset = Math.max(-1, Math.min(1, _distGridMonthOffset + dir));
+  renderDistGrid(_distData);
+}
 
 // dir: -1 한 주 앞으로, +1 한 주 뒤로, 0 오늘 주로 리셋
 function calShiftWeek(dir) {
@@ -3627,7 +3639,11 @@ function renderMasterCalendar(allData) {
 function renderDistGrid(allData) {
   const grid = document.getElementById('distGrid');
   if (!grid) return;
-  const curMonth = new Date().getMonth() + 1;
+  // ←/→ 로 고른 달(0=이번 달). 기준일 기준으로 그 달 회차만 표시.
+  const nowMonth = new Date().getMonth() + 1;
+  const curMonth = ((nowMonth - 1 + _distGridMonthOffset) % 12 + 12) % 12 + 1;
+  const gridTitle = document.getElementById('distGridTitle');
+  if (gridTitle) gridTitle.textContent = `📋 ${curMonth}월 내 보유 종목 분배 내역`;
   // 기준일/지급일 문자열("7월 15일" 또는 "7/15")에서 '월'만 뽑는다.
   const monthOf = s => { s = String(s||''); let m = s.match(/(\d{1,2})월/); if (m) return parseInt(m[1]); m = s.match(/(\d{1,2})[\/\.]\d{1,2}/); if (m) return parseInt(m[1]); return null; };
   const cycleOf = (it, repSched) => {
