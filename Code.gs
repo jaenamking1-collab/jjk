@@ -2563,6 +2563,16 @@ function setupPortfolioTriggers() {
   console.log('snapshotPortfolio 트리거 3개(10·13·16시) 재설정 완료');
 }
 
+// 시세로그 압축 트리거: 매주 일요일 새벽 4시. compactPriceLog가 30일 이내만 일별 유지,
+// 그 이전은 다운샘플하고 원본은 시세로그_백업으로 이관 → 시세로그가 무한정 커지지 않게 유지.
+function setupCompactTrigger() {
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'compactPriceLog')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('compactPriceLog').timeBased().onWeekDay(ScriptApp.WeekDay.SUNDAY).atHour(4).create();
+  console.log('compactPriceLog 트리거(매주 일요일 4시) 설치 완료');
+}
+
 // 공지 창 경계값 자체 점검. 통과하면 'ok' 반환, 틀리면 예외.
 function _testNoticeWindow() {
   [8,10,12,23,25,27].forEach(d => { if (!_inNoticeWindow(d)) throw new Error('창 안인데 false: ' + d); });
