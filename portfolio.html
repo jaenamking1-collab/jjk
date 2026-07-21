@@ -4697,6 +4697,12 @@ async function loadPensionPlan() {
     ppCfg.pension.push({ id:'p'+Date.now()+Math.random().toString(36).slice(2,6), owner:ppOwnerOf(a.name), accountId:a.id, name:a.name,
       tax: t === 'IRP' ? '세공' : '안세공', annual: t === 'IRP' ? 0 : null, startYear:'' });
   });
+  // 사학연금(재남·퇴직연금 방식) 공식 예상액 1회 시드 — 퇴직수당 목돈 + 월 퇴직연금(실수령). 삭제하면 재생성 안 함.
+  if (!ppCfg.sahakSeeded) {
+    ppCfg.funds.push({ id:'f-sahak-tw', name:'사학연금 퇴직수당', amount:70582690, availYear:2029, taxRate:0, memo:'실수령' });
+    ppCfg.others.push({ id:'o-sahak-pen', owner:'재남', title:'사학 퇴직연금', monthly:2502710, startYear:'2041' });
+    ppCfg.sahakSeeded = true;
+  }
   ppSave();
   renderPensionPlan();
 }
