@@ -4620,6 +4620,9 @@ async function loadPensionPlan() {
     if (!ppCfg.birthYear) ppCfg.birthYear = 1977;
     if (!ppCfg.fundTax) ppCfg.fundTax = { ISA:0, '일반':0, '연금저축':0, IRP:16.5 };
     if (!ppCfg.funds) ppCfg.funds = [];
+    // 사학 퇴직연금 개시연령 교정: 96년이후 임용 정상 개시 2040/07(63세) — 초기 시드 2041 오류 수정
+    const _sp = (ppCfg.others||[]).find(o => o.id === 'o-sahak-pen');
+    if (_sp && _sp.startYear === '2041') _sp.startYear = '2040';
   }
   document.getElementById('pp-years').innerHTML = '<div class="loading"><span class="spinner"></span>불러오는 중...</div>';
 
@@ -4700,7 +4703,7 @@ async function loadPensionPlan() {
   // 사학연금(재남·퇴직연금 방식) 공식 예상액 1회 시드 — 퇴직수당 목돈 + 월 퇴직연금(실수령). 삭제하면 재생성 안 함.
   if (!ppCfg.sahakSeeded) {
     ppCfg.funds.push({ id:'f-sahak-tw', name:'사학연금 퇴직수당', amount:70582690, availYear:2029, taxRate:0, memo:'실수령' });
-    ppCfg.others.push({ id:'o-sahak-pen', owner:'재남', title:'사학 퇴직연금', monthly:2502710, startYear:'2041' });
+    ppCfg.others.push({ id:'o-sahak-pen', owner:'재남', title:'사학 퇴직연금', monthly:2502710, startYear:'2040' });
     ppCfg.sahakSeeded = true;
   }
   ppSave();
