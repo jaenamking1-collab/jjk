@@ -1943,9 +1943,32 @@ function getSheetData(force) {
 
 function getDivSheetData(year) {
   const ss = SpreadsheetApp.openById('19UsD0Tz6YL2eDoLdocL0ify8NLbUYSHaOOV-jtDqNLU');
-  // 연도별 탭(분배금2025 등)이 있으면 그걸, 없으면 기본 '분배금'(당해년도) 탭을 읽음
-  const sheet = (year && ss.getSheetByName('분배금' + year)) || ss.getSheetByName('분배금');
+  const curYear = String(new Date().getFullYear());
+  const target = String(year || curYear);
+
+  // 연도별 전용 탭(분배금2025 등)이 있으면 그걸 쓰고(1월=G열),
+  // 없으면 기본 '분배금' 탭에서 해당 연도 블록을 찾는다.
+  // 이 시트는 연도 블록이 좌→우로 나란히 있고(2026=G:R, 2025=X:AI …),
+  // 각 블록 상단에 'YYYY년' 라벨이 그 블록의 1월 열에 붙어있다. 그 라벨 열을 1월로 잡는다.
+  const tab = ss.getSheetByName('분배금' + target);
+  const sheet = tab || ss.getSheetByName('분배금');
   const rows = sheet.getDataRange().getValues();
+
+  let startCol = 6; // 기본: G열(0-based idx 6) = 1월
+  if (!tab) {
+    startCol = -1;
+    for (let hr = 0; hr < 3 && startCol < 0; hr++) {
+      const hrow = rows[hr] || [];
+      for (let c = 0; c < hrow.length; c++) {
+        if (String(hrow[c] || '').replace(/\s/g, '') === target + '년') { startCol = c; break; }
+      }
+    }
+    if (startCol < 0) {
+      if (target === curYear) startCol = 6;          // 당해년도인데 라벨 못 찾음 → 기본 위치
+      else return { success: true, items: [] };       // 그 연도 블록이 시트에 없음
+    }
+  }
+
   const items = [];
   let account = '', ticker = '', currency = 'KRW';
   for (let i = 3; i < rows.length; i++) {
@@ -1956,8 +1979,7 @@ function getDivSheetData(year) {
     currency = /^[A-Z]+$/.test(ticker) ? 'USD' : 'KRW';
     const item = { account, ticker, currency };
     for (let m = 1; m <= 12; m++) {
-      const val = parseFloat(r[5 + m]) || 0;
-      item['m' + m] = val;
+      item['m' + m] = parseFloat(r[startCol + m - 1]) || 0;   // 연도 블록의 1월부터 12칸
     }
     if (Object.keys(item).some(k => k.startsWith('m') && item[k] > 0)) items.push(item);
   }

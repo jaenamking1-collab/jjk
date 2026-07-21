@@ -619,7 +619,12 @@
       <select id="divAccountFilter" onchange="loadDividendGrid()">
         <option value="">전체 계좌</option>
       </select>
-      <select id="divYear" onchange="loadDividendGrid()"></select>
+      <span class="year-nav" style="display:inline-flex;align-items:center;gap:4px">
+        <button class="btn btn-ghost btn-sm" onclick="stepDivYear(-1)" title="이전 연도">‹</button>
+        <span id="divYearLabel" style="min-width:54px;text-align:center;font-weight:600">2026년</span>
+        <button class="btn btn-ghost btn-sm" onclick="stepDivYear(1)" title="다음 연도">›</button>
+        <input type="hidden" id="divYear" value="">
+      </span>
       <span style="font-size:12px;color:var(--text2)">셀 클릭 후 금액 입력 → Enter로 저장 (USD종목은 달러로 입력)</span>
       <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);margin-left:12px">글자
         <input type="range" id="divFontSize" min="9" max="18" value="13" oninput="applyDivFont()" style="width:90px">
@@ -1692,9 +1697,25 @@ function setupYearSelects() {
   const cur = new Date().getFullYear();
   const years = Array.from({length:5}, (_,i) => cur - 2 + i);
   const opts = years.map(y => `<option value="${y}" ${y===cur?'selected':''}>${y}년</option>`).join('');
-  document.getElementById('divYear').innerHTML = opts;
   document.getElementById('dashYearSel').innerHTML = opts;
   document.getElementById('dashYear').textContent = cur + '년';
+  setDivYear(cur);   // 분배금 연도 네비: 기본 = 올해
+}
+
+// 분배금 그리드 연도 설정(cur±2 범위로 클램프). 값은 숨은 input, 라벨은 화살표 사이 텍스트.
+function setDivYear(y) {
+  const cur = new Date().getFullYear();
+  y = Math.max(cur - 2, Math.min(cur + 2, y));
+  document.getElementById('divYear').value = y;
+  const lbl = document.getElementById('divYearLabel');
+  if (lbl) lbl.textContent = y + '년';
+}
+
+function stepDivYear(delta) {
+  const cur = new Date().getFullYear();
+  const now = parseInt(document.getElementById('divYear').value) || cur;
+  setDivYear(now + delta);
+  loadDividendGrid();
 }
 
 function applyDivFont() {
