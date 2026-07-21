@@ -2171,7 +2171,9 @@ function renderPlChart() {
     if (!prev || iso > prev._d || (iso === prev._d && slot > prev._slot)) byAcc[acc][k] = { v, _d: iso, _slot: slot };
   });
 
-  const allKeys = [...new Set(_plLog.items.map(it => getKey(it.date)))].sort();
+  let allKeys = [...new Set(_plLog.items.map(it => getKey(it.date)))].sort();
+  // 일 모드: 주말(토·일) 날짜 제외 → 평일만 남겨 x축을 균등 간격으로 (주말 빈칸 벌어짐 방지)
+  if (_plMode === 'day') allKeys = allKeys.filter(k => { const g = new Date(k + 'T00:00:00').getDay(); return g !== 0 && g !== 6; });
   const maxN = _plMode === 'day' ? 14 : _plMode === 'month' ? 24 : 10;
   const keys = allKeys.slice(-maxN);
   if (!keys.length) { el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:20px;text-align:center">데이터 없음</div>'; return; }
