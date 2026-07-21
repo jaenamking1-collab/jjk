@@ -3628,6 +3628,8 @@ function renderDistGrid(allData) {
   const grid = document.getElementById('distGrid');
   if (!grid) return;
   const curMonth = new Date().getMonth() + 1;
+  // 기준일/지급일 문자열("7월 15일" 또는 "7/15")에서 '월'만 뽑는다.
+  const monthOf = s => { s = String(s||''); let m = s.match(/(\d{1,2})월/); if (m) return parseInt(m[1]); m = s.match(/(\d{1,2})[\/\.]\d{1,2}/); if (m) return parseInt(m[1]); return null; };
   const cycleOf = (it, repSched) => {
     if (it && it.cycle) return it.cycle;
     const sch = (it.sched && Object.keys(it.sched).length) ? it.sched : (repSched||{});
@@ -3650,21 +3652,10 @@ function renderDistGrid(allData) {
       const t = (it.ticker||'').toString().trim().toUpperCase();
       const owned = (t && myTickers.has(t)) || myNames.has(normName(it.name));
       if (!owned) return false;
-      // KODEX는 cycle 태그가 있으면 그대로 신뢰(월말 6/30도 통과)
-      if (it.cycle) return true;
-      // 그 외: 기준일이 전월~익월(오늘 기준 앞뒤 한 달) 밖이면 숨김.
-      // 익월만 허용하면, 새 달이 시작됐는데 운용사가 아직 신규 회차를 공시 안 한 경우
-      // 직전달(최신 실지급분) 데이터가 통째로 사라진다(ACE 7월 초 사례). → 전월도 허용.
+      // 기준일(없으면 지급일)의 '월'이 이번 달인 회차만 표시.
+      // 월말분(기준일 6/30, 7월 지급)은 6월 회차로 귀속되므로 7월엔 제외 — 공지페이지 필터와 동일.
       const sch = (it.sched && Object.keys(it.sched).length) ? it.sched : (d.schedule||{});
-      const ref = sch['기준일'] || '';
-      const mm = ref.match(/(\d{1,2})월/);
-      if (mm) {
-        const rm = parseInt(mm[1]);
-        const nextM = curMonth===12?1:curMonth+1;
-        const prevM = curMonth===1?12:curMonth-1;
-        if (rm !== curMonth && rm !== nextM && rm !== prevM) return false;
-      }
-      return true;
+      return monthOf(sch['기준일'] || sch['지급일']) === curMonth;
     });
     let body = '';
     if (myItems.length) {
