@@ -2888,9 +2888,10 @@ async function syncDividendsFromSheet() {
   body.innerHTML = '<div style="text-align:center;padding:32px;"><span class="spinner"></span> 스프레드시트 분배금 불러오는 중...</div>';
   document.getElementById('divSyncApplyBtn').style.display = 'none';
 
+  const year = document.getElementById('divYear').value;
   let sheetDiv;
   try {
-    sheetDiv = await api({ action: 'getDivSheetData' });
+    sheetDiv = await api({ action: 'getDivSheetData', year });
   } catch(e) {
     body.innerHTML = `<div style="color:#dc2626;padding:16px;">오류: ${e}</div>`;
     return;
@@ -2904,7 +2905,6 @@ async function syncDividendsFromSheet() {
     return;
   }
 
-  const year = document.getElementById('divYear').value;
   body.innerHTML = `<div style="text-align:center;padding:16px;color:var(--text3);">⚙️ ${year}년 분배금 비교 중...</div>`;
 
   // 앱 holdings 맵: {appAccName: {ticker: holding}}

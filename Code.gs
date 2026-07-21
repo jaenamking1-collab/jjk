@@ -40,7 +40,7 @@ function doGet(e) {
       case 'getEtfScreener':  result = getEtfScreener(); break;
       case 'getNavMap':       result = getNavMap(); break;
       case 'getDistribution': result = getDistribution(e.parameter.source, e.parameter.force === '1'); break;
-      case 'getDivSheetData': result = getDivSheetData(); break;
+      case 'getDivSheetData': result = getDivSheetData(e.parameter.year); break;
       case 'getPortfolioLog': result = getPortfolioLog(); break;
       case 'getAlerts':       result = getAlerts(e.parameter.limit ? parseInt(e.parameter.limit) : 30); break;
       case 'checkAlerts':     result = checkAndLogAlerts(); break;
@@ -1941,8 +1941,10 @@ function getSheetData(force) {
   return out;
 }
 
-function getDivSheetData() {
-  const sheet = SpreadsheetApp.openById('19UsD0Tz6YL2eDoLdocL0ify8NLbUYSHaOOV-jtDqNLU').getSheetByName('분배금');
+function getDivSheetData(year) {
+  const ss = SpreadsheetApp.openById('19UsD0Tz6YL2eDoLdocL0ify8NLbUYSHaOOV-jtDqNLU');
+  // 연도별 탭(분배금2025 등)이 있으면 그걸, 없으면 기본 '분배금'(당해년도) 탭을 읽음
+  const sheet = (year && ss.getSheetByName('분배금' + year)) || ss.getSheetByName('분배금');
   const rows = sheet.getDataRange().getValues();
   const items = [];
   let account = '', ticker = '', currency = 'KRW';
