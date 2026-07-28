@@ -9,6 +9,12 @@
 
 ---
 
+## 2026-07-28 (43) / 집 — keepWarm를 실제 액션 핑으로 개선 + PLUS 월중 누락은 캐시 타이밍(정상)
+- **keepWarm 개선**: 빈 'ok' 핑은 컨테이너만 데우고 스크랩 경로는 cold라, warm ping 직후에도 실제 요청이 20초 걸리는 경우 있었음(실행기록 doGet 20.7s). `keepWarm`이 `_EXEC_URL + '?action=getExchangeRate'`를 치도록 변경 → 실제 경로까지 warm. **트리거는 Head 실행이라 재배포 불필요, 편집기에 붙여넣고 저장만** 하면 다음 5분부터 적용.
+- **PLUS 월중 "사라짐"**: 실제 배포 페이지(jjk-dist) `_distData`·렌더 직접 확인 → PLUS **21종목(월중 4 + 월말 17) 정상 렌더**. 스샷의 17종목은 force 재파싱 중 캐시 중간상태를 잡은 것. 버그 아님, 새로고침이면 정상.
+- **미해결/한계**: 무료 Apps Script cold start는 완전 제거 불가. keepWarm으로 빈도만 줄임. 진짜 체감개선은 프론트 localStorage 캐시(즉시 렌더 후 백그라운드 갱신)지만, getAccounts는 계좌 메타만 주고 평가금액은 holdings/dividends에서 계산되므로 캐시 즉시렌더는 holdings+dividends까지 캐시해야 함 → 다음 세션 후보(라이브 금융앱이라 신중히).
+- **권한 팝업**: settings.local.json allow 확장은 **Claude Code 재시작 후 적용**(권한은 시작 시 1회 로드). 세션 중 편집은 현재 세션에 반영 안 됨.
+
 ## 2026-07-28 (42) / 집 — 앱 초기 로딩 느림 원인=Apps Script cold start → keep-warm 트리거 추가
 - **증상**: 오랫만에 열면 로딩이 너무 느림.
 - **측정(브라우저 UA로 API 시간재기)**: cold일 때 `getExchangeRate` **31.8초**, `getAccounts` **21.6초** → 곧바로 다시(warm) 재면 각각 **1.1초 / 1.7초**. `getSheetData`는 1~2초로 이미 빠름(2026-07-08 캐시 효과). 즉 병목은 시세시트가 아니라 **오래 안 써서 컨테이너가 잠든 cold start**. 게이트가 `getAccounts`(cold 21s)를 기다렸다 앱을 열어서 "비번 넣고 20초 멍" 구간이 생김.
