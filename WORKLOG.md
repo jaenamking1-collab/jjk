@@ -9,6 +9,13 @@
 
 ---
 
+## 2026-07-28 (46) / 집 — 분배금공지: 진입 시 새 공지 누락 → 백그라운드 자동 force
+- **증상**: 오늘 올라온 KODEX·RISE 7월 월말 공지가 왼쪽 패널엔 NEW로 뜨는데 달력·운용사별 일정 표엔 `-`. **새로고침 누르면 나옴**.
+- **원인**: 탭 진입(`showTab`)은 `loadDistributions()`=**캐시(비force)**, 새로고침 버튼만 `loadDistributions(true)`=**force**. 새 공지가 서버 캐시에 반영되기 전이면 force로 재파싱해야만 일정이 잡힘. (서버 캐시 staleness 자체는 백엔드 `Code.gs` 문제 → 재배포 필요, 이번엔 프론트로 우회.)
+- **수정(프론트만, 재배포 X)**: `loadDistributions(force, silent)`로 확장. 탭 진입 시 ①캐시로 즉시 렌더 → ②세션 10분 throttle(`_lastDistForce`)로 **백그라운드 자동 force**(silent=스피너로 안 비우고 `⟳ 갱신 중` 배지만) → ③완료 시 달력·표 조용히 교체. 새로고침 버튼(force)도 `_lastDistForce` 갱신하므로 직후 진입은 재force 스킵.
+- **검증(헤드리스)**: 진입→캐시 6콜(force 없음) → 백그라운드 force 6콜(`force=1`)+배지 [on,off], 10분 내 재진입은 캐시만(force 스킵). 콘솔 무에러.
+- **다음 할 일**: 카톡 알림(각 운용사 새 공지 시 나에게 카톡 push) — 감지·발송 메커니즘 설계 논의 중(백엔드 Kakao API vs 스케줄 에이전트). 근본 캐시 staleness는 백엔드 과제로 잔존.
+
 ## 2026-07-28 (45) / 집 — 콜드스타트 체감 제거: localStorage 즉시 렌더 + 갱신 배지
 - **접근**: 콜드스타트(서버 20~30s)를 없앨 순 없으니, 첫 화면이 서버를 **안 기다리게** 함. 지난 로딩 데이터를 `localStorage` 스냅샷(`jjk_snap_v1`)에 저장 → 다음 실행 때 **즉시 렌더** → 백그라운드로 최신 fetch → 조용히 교체.
 - **구조 변경**: `loadAccountStats()`를 fetch 오케스트레이터 + 순수 렌더 `renderAccountStats(holdings,divs,sheet,divsFull)`로 분리(캐시/최신 양쪽에서 호출). `renderAccounts()`에서 `loadAccountStats()` 자동호출 제거 → 호출측(`loadAccounts` await / `moveAccount` / `paintFromCache`)이 명시적으로 실행. `init()` = `paintFromCache()`(있으면 즉시 렌더+배지 ON) → 기존 병렬 로딩 → 배지 OFF. 스냅샷 저장은 최신 `loadAccountStats` 끝에서.
