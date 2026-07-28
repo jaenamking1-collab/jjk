@@ -18,7 +18,8 @@
   - ④ 방문자 카운터: 헤더 로고 옆 `👁 N`. `bumpVisitor()`가 공개 프록시 `hitCounter` 호출(세션당 1회 +1, 표시는 매 로드). 실패해도 페이지 무영향.
 - **수정(public_dist_proxy.gs)**: `doGet`에 `action=hitCounter` 처리 추가 — 프록시 자체 ScriptProperties(`VISIT_COUNT`)에 집계, 캐시 우회, `bump='1'`이면 +1. 개인 GAS·시트는 안 건드림.
 - **배포 방식 확인+실행**: 공개 페이지는 별도 저장소 **`jjk-dist`의 `index.html`**(GitHub Pages). `dist_notice.html`을 `jjk-dist/index.html`로 **수동 미러**해야 반영됨(데이터는 프록시로 live fetch라 무관). → 오늘 수정분을 jjk-dist에 복사·푸시 완료(f0a4ae7), 라이브에서 갭·표·제목 3건 반영 확인. (메모리 [[public-page-deploy]] 저장)
-- **다음 할 일(재남 손수)**: 공개 프록시 GAS(`public_dist_proxy.gs`)에 새 코드 붙여넣고 **재배포** — 그래야 방문자수(👁) 뜸. (이것만 남음)
+- **[정정] 방문자 카운터 위치**: 공개 페이지 백엔드는 별도 프록시가 아니라 **메인 Code.gs 하나**임(API 상수 3곳 전부 같은 배포 ID 확인). `public_dist_proxy.gs`는 배포 안 된 사장 파일이라 거기 넣은 hitCounter를 되돌리고, **Code.gs**의 `PUBLIC_ACTIONS`에 `hitCounter` 추가 + `doGet` case 추가로 이식함.
+- **다음 할 일(재남 손수)**: **메인 `Code.gs`를 재배포**(카톡/캘린더 때 하던 그 배포). 그러면 방문자수(👁) 뜸. 카톡·캘린더 알림 코드도 같이 최신화됨. (이것만 남음)
 - **URL 개인이름 문제**: `jaenamking1-collab.github.io/...`에 계정명 노출 → 넷리파이/클라우드플레어 Pages 연결 시 실명 없는 URL + push 자동배포(수동 미러도 없어짐). 재남 결정 대기.
 
 ## 2026-07-28 (49) / 집 — 카톡 백업으로 구글 캘린더 알림 추가(Code.gs)
