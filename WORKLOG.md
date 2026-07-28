@@ -9,6 +9,13 @@
 
 ---
 
+## 2026-07-28 (45) / 집 — 콜드스타트 체감 제거: localStorage 즉시 렌더 + 갱신 배지
+- **접근**: 콜드스타트(서버 20~30s)를 없앨 순 없으니, 첫 화면이 서버를 **안 기다리게** 함. 지난 로딩 데이터를 `localStorage` 스냅샷(`jjk_snap_v1`)에 저장 → 다음 실행 때 **즉시 렌더** → 백그라운드로 최신 fetch → 조용히 교체.
+- **구조 변경**: `loadAccountStats()`를 fetch 오케스트레이터 + 순수 렌더 `renderAccountStats(holdings,divs,sheet,divsFull)`로 분리(캐시/최신 양쪽에서 호출). `renderAccounts()`에서 `loadAccountStats()` 자동호출 제거 → 호출측(`loadAccounts` await / `moveAccount` / `paintFromCache`)이 명시적으로 실행. `init()` = `paintFromCache()`(있으면 즉시 렌더+배지 ON) → 기존 병렬 로딩 → 배지 OFF. 스냅샷 저장은 최신 `loadAccountStats` 끝에서.
+- **UI**: 상단 중앙 `⟳ 최신 데이터로 갱신 중…` 배지(`showRefreshing`), 갱신 끝나면 페이드아웃. 최초 로딩(스냅샷 없음)엔 배지 안 뜸(기존 스피너 경로 유지).
+- **검증(헤드리스)**: 스냅샷 seed + 2초 지연 api 스텁으로 `init()` 호출 → 100ms 시점에 이미 계좌 셀 채워짐(캐시가), 배지 opacity=1, 2초 후 평가금액이 최신값(11000→12000 반영)으로 교체·배지 opacity=0·스냅샷 재저장. 최초 로딩(캐시 없음)도 `paintedFirstLoad=false`로 정상 렌더+스냅샷 저장. 콘솔 무에러.
+- **한계/주의**: 처음 뜨는 숫자는 '지난번 값'이라 살짝 stale(배지로 고지). 스냅샷에 sheet(현재가 전체)·divsFull 포함 → localStorage 용량은 수백 KB로 여유. **Code.gs 변경 없음(재배포 불필요)**.
+
 ## 2026-07-28 (44) / 집 — 분배금 "분배율 추이" 뷰 신설 + 월합계 상단 이동 + 콜드스타트 재진단
 - **분배율 추이 뷰(②)**: 분배금 탭에 하위 토글 2개 추가 — `💰 금액`(기존 편집 그리드) / `📈 분배율 추이`(신규, 읽기 전용). `loadDivRateGrid()` 신설, 토글은 `divView`+`setDivView`+`reloadDivGrid()` 디스패처 경유(연도·계좌·글자 슬라이더 공유). 기존 `loadDividendGrid()` 호출부 5곳을 `reloadDivGrid()`로 교체.
 - **셀 구성**: 각 월 셀 = 윗줄 금액, 아랫줄 `[증감]  [분배율%]`. 분배율 = `amtKrw/investKrw×100`(2자리, 롤오버 툴팁과 동일). 증감 = 이번달% − **전달(m-1)%**, 퍼센트포인트, `빨강(#dc2626)=상승 / 파랑(#2563eb)=하락`, |Δ|<0.005·1월·전달값없음이면 공백. 증감은 %값 **왼쪽**. 합계/실분배율/환산분배율 열은 금액 그리드와 동일.
