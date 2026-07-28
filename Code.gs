@@ -2578,12 +2578,13 @@ function setupCompactTrigger() {
 // ── 서버 keep-warm ─────────────────────────────
 // Apps Script는 한동안 요청이 없으면 컨테이너가 잠들어, 다시 열 때 첫 호출이
 // 20~30초(cold start) 걸린다(getExchangeRate/getAccounts가 cold 31s/21s → warm 1s대).
-// 5분마다 자기 웹앱을 가볍게 핑해 인스턴스를 깨워 두면 사용자가 열 때 1~3초로 뜬다.
-// 무파라미터 doGet은 'ok'만 반환(시트·외부호출 비용 0)하므로 핑이 가볍다.
+// 5분마다 자기 웹앱의 실제 액션(getExchangeRate)을 핑해 인스턴스를 깨워 두면
+// 사용자가 열 때 1~3초로 뜬다. 무파라미터 'ok' 경로가 아니라 실제 액션을 쳐야
+// 컨테이너 + 외부 스크랩 경로까지 데워져(빈 핑 직후에도 실제 요청이 20초 걸리던 문제 해결).
 // exec URL은 '기존 배포 편집(새 버전)' 재배포로는 바뀌지 않으므로 하드코딩해도 안전.
 const _EXEC_URL = 'https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec';
 function keepWarm() {
-  try { UrlFetchApp.fetch(_EXEC_URL, { muteHttpExceptions: true }); } catch (e) {}
+  try { UrlFetchApp.fetch(_EXEC_URL + '?action=getExchangeRate', { muteHttpExceptions: true }); } catch (e) {}
 }
 // keepWarm 트리거: 5분마다. 편집기에서 이 함수를 한 번만 실행(▶)하면 설치된다.
 function setupKeepWarm() {
