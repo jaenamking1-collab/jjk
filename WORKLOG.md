@@ -9,6 +9,14 @@
 
 ---
 
+## 2026-07-28 (49) / 집 — 카톡 백업으로 구글 캘린더 알림 추가(Code.gs)
+- **배경**: 카톡 '나에게 보내기'가 씹힐 때를 대비해, 새 분배 공지 감지 시 **구글 캘린더에도 "지금 울리는" 일정을 자동 등록**. 폰 구글 캘린더 앱 알림이 확실한 백업. (네이버·카카오 달력은 구글 구독 방식이면 동기화 지연/알람 누락 가능 → 보너스 취급.)
+- **Code.gs 수정**(전부 카톡 로직 미러링):
+  - `_notifyCal(lines)`/`flushCalPending()` 신규 — CAL_PENDING 대기열, 야간대기 규칙은 카톡과 동일(`_kakaoWithinWindow` 재사용). `flushCalPending`이 `CalendarApp.getDefaultCalendar().createEvent`로 10분짜리 일정 생성 + `addPopupReminder(0)`.
+  - **카톡과 독립** — `checkDistNotices`에서 `_notifyKakao` 옆에 `_notifyCal`를 별도 try로 호출(카톡 실패해도 캘린더는 뜸).
+  - `setupKakaoTrigger`에 `flushCalPending` 8시 트리거 추가, 점검용 `testCal()` 추가.
+- **다음 할 일(재남 손수)**: ① Apps Script에 Code.gs 붙여넣고 **재배포** ② 첫 실행 시 **캘린더 접근 권한 허용** ③ `setupKakaoTrigger` ▶재실행(트리거 재설치) ④ `testCal` ▶실행 → 폰 캘린더 알림 오는지 확인.
+
 ## 2026-07-28 (48) / 집 — 카카오 알림 연동 완료(testKakao 발송 성공) + client_secret 지원
 - **완료**: 카카오 개발자 앱 `배당알림` 생성 → 스크립트 속성 3개 저장(`KAKAO_REST_KEY`·`KAKAO_REFRESH_TOKEN`·`KAKAO_CLIENT_SECRET`) → `testKakao` **발송 성공** 확인. `setupKakaoTrigger`(8시 flush) 설치 안내까지.
 - **Code.gs 수정**: `_kakaoAccessToken`이 `KAKAO_CLIENT_SECRET` 속성 있으면 refresh 요청에 `client_secret` 동봉(시크릿 '사용함' 앱 대응, 없으면 생략).

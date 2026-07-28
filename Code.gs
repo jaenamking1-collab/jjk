@@ -1851,8 +1851,10 @@ function checkAndLogAlerts() {
   if (metaSheet.getLastRow() > 1) metaSheet.getRange(2,1,metaSheet.getLastRow()-1,7).clearContent();
   if (newMeta.length) metaSheet.getRange(2,1,newMeta.length,7).setValues(newMeta);
 
-  // 새 공지 감지 시 카톡 알림 (실패해도 감지·로그는 유지)
+  // 새 공지 감지 시 알림 (실패해도 감지·로그는 유지). 카톡·캘린더는 서로 독립 —
+  // 카톡이 씹혀도 구글 캘린더 알림이 백업으로 뜨도록 각각 try로 감싼다.
   try { if (kakaoMsgs.length) _notifyKakao(kakaoMsgs); } catch(e) { console.log('_notifyKakao 오류', e); }
+  try { if (kakaoMsgs.length) _notifyCal(kakaoMsgs); } catch(e) { console.log('_notifyCal 오류', e); }
 
   return { checked: 6, time: Utilities.formatDate(new Date(),'Asia/Seoul','yyyy-MM-dd HH:mm') };
 }
@@ -1959,6 +1961,38 @@ function flushKakaoPending() {
   let ok = false;
   try { ok = sendKakaoMemo(msg); } catch(e) { console.log('flushKakaoPending', e); }
   if (ok) props.deleteProperty('KAKAO_PENDING');
+}
+
+// ── 구글 캘린더 알림 (카톡 백업) ─────────────────────────────
+// 카톡이 씹혀도 놓치지 않게, 새 공지를 구글 기본 캘린더에 "지금 울리는" 일정으로 등록한다.
+// 야간 대기 규칙은 카톡과 동일(_kakaoWithinWindow 재사용) — 밤 공지는 아침 8시 flushCalPending이 발송.
+// CalendarApp은 스크립트 소유 구글 계정 안에서 도므로 카톡처럼 토큰·네트워크로 실패할 일이 거의 없다.
+// 첫 실행 시 구글이 캘린더 접근 권한을 한 번 물어본다(허용 필요). 설치는 맨 아래 '수동 실행' 참고.
+function _notifyCal(lines) {
+  if (!lines || !lines.length) return;
+  const props = PropertiesService.getScriptProperties();
+  let queue = [];
+  try { queue = JSON.parse(props.getProperty('CAL_PENDING') || '[]'); } catch(e) {}
+  queue = queue.concat(lines);
+  props.setProperty('CAL_PENDING', JSON.stringify(queue));
+  if (_kakaoWithinWindow()) flushCalPending();
+}
+
+// 대기열을 구글 캘린더 일정 1건으로 만들고 비운다. 실패 시 대기열 유지(다음에 재시도).
+function flushCalPending() {
+  const props = PropertiesService.getScriptProperties();
+  let queue = [];
+  try { queue = JSON.parse(props.getProperty('CAL_PENDING') || '[]'); } catch(e) {}
+  if (!queue.length) return;
+  const start = new Date();
+  const end = new Date(start.getTime() + 10 * 60 * 1000); // 10분짜리
+  const desc = queue.join('\n') + '\n\n앱 확인: ' + _EXEC_URL;
+  try {
+    const ev = CalendarApp.getDefaultCalendar()
+      .createEvent('📢 새 분배 공지 — 앱 확인', start, end, { description: desc });
+    ev.addPopupReminder(0); // 시작(=지금) 시각에 팝업 알림
+    props.deleteProperty('CAL_PENDING');
+  } catch(e) { console.log('flushCalPending', e); }
 }
 
 function parseScheduleFromText(text) {
@@ -2688,12 +2722,14 @@ function _testNoticeWindow() {
 // ── 카카오 알림 설치/점검 ─────────────────────────────
 // 야간(23~08시)에 대기열로 미뤄진 카톡을 아침 8시에 발송하는 트리거. 편집기에서 1회 ▶실행해 설치.
 // (주간에 감지된 공지는 checkAndLogAlerts가 즉시 발송하므로, 이 트리거는 야간 대기분 보충용.)
+// 야간 대기분(카톡+캘린더)을 아침 8시에 발송하는 트리거 2개를 설치. 편집기에서 1회 ▶실행.
 function setupKakaoTrigger() {
   ScriptApp.getProjectTriggers()
-    .filter(t => t.getHandlerFunction() === 'flushKakaoPending')
+    .filter(t => ['flushKakaoPending', 'flushCalPending'].includes(t.getHandlerFunction()))
     .forEach(t => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('flushKakaoPending').timeBased().atHour(8).nearMinute(10).everyDays(1).create();
-  console.log('flushKakaoPending 트리거(매일 8시) 설치 완료');
+  ScriptApp.newTrigger('flushCalPending').timeBased().atHour(8).nearMinute(10).everyDays(1).create();
+  console.log('flushKakaoPending·flushCalPending 트리거(매일 8시) 설치 완료');
 }
 
 // 카카오 연동 점검: 스크립트 속성(KAKAO_REST_KEY·KAKAO_REFRESH_TOKEN) 설정 후 ▶실행 →
@@ -2702,4 +2738,11 @@ function testKakao() {
   const ok = sendKakaoMemo('✅ jjk 카카오 알림 연동 테스트 — 이 메시지가 오면 설정 완료');
   console.log(ok ? '발송 성공' : '발송 실패(실행 로그 확인)');
   return ok;
+}
+
+// 캘린더 연동 점검: ▶실행 → 구글 기본 캘린더에 지금 울리는 테스트 일정 1건 생성.
+// 첫 실행 시 캘린더 접근 권한 허용 팝업이 뜬다(허용). 폰 구글 캘린더 앱 알림이 오면 완료.
+function testCal() {
+  _notifyCal(['✅ jjk 캘린더 알림 연동 테스트 — 이 일정 알림이 오면 설정 완료']);
+  console.log('테스트 일정 생성 시도 완료(실행 로그·캘린더 확인)');
 }
