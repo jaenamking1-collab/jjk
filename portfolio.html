@@ -3149,8 +3149,8 @@ function svMatInfo(s) {
   let color, tint, label;
   if (days < 0)        { color='#16a34a'; tint='rgba(34,197,94,.12)';  label=`만기 지남 · ${-days}일 경과`; }
   else if (days <= 30) { color='#dc2626'; tint='rgba(239,68,68,.12)';  label=`만기까지 ${days}일`; }
-  else if (days <= 91) { color='#ea580c'; tint='rgba(245,158,11,.15)'; label=`만기까지 ${days}일 (약 ${mon}개월)`; }
-  else if (days <= 183){ color='#2563eb'; tint='rgba(59,130,246,.12)'; label=`만기까지 ${days}일 (약 ${mon}개월)`; }
+  else if (days <= 91) { color='#ea580c'; tint='rgba(234,88,12,.16)'; label=`만기까지 ${days}일 (약 ${mon}개월)`; }
+  else if (days <= 183){ color='#f59e0b'; tint='rgba(245,158,11,.14)'; label=`만기까지 ${days}일 (약 ${mon}개월)`; }
   else return null;
   return { days, color, tint, label, name: s.name || '(이름 없음)' };
 }
@@ -3167,7 +3167,7 @@ function svNoticeHTML() {
     <div class="sv-notice-h">📢 만기 알림</div>
     ${body}
     <div class="sv-notice-legend">
-      <span style="color:#2563eb">■ 6개월</span><span style="color:#ea580c">■ 3개월</span><span style="color:#dc2626">■ 1개월</span><span style="color:#16a34a">■ 만기 지남</span>
+      <span style="color:#f59e0b">■ 6개월</span><span style="color:#ea580c">■ 3개월</span><span style="color:#dc2626">■ 1개월</span><span style="color:#16a34a">■ 만기 지남</span>
     </div>
   </aside>`;
 }
