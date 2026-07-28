@@ -9,6 +9,13 @@
 
 ---
 
+## 2026-07-28 (42) / 집 — 앱 초기 로딩 느림 원인=Apps Script cold start → keep-warm 트리거 추가
+- **증상**: 오랫만에 열면 로딩이 너무 느림.
+- **측정(브라우저 UA로 API 시간재기)**: cold일 때 `getExchangeRate` **31.8초**, `getAccounts` **21.6초** → 곧바로 다시(warm) 재면 각각 **1.1초 / 1.7초**. `getSheetData`는 1~2초로 이미 빠름(2026-07-08 캐시 효과). 즉 병목은 시세시트가 아니라 **오래 안 써서 컨테이너가 잠든 cold start**. 게이트가 `getAccounts`(cold 21s)를 기다렸다 앱을 열어서 "비번 넣고 20초 멍" 구간이 생김.
+- **수정**: `Code.gs`에 `keepWarm()`(자기 exec URL 무파라미터 핑=‘ok’ 반환, 시트/외부호출 0) + `setupKeepWarm()`(5분마다 트리거) 추가. 기존 트리거는 하루 특정시각뿐이라 사이에 잠들었음.
+- ⚠️ **다음 할 일(수동)**: Code.gs 재배포 후 **편집기에서 `setupKeepWarm` 1회 실행(▶)** → 5분 트리거 설치. 이후 cold start 거의 사라짐(1~3초).
+- **부가**: 권한 팝업('한번만 허용') 반복 → `.claude/settings.local.json` allow에 `Bash(*)`·`PowerShell(*)` 추가(임시 `$base=...` PS 스크립트가 기존 패턴에 안 걸려 매번 물었던 것). 파괴적 명령 deny(rm -rf/force push/reset --hard/Remove-Item -Recurse) 유지.
+
 ## 2026-07-28 (41) / 집 — PLUS 월말 분배 일정 누락 버그 수정 (OCR 금액 정규식 % 앵커)
 - **증상**: PLUS "7월 월말배당" 공지가 왼쪽 패널엔 NEW로 떴는데 **달력·운용사별 일정 표엔 PLUS 월말 행이 공란**. 다른 운용사 월말은 아직 미공지라 정상.
 - **진단(재현→근본)**:

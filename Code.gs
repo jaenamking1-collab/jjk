@@ -2575,6 +2575,25 @@ function setupCompactTrigger() {
   console.log('compactPriceLog 트리거(매주 일요일 4시) 설치 완료');
 }
 
+// ── 서버 keep-warm ─────────────────────────────
+// Apps Script는 한동안 요청이 없으면 컨테이너가 잠들어, 다시 열 때 첫 호출이
+// 20~30초(cold start) 걸린다(getExchangeRate/getAccounts가 cold 31s/21s → warm 1s대).
+// 5분마다 자기 웹앱을 가볍게 핑해 인스턴스를 깨워 두면 사용자가 열 때 1~3초로 뜬다.
+// 무파라미터 doGet은 'ok'만 반환(시트·외부호출 비용 0)하므로 핑이 가볍다.
+// exec URL은 '기존 배포 편집(새 버전)' 재배포로는 바뀌지 않으므로 하드코딩해도 안전.
+const _EXEC_URL = 'https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec';
+function keepWarm() {
+  try { UrlFetchApp.fetch(_EXEC_URL, { muteHttpExceptions: true }); } catch (e) {}
+}
+// keepWarm 트리거: 5분마다. 편집기에서 이 함수를 한 번만 실행(▶)하면 설치된다.
+function setupKeepWarm() {
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'keepWarm')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('keepWarm').timeBased().everyMinutes(5).create();
+  console.log('keepWarm 트리거(5분마다) 설치 완료');
+}
+
 // 공지 창 경계값 자체 점검. 통과하면 'ok' 반환, 틀리면 예외.
 function _testNoticeWindow() {
   [8,10,12,23,25,27].forEach(d => { if (!_inNoticeWindow(d)) throw new Error('창 안인데 false: ' + d); });
