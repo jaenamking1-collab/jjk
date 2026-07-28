@@ -889,8 +889,8 @@ function parseSmartTodayArticle(html) {
   return { items, schedule };
 }
 
-// 공지가 몰리는 날: 중순①은 10일, 월말②는 25일 전후 → 앞뒤 이틀씩
-function _inNoticeWindow(day) { return (day >= 8 && day <= 12) || (day >= 23 && day <= 27); }
+// 공지가 몰리는 날: 중순①은 10일 전후, 월말②는 25일부터 말일까지(28~29일 게시가 잦아 23일~월말 전체를 연다)
+function _inNoticeWindow(day) { return (day >= 8 && day <= 12) || (day >= 23); }
 
 // 트리거용(매일 10시·14시). 공지 창 밖의 날은 그냥 넘어가 쿼터를 아낀다.
 function checkDistNotices() {
@@ -2676,7 +2676,7 @@ function debugSheetAcc(){
 // ===================================================================
 
 // 분배금 공지 탐지 트리거: 매일 10·14·18시.
-// 실행 대상 checkDistNotices()가 공지 몰리는 날(8~12, 23~27)만 통과시킨다.
+// 실행 대상 checkDistNotices()가 공지 몰리는 날(8~12, 23~월말)만 통과시킨다.
 // 18시는 SOL 게시가 17시 전후라 당일에 잡기 위한 슬롯.
 function setupDistTriggers() {
   ScriptApp.getProjectTriggers()
@@ -2729,8 +2729,8 @@ function setupKeepWarm() {
 
 // 공지 창 경계값 자체 점검. 통과하면 'ok' 반환, 틀리면 예외.
 function _testNoticeWindow() {
-  [8,10,12,23,25,27].forEach(d => { if (!_inNoticeWindow(d)) throw new Error('창 안인데 false: ' + d); });
-  [1,7,13,22,28,31].forEach(d => { if (_inNoticeWindow(d)) throw new Error('창 밖인데 true: ' + d); });
+  [8,10,12,23,25,27,28,29,31].forEach(d => { if (!_inNoticeWindow(d)) throw new Error('창 안인데 false: ' + d); });
+  [1,7,13,22].forEach(d => { if (_inNoticeWindow(d)) throw new Error('창 밖인데 true: ' + d); });
   console.log('ok');
   return 'ok';
 }
