@@ -1811,6 +1811,7 @@ function checkAndLogAlerts() {
 
   const SRC_LABEL = { kodex:'KODEX', tiger:'TIGER', ace:'ACE', rise:'RISE', plus:'PLUS', sol:'SOL' };
   const newMeta = [];
+  const kakaoMsgs = [];  // 이번 실행에서 새로 감지된 공지 → 카톡 발송용
 
   ['kodex','tiger','ace','rise','plus','sol'].forEach(source => {
     let result;
@@ -1840,6 +1841,7 @@ function checkAndLogAlerts() {
       // 3) 신규 공지 (공시일이 직전과 다름)
       if (fp.pubDate && prev.pubDate && fp.pubDate !== prev.pubDate) {
         _addAlert(logSheet, label, '신규공지', `${label} 새 분배금 공지: 공시일 ${fp.pubDate} (${fp.cycles})`, '정보');
+        kakaoMsgs.push(`${label}: 공시일 ${fp.pubDate} (${fp.cycles})`);
       }
     }
     newMeta.push([source, fp.source, fp.isOcr, fp.itemCount, fp.cycles, fp.pubDate, Utilities.formatDate(new Date(),'Asia/Seoul','yyyy-MM-dd HH:mm')]);
@@ -1848,6 +1850,9 @@ function checkAndLogAlerts() {
   // 메타 갱신 (전체 덮어쓰기)
   if (metaSheet.getLastRow() > 1) metaSheet.getRange(2,1,metaSheet.getLastRow()-1,7).clearContent();
   if (newMeta.length) metaSheet.getRange(2,1,newMeta.length,7).setValues(newMeta);
+
+  // 새 공지 감지 시 카톡 알림 (실패해도 감지·로그는 유지)
+  try { if (kakaoMsgs.length) _notifyKakao(kakaoMsgs); } catch(e) { console.log('_notifyKakao 오류', e); }
 
   return { checked: 6, time: Utilities.formatDate(new Date(),'Asia/Seoul','yyyy-MM-dd HH:mm') };
 }
@@ -1877,6 +1882,79 @@ function markAlertRead(row) {
     if (row >= 2 && row <= sh.getLastRow()) sh.getRange(row, 6).setValue('확인');
     return { success: true };
   } catch(e) { return { success: false, error: e.toString() }; }
+}
+
+// ── 카카오톡 '나에게 보내기' 알림 ─────────────────────────────
+// 새 분배 공지가 감지되면(checkAndLogAlerts) 나에게 카톡 memo를 보낸다.
+// 야간(23~08시)엔 즉시 안 보내고 대기열(KAKAO_PENDING)에 쌓아, 아침 8시 트리거
+// (flushKakaoPending)가 발송한다. 스크립트 속성 KAKAO_REST_KEY·KAKAO_REFRESH_TOKEN이
+// 없으면 조용히 skip(감지·로그는 그대로 동작). 설치·설정은 맨 아래 '수동 실행' 참고.
+const _KAKAO_SEND_FROM = 8;   // 발송 허용 시작 시각(포함)
+const _KAKAO_SEND_TO   = 23;  // 발송 허용 끝 시각(미포함) → 23~08시는 대기
+
+// 리프레시 토큰으로 액세스 토큰 발급. 회전된 리프레시 토큰이 오면 저장.
+function _kakaoAccessToken() {
+  const props = PropertiesService.getScriptProperties();
+  const restKey = props.getProperty('KAKAO_REST_KEY');
+  const refresh = props.getProperty('KAKAO_REFRESH_TOKEN');
+  if (!restKey || !refresh) throw new Error('KAKAO_REST_KEY/KAKAO_REFRESH_TOKEN 미설정');
+  const res = UrlFetchApp.fetch('https://kauth.kakao.com/oauth/token', {
+    method: 'post',
+    payload: { grant_type: 'refresh_token', client_id: restKey, refresh_token: refresh },
+    muteHttpExceptions: true
+  });
+  const j = JSON.parse(res.getContentText());
+  if (!j.access_token) throw new Error('카카오 토큰 갱신 실패: ' + res.getContentText());
+  if (j.refresh_token) props.setProperty('KAKAO_REFRESH_TOKEN', j.refresh_token);
+  return j.access_token;
+}
+
+// 나에게 카톡 텍스트 memo 발송 (최대 200자). 성공 시 true.
+function sendKakaoMemo(text) {
+  const token = _kakaoAccessToken();
+  const template = {
+    object_type: 'text',
+    text: String(text).slice(0, 200),
+    link: { web_url: _EXEC_URL, mobile_web_url: _EXEC_URL }
+  };
+  const res = UrlFetchApp.fetch('https://kapi.kakao.com/v2/api/talk/memo/default/send', {
+    method: 'post',
+    headers: { Authorization: 'Bearer ' + token },
+    payload: { template_object: JSON.stringify(template) },
+    muteHttpExceptions: true
+  });
+  const ok = res.getResponseCode() === 200;
+  if (!ok) console.log('카카오 발송 실패', res.getResponseCode(), res.getContentText());
+  return ok;
+}
+
+// 지금이 발송 허용 시간대(08~23시)인지
+function _kakaoWithinWindow() {
+  const h = parseInt(Utilities.formatDate(new Date(), 'Asia/Seoul', 'H'), 10);
+  return h >= _KAKAO_SEND_FROM && h < _KAKAO_SEND_TO;
+}
+
+// 새 공지 메시지들을 대기열에 넣고, 발송 시간대면 즉시 flush(아니면 아침 8시 트리거가 발송).
+function _notifyKakao(lines) {
+  if (!lines || !lines.length) return;
+  const props = PropertiesService.getScriptProperties();
+  let queue = [];
+  try { queue = JSON.parse(props.getProperty('KAKAO_PENDING') || '[]'); } catch(e) {}
+  queue = queue.concat(lines);
+  props.setProperty('KAKAO_PENDING', JSON.stringify(queue));
+  if (_kakaoWithinWindow()) flushKakaoPending();
+}
+
+// 대기열을 한 통(최대 200자)으로 묶어 발송하고 비운다. 실패 시 대기열 유지(다음에 재시도).
+function flushKakaoPending() {
+  const props = PropertiesService.getScriptProperties();
+  let queue = [];
+  try { queue = JSON.parse(props.getProperty('KAKAO_PENDING') || '[]'); } catch(e) {}
+  if (!queue.length) return;
+  const msg = ('📢 새 분배 공지\n' + queue.join('\n')).slice(0, 200);
+  let ok = false;
+  try { ok = sendKakaoMemo(msg); } catch(e) { console.log('flushKakaoPending', e); }
+  if (ok) props.deleteProperty('KAKAO_PENDING');
 }
 
 function parseScheduleFromText(text) {
@@ -2601,4 +2679,23 @@ function _testNoticeWindow() {
   [1,7,13,22,28,31].forEach(d => { if (_inNoticeWindow(d)) throw new Error('창 밖인데 true: ' + d); });
   console.log('ok');
   return 'ok';
+}
+
+// ── 카카오 알림 설치/점검 ─────────────────────────────
+// 야간(23~08시)에 대기열로 미뤄진 카톡을 아침 8시에 발송하는 트리거. 편집기에서 1회 ▶실행해 설치.
+// (주간에 감지된 공지는 checkAndLogAlerts가 즉시 발송하므로, 이 트리거는 야간 대기분 보충용.)
+function setupKakaoTrigger() {
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'flushKakaoPending')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('flushKakaoPending').timeBased().atHour(8).nearMinute(10).everyDays(1).create();
+  console.log('flushKakaoPending 트리거(매일 8시) 설치 완료');
+}
+
+// 카카오 연동 점검: 스크립트 속성(KAKAO_REST_KEY·KAKAO_REFRESH_TOKEN) 설정 후 ▶실행 →
+// 나에게 테스트 카톡 1건 발송. 카톡이 오면 연동 완료.
+function testKakao() {
+  const ok = sendKakaoMemo('✅ jjk 카카오 알림 연동 테스트 — 이 메시지가 오면 설정 완료');
+  console.log(ok ? '발송 성공' : '발송 실패(실행 로그 확인)');
+  return ok;
 }
