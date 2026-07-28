@@ -1534,10 +1534,12 @@ function fetchDist_plus() {
             while ((cm = codeRe.exec(t))) codes.push({ code: cm[1], idx: cm.index, end: cm.index + cm[0].length });
             for (let i = 0; i < codes.length; i++) {
               const seg = t.slice(codes[i].end, i+1 < codes.length ? codes[i+1].idx : codes[i].end + 80);
-              const rateM = seg.match(/(\d+\.\d+)\s*%/);
+              // PLUS 월말 공지 이미지는 분배율 칸에 % 기호가 없다(헤더에만) → % 를 선택적으로.
+              // 월중 이미지는 "1.27%"처럼 % 가 붙어 있어 그대로 매칭된다.
+              const rateM = seg.match(/(\d+\.\d+)\s*%?/);
               const rate = rateM ? parseFloat(rateM[1]) : null;
               let amount = null;
-              const amtM = seg.match(/(\d+)\s+\d+\.\d+\s*%/);
+              const amtM = seg.match(/(\d+)\s+\d+\.\d+\s*%?/);
               if (amtM) amount = parseInt(amtM[1]);
               if (amount == null) continue;
               // 종목명: 코드와 금액 사이 한글/영문 (기호 ●·. 제거)
