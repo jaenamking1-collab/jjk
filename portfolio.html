@@ -3312,7 +3312,13 @@ function showTab(name) {
   if (name === 'pension') loadPensionPlan();
   if (name === 'savings') loadSavings();
   if (name === 'screener') loadScreener();
-  if (name === 'distributions') { loadDistributions(); loadAllNotices(); }
+  if (name === 'distributions') {
+    // 캐시로 즉시 렌더 → 최근 10분 내 force 안 했으면 백그라운드로 최신 재파싱(새 공지 반영)
+    loadDistributions().then(() => {
+      if (Date.now() - _lastDistForce > 10 * 60 * 1000) loadDistributions(true, true);
+    });
+    loadAllNotices();
+  }
   if (name === 'holdings' && state.holdings.length) loadHoldingPrices(state.holdings);
   if (name === 'excel' && !state.holdings.length) loadAccountStats();
 }
@@ -3541,6 +3547,7 @@ const HOLIDAYS = {
 };
 
 let _distData = [];
+let _lastDistForce = 0;   // 마지막 force 재파싱 시각(ms). 탭 진입 시 백그라운드 자동 force throttle용.
 let _calWeekOffset = 0;   // 달력 주 단위 이동 (←/→ 버튼)
 let _schedMonthOffset = 0; // 운용사별 일정 표: 월 단위 이동 (0=이번 달)
 let _distGridMonthOffset = 0; // 내 보유 종목 분배 내역: 월 단위 이동 (0=이번 달)
@@ -3566,16 +3573,22 @@ function schedShiftMonth(dir) {
   renderMasterCalendar(_distData);
 }
 
-async function loadDistributions(force) {
+// silent=true: 스피너로 화면을 비우지 않고 백그라운드로 갱신(캐시 렌더 위에 '갱신 중' 배지만).
+async function loadDistributions(force, silent) {
   const grid = document.getElementById('distGrid');
   if (!grid) return;
+  if (force) _lastDistForce = Date.now();
   // 보유종목 매칭에 필요 → holdings 없으면 먼저 로드
   if (!state.holdings || !state.holdings.length) {
     try { state.holdings = (await api({ action:'getHoldings' })) || []; } catch(e) {}
   }
-  grid.innerHTML = '<div style="padding:16px;color:var(--text3)"><span class="spinner"></span> 불러오는 중...</div>';
-  const cal = document.getElementById('distMasterCalendar');
-  if (cal) cal.innerHTML = '<div style="color:var(--text3);font-size:13px"><span class="spinner"></span> 불러오는 중...</div>';
+  if (silent) {
+    showRefreshing(true);
+  } else {
+    grid.innerHTML = '<div style="padding:16px;color:var(--text3)"><span class="spinner"></span> 불러오는 중...</div>';
+    const cal = document.getElementById('distMasterCalendar');
+    if (cal) cal.innerHTML = '<div style="color:var(--text3);font-size:13px"><span class="spinner"></span> 불러오는 중...</div>';
+  }
 
   const timeout = ms => new Promise((_,rej) => setTimeout(() => rej(new Error('timeout')), ms));
   // force 재파싱은 OCR(특히 KODEX) 때문에 25초를 넘길 수 있어 여유를 크게 준다
@@ -3601,6 +3614,7 @@ async function loadDistributions(force) {
   }
   renderMasterCalendar(_distData);
   renderDistGrid(_distData);
+  if (silent) showRefreshing(false);
 }
 
 function renderMasterCalendar(allData) {
