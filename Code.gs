@@ -35,12 +35,21 @@ function doGet(e) {
       case 'getStockPrice':   result = getStockPrice(e.parameter.ticker, e.parameter.currency); break;
       case 'getStockHistory': result = getStockHistory(e.parameter.ticker, e.parameter.currency, e.parameter.days); break;
       case 'getEtfNotices':   result = getEtfNotices(e.parameter.source); break;
-      // 공개 페이지 방문자 카운터: bump='1'이면 +1, 아니면 현재 값만 반환(스크립트 속성 VISIT_COUNT).
+      // 공개 페이지 방문자 카운터: bump='1'이면 +1, 아니면 현재 값만 반환.
+      // 누적(VISIT_COUNT)과 오늘(VISIT_TODAY, 날짜는 VISIT_TODAY_DATE로 판별해 자정에 리셋)을 함께 반환.
       case 'hitCounter': {
         const _p = PropertiesService.getScriptProperties();
+        const _today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
         let _n = parseInt(_p.getProperty('VISIT_COUNT') || '0', 10);
-        if (e.parameter.bump === '1') { _n += 1; _p.setProperty('VISIT_COUNT', String(_n)); }
-        result = { count: _n };
+        let _t = parseInt(_p.getProperty('VISIT_TODAY') || '0', 10);
+        if (_p.getProperty('VISIT_TODAY_DATE') !== _today) _t = 0; // 날짜 바뀌면 오늘 카운트 리셋
+        if (e.parameter.bump === '1') {
+          _n += 1; _t += 1;
+          _p.setProperties({ VISIT_COUNT: String(_n), VISIT_TODAY: String(_t), VISIT_TODAY_DATE: _today });
+        } else if (_p.getProperty('VISIT_TODAY_DATE') !== _today) {
+          _p.setProperties({ VISIT_TODAY: '0', VISIT_TODAY_DATE: _today }); // 표시만 해도 리셋은 저장
+        }
+        result = { count: _n, today: _t };
         break;
       }
       case 'getSheetData':    result = getSheetData(e.parameter.force === '1'); break;
