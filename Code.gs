@@ -5,7 +5,7 @@ const SHEET_ID = '1iNlOU1YBRyJ6redmVoLDE4q6VfnWqL22s32IQHdSKN8';
 // 올바른 token 파라미터가 있어야 통과한다(개인 계좌·보유·분배 데이터 보호).
 // 속성이 비어 있으면(미설정) 전부 허용 → 재배포 전까지 기존 앱이 끊기지 않음(하위호환).
 // getDistribution·getEtfNotices는 공개 분배금 페이지(프록시)가 쓰므로 토큰 없이 허용.
-const PUBLIC_ACTIONS = ['getDistribution', 'getEtfNotices'];
+const PUBLIC_ACTIONS = ['getDistribution', 'getEtfNotices', 'hitCounter'];
 function _authOk(action, token) {
   if (PUBLIC_ACTIONS.indexOf(action) !== -1) return true;
   const secret = PropertiesService.getScriptProperties().getProperty('APP_TOKEN');
@@ -35,6 +35,14 @@ function doGet(e) {
       case 'getStockPrice':   result = getStockPrice(e.parameter.ticker, e.parameter.currency); break;
       case 'getStockHistory': result = getStockHistory(e.parameter.ticker, e.parameter.currency, e.parameter.days); break;
       case 'getEtfNotices':   result = getEtfNotices(e.parameter.source); break;
+      // 공개 페이지 방문자 카운터: bump='1'이면 +1, 아니면 현재 값만 반환(스크립트 속성 VISIT_COUNT).
+      case 'hitCounter': {
+        const _p = PropertiesService.getScriptProperties();
+        let _n = parseInt(_p.getProperty('VISIT_COUNT') || '0', 10);
+        if (e.parameter.bump === '1') { _n += 1; _p.setProperty('VISIT_COUNT', String(_n)); }
+        result = { count: _n };
+        break;
+      }
       case 'getSheetData':    result = getSheetData(e.parameter.force === '1'); break;
       case 'getPriceLog':     result = getPriceLog(); break;
       case 'getEtfScreener':  result = getEtfScreener(); break;
