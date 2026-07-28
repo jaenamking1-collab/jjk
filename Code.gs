@@ -1888,7 +1888,8 @@ function markAlertRead(row) {
 // 새 분배 공지가 감지되면(checkAndLogAlerts) 나에게 카톡 memo를 보낸다.
 // 야간(23~08시)엔 즉시 안 보내고 대기열(KAKAO_PENDING)에 쌓아, 아침 8시 트리거
 // (flushKakaoPending)가 발송한다. 스크립트 속성 KAKAO_REST_KEY·KAKAO_REFRESH_TOKEN이
-// 없으면 조용히 skip(감지·로그는 그대로 동작). 설치·설정은 맨 아래 '수동 실행' 참고.
+// 없으면 조용히 skip(감지·로그는 그대로 동작). 앱에서 클라이언트 시크릿을 '사용함'으로
+// 켠 경우엔 KAKAO_CLIENT_SECRET 속성도 필요(끄면 불필요). 설치·설정은 맨 아래 '수동 실행' 참고.
 const _KAKAO_SEND_FROM = 8;   // 발송 허용 시작 시각(포함)
 const _KAKAO_SEND_TO   = 23;  // 발송 허용 끝 시각(미포함) → 23~08시는 대기
 
@@ -1897,10 +1898,13 @@ function _kakaoAccessToken() {
   const props = PropertiesService.getScriptProperties();
   const restKey = props.getProperty('KAKAO_REST_KEY');
   const refresh = props.getProperty('KAKAO_REFRESH_TOKEN');
+  const secret  = props.getProperty('KAKAO_CLIENT_SECRET'); // 시크릿 '사용함'이면 필요(없으면 생략)
   if (!restKey || !refresh) throw new Error('KAKAO_REST_KEY/KAKAO_REFRESH_TOKEN 미설정');
+  const payload = { grant_type: 'refresh_token', client_id: restKey, refresh_token: refresh };
+  if (secret) payload.client_secret = secret;
   const res = UrlFetchApp.fetch('https://kauth.kakao.com/oauth/token', {
     method: 'post',
-    payload: { grant_type: 'refresh_token', client_id: restKey, refresh_token: refresh },
+    payload: payload,
     muteHttpExceptions: true
   });
   const j = JSON.parse(res.getContentText());
