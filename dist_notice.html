@@ -706,7 +706,7 @@ async function bumpVisitor(){
     const counted = sessionStorage.getItem('visitCounted') === '1';
     const d = await api({ action:'hitCounter', bump: counted ? '0' : '1' });
     sessionStorage.setItem('visitCounted', '1');
-    if (el && d && d.count != null) el.textContent = `👁 ${Number(d.count).toLocaleString()}`;
+    if (el && d && d.count != null) el.textContent = `👁 오늘 ${Number(d.today||0).toLocaleString()} · 누적 ${Number(d.count).toLocaleString()}`;
   } catch(e) { /* 카운터 실패는 페이지에 영향 없음 */ }
 }
 bumpVisitor();
