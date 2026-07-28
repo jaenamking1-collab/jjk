@@ -1125,8 +1125,7 @@ function fetchDist_kodex() {
       {
         const ocrSched = ocrScheduleFromNotice(html, 'https://www.samsungfund.com');
         if (ocrSched && (ocrSched['기준일'] || ocrSched['지급일'])) {
-          // OCR로 읽은 값으로 덮어쓰기 (공시일은 OCR에 있으면 우선, 없으면 게시일 유지)
-          if (ocrSched['공시일']) calcSched['공시일'] = ocrSched['공시일'];
+          // OCR 실제값으로 덮어쓰기. 단 공시일은 게시일(등록일)이 정확하므로 OCR로 안 덮는다(OCR 28→29 오독 방지).
           if (ocrSched['분배락일']) calcSched['분배락일'] = ocrSched['분배락일'];
           if (ocrSched['기준일']) calcSched['기준일'] = ocrSched['기준일'];
           if (ocrSched['지급일']) calcSched['지급일'] = ocrSched['지급일'];
@@ -1427,7 +1426,7 @@ function fetchDist_ace() {
       // (특히 월중 지급일은 기준일 다음 영업일이 아니라 T+3인 경우 多) OCR 실제값을 우선한다.
       const ocrSched = ocrScheduleFromBase64Html(content);
       if (ocrSched && (ocrSched['기준일'] || ocrSched['지급일'])) {
-        if (ocrSched['공시일']) calcSched['공시일'] = ocrSched['공시일'];
+        // 공시일은 게시일(등록일)이 정확하므로 OCR로 안 덮는다(OCR 오독 방지).
         if (ocrSched['분배락일']) calcSched['분배락일'] = ocrSched['분배락일'];
         if (ocrSched['기준일']) calcSched['기준일'] = ocrSched['기준일'];
         if (ocrSched['지급일']) calcSched['지급일'] = ocrSched['지급일'];
@@ -1557,7 +1556,7 @@ function fetchDist_plus() {
             // 일정도 같은 OCR 텍스트에서 시도
             const ocrSched = parseScheduleFromOcr(ocrText);
             if (ocrSched['기준일'] || ocrSched['지급일']) {
-              if (ocrSched['공시일']) sched['공시일'] = ocrSched['공시일'];
+              // 공시일은 게시일(등록일)이 정확하므로 OCR로 안 덮는다(OCR 오독 방지).
               if (ocrSched['분배락일']) sched['분배락일'] = ocrSched['분배락일'];
               if (ocrSched['기준일']) sched['기준일'] = ocrSched['기준일'];
               if (ocrSched['지급일']) sched['지급일'] = ocrSched['지급일'];
