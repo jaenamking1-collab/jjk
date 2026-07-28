@@ -9,6 +9,14 @@
 
 ---
 
+## 2026-07-28 (47) / 집 — 새 분배 공지 카톡 알림(B: 백엔드 직접, Code.gs) [재배포+카카오설정 필요]
+- **요청**: 각 운용사 새 공지 나오면 나에게 카톡. 야간(23~08시) 발송 상황이면 아침 8시로 미룸.
+- **구현(Code.gs)**: `checkAndLogAlerts`의 신규공지 감지 분기에서 메시지 수집(`kakaoMsgs`) → 실행 끝에 `_notifyKakao` 호출(try/catch로 감지·로그는 절대 안 깨짐). 카카오 memo(나에게 보내기) 연동: `_kakaoAccessToken`(리프레시→액세스, 회전된 리프레시 저장), `sendKakaoMemo(text≤200자)`, `_kakaoWithinWindow`(08~23), `_notifyKakao`(대기열 `KAKAO_PENDING`에 쌓고 시간대면 즉시 flush), `flushKakaoPending`(한 통으로 발송·성공 시 큐 삭제). 야간 감지분은 대기 → 아침 8시 `flushKakaoPending` 트리거가 발송.
+- **수동 실행(맨 아래 배너)**: `setupKakaoTrigger`(매일 8시 트리거 설치), `testKakao`(연동 점검용 테스트 발송).
+- **필요 설정(사용자)**: 스크립트 속성 `KAKAO_REST_KEY`, `KAKAO_REFRESH_TOKEN`. 없으면 조용히 skip(감지·앱 알림은 그대로). 카카오 개발자 앱 생성 → talk_message 동의 → 인가코드→refresh_token 발급 → 속성 저장 → **Code.gs 재배포** → `testKakao`▶ → `setupKakaoTrigger`▶.
+- **검증**: `node --check` 문법 통과. 카톡 실제 발송은 토큰 설정+재배포 후에만 확인 가능(미완).
+- **다음 할 일**: 사용자 카카오 토큰 발급·속성 저장·재배포·testKakao 확인.
+
 ## 2026-07-28 (46) / 집 — 분배금공지: 진입 시 새 공지 누락 → 백그라운드 자동 force
 - **증상**: 오늘 올라온 KODEX·RISE 7월 월말 공지가 왼쪽 패널엔 NEW로 뜨는데 달력·운용사별 일정 표엔 `-`. **새로고침 누르면 나옴**.
 - **원인**: 탭 진입(`showTab`)은 `loadDistributions()`=**캐시(비force)**, 새로고침 버튼만 `loadDistributions(true)`=**force**. 새 공지가 서버 캐시에 반영되기 전이면 force로 재파싱해야만 일정이 잡힘. (서버 캐시 staleness 자체는 백엔드 `Code.gs` 문제 → 재배포 필요, 이번엔 프론트로 우회.)
