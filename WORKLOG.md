@@ -15,6 +15,7 @@
   - ① 달력↔일정 사이 큰 빈 공간 제거: 세로 스택에서 `.p-cal`의 `flex:0 1 792px`가 **높이**로 먹혀 792px 강제되던 것 → 모바일 미디어쿼리에 `.p-notice,.p-cal,.p-sched{flex:none}` 추가. 갭 321→19px 확인.
   - ② 운용사별 일정 표 '지급' 열 잘림: 모바일 `#distScheduleList{min-width:420px}`→`0`, 표 `font-size:10px`, th `padding:5px 2px`. 스크롤폭 320≤화면321 → 좌우 스크롤 없이 지급까지 표시 확인.
   - ③ 제목에 (몇월): 공지 패널 `📢 (7월) 분배금 공지`, 상단 로고·브라우저 탭 제목도 `(7월) ETF 분배금 공지`로 JS에서 동적 세팅.
+  - ④-1 (추가) 공지종목 전체 표 '주기' 칸 세로쪼개짐 수정: 월중/월말 배지 span과 td에 `white-space:nowrap` → 가로 한 줄 유지(칸 자동 확장).
   - ④ 방문자 카운터: 헤더 로고 옆 `👁 N`. `bumpVisitor()`가 공개 프록시 `hitCounter` 호출(세션당 1회 +1, 표시는 매 로드). 실패해도 페이지 무영향.
 - **수정(public_dist_proxy.gs)**: `doGet`에 `action=hitCounter` 처리 추가 — 프록시 자체 ScriptProperties(`VISIT_COUNT`)에 집계, 캐시 우회, `bump='1'`이면 +1. 개인 GAS·시트는 안 건드림.
 - **배포 방식 확인+실행**: 공개 페이지는 별도 저장소 **`jjk-dist`의 `index.html`**(GitHub Pages). `dist_notice.html`을 `jjk-dist/index.html`로 **수동 미러**해야 반영됨(데이터는 프록시로 live fetch라 무관). → 오늘 수정분을 jjk-dist에 복사·푸시 완료(f0a4ae7), 라이브에서 갭·표·제목 3건 반영 확인. (메모리 [[public-page-deploy]] 저장)
