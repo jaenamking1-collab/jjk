@@ -641,7 +641,7 @@ function renderDistGrid(allData){
           const cycColor = cyc === '월중' ? '#2563eb' : cyc === '월말' ? '#db2777' : 'var(--text3)';
           const rowBg = cyc === '월중' ? 'background:#2563eb0a;' : cyc === '월말' ? 'background:#db27770a;' : '';
           return `<tr style="${rowBg}">
-          <td style="padding:5px 6px;text-align:center;border:1px solid var(--border)">${cyc ? `<span style="display:inline-block;background:${cycColor}1a;color:${cycColor};font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px">${cyc}</span>` : '-'}</td>
+          <td style="padding:5px 6px;text-align:center;white-space:nowrap;border:1px solid var(--border)">${cyc ? `<span style="display:inline-block;white-space:nowrap;background:${cycColor}1a;color:${cycColor};font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px">${cyc}</span>` : '-'}</td>
           <td style="padding:5px 8px;font-size:11px;font-family:var(--mono);border:1px solid var(--border)">${it.ticker || ''}</td>
           <td style="padding:5px 8px;font-size:11px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:1px solid var(--border)" title="${esc(it.name)}">${esc(it.name)}</td>
           <td style="padding:5px 8px;font-size:12px;font-weight:600;text-align:right;font-family:var(--mono);border:1px solid var(--border)">${it.amount != null ? Number(it.amount).toLocaleString() : '-'}</td>
