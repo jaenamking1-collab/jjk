@@ -30,6 +30,15 @@ function doGet(e) {
   const p = (e && e.parameter) || {};
   const action = p.action;
 
+  // 방문자 카운터: 프록시 자체 ScriptProperties에 집계(개인 GAS·시트 안 건드림, 캐시 우회).
+  // bump='1'이면 +1, 그 외엔 현재 값만 반환. count 값을 JSON으로 응답.
+  if (action === 'hitCounter') {
+    const props = PropertiesService.getScriptProperties();
+    let n = parseInt(props.getProperty('VISIT_COUNT') || '0', 10);
+    if (p.bump === '1') { n += 1; props.setProperty('VISIT_COUNT', String(n)); }
+    return _json({ count: n });
+  }
+
   // 화이트리스트 밖(개인 데이터 포함)은 즉시 거부 — 절대 중계하지 않음.
   if (ALLOWED_ACTIONS.indexOf(action) === -1) {
     return _json({ error: 'Not allowed' });

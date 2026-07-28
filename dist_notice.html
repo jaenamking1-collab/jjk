@@ -92,10 +92,14 @@
     .panels{flex-direction:column; align-items:stretch; gap:8px;}
     .dist-grid{grid-template-columns:1fr;}
     .panel{padding:10px;}
-    .p-notice, .p-cal, .p-sched{width:100%; max-width:100%; min-width:0;}
+    /* 세로 스택에선 flex-basis(792px)가 '높이'로 먹혀 빈 공간이 생기므로 flex 해제 → 내용 높이로 */
+    .p-notice, .p-cal, .p-sched{width:100%; max-width:100%; min-width:0; flex:none;}
     .cal-companies{display:flex;}
     .cal-scroll, .sched-scroll{overflow-x:auto; -webkit-overflow-scrolling:touch;}
-    #distScheduleList{min-width:420px;}
+    /* 표를 화면 폭에 맞춰 축소 → 지급 열까지 좌우 스크롤 없이 보이게 */
+    #distScheduleList{min-width:0;}
+    #distScheduleList table{font-size:10px;}
+    #distScheduleList th{padding:5px 2px;}
     .cal-grid{gap:2px;}
     .cal-dow{font-size:11px; padding:4px 0;}
     .cal-cell{padding:3px; min-height:74px; border-radius:5px;}
@@ -113,7 +117,10 @@
 </head>
 <body>
 <header>
-  <div class="logo">ETF 분배금 공지</div>
+  <div style="display:flex;align-items:baseline;gap:10px;min-width:0">
+    <div class="logo">ETF 분배금 공지</div>
+    <span id="visitCount" style="font-size:12px;color:#64748b;font-weight:600;white-space:nowrap"></span>
+  </div>
   <button class="refresh" onclick="pageRefresh()">🔄 새로고침</button>
 </header>
 
@@ -534,7 +541,7 @@ function renderNotices(){
   const now = new Date();
   const selM = ((now.getMonth() + _noticeMonthOffset) % 12 + 12) % 12 + 1;
   const title = document.getElementById('noticeTitle');
-  if (title) title.textContent = `📢 ${selM}월 분배금 공지`;
+  if (title) title.textContent = `📢 (${selM}월) 분배금 공지`;
   // 공지의 귀속 월: 제목의 'N월'(norm.mon) 우선, 없으면 등록일의 월
   const monOf = n => {
     if (n.norm.mon) return n.norm.mon;
@@ -662,6 +669,26 @@ function pageRefresh(){
   sessionStorage.setItem('forceRefresh', '1');
   location.reload();
 }
+// 상단 로고·브라우저 탭 제목 앞에 이번 달 표시 (예: "(7월) ETF 분배금 공지")
+(function(){
+  const m = new Date().getMonth() + 1;
+  document.title = `(${m}월) ETF 분배금 공지`;
+  const logo = document.querySelector('.logo');
+  if (logo) logo.textContent = `(${m}월) ETF 분배금 공지`;
+})();
+
+// 방문자 카운터: 공개 프록시(hitCounter)에 집계. 세션당 1회만 +1(새로고침 중복 방지), 표시는 매 로드.
+async function bumpVisitor(){
+  const el = document.getElementById('visitCount');
+  try {
+    const counted = sessionStorage.getItem('visitCounted') === '1';
+    const d = await api({ action:'hitCounter', bump: counted ? '0' : '1' });
+    sessionStorage.setItem('visitCounted', '1');
+    if (el && d && d.count != null) el.textContent = `👁 ${Number(d.count).toLocaleString()}`;
+  } catch(e) { /* 카운터 실패는 페이지에 영향 없음 */ }
+}
+bumpVisitor();
+
 const _force = sessionStorage.getItem('forceRefresh') === '1';
 sessionStorage.removeItem('forceRefresh');
 loadDistributions(_force);
