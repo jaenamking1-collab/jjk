@@ -1131,10 +1131,47 @@ async function apiPost(data) {
 }
 
 // ── INIT ─────────────────────────────────
+// localStorage 스냅샷: 지난 로딩 데이터로 첫 화면을 즉시 렌더 → 백그라운드 최신화.
+// 콜드스타트(서버 20~30s)를 기다리지 않고 바로 숫자를 보여준다.
+const _SNAP_KEY = 'jjk_snap_v1';
+function _snapGet(){ try { return JSON.parse(localStorage.getItem(_SNAP_KEY)); } catch(e) { return null; } }
+function _snapSet(o){ try { localStorage.setItem(_SNAP_KEY, JSON.stringify(o)); } catch(e) {} }
+
+// 상단 중앙 "갱신 중" 배지 (캐시 렌더 후 최신 데이터 받는 동안 표시)
+function showRefreshing(on){
+  let b = document.getElementById('refreshBadge');
+  if (!b) {
+    b = document.createElement('div');
+    b.id = 'refreshBadge';
+    b.textContent = '⟳ 최신 데이터로 갱신 중…';
+    b.style.cssText = 'position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:3000;background:#1e293b;color:#fff;font-size:12px;font-weight:600;padding:5px 14px;border-radius:20px;box-shadow:0 2px 10px rgba(0,0,0,.25);pointer-events:none;transition:opacity .35s';
+    document.body.appendChild(b);
+  }
+  b.style.opacity = on ? '1' : '0';
+}
+
+// 스냅샷이 있으면 포트폴리오 첫 화면(환율·계좌표·요약)을 즉시 그린다. 그렸으면 true.
+function paintFromCache(){
+  const snap = _snapGet();
+  if (!snap || !Array.isArray(snap.accounts) || !snap.accounts.length) return false;
+  if (snap.exchangeRate) {
+    state.exchangeRate = snap.exchangeRate;
+    const rd = document.getElementById('rateDisplay'); if (rd) rd.textContent = `$1 = ${Math.round(snap.exchangeRate).toLocaleString()}`;
+    const dsr = document.getElementById('ds-rate'); if (dsr) dsr.textContent = Math.round(snap.exchangeRate).toLocaleString();
+  }
+  state.accounts = snap.accounts;
+  renderAccounts();
+  if (snap.holdings) renderAccountStats(snap.holdings, snap.divs||[], snap.sheet||{items:[]}, snap.divsFull||[]);
+  return true;
+}
+
 async function init() {
+  const painted = paintFromCache();     // 캐시 있으면 즉시 렌더
+  if (painted) showRefreshing(true);
   await Promise.all([loadExchangeRate(), loadAccounts(), loadStockList()]);
   setupYearSelects();
   refreshAlerts(); // 알림 배지 갱신
+  if (painted) showRefreshing(false);
 }
 
 async function loadExchangeRate() {
@@ -1151,6 +1188,7 @@ async function loadAccounts() {
   state.accounts = data || [];
   renderAccounts();
   updateAccountSelects();
+  await loadAccountStats();
 }
 
 function renderAccounts() {
@@ -1195,8 +1233,7 @@ function renderAccounts() {
   const ekEl = document.getElementById('ek-accounts-table');
   if (jnEl) jnEl.innerHTML = makeTable(jaenam, '#bfdbfe');
   if (ekEl) ekEl.innerHTML = makeTable(eunkyung, '#fbcfe8');
-
-  loadAccountStats();
+  // 통계 채우기는 호출측에서(loadAccounts / moveAccount / paintFromCache) 명시적으로 수행
 }
 
 // 종목별 연간 분배금 투영 — 대시보드 loadDashboard와 동일 알고리즘.
@@ -1244,6 +1281,14 @@ async function loadAccountStats() {
     api({ action:'getSheetData' }).catch(()=>({ items:[] })),
     api({ action:'getDividends' }).catch(()=>[])
   ]);
+  renderAccountStats(allHoldings, allDivs, sheet, allDivsFull);
+  // 다음 실행 즉시 렌더용 스냅샷 저장
+  _snapSet({ exchangeRate: state.exchangeRate, accounts: state.accounts,
+             holdings: allHoldings||[], divs: allDivs||[], sheet: sheet||{items:[]}, divsFull: allDivsFull||[] });
+}
+
+// 계좌 통계 렌더(순수 함수): 캐시 즉시 렌더와 최신 렌더 양쪽에서 호출한다.
+function renderAccountStats(allHoldings, allDivs, sheet, allDivsFull) {
   state.holdings = allHoldings || [];
   state.dividends = allDivs || [];
   // 환산분배율용 투영맵 (대시보드 연 분배율과 동일 방식·동일 데이터)
@@ -2579,6 +2624,7 @@ function moveAccount(id, dir) {
   saveAccountOrder(sorted.map(a => a.id.toString()));
   renderAccounts();
   updateAccountSelects();
+  loadAccountStats();
 }
 
 function editAccount(id) {
