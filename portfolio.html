@@ -616,7 +616,11 @@
       
     </div>
     <div class="div-controls">
-      <select id="divAccountFilter" onchange="loadDividendGrid()">
+      <span class="div-view-toggle" style="display:inline-flex;gap:4px;margin-right:6px">
+        <button id="divViewAmount" class="btn btn-sm active" onclick="setDivView('amount')">💰 금액</button>
+        <button id="divViewRate" class="btn btn-sm btn-ghost" onclick="setDivView('rate')">📈 분배율 추이</button>
+      </span>
+      <select id="divAccountFilter" onchange="reloadDivGrid()">
         <option value="">전체 계좌</option>
       </select>
       <span class="year-nav" style="display:inline-flex;align-items:center;gap:4px">
@@ -1718,13 +1722,27 @@ function stepDivYear(delta) {
   const cur = new Date().getFullYear();
   const now = parseInt(document.getElementById('divYear').value) || cur;
   setDivYear(now + delta);
-  loadDividendGrid();
+  reloadDivGrid();
 }
 
 function applyDivFont() {
   const fs = parseInt(document.getElementById('divFontSize')?.value) || 12;
   const grid = document.querySelector('.div-grid');
   if (grid) grid.style.fontSize = fs + 'px';
+}
+
+// 분배금 하위 뷰: 'amount'=편집 그리드, 'rate'=분배율 추이(읽기 전용)
+let divView = 'amount';
+function setDivView(v) {
+  divView = v;
+  document.getElementById('divViewAmount').classList.toggle('active', v === 'amount');
+  document.getElementById('divViewAmount').classList.toggle('btn-ghost', v !== 'amount');
+  document.getElementById('divViewRate').classList.toggle('active', v === 'rate');
+  document.getElementById('divViewRate').classList.toggle('btn-ghost', v !== 'rate');
+  reloadDivGrid();
+}
+function reloadDivGrid() {
+  return divView === 'rate' ? loadDivRateGrid() : loadDividendGrid();
 }
 
 async function loadDividendGrid() {
@@ -1864,7 +1882,155 @@ async function loadDividendGrid() {
         <th style="color:var(--accent)">실분배율</th>
         <th style="color:var(--accent)">환산분배율</th>
       </tr></thead>
-      <tbody>${rows}${totalRow}</tbody>
+      <tbody>${totalRow}${rows}</tbody>
+    </table>
+    </div>
+  `;
+  applyDivFont();
+}
+
+// 분배율 추이(읽기 전용): 월 금액 아래에 그달 분배율(%)과 전달 대비 증감(pp) 표시.
+// 증감 = 이번달% − 전달%(m-1). 빨강=상승, 파랑=하락. 전달 값 없거나 1월이면 증감 없음.
+async function loadDivRateGrid() {
+  const year = document.getElementById('divYear').value;
+  const accountId = document.getElementById('divAccountFilter').value;
+  document.getElementById('dividendGrid').innerHTML = '<div class="loading"><span class="spinner"></span>불러오는 중...</div>';
+
+  const [allHoldings, allDivs] = await Promise.all([
+    api({ action:'getHoldings' }),
+    api({ action:'getDividends', year })
+  ]);
+
+  let holdings = allHoldings || [];
+  if (accountId) holdings = holdings.filter(h => h.account_id === accountId);
+  holdings = sortHoldings(holdings);
+
+  const divMap = {};
+  (allDivs || []).forEach(d => { divMap[`${d.holding_id}_${d.month}`] = d; });
+
+  if (!holdings.length) {
+    document.getElementById('dividendGrid').innerHTML = '<div class="empty"><div class="empty-icon">💰</div><p>종목이 없습니다</p></div>';
+    return;
+  }
+
+  const er = state.exchangeRate || 1400;
+  const months = Array.from({length:12}, (_,i) => i+1);
+  const monthTotalsKrw = Array(12).fill(0);
+
+  const acctSpan = {};
+  for (let i = 0; i < holdings.length; i++) {
+    if (i === 0 || holdings[i].account_id !== holdings[i-1].account_id) {
+      let cnt = 1;
+      for (let j = i+1; j < holdings.length && holdings[j].account_id === holdings[i].account_id; j++) cnt++;
+      acctSpan[i] = cnt;
+    }
+  }
+
+  let rows = '';
+  let accMonthKrw = Array(12).fill(0), accSumKrw = 0;
+  for (let idx = 0; idx < holdings.length; idx++) {
+    const h = holdings[idx];
+    const acc = state.accounts.find(a => a.id === h.account_id);
+    const isGroupStart = (idx === 0 || holdings[idx-1].account_id !== h.account_id);
+    const isGroupEnd   = (idx === holdings.length-1 || holdings[idx+1].account_id !== h.account_id);
+    if (isGroupStart) { accMonthKrw = Array(12).fill(0); accSumKrw = 0; }
+
+    const prevH = idx > 0 ? holdings[idx-1] : null;
+    const isUsdBorder = h.currency === 'USD' && prevH?.account_id === h.account_id && prevH?.currency === 'KRW';
+    const invest = (parseFloat(h.avg_price)||0) * (parseFloat(h.quantity)||0);
+    const investKrw = h.currency === 'USD' ? invest * er : invest;
+    const isUsd = h.currency === 'USD';
+
+    // 월별 금액·분배율 선계산
+    const amtArr = Array(12).fill(0), rateArr = Array(12).fill(null);
+    let rowTotalKrw = 0;
+    months.forEach(m => {
+      const div = divMap[`${h.id}_${m}`];
+      const divCur = div ? (div.currency || (isUsd ? 'USD' : 'KRW')) : (isUsd ? 'USD' : 'KRW');
+      const amt = div ? parseFloat(div.amount) : 0;
+      const amtKrw = amt > 0 ? (divCur === 'USD' ? amt * er : amt) : 0;
+      amtArr[m-1] = amt;
+      if (amtKrw) { rowTotalKrw += amtKrw; monthTotalsKrw[m-1] += amtKrw; accMonthKrw[m-1] += amtKrw; }
+      rateArr[m-1] = (investKrw > 0 && amtKrw > 0) ? (amtKrw / investKrw * 100) : null;
+    });
+    accSumKrw += rowTotalKrw;
+
+    const cells = months.map(m => {
+      const amt = amtArr[m-1];
+      const rate = rateArr[m-1];
+      if (!amt) return `<td style="padding:0"></td>`;
+      const dol = isUsd ? `<span style="color:#92400e;font-weight:700;margin-right:1px">$</span>` : '';
+      const amtDisp = isUsd ? amt.toFixed(2) : Math.round(amt).toLocaleString();
+      let rateStr = '', deltaStr = '';
+      if (rate != null) {
+        rateStr = rate.toFixed(2) + '%';
+        const prev = m > 1 ? rateArr[m-2] : null;
+        if (prev != null) {
+          const d = rate - prev;
+          if (Math.abs(d) >= 0.005) {
+            const col = d > 0 ? '#dc2626' : '#2563eb';
+            deltaStr = `<span style="color:${col};font-weight:700">${d > 0 ? '+' : '−'}${Math.abs(d).toFixed(2)}</span>`;
+          }
+        }
+      }
+      return `<td style="padding:1px 3px;text-align:right;white-space:nowrap;vertical-align:middle">
+        <div style="color:#111827;font-weight:600;line-height:1.15">${dol}${amtDisp}</div>
+        <div style="line-height:1.15;font-size:0.82em">${deltaStr}<span style="color:#475569;margin-left:3px">${rateStr}</span></div>
+      </td>`;
+    }).join('');
+
+    const realRate = (investKrw > 0 && rowTotalKrw > 0) ? (rowTotalKrw / investKrw * 100).toFixed(2) : '-';
+    const filledMonths = months.filter(m => amtArr[m-1] > 0).length;
+    const cycStr2 = (h.div_cycle||'').split('|')[0];
+    const ac2 = /주배당/.test(cycStr2) ? 52 : /월/.test(cycStr2) ? 12 : /분기/.test(cycStr2) ? 4 : /반기/.test(cycStr2) ? 2 : filledMonths > 0 ? (12/filledMonths) : 0;
+    const annualRate = (investKrw > 0 && filledMonths > 0 && rowTotalKrw > 0 && ac2 > 0) ? (rowTotalKrw / filledMonths * ac2 / investKrw * 100).toFixed(2) : '-';
+    const divRowBg = h.currency === 'USD' ? '#fffbeb' : getAccColor(h.account_id);
+    const acctCell = isGroupStart
+      ? `<td rowspan="${acctSpan[idx]}" style="font-size:1em;color:#374151;font-weight:600;white-space:nowrap;vertical-align:middle;text-align:center;min-width:80px;background:${getAccColor(h.account_id)}">${acc?.name||''}</td>`
+      : '';
+    const groupBorder = (isGroupStart && idx > 0) ? 'border-top:2px solid #334155;' : '';
+    rows += `<tr style="background:${divRowBg};${groupBorder}${isUsdBorder ? 'border-top:2px solid #f59e0b88' : ''}">
+      ${acctCell}
+      <td class="div-ticker-cell" title="${h.ticker}">
+        <span class="ticker" style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px;text-align:left;color:#111827;font-weight:500;line-height:1.1;font-size:1em">${h.name || h.ticker}</span>
+      </td>
+      ${cells}
+      <td class="div-total" style="color:#111827;font-weight:600;font-size:1em;line-height:1.1">${rowTotalKrw ? Math.round(rowTotalKrw).toLocaleString() : '-'}</td>
+      <td class="div-total" style="color:#111827">${realRate !== '-' ? realRate+'%' : '-'}</td>
+      <td class="div-total" style="color:#111827">${annualRate !== '-' ? annualRate+'%' : '-'}</td>
+    </tr>`;
+    if (isGroupEnd) {
+      rows += `<tr style="background:var(--bg4);border-top:1px solid #94a3b8">
+        <td colspan="2" style="padding:4px 10px;font-size:1em;font-weight:700;color:#111827;text-align:right">${acc?.name||''} 소계 ▸</td>
+        ${accMonthKrw.map(t => `<td class="div-total" style="font-size:1em;color:#111827">${t?Math.round(t).toLocaleString():''}</td>`).join('')}
+        <td class="div-total" style="color:#111827;font-weight:700">${accSumKrw ? Math.round(accSumKrw).toLocaleString() : '-'}</td>
+        <td class="div-total">-</td>
+        <td class="div-total">-</td>
+      </tr>`;
+    }
+  }
+
+  const totalRow = `<tr style="background:var(--bg3)">
+    <td style="padding:8px 10px;font-size:1em;font-weight:600;color:var(--text2)"></td>
+    <td style="padding:8px 10px;font-size:1em;font-weight:600;color:var(--text2)">월 합계 (원화환산)</td>
+    ${monthTotalsKrw.map(t => `<td class="div-total">${t?Math.round(t).toLocaleString():''}</td>`).join('')}
+    <td class="div-total" style="color:var(--yellow)">${Math.round(monthTotalsKrw.reduce((a,b)=>a+b,0)).toLocaleString()}</td>
+    <td class="div-total">-</td>
+    <td class="div-total">-</td>
+  </tr>`;
+
+  document.getElementById('dividendGrid').innerHTML = `
+    <div class="div-grid-wrap">
+    <table class="div-grid">
+      <thead><tr>
+        <th style="color:#374151">계좌</th>
+        <th style="color:#111827">종목</th>
+        ${months.map(m=>`<th style="width:54px;min-width:48px;color:#111827">${m}월</th>`).join('')}
+        <th style="min-width:60px;color:#111827">합계</th>
+        <th style="color:var(--accent)">실분배율</th>
+        <th style="color:var(--accent)">환산분배율</th>
+      </tr></thead>
+      <tbody>${totalRow}${rows}</tbody>
     </table>
     </div>
   `;
@@ -2401,7 +2567,7 @@ function moveAccountInModal(id, dir) {
   moveAccount(id, dir);
   renderAccOrderList();
   loadHoldings();
-  if (document.getElementById('tab-dividends').classList.contains('active')) loadDividendGrid();
+  if (document.getElementById('tab-dividends').classList.contains('active')) reloadDivGrid();
 }
 
 function moveAccount(id, dir) {
@@ -3086,7 +3252,7 @@ async function applyDivSyncChanges() {
   btn.disabled = false; btn.textContent = '✅ 선택 항목 적용';
   document.getElementById('modal-div-sync').style.display = 'none';
   alert(`분배금 동기화 완료: ${ok}건 성공${fail ? `, ${fail}건 실패` : ''}`);
-  loadDividendGrid();
+  reloadDivGrid();
 }
 
 // ── TAB ──────────────────────────────────
@@ -3095,7 +3261,7 @@ function showTab(name) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.getElementById(`tab-${name}`).classList.add('active');
   event.target.classList.add('active');
-  if (name === 'dividends') loadDividendGrid();
+  if (name === 'dividends') reloadDivGrid();
   if (name === 'dashboard') loadDashboard();
   if (name === 'pension') loadPensionPlan();
   if (name === 'savings') loadSavings();

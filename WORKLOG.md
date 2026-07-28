@@ -9,6 +9,13 @@
 
 ---
 
+## 2026-07-28 (44) / 집 — 분배금 "분배율 추이" 뷰 신설 + 월합계 상단 이동 + 콜드스타트 재진단
+- **분배율 추이 뷰(②)**: 분배금 탭에 하위 토글 2개 추가 — `💰 금액`(기존 편집 그리드) / `📈 분배율 추이`(신규, 읽기 전용). `loadDivRateGrid()` 신설, 토글은 `divView`+`setDivView`+`reloadDivGrid()` 디스패처 경유(연도·계좌·글자 슬라이더 공유). 기존 `loadDividendGrid()` 호출부 5곳을 `reloadDivGrid()`로 교체.
+- **셀 구성**: 각 월 셀 = 윗줄 금액, 아랫줄 `[증감]  [분배율%]`. 분배율 = `amtKrw/investKrw×100`(2자리, 롤오버 툴팁과 동일). 증감 = 이번달% − **전달(m-1)%**, 퍼센트포인트, `빨강(#dc2626)=상승 / 파랑(#2563eb)=하락`, |Δ|<0.005·1월·전달값없음이면 공백. 증감은 %값 **왼쪽**. 합계/실분배율/환산분배율 열은 금액 그리드와 동일.
+- **월 합계 행 상단 이동(③)**: `<tbody>${rows}${totalRow}` → `${totalRow}${rows}`. 금액·분배율 두 그리드 모두 맨 위(월 헤더 바로 아래)로.
+- **검증**: 로컬 http 서버 + stub 데이터로 `loadDivRateGrid` 헤드리스 확인 — 증감 색/값(+0.20 빨강, −0.30 파랑), 1월·전달빈칸 증감없음, USD 행 `$5.00`+`0.50%`, 합계행 top, 토글 read-only↔editable 전환·active 클래스 정상. 콘솔 무에러.
+- **콜드스타트 재진단(①, 코드만·수정 안 함)**: 부팅 2파 — `init()`의 `[getExchangeRate·getAccounts·getStockList]` 병렬 → `renderAccounts` → `loadAccountStats()`의 `[getHoldings·getDividends(year)·getSheetData·getDividends(full)]` 병렬(**getDividends 중복 2회**). (42) 측정상 병목은 시트 아님(getSheetData 1~2s 캐시됨), **cold start**(getExchangeRate 31.8s)임. **핵심 가설**: 부팅의 병렬 요청이 Apps Script 인스턴스를 여러 개 띄워 keepWarm(단일 핑)이 못 데운 인스턴스가 cold → keepWarm이 부분적으로만 듣는 이유. **다음 할 일**: (a) 사용자: Apps Script 편집기 트리거 목록에 5분 keepWarm 트리거 설치됐는지 확인(`setupKeepWarm` 1회 실행). (b) 진짜 해법 = 프론트 localStorage 즉시렌더(캐시 렌더 후 백그라운드 갱신) — 승인 대기(라이브 금융앱이라 신중).
+
 ## 2026-07-28 (43) / 집 — keepWarm를 실제 액션 핑으로 개선 + PLUS 월중 누락은 캐시 타이밍(정상)
 - **keepWarm 개선**: 빈 'ok' 핑은 컨테이너만 데우고 스크랩 경로는 cold라, warm ping 직후에도 실제 요청이 20초 걸리는 경우 있었음(실행기록 doGet 20.7s). `keepWarm`이 `_EXEC_URL + '?action=getExchangeRate'`를 치도록 변경 → 실제 경로까지 warm. **트리거는 Head 실행이라 재배포 불필요, 편집기에 붙여넣고 저장만** 하면 다음 5분부터 적용.
 - **PLUS 월중 "사라짐"**: 실제 배포 페이지(jjk-dist) `_distData`·렌더 직접 확인 → PLUS **21종목(월중 4 + 월말 17) 정상 렌더**. 스샷의 17종목은 force 재파싱 중 캐시 중간상태를 잡은 것. 버그 아님, 새로고침이면 정상.
