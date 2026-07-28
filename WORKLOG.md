@@ -9,6 +9,16 @@
 
 ---
 
+## 2026-07-28 (48) / 집 — 카카오 알림 연동 완료(testKakao 발송 성공) + client_secret 지원
+- **완료**: 카카오 개발자 앱 `배당알림` 생성 → 스크립트 속성 3개 저장(`KAKAO_REST_KEY`·`KAKAO_REFRESH_TOKEN`·`KAKAO_CLIENT_SECRET`) → `testKakao` **발송 성공** 확인. `setupKakaoTrigger`(8시 flush) 설치 안내까지.
+- **Code.gs 수정**: `_kakaoAccessToken`이 `KAKAO_CLIENT_SECRET` 속성 있으면 refresh 요청에 `client_secret` 동봉(시크릿 '사용함' 앱 대응, 없으면 생략).
+- **삽질 로그(다음에 또 하면 참고)**:
+  - **Redirect URI 위치**(신 콘솔): 카카오 로그인 메뉴 아님. **앱 → 플랫폼 키 → REST API 키(⋮/카드) → "카카오 로그인 리다이렉트 URI"** 에 등록. (Web 플랫폼 등록 개념 사라짐, 리다이렉트가 REST 키에 딸림.)
+  - **KOE010**(Bad client credentials): 앱의 **클라이언트 시크릿 '사용함'**이면 authorization_code 교환·refresh 둘 다 `client_secret` 필수. authorize(동의)는 secret 없이 통과하지만 token 단계에서 막힘.
+  - **KOE322**(invalid refresh token): 스크립트 속성에 붙여넣은 refresh_token 값이 **앞글자 누락**돼 있었음(`MV4C…`→`V4C…`). 값 정확성 필수.
+  - 인가 URL은 브라우저(또는 `Start-Process "..."`)로 열기 — PowerShell에 그냥 붙이면 `&` 파서에러.
+- **다음 할 일**: 실사용 관찰(10·14·18시 신규공지 → 카톡). 보안상 노출된 REST키/시크릿은 필요 시 재발급(단 refresh_token 재발급 동반).
+
 ## 2026-07-28 (47) / 집 — 새 분배 공지 카톡 알림(B: 백엔드 직접, Code.gs) [재배포+카카오설정 필요]
 - **요청**: 각 운용사 새 공지 나오면 나에게 카톡. 야간(23~08시) 발송 상황이면 아침 8시로 미룸.
 - **구현(Code.gs)**: `checkAndLogAlerts`의 신규공지 감지 분기에서 메시지 수집(`kakaoMsgs`) → 실행 끝에 `_notifyKakao` 호출(try/catch로 감지·로그는 절대 안 깨짐). 카카오 memo(나에게 보내기) 연동: `_kakaoAccessToken`(리프레시→액세스, 회전된 리프레시 저장), `sendKakaoMemo(text≤200자)`, `_kakaoWithinWindow`(08~23), `_notifyKakao`(대기열 `KAKAO_PENDING`에 쌓고 시간대면 즉시 flush), `flushKakaoPending`(한 통으로 발송·성공 시 큐 삭제). 야간 감지분은 대기 → 아침 8시 `flushKakaoPending` 트리거가 발송.
