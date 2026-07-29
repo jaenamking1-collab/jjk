@@ -1328,7 +1328,7 @@ function fetchDist_tiger_detail(key, cycleLabel) {
     let amount = null, rate = null;
     after.forEach(c => {
       if (/%/.test(c)) { const r = parseFloat(c.replace('%','')); if (!isNaN(r) && rate == null) rate = r; }
-      else if (/^[\d.]+$/.test(c)) { const a = parseFloat(c); if (!isNaN(a) && amount == null) amount = a; }
+      else if (/^\d[\d.]*\s*원?$/.test(c)) { const a = parseFloat(c); if (!isNaN(a) && amount == null) amount = a; } // 월말표 '83원' 형식 허용
     });
     if (amount == null) continue;
     items.push({ name, ticker, amount: Number(amount), rate, cycle: cycleLabel });
