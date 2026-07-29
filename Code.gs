@@ -62,7 +62,6 @@ function doGet(e) {
       case 'getAlerts':       result = getAlerts(e.parameter.limit ? parseInt(e.parameter.limit) : 30); break;
       case 'checkAlerts':     result = checkAndLogAlerts(); break;
       case 'markAlertRead':   result = markAlertRead(parseInt(e.parameter.row)); break;
-      case 'diagYellow':      result = diagYellow(); break;
       default: result = { error: 'Unknown action' };
     }
   } catch(err) {
@@ -2876,46 +2875,6 @@ function clearAllYellowNow() {
   const trackSheet = _getOrCreateSheet('_노란셀추적', ['셀', '최초발견']); // 추적 초기화
   if (trackSheet.getLastRow() > 1) trackSheet.getRange(2, 1, trackSheet.getLastRow() - 1, 2).clearContent();
   console.log('노란색 ' + n + '칸 즉시 삭제 완료');
-}
-
-// [진단] 노란셀이 왜 안 지워지는지 원인 규명용. doGet?action=diagYellow&token=... 로 호출(읽기 전용).
-// 탭 이름·선택된 탭·월별칸·조건부서식 수·알려진 노란칸의 실제 배경색·스캔 매칭수를 반환한다.
-function diagYellow() {
-  const ss = SpreadsheetApp.openById('19UsD0Tz6YL2eDoLdocL0ify8NLbUYSHaOOV-jtDqNLU');
-  const tabs = ss.getSheets().map(s => s.getName());
-  const tab = ss.getSheetByName('분배금' + new Date().getFullYear());
-  const sheet = tab || ss.getSheetByName('분배금');
-  if (!sheet) return { tabs, error: "'분배금' 탭 없음" };
-
-  const range = sheet.getDataRange();
-  const values = range.getValues();
-  const bgs = range.getBackgrounds();
-  const cols = _monthCols(!!tab, values);
-
-  const probe = ['M6', 'M7', 'M9', 'M11', 'M16', 'M25', 'M27'].map(a1 => {
-    const c = sheet.getRange(a1);
-    const bg = c.getBackground();
-    return { a1, value: c.getValue(), bg, isYellow: _isYellow(bg) };
-  });
-
-  const matched = [];   // clearAllYellowNow 스캔이 실제로 잡는 칸 (dry run)
-  for (let i = 4; i < values.length; i++) {
-    const bgRow = bgs[i] || [];
-    for (const c of cols) {
-      if (c >= bgRow.length) continue;
-      if (!(parseFloat(values[i][c]) > 0)) continue;
-      if (!_isYellow(bgRow[c])) continue;
-      matched.push(sheet.getRange(i + 1, c + 1).getA1Notation() + '=' + bgRow[c]);
-    }
-  }
-  let cfRules = -1;
-  try { cfRules = sheet.getConditionalFormatRules().length; } catch (e) {}
-
-  return {
-    tabs, chosenTab: sheet.getName(), isYearTab: !!tab,
-    monthColsHead: cols.slice(0, 4), monthColsLen: cols.length,
-    cfRules, probe, matchedCount: matched.length, matchedSample: matched.slice(0, 15)
-  };
 }
 
 // ── 서버 keep-warm ─────────────────────────────
