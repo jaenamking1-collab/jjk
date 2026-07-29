@@ -1857,10 +1857,11 @@ function _addAlert(sheet, source, kind, message, level) {
     const start = Math.max(2, last - 49);
     const rows = sheet.getRange(start, 1, last - start + 1, 5).getValues();
     for (const r of rows) {
-      if (r[1] === source && r[2] === kind && r[3] === message && r[5] !== '확인') return; // 이미 있음
+      if (r[1] === source && r[2] === kind && r[3] === message && r[5] !== '확인') return false; // 이미 있음
     }
   }
   sheet.appendRow([now, source, kind, message, level || '정보', '신규']);
+  return true; // 새로 추가됨 → 호출부에서 카톡 발송 판단에 사용
 }
 
 // 6개 운용사 파싱 후 알림 감지·생성 (getDistribution 호출하며 비교)
@@ -1884,11 +1885,19 @@ function checkAndLogAlerts() {
     const label = SRC_LABEL[source];
     const prev = prevMeta[source];
 
-    // 1) 파싱 경고
+    // 1) 파싱 경고 — 실패·이상은 로그뿐 아니라 카톡으로도 즉시 알림(새로 감지된 것만: _addAlert가 true 반환할 때).
     if (!fp.hasItems) {
-      _addAlert(logSheet, label, '파싱경고', `${label} 종목 0건 — 파싱 실패 또는 공지 없음`, '경고');
-    } else if (fp.isOcr) {
-      _addAlert(logSheet, label, '파싱경고', `${label} 이미지 OCR로 처리됨 — 정확도 확인 권장`, '정보');
+      if (_addAlert(logSheet, label, '파싱경고', `${label} 종목 0건 — 파싱 실패 또는 공지 없음`, '경고'))
+        kakaoMsgs.push(`⚠️ ${label} 파싱 0건 (실패/공지없음)`);
+    } else {
+      // 자사 파서 사망 → 뉴스사이트 우회(result.fallback). 지금은 나오지만 뉴스에서도 빠지면 통째로 사라짐.
+      if (result.fallback && _addAlert(logSheet, label, '파싱경고', `${label} 자사 파서 실패 — 뉴스사이트로 우회 중, 파서 점검 권장`, '경고'))
+        kakaoMsgs.push(`⚠️ ${label} 자사 파서 실패(뉴스 우회)`);
+      // 월중/월말 어디에도 분류 안 된 항목 → 달력·일정표에서 누락됨.
+      const noCyc = (result.items || []).filter(it => !it.cycle || it.cycle === '?').length;
+      if (noCyc && _addAlert(logSheet, label, '파싱경고', `${label} 회차 미상 ${noCyc}건 — 월중/월말 분류 안 됨, 달력 누락 가능`, '경고'))
+        kakaoMsgs.push(`⚠️ ${label} 회차 미상 ${noCyc}건`);
+      if (fp.isOcr) _addAlert(logSheet, label, '파싱경고', `${label} 이미지 OCR로 처리됨 — 정확도 확인 권장`, '정보');
     }
 
     if (prev) {
@@ -2021,7 +2030,7 @@ function flushKakaoPending() {
   let queue = [];
   try { queue = JSON.parse(props.getProperty('KAKAO_PENDING') || '[]'); } catch(e) {}
   if (!queue.length) return;
-  const msg = ('📢 새 분배 공지\n' + queue.join('\n')).slice(0, 200);
+  const msg = ('📢 ETF 분배 알림\n' + queue.join('\n')).slice(0, 200);
   let ok = false;
   try { ok = sendKakaoMemo(msg); } catch(e) { console.log('flushKakaoPending', e); }
   if (ok) props.deleteProperty('KAKAO_PENDING');
