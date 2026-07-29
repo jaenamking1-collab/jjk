@@ -2609,6 +2609,69 @@ function getNavMap() {
   } catch(e) { return { success: false, error: e.toString(), navs: {} }; }
 }
 
+// 보유 국내 ETF 괴리율이 -1% 밑으로 이탈하면 카톡 알림(+앱 알림로그 기록).
+// 크로싱 1회만 발송(-1% 밑 진입), -0.5% 이상 회복 시 재무장 → 다음 이탈 때 재알림.
+// 히스테리시스(-1.0~-0.5% 유지)로 딱 -1% 근처 깜빡임 스팸 방지. 상태는 Script 속성 DEVIATION_STATE(JSON).
+// 장중(평일 09~16시)에만 체크. 트리거 설치는 맨 아래 '수동 실행'의 setupDeviationTrigger() 참고.
+const DEV_ALERT = -1.0;   // 이 밑으로 내려가면 알림
+const DEV_REARM = -0.5;   // 이 위로 회복하면 재무장
+function checkDeviationAlerts() {
+  const now = new Date();
+  const dow = parseInt(Utilities.formatDate(now, 'Asia/Seoul', 'u'), 10);  // 1(월)~7(일)
+  const hour = parseInt(Utilities.formatDate(now, 'Asia/Seoul', 'H'), 10);
+  if (dow > 5 || hour < 9 || hour >= 16) return;  // 평일 장중만
+
+  // 보유 국내(KRW) 종목 티커 → 이름 (미국 종목은 NAV 없어 제외; 비ETF는 목록에 없어 자동 스킵)
+  const held = {};
+  getHoldings().forEach(h => {
+    if (String(h.currency).toUpperCase() !== 'KRW') return;
+    const t = (h.ticker || '').toString().replace(/^'/, '').trim().toUpperCase();
+    if (t) held[t] = h.name || t;
+  });
+  if (!Object.keys(held).length) return;
+
+  // etfItemList 1회 호출 → 티커별 현재가·NAV·괴리율
+  let list;
+  try {
+    const res = UrlFetchApp.fetch('https://finance.naver.com/api/sise/etfItemList.nhn?etfType=0&targetColumn=market_sum&sortOrder=desc',
+      { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.naver.com/fund/etf/etfMain.naver' } });
+    if (res.getResponseCode() !== 200) return;
+    list = ((JSON.parse(res.getContentText('EUC-KR')).result) || {}).etfItemList || [];
+  } catch(e) { console.log('checkDeviationAlerts fetch', e); return; }
+  if (!list.length) return;
+  const liveCnt = list.filter(r => parseFloat(r.changeRate)).length;
+  if (liveCnt <= list.length * 0.05) return;  // 등락 거의 0 = 휴장 → 스테일 데이터로 알림 안 함
+
+  const props = PropertiesService.getScriptProperties();
+  let state = {};
+  try { state = JSON.parse(props.getProperty('DEVIATION_STATE') || '{}'); } catch(e) {}
+
+  const lines = [];
+  list.forEach(r => {
+    const t = String(r.itemcode || '').toUpperCase();
+    if (!held[t]) return;
+    const p = parseFloat(r.nowVal), nav = parseFloat(r.nav);
+    if (!(p > 0 && nav > 0)) return;
+    const dev = Math.round((p - nav) / nav * 10000) / 100;   // 괴리율 %
+    const prev = state[t] || 'above';
+    if (prev !== 'below' && dev < DEV_ALERT) {
+      state[t] = 'below';
+      lines.push(`${held[t]}(${t}): ${dev > 0 ? '+' : ''}${dev.toFixed(2)}%`);
+    } else if (prev === 'below' && dev >= DEV_REARM) {
+      state[t] = 'above';   // 재무장(알림 없음)
+    }
+  });
+  props.setProperty('DEVIATION_STATE', JSON.stringify(state));
+  if (!lines.length) return;
+
+  // 장중이라 카톡 발송시간대(08~23) 안 → 즉시 발송. 실패해도 알림로그엔 남긴다.
+  try { sendKakaoMemo(('📉 괴리율 -1% 이탈\n' + lines.join('\n')).slice(0, 200)); } catch(e) { console.log('deviation kakao', e); }
+  try {
+    const logSheet = _getOrCreateSheet('알림로그', ['시각','운용사','종류','메시지','중요도','상태']);
+    lines.forEach(ln => _addAlert(logSheet, '괴리율', '괴리율', ln, '정보'));
+  } catch(e) { console.log('deviation log', e); }
+}
+
 function guessProvider(name) {
   if (/^KODEX/.test(name)) return '삼성';
   if (/^TIGER/.test(name)) return '미래에셋';
@@ -2849,6 +2912,15 @@ function setupYellowClearTrigger() {
     .forEach(t => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('clearOldYellowCells').timeBased().atHour(6).nearMinute(0).everyDays(1).create();
   console.log('clearOldYellowCells 트리거(매일 06시) 설치 완료');
+}
+
+// 괴리율 알림 트리거: 30분마다(함수 내부에서 평일 09~16시 장중만 실제 체크). 편집기에서 이 함수 1회 실행(▶)으로 설치.
+function setupDeviationTrigger() {
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'checkDeviationAlerts')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('checkDeviationAlerts').timeBased().everyMinutes(30).create();
+  console.log('checkDeviationAlerts 트리거(30분마다, 장중만 체크) 설치 완료');
 }
 
 // [수동 1회] 분배금 탭의 누적 노란색(모든 연도 블록의 월별칸)을 지금 즉시 전부 지운다.
