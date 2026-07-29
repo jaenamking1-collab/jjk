@@ -892,10 +892,14 @@ function parseSmartTodayArticle(html) {
 // 공지가 몰리는 날: 중순①은 10일 전후, 월말②는 25일부터 말일까지(28~29일 게시가 잦아 23일~월말 전체를 연다)
 function _inNoticeWindow(day) { return (day >= 8 && day <= 12) || (day >= 23); }
 
-// 트리거용(매일 10시·14시). 공지 창 밖의 날은 그냥 넘어가 쿼터를 아낀다.
+// 트리거용(30분 간격). 공지 창 밖의 날·주간 09~18시 밖은 그냥 넘어가 쿼터를 아낀다.
+// (OCR은 이미지 URL 캐시(ocrImageText)로 재사용되므로 폴링이 잦아도 Vision 호출은 새 이미지에만 나간다.)
 function checkDistNotices() {
-  const day = Number(Utilities.formatDate(new Date(), 'Asia/Seoul', 'd'));
+  const now = new Date();
+  const day = Number(Utilities.formatDate(now, 'Asia/Seoul', 'd'));
+  const hour = Number(Utilities.formatDate(now, 'Asia/Seoul', 'H'));
   if (!_inNoticeWindow(day)) return;
+  if (hour < 9 || hour > 18) return;
   return checkAndLogAlerts();
 }
 
@@ -917,6 +921,11 @@ function ocrImageText(imgUrl) {
   try {
     const key = PropertiesService.getScriptProperties().getProperty('VISION_API_KEY');
     if (!key) { _ocrDbg = 'no VISION_API_KEY'; return ''; }
+    // 같은 이미지 URL은 재OCR하지 않고 캐시 재사용 → 폴링이 잦아도 Vision 호출은 '새 이미지'에만 나간다.
+    const _oc = CacheService.getScriptCache();
+    const _ock = 'ocr_' + Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, imgUrl));
+    const _hit = _oc.get(_ock);
+    if (_hit !== null) { _ocrDbg = 'cache hit len=' + _hit.length; return _hit; }
     const resp = UrlFetchApp.fetch(imgUrl, { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } });
     const code = resp.getResponseCode();
     const bytes = resp.getBlob().getBytes();
@@ -932,6 +941,7 @@ function ocrImageText(imgUrl) {
     if (r0 && r0.error) { _ocrDbg = 'vision resp err ' + JSON.stringify(r0.error).slice(0, 180); return ''; }
     const text = r0 && r0.fullTextAnnotation ? r0.fullTextAnnotation.text : '';
     _ocrDbg = 'ok textLen=' + (text ? text.length : 0);
+    _oc.put(_ock, text, 21600); // 6시간(CacheService 최대 TTL) 동안 같은 이미지 재사용
     return text;
   } catch(e) { _ocrDbg = 'ocr exception ' + e; return ''; }
 }
@@ -1785,16 +1795,37 @@ function _getOrCreateSheet(name, headers) {
   return sh;
 }
 
+// 공시일 문자열에서 '월' 숫자만 추출 ('7월 28일'→7, '7/29'→7, '2026-07-28'→7). 못 찾으면 0.
+function _pubMonth(g) {
+  g = String(g || '');
+  let m = g.match(/(\d{1,2})\s*월/); if (m) return parseInt(m[1], 10);
+  m = g.match(/(\d{1,2})\/\d{1,2}/); if (m) return parseInt(m[1], 10);
+  m = g.match(/\d{4}[.\-\/](\d{1,2})[.\-\/]\d{1,2}/); if (m) return parseInt(m[1], 10);
+  return 0;
+}
+
 // 운용사별 현재 파싱 상태의 "지문" 생성 (변경 감지용)
+// 공시일·회차는 최상위 schedule(월중/지난달로 stale할 수 있음) 대신 '현재 회차(월중/월말)+이번 달' 종목들의
+// sched.공시일에서 뽑는다. → 월말엔 이번 달 월말 공시일만, 지난달 잔여·다른 회차는 자동으로 걸러진다.
 function _fingerprint(source, result) {
   const items = (result && result.items) || [];
   const sched = (result && result.schedule) || {};
+  const curCycle = currentCycleKey().slice(-1) === '말' ? '월말' : '월중';
+  const curMonth = parseInt(Utilities.formatDate(new Date(), 'Asia/Seoul', 'M'), 10);
+  const cnt = {};
+  items.forEach(it => {
+    if (it.cycle !== curCycle) return;
+    const g = (it.sched && it.sched['공시일']) || '';
+    if (g && _pubMonth(g) === curMonth) cnt[g] = (cnt[g] || 0) + 1;
+  });
+  let pubDate = '', best = 0;
+  Object.keys(cnt).forEach(g => { if (cnt[g] > best) { best = cnt[g]; pubDate = g; } }); // 최빈 공시일
   return {
     source: (result && result._source) || (source === 'sol' ? 'api' : 'page'),
     isOcr: !!(result && (result._usedOcr || (sched && sched._ocr))),
     itemCount: items.length,
-    cycles: [...new Set(items.map(it => it.cycle).filter(Boolean))].sort().join(','),
-    pubDate: sched['공시일'] || '',
+    cycles: pubDate ? curCycle : '',
+    pubDate: pubDate,
     hasItems: items.length > 0,
     error: (result && result.error) || ''
   };
@@ -1854,8 +1885,8 @@ function checkAndLogAlerts() {
       if (!prev.isOcr && fp.isOcr) {
         _addAlert(logSheet, label, '구조변경', `${label} 텍스트→이미지 전환됨 — OCR로 처리 중`, '정보');
       }
-      // 3) 신규 공지 (공시일이 직전과 다름)
-      if (fp.pubDate && prev.pubDate && fp.pubDate !== prev.pubDate) {
+      // 3) 신규 공지 (현재 회차 공시일이 직전과 다름 — 빈값→값 전환도 발송)
+      if (fp.pubDate && fp.pubDate !== (prev.pubDate || '')) {
         _addAlert(logSheet, label, '신규공지', `${label} 새 분배금 공지: 공시일 ${fp.pubDate} (${fp.cycles})`, '정보');
         kakaoMsgs.push(`${label}: 공시일 ${fp.pubDate} (${fp.cycles})`);
       }
@@ -2675,15 +2706,15 @@ function debugSheetAcc(){
 // 새로 만드는 "손으로 한 번 돌려야 하는" 함수는 전부 여기 아래에 둘 것.
 // ===================================================================
 
-// 분배금 공지 탐지 트리거: 매일 10·14·18시.
-// 실행 대상 checkDistNotices()가 공지 몰리는 날(8~12, 23~월말)만 통과시킨다.
-// 18시는 SOL 게시가 17시 전후라 당일에 잡기 위한 슬롯.
+// 분배금 공지 탐지 트리거: 30분 간격.
+// 실행 대상 checkDistNotices()가 공지 몰리는 날(8~12, 23~월말)·주간 09~18시만 통과시켜 쿼터를 아낀다.
+// OCR은 이미지 URL 캐시로 재사용되므로 30분 폴링이어도 Vision 호출은 새 이미지에만 나간다.
 function setupDistTriggers() {
   ScriptApp.getProjectTriggers()
     .filter(t => t.getHandlerFunction() === 'checkDistNotices')
     .forEach(t => ScriptApp.deleteTrigger(t));
-  [10, 14, 18].forEach(h => ScriptApp.newTrigger('checkDistNotices').timeBased().atHour(h).nearMinute(5).everyDays(1).create());
-  console.log('checkDistNotices 트리거 3개(10·14·18시) 재설정 완료');
+  ScriptApp.newTrigger('checkDistNotices').timeBased().everyMinutes(30).create();
+  console.log('checkDistNotices 트리거 30분 간격 재설정 완료(창 날·09~18시만 통과)');
 }
 
 // 수익로그 스냅샷 트리거: 매일 10·13·16시.
