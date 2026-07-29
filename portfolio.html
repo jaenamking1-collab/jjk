@@ -2251,6 +2251,8 @@ async function loadDashboard() {
   const plEl = document.getElementById('ds-pl');
   plEl.textContent = valued? `${pl>=0?'+':''}${Math.round(pl).toLocaleString()} (${plPct>=0?'+':''}${plPct.toFixed(1)}%)` : '현재가 없음';
   plEl.style.color = pl>=0? 'var(--red)':'var(--accent)';
+  // 누적수익률 차트 헤더를 대시보드 손익(원금 대비)과 통일하기 위해 저장
+  window._dashV = valued; window._dashPl = pl; window._dashPlPct = plPct;
   document.getElementById('ds-annual').textContent = Math.round(annualActual).toLocaleString();
   document.getElementById('ds-aftertax').textContent = '확정 입력분';
   document.getElementById('ds-projected').textContent = Math.round(annualProj).toLocaleString();
@@ -2453,6 +2455,12 @@ function renderPlChart() {
   const tLast = tValid[tValid.length-1]||0;
   const tFirst = tValid[0]||0;
   const tDiff = tLast-tFirst;
+  // 헤더 손익은 대시보드(원금 대비 손익)와 통일. 실시간 평가금 없으면 기간변동으로 폴백.
+  const _dv = window._dashV, _dp = window._dashPl, _dpct = window._dashPlPct;
+  const hasDash = typeof _dv === 'number' && _dv > 0;
+  const hTotal = hasDash ? _dv : tLast;
+  const hPl    = hasDash ? _dp : tDiff;
+  const hPct   = hasDash ? _dpct : null;
   const makeTotalChart = () => {
     const pts=totalPts, valid=tValid;
     if(!valid.length) return '';
@@ -2528,8 +2536,8 @@ function renderPlChart() {
     <div style="background:var(--bg2);border:1.5px solid #7c3aed55;border-radius:12px;padding:14px 16px;margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <span style="font-size:13px;font-weight:700;color:#7c3aed">📊 총합계${slotNote}</span>
-        <span style="font-family:var(--mono);font-size:18px;font-weight:700;color:#7c3aed">${fmt억(tLast)}
-          <span style="font-size:11px;color:${tDiff>=0?'var(--red)':'var(--accent)'};margin-left:6px">${tDiff>=0?'+':''}${fmt억(tDiff)}</span>
+        <span style="font-family:var(--mono);font-size:18px;font-weight:700;color:#7c3aed">${fmt억(hTotal)}
+          <span style="font-size:11px;color:${hPl>=0?'var(--red)':'var(--accent)'};margin-left:6px">${hPl>=0?'+':''}${Math.round(hPl).toLocaleString()}${hPct!=null?` (${hPct>=0?'+':''}${hPct.toFixed(1)}%)`:''}</span>
         </span>
       </div>
       ${makeTotalChart()}
