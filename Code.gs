@@ -1806,6 +1806,21 @@ function _pubMonth(g) {
   return 0;
 }
 
+// 공시일 표기를 '7월 29일' 한글 형식으로 통일.
+// TIGER처럼 '7/29' 숫자형은 시트에 저장하면 날짜값으로 자동변환돼, 다음 회차 비교(fp!==prev)가 매번
+// 어긋나 중복 알림이 발송됨. 저장·비교 전에 이 형식으로 맞춰 왕복을 안정화한다. Date로 읽힌 값도 여기서 복원.
+function _normPubDate(v) {
+  if (!v) return '';
+  if (v instanceof Date) return Utilities.formatDate(v, 'Asia/Seoul', 'M월 d일');
+  const s = String(v).trim();
+  let mo, day, m;
+  if (m = s.match(/(\d{1,2})\s*월\s*(\d{1,2})/))                    { mo = m[1]; day = m[2]; } // 7월 28일
+  else if (m = s.match(/(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/))  { mo = m[2]; day = m[3]; } // 2026-07-28
+  else if (m = s.match(/(\d{1,2})[.\-\/](\d{1,2})/))               { mo = m[1]; day = m[2]; } // 7/29
+  else return s;
+  return parseInt(mo, 10) + '월 ' + parseInt(day, 10) + '일';
+}
+
 // 운용사별 현재 파싱 상태의 "지문" 생성 (변경 감지용)
 // 공시일·회차는 최상위 schedule(월중/지난달로 stale할 수 있음) 대신 '현재 회차(월중/월말)+이번 달' 종목들의
 // sched.공시일에서 뽑는다. → 월말엔 이번 달 월말 공시일만, 지난달 잔여·다른 회차는 자동으로 걸러진다.
@@ -1827,7 +1842,7 @@ function _fingerprint(source, result) {
     isOcr: !!(result && (result._usedOcr || (sched && sched._ocr))),
     itemCount: items.length,
     cycles: pubDate ? curCycle : '',
-    pubDate: pubDate,
+    pubDate: _normPubDate(pubDate),
     hasItems: items.length > 0,
     error: (result && result.error) || ''
   };
@@ -1856,7 +1871,7 @@ function checkAndLogAlerts() {
   // 직전 메타 로드
   const metaRows = metaSheet.getLastRow() > 1 ? metaSheet.getRange(2,1,metaSheet.getLastRow()-1,7).getValues() : [];
   const prevMeta = {};
-  metaRows.forEach(r => { prevMeta[r[0]] = { source:r[1], isOcr:r[2]===true||r[2]==='TRUE'||r[2]===true, itemCount:r[3], cycles:r[4], pubDate:r[5] }; });
+  metaRows.forEach(r => { prevMeta[r[0]] = { source:r[1], isOcr:r[2]===true||r[2]==='TRUE'||r[2]===true, itemCount:r[3], cycles:r[4], pubDate:_normPubDate(r[5]) }; });
 
   const SRC_LABEL = { kodex:'KODEX', tiger:'TIGER', ace:'ACE', rise:'RISE', plus:'PLUS', sol:'SOL' };
   const newMeta = [];
