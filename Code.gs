@@ -2168,6 +2168,88 @@ function getDivSheetData(year) {
   return { success: true, items };
 }
 
+// 분배금 탭 '올해' 월별 금액 칸(G:R 등)에서 노란색으로 표시된 신규 입력칸을,
+// 처음 노랗게 보인 날로부터 YELLOW_CLEAR_DAYS일 지나면 배경을 지운다(월중/월말 색 헷갈림 방지).
+// 라벨·헤더·D열 배당구분 색은 월별 금액 칸 바깥이라 영향 없음. 추적 기록은 앱 DB의 '_노란셀추적' 탭.
+// (트리거 설치는 맨 아래 '수동 실행'의 setupYellowClearTrigger() 참고.)
+const YELLOW_CLEAR_DAYS = 7;
+
+function clearOldYellowCells() {
+  const ss = SpreadsheetApp.openById('19UsD0Tz6YL2eDoLdocL0ify8NLbUYSHaOOV-jtDqNLU');
+  const curYear = String(new Date().getFullYear());
+  const tab = ss.getSheetByName('분배금' + curYear);
+  const sheet = tab || ss.getSheetByName('분배금');
+  if (!sheet) return;
+
+  const range = sheet.getDataRange();
+  const values = range.getValues();
+  const bgs = range.getBackgrounds();
+
+  // 올해 블록의 1월 열 찾기 (getDivSheetData와 동일 규칙: 상단 3행에서 'YYYY년' 라벨)
+  let startCol = 6; // 기본 G열(0-based)
+  if (!tab) {
+    startCol = -1;
+    for (let hr = 0; hr < 3 && startCol < 0; hr++) {
+      const hrow = values[hr] || [];
+      for (let c = 0; c < hrow.length; c++) {
+        if (String(hrow[c] || '').replace(/\s/g, '') === curYear + '년') { startCol = c; break; }
+      }
+    }
+    if (startCol < 0) startCol = 6;
+  }
+  const endCol = startCol + 11; // 12월 열(0-based, 포함)
+
+  // 추적 로드 (a1 → 최초발견 'yyyy-MM-dd')
+  const trackSheet = _getOrCreateSheet('_노란셀추적', ['셀', '최초발견']);
+  const trackRows = trackSheet.getLastRow() > 1
+    ? trackSheet.getRange(2, 1, trackSheet.getLastRow() - 1, 2).getValues() : [];
+  const seen = {};
+  trackRows.forEach(r => { if (r[0]) seen[String(r[0])] = _ymd(r[1]); });
+
+  const todayStr = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
+  const nextSeen = {};   // 이번 실행 후 유지할 추적 (아직 노랗고 7일 안 지난 것)
+  const toClear = [];    // 배경 지울 A1
+
+  for (let i = 4; i < values.length; i++) {           // 5행(0-based 4)부터 = 데이터 (헤더·총계행 제외)
+    const bgRow = bgs[i] || [];
+    for (let c = startCol; c <= endCol && c < bgRow.length; c++) {
+      if (!(parseFloat(values[i][c]) > 0)) continue;  // 숫자 든 칸만
+      if (!_isYellow(bgRow[c])) continue;             // 노랑 계열만
+      const a1 = sheet.getRange(i + 1, c + 1).getA1Notation();
+      const first = seen[a1] || todayStr;             // 처음 보면 오늘로 기록
+      if (_daysBetween(first, todayStr) >= YELLOW_CLEAR_DAYS) toClear.push(a1);
+      else nextSeen[a1] = first;
+    }
+  }
+
+  toClear.forEach(a1 => sheet.getRange(a1).setBackground(null)); // 흰색(기본)으로 복원
+
+  // 추적 시트 재작성 (현재 노랗고 안 지운 것만 유지 → 직접 지운 칸은 자동 정리)
+  if (trackSheet.getLastRow() > 1) trackSheet.getRange(2, 1, trackSheet.getLastRow() - 1, 2).clearContent();
+  const out = Object.keys(nextSeen).map(a1 => [a1, nextSeen[a1]]);
+  if (out.length) trackSheet.getRange(2, 1, out.length, 2).setValues(out);
+}
+
+// 'yyyy-MM-dd' 문자열 또는 Date → 'yyyy-MM-dd'
+function _ymd(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, 'Asia/Seoul', 'yyyy-MM-dd');
+  return String(v || '').trim().slice(0, 10);
+}
+
+// b - a (일수). 인자는 'yyyy-MM-dd'.
+function _daysBetween(a, b) {
+  const da = new Date(a + 'T00:00:00'), db = new Date(b + 'T00:00:00');
+  return Math.round((db - da) / 86400000);
+}
+
+// 노랑 계열 배경인가 (#ffff00·#ffff66·#ffd966 등). 흰색·무색·타색 제외.
+function _isYellow(hex) {
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(String(hex || ''));
+  if (!m) return false;
+  const r = parseInt(m[1], 16), g = parseInt(m[2], 16), b = parseInt(m[3], 16);
+  return r >= 200 && g >= 180 && b <= 160;
+}
+
 function getPriceLog() {
   const log = SpreadsheetApp.openById(SHEET_ID).getSheetByName('시세로그');
   if (!log) return { success: true, items: {} };
@@ -2753,6 +2835,16 @@ function setupCompactTrigger() {
     .forEach(t => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('compactPriceLog').timeBased().onWeekDay(ScriptApp.WeekDay.SUNDAY).atHour(4).create();
   console.log('compactPriceLog 트리거(매주 일요일 4시) 설치 완료');
+}
+
+// 노란셀 자동삭제 트리거: 매일 06시. clearOldYellowCells가 분배금 탭 올해 월별칸의
+// 노란색 신규표시를 처음 본 날로부터 7일(YELLOW_CLEAR_DAYS) 뒤 지운다. 편집기에서 이 함수 1회 실행(▶)으로 설치.
+function setupYellowClearTrigger() {
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'clearOldYellowCells')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('clearOldYellowCells').timeBased().atHour(6).nearMinute(0).everyDays(1).create();
+  console.log('clearOldYellowCells 트리거(매일 06시) 설치 완료');
 }
 
 // ── 서버 keep-warm ─────────────────────────────
