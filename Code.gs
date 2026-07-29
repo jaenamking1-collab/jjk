@@ -2168,36 +2168,39 @@ function getDivSheetData(year) {
   return { success: true, items };
 }
 
-// 분배금 탭 '올해' 월별 금액 칸(G:R 등)에서 노란색으로 표시된 신규 입력칸을,
-// 처음 노랗게 보인 날로부터 YELLOW_CLEAR_DAYS일 지나면 배경을 지운다(월중/월말 색 헷갈림 방지).
-// 라벨·헤더·D열 배당구분 색은 월별 금액 칸 바깥이라 영향 없음. 추적 기록은 앱 DB의 '_노란셀추적' 탭.
-// (트리거 설치는 맨 아래 '수동 실행'의 setupYellowClearTrigger() 참고.)
+// 분배금 탭의 월별 금액 칸에서 노란색으로 표시된 신규 입력칸을, 처음 노랗게 보인 날로부터
+// YELLOW_CLEAR_DAYS일 지나면 배경을 지운다(월중/월말 색 헷갈림 방지). 올해뿐 아니라
+// 2025·2024 등 모든 연도 블록을 대상으로 한다(묵은 노랑도 정리). 라벨·헤더·D열 배당구분 색은
+// 월별 금액 칸 바깥이라 영향 없음. 추적 기록은 앱 DB의 '_노란셀추적' 탭.
+// (트리거 설치는 맨 아래 '수동 실행'의 setupYellowClearTrigger(), 누적분 즉시정리는 clearAllYellowNow() 참고.)
 const YELLOW_CLEAR_DAYS = 7;
+
+// 분배금 탭에서 모든 연도 블록의 월별칸(각 블록 1월~12월) 컬럼 인덱스 목록.
+// 연도블록 라벨('YYYY년')은 각 블록 1월 열에 붙어있음(getDivSheetData 규칙). 연도별 전용 탭이면 G:R 한 블록.
+function _monthCols(isYearTab, values) {
+  const cols = [];
+  const push12 = s => { for (let m = 0; m < 12; m++) cols.push(s + m); };
+  if (isYearTab) { push12(6); return cols; }            // 전용 탭: G(6)~R
+  for (let hr = 0; hr < 3; hr++) {
+    const hrow = values[hr] || [];
+    for (let c = 0; c < hrow.length; c++) {
+      if (/^\d{4}년$/.test(String(hrow[c] || '').replace(/\s/g, ''))) push12(c);
+    }
+  }
+  if (!cols.length) push12(6);                          // 라벨 못 찾으면 올해 기본 위치
+  return cols;
+}
 
 function clearOldYellowCells() {
   const ss = SpreadsheetApp.openById('19UsD0Tz6YL2eDoLdocL0ify8NLbUYSHaOOV-jtDqNLU');
-  const curYear = String(new Date().getFullYear());
-  const tab = ss.getSheetByName('분배금' + curYear);
+  const tab = ss.getSheetByName('분배금' + new Date().getFullYear());
   const sheet = tab || ss.getSheetByName('분배금');
   if (!sheet) return;
 
   const range = sheet.getDataRange();
   const values = range.getValues();
   const bgs = range.getBackgrounds();
-
-  // 올해 블록의 1월 열 찾기 (getDivSheetData와 동일 규칙: 상단 3행에서 'YYYY년' 라벨)
-  let startCol = 6; // 기본 G열(0-based)
-  if (!tab) {
-    startCol = -1;
-    for (let hr = 0; hr < 3 && startCol < 0; hr++) {
-      const hrow = values[hr] || [];
-      for (let c = 0; c < hrow.length; c++) {
-        if (String(hrow[c] || '').replace(/\s/g, '') === curYear + '년') { startCol = c; break; }
-      }
-    }
-    if (startCol < 0) startCol = 6;
-  }
-  const endCol = startCol + 11; // 12월 열(0-based, 포함)
+  const cols = _monthCols(!!tab, values);               // 모든 연도 블록의 월별칸
 
   // 추적 로드 (a1 → 최초발견 'yyyy-MM-dd')
   const trackSheet = _getOrCreateSheet('_노란셀추적', ['셀', '최초발견']);
@@ -2210,13 +2213,14 @@ function clearOldYellowCells() {
   const nextSeen = {};   // 이번 실행 후 유지할 추적 (아직 노랗고 7일 안 지난 것)
   const toClear = [];    // 배경 지울 A1
 
-  for (let i = 4; i < values.length; i++) {           // 5행(0-based 4)부터 = 데이터 (헤더·총계행 제외)
+  for (let i = 4; i < values.length; i++) {             // 5행(0-based 4)부터 = 데이터 (헤더·총계행 제외)
     const bgRow = bgs[i] || [];
-    for (let c = startCol; c <= endCol && c < bgRow.length; c++) {
-      if (!(parseFloat(values[i][c]) > 0)) continue;  // 숫자 든 칸만
-      if (!_isYellow(bgRow[c])) continue;             // 노랑 계열만
+    for (const c of cols) {
+      if (c >= bgRow.length) continue;
+      if (!(parseFloat(values[i][c]) > 0)) continue;    // 숫자 든 칸만
+      if (!_isYellow(bgRow[c])) continue;               // 노랑 계열만
       const a1 = sheet.getRange(i + 1, c + 1).getA1Notation();
-      const first = seen[a1] || todayStr;             // 처음 보면 오늘로 기록
+      const first = seen[a1] || todayStr;               // 처음 보면 오늘로 기록
       if (_daysBetween(first, todayStr) >= YELLOW_CLEAR_DAYS) toClear.push(a1);
       else nextSeen[a1] = first;
     }
@@ -2837,7 +2841,7 @@ function setupCompactTrigger() {
   console.log('compactPriceLog 트리거(매주 일요일 4시) 설치 완료');
 }
 
-// 노란셀 자동삭제 트리거: 매일 06시. clearOldYellowCells가 분배금 탭 올해 월별칸의
+// 노란셀 자동삭제 트리거: 매일 06시. clearOldYellowCells가 분배금 탭 모든 연도 블록 월별칸의
 // 노란색 신규표시를 처음 본 날로부터 7일(YELLOW_CLEAR_DAYS) 뒤 지운다. 편집기에서 이 함수 1회 실행(▶)으로 설치.
 function setupYellowClearTrigger() {
   ScriptApp.getProjectTriggers()
@@ -2845,6 +2849,32 @@ function setupYellowClearTrigger() {
     .forEach(t => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('clearOldYellowCells').timeBased().atHour(6).nearMinute(0).everyDays(1).create();
   console.log('clearOldYellowCells 트리거(매일 06시) 설치 완료');
+}
+
+// [수동 1회] 분배금 탭의 누적 노란색(모든 연도 블록의 월별칸)을 지금 즉시 전부 지운다.
+// 기능 도입 시점의 묵은 표시(2025년 등) 정리용. 이후 신규분은 clearOldYellowCells(7일)가 관리.
+function clearAllYellowNow() {
+  const ss = SpreadsheetApp.openById('19UsD0Tz6YL2eDoLdocL0ify8NLbUYSHaOOV-jtDqNLU');
+  const tab = ss.getSheetByName('분배금' + new Date().getFullYear());
+  const sheet = tab || ss.getSheetByName('분배금');
+  if (!sheet) return;
+  const range = sheet.getDataRange();
+  const values = range.getValues();
+  const bgs = range.getBackgrounds();
+  const cols = _monthCols(!!tab, values);
+  let n = 0;
+  for (let i = 4; i < values.length; i++) {
+    const bgRow = bgs[i] || [];
+    for (const c of cols) {
+      if (c >= bgRow.length) continue;
+      if (!(parseFloat(values[i][c]) > 0)) continue;
+      if (!_isYellow(bgRow[c])) continue;
+      sheet.getRange(i + 1, c + 1).setBackground(null); n++;
+    }
+  }
+  const trackSheet = _getOrCreateSheet('_노란셀추적', ['셀', '최초발견']); // 추적 초기화
+  if (trackSheet.getLastRow() > 1) trackSheet.getRange(2, 1, trackSheet.getLastRow() - 1, 2).clearContent();
+  console.log('노란색 ' + n + '칸 즉시 삭제 완료');
 }
 
 // ── 서버 keep-warm ─────────────────────────────
