@@ -9,6 +9,14 @@
 
 ---
 
+## 2026-08-05 (74) / — 정정: **프록시는 실제로 안 쓰이고 있음** → (73)의 수동 작업 3개 → 2개
+- (73)에서 "프록시도 재배포 필요"라고 적었으나 **틀림**. 라이브 공개 페이지를 직접 받아 확인:
+  - `curl https://jaenamking1-collab.github.io/jjk-dist/` → `const API = '...AKfycbwJS1Fd-...NF_s/exec'` = **개인 GAS(포트폴리오관리) URL 그대로**.
+  - ⇒ 공개 페이지는 **프록시를 경유하지 않고 개인 GAS를 직접 호출**한다. `public_dist_proxy.gs`는 저장소에만 있는 **미사용 파일**(24줄 `PRIVATE_URL`이 아직 `PASTE_PRIVATE_GAS_EXEC_URL_HERE` 플레이스홀더).
+  - 지금은 `APP_TOKEN`이 켜져 있고 `getDistribution`·`getDistributionAll`·`getEtfNotices`·`hitCounter`만 `PUBLIC_ACTIONS`라, 공개 페이지가 개인 URL을 직접 쳐도 개인 데이터는 안 나간다. (프록시 없이도 성립)
+- (73)에서 프록시에 넣은 수정(`ALLOWED_ACTIONS` 추가 + `cache.put` try/catch)은 **그대로 둔다** — 나중에 프록시를 실제로 붙일 때 필요하고, 지금 아무 영향 없음. **단, 그때 저장소 파일을 통째로 붙여넣으면 `PRIVATE_URL`이 플레이스홀더로 덮여 죽으므로 두 줄만 손으로 고칠 것.**
+- ⚠️ **(73)의 수동 작업은 2개로 축소**: ① **Code.gs 재배포** ② **`dist_notice.html` → `jjk-dist/index.html` 미러·푸시**. (프록시 재배포 불필요)
+
 ## 2026-08-05 (73) / — 분배 로딩 진짜 원인 = **캐시 읽기가 무거움**(트리거 아님) → `getDistributionAll` 신설
 - **(70)의 "트리거 블로킹" 가설 폐기.** 실행 기록 실측이 반증함:
   - 22:00:21에 **doGet 12개 동시 → 전부 0.7~2.6초** ⇒ Apps Script는 병렬 잘 처리함. **직렬화 아님**.
