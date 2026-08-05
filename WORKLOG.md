@@ -9,6 +9,25 @@
 
 ---
 
+## 2026-08-05 (76) / — Code.gs 사장 코드 점검 → **128줄 제거 (3,189 → 3,061)**
+- **요청**: "Code.gs에 코드가 너무 많다. 테스트하는 것도 많은데 다 필요한가?"
+- **방식**: 추측 금지 — 함수 136개를 전부 뽑아 **선언부를 뺀 나머지 텍스트에서 이름이 몇 번 등장하는지** 세는 스크립트로 판정.
+  - ⚠️ **1차 스크립트가 5개를 놓쳤다**(`ck`·`ckSolCycle`·`debugSheetAcc`·`debugSmartToday`·`importHistoricalData`). 처음엔 "69줄"이라고 보고했다가 재작성 후 **128줄**로 정정. 정규식 이스케이프가 셸 heredoc에서 깨진 게 원인 — **감사 스크립트는 heredoc 말고 파일로 쓸 것.**
+- **삭제(전부 참조 0건, 128줄)**:
+  - `parseKodexSchedule`(18) · `parseAceSchedule`(19) — 자사 파서가 자체 일정 파싱으로 바뀌면서 남은 옛 파서.
+  - `parseScheduleFromText`(24) — **호출부가 `parseKodexSchedule` 하나뿐**이라 같이 사장됨(연쇄 고아).
+  - `testKrxEtf2`(18) · `testEtfCheckJang`(8) · `testEtfCheckApi`(6) — KRX·etfcheck 응답 찍어보던 탐색용. **두 사이트를 앱이 아예 안 쓴다는 걸 확인**(`data.krx`/`etfcheck` 문자열이 이 함수들 안에만 존재).
+  - `ck`(5) · `ckSolCycle`(6) · `debugSheetAcc`(6) · `debugSmartToday`(6) — 일회성 탐침. `debugSmartToday`는 `testDistribution`과 사실상 중복.
+  - `importHistoricalData`(3) — 본문이 `console.log('이미 실행 완료 (472행). 재실행 불필요.')` 한 줄뿐인 유물.
+- **남긴 것(지우면 안 되거나 쓸모 있음)**:
+  - `snapshotPrices` · `refreshAllDistributions` — **코드 어디서도 호출 안 하지만 시간 트리거가 이름으로 직접 부른다.** 설치용 `setup*` 함수가 없어서 정적 분석엔 죽은 걸로 보임 — **지우면 시세로그·분배캐시 자동 갱신이 조용히 멈춘다.** 다음에 또 헷갈리지 말 것.
+  - `doGet`/`doPost`(진입점), `setup*` 10개(트리거 날아갔을 때 복구용), `testKakao`·`testCal`(연동 점검), `testDistribution`·`testScreener`(파싱 스모크), `_testNoticeWindow`, `_diagDeviation`.
+  - **만기 이메일 알림 묶음(~130줄)은 사용자가 "쓰고 있다" 확인 → 유지.** (`previewMaturityAlerts` 라우터 case는 프론트가 안 쓰지만 그대로 둠)
+  - `updateAccount`는 1차 스캔에서 "프론트 미사용"으로 나왔으나 **실제 5회 사용** — 오탐이었음. 후보는 반드시 grep으로 재확인할 것.
+- **검증**: `node --check` OK / `git diff --stat` = **128 deletions, 0 insertions**(추가된 줄 0) / 삭제한 이름 10종 파일 내 잔여 참조 **0건** / 재감사 결과 **새로 생긴 고아 없음**(남은 13개는 전부 진입점·트리거핸들러·수동실행).
+- **덩치 참고**: `enrichScreener` 536줄(전체 17%), 운용사 파서 6개 합 ~630줄. 이건 기능 자체라 줄일 대상 아님.
+- ⚠️ **다음 할 일**: 지운 게 전부 안 쓰이던 코드라 **동작은 재배포 전후가 동일**. 급하지 않으니 다음에 다른 이유로 재배포할 때 같이 반영하면 됨(편집기 붙여넣기만 해도 트리거·수동실행은 새 코드로 돎).
+
 ## 2026-08-05 (75) / — 재배포·미러 완료 → **실측 27초 → 2.3초 (약 11배)**
 - **jjk-dist 미러 완료**(사용자 "이런건 니가 알아서해" 지시 → 앞으로 미러는 자동 수행). 임시폴더에 clone → `dist_notice.html` → `index.html` 복사 → push(`fb2545a`). 줄바꿈 churn 없이 **30 insertions / 15 deletions**만 나온 것 확인. 라이브 재빌드 확인(`getDistributionAll` 2회 등장, `👁 오늘` 표기 반영).
   - 이때 **밀려 있던 이전 미러 1건(방문자 카운터 `👁 5` → `👁 오늘 N · 누적 N`)도 같이 반영**됨 — 지난 세션에서 미러를 빠뜨렸던 것.
