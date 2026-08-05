@@ -3119,3 +3119,42 @@ function testCal() {
   _notifyCal(['✅ jjk 캘린더 알림 연동 테스트 — 이 일정 알림이 오면 설정 완료']);
   console.log('테스트 일정 생성 시도 완료(실행 로그·캘린더 확인)');
 }
+
+// 괴리율 알림 진단: "괴리율 카톡이 안 온다" 확인용. 편집기에서 ▶실행(아무것도 안 바꾸고 상태만 출력).
+// checkDeviationAlerts는 조건 미달이면 조용히 return하므로, 안 오는 이유가 ①트리거 없음 ②상태가
+// 'below'로 굳어 재알림 잠김 ③실제로 -1% 미만이 없음 중 무엇인지 이 함수 한 번으로 구분된다.
+function _diagDeviation() {
+  const trigs = ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'checkDeviationAlerts');
+  console.log('트리거: ' + (trigs.length ? trigs.length + '개 설치됨' : '❌ 없음 → setupDeviationTrigger() 를 ▶실행할 것'));
+
+  let state = {};
+  try { state = JSON.parse(PropertiesService.getScriptProperties().getProperty('DEVIATION_STATE') || '{}'); } catch(e) {}
+  const below = Object.keys(state).filter(k => state[k] === 'below');
+  console.log('DEVIATION_STATE: 총 ' + Object.keys(state).length + '건, below(재알림 잠김) = ' + (below.join(', ') || '없음'));
+
+  const held = {};
+  getHoldings().forEach(h => {
+    if (String(h.currency).toUpperCase() !== 'KRW') return;
+    const t = (h.ticker || '').toString().replace(/^'/, '').trim().toUpperCase();
+    if (t) held[t] = h.name || t;
+  });
+
+  const res = UrlFetchApp.fetch('https://finance.naver.com/api/sise/etfItemList.nhn?etfType=0&targetColumn=market_sum&sortOrder=desc',
+    { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.naver.com/fund/etf/etfMain.naver' } });
+  console.log('네이버 ETF API 응답코드: ' + res.getResponseCode());
+  if (res.getResponseCode() !== 200) return;
+  const list = ((JSON.parse(res.getContentText('EUC-KR')).result) || {}).etfItemList || [];
+  const liveCnt = list.filter(r => parseFloat(r.changeRate)).length;
+  console.log('ETF ' + list.length + '건 / 등락≠0 ' + liveCnt + '건 → 휴장가드 ' + (liveCnt <= list.length * 0.05 ? '차단(알림 안 함)' : '통과'));
+
+  const rows = [];
+  list.forEach(r => {
+    const t = String(r.itemcode || '').toUpperCase();
+    if (!held[t]) return;
+    const p = parseFloat(r.nowVal), nav = parseFloat(r.nav);
+    if (p > 0 && nav > 0) rows.push({ t: t, n: held[t], dev: Math.round((p - nav) / nav * 10000) / 100 });
+  });
+  rows.sort((a, b) => a.dev - b.dev);
+  console.log('보유 국내 ' + Object.keys(held).length + '종목 중 ETF목록 매칭 ' + rows.length + '건 (낮은 순, ' + DEV_ALERT + '% 미만이 알림 대상)');
+  rows.forEach(r => console.log('  ' + r.dev.toFixed(2) + '%  ' + r.t + '  ' + r.n + (state[r.t] === 'below' ? '  [below]' : '')));
+}
