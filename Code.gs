@@ -2998,19 +2998,16 @@ function clearAllYellowNow() {
 }
 
 // ── 서버 keep-warm ─────────────────────────────
-// Apps Script는 한동안 요청이 없으면 컨테이너가 잠들어, 다시 열 때 첫 호출이
-// 20~30초(cold start) 걸린다(getExchangeRate/getAccounts가 cold 31s/21s → warm 1s대).
-// 5분마다 자기 웹앱의 실제 액션(getExchangeRate)을 핑해 인스턴스를 깨워 두면
-// 사용자가 열 때 1~3초로 뜬다. 무파라미터 'ok' 경로가 아니라 실제 액션을 쳐야
-// 컨테이너 + 외부 스크랩 경로까지 데워져(빈 핑 직후에도 실제 요청이 20초 걸리던 문제 해결).
-// exec URL은 '기존 배포 편집(새 버전)' 재배포로는 바뀌지 않으므로 하드코딩해도 안전.
-const _EXEC_URL = 'https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec';
+// Apps Script는 한동안 요청이 없으면 컨테이너가 잠들어, 다시 열 때 첫 호출이 20~30초(cold start) 걸린다.
+// 5분마다 이 트리거가 도는 것만으로 컨테이너와 스프레드시트 핸들이 깨어 있게 유지된다.
+//
+// ⚠️ 예전엔 `UrlFetchApp.fetch(자기 웹앱 URL)`로 자기를 호출했는데, 바깥 실행이 안쪽 doGet을
+// 기다리는 동안 실행 슬롯을 계속 물고 있어서 **한 번에 93.7초**까지 걸렸다(2026-08-05 실행 기록 실측).
+// 그동안 들어온 앱 요청은 전부 큐에서 대기 → 같은 시각 서버쪽 doGet은 5.1초인데 클라이언트는 41.4초.
+// "메뉴 들어갈 때마다 30초"의 정체가 이것이었다. 콜드스타트는 오래 안 쓰다 열 때 1회지만
+// 이건 5분마다였으므로, 자기호출을 없애고 가벼운 워밍만 남긴다.
 function keepWarm() {
-  // getExchangeRate는 PUBLIC_ACTIONS가 아니라, APP_TOKEN을 설정하면 토큰 없는 핑은
-  // _authOk에서 즉시 막혀 실제 경로가 안 데워진다(콜드스타트 재발). 속성에서 직접 읽어 붙인다.
-  const t = PropertiesService.getScriptProperties().getProperty('APP_TOKEN') || '';
-  const url = _EXEC_URL + '?action=getExchangeRate' + (t ? '&token=' + encodeURIComponent(t) : '');
-  try { UrlFetchApp.fetch(url, { muteHttpExceptions: true }); } catch (e) {}
+  try { SpreadsheetApp.openById(SHEET_ID).getName(); } catch (e) {}
 }
 // keepWarm 트리거: 5분마다. 편집기에서 이 함수를 한 번만 실행(▶)하면 설치된다.
 function setupKeepWarm() {
