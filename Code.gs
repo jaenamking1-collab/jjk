@@ -3042,6 +3042,22 @@ function testCal() {
   console.log('테스트 일정 생성 시도 완료(실행 로그·캘린더 확인)');
 }
 
+// 설치된 트리거 전체 목록. "앱이 가끔 20~80초씩 멈춘다"를 추적할 때 편집기에서 ▶실행.
+// Apps Script는 같은 계정의 실행을 한 줄로 세우는 구간이 있어, 오래 도는 시간 트리거 하나가
+// 웹앱 요청을 통째로 대기시킨다(시트를 전혀 안 건드리는 요청도 같이 느려지는 게 그 증거).
+// 실행 주기는 API로 못 읽으므로, 여기서 함수 이름을 확인한 뒤 실행 기록에서 소요시간을 보면 된다.
+function _diagTriggers() {
+  const ts = ScriptApp.getProjectTriggers();
+  console.log('설치된 트리거 ' + ts.length + '개');
+  const byFn = {};
+  ts.forEach(t => { const f = t.getHandlerFunction(); byFn[f] = (byFn[f] || 0) + 1; });
+  Object.keys(byFn).sort().forEach(f => console.log('  ' + f + (byFn[f] > 1 ? '  ×' + byFn[f] : '')));
+  // 오래 도는 것으로 알려진 후보에 표시
+  ['refreshAllDistributions', 'checkDistNotices', 'snapshotPrices', 'keepWarm'].forEach(f => {
+    if (byFn[f]) console.log('  ⚠ ' + f + ' — 6개사 스크랩/자기호출 등으로 길게 도는 후보');
+  });
+}
+
 // 괴리율 알림 진단: "괴리율 카톡이 안 온다" 확인용. 편집기에서 ▶실행(아무것도 안 바꾸고 상태만 출력).
 // checkDeviationAlerts는 조건 미달이면 조용히 return하므로, 안 오는 이유가 ①트리거 없음 ②상태가
 // 'below'로 굳어 재알림 잠김 ③실제로 -1% 미만이 없음 중 무엇인지 이 함수 한 번으로 구분된다.
