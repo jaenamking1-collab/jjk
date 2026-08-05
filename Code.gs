@@ -976,9 +976,12 @@ function checkDistNotices() {
 // 트리거 설정은 파일 맨 아래 '수동 실행' 섹션의 setupDistTriggers() 참고.
 
 // 트리거용. checkAndLogAlerts가 6개 운용사를 강제 갱신하면서 신규공지·구조변경까지 감지해 알림로그에 남긴다.
+// 분배캐시(분배캐시 시트) 선갱신 전용 — 사용자가 앱을 열기 전에 6개사 데이터를 미리 채워둔다.
+// ⚠️ 예전엔 첫 줄이 `return checkAndLogAlerts();`라 아래 루프가 한 번도 실행되지 않았다(선갱신이 사실상
+// 안 돌고 있었음). 게다가 공지 감지·카톡은 checkDistNotices(30분·공지창·09~18시)가 이미 같은
+// checkAndLogAlerts를 돌리므로 완전한 중복이었다. → 여기서는 캐시 선갱신만 한다.
 function refreshAllDistributions() {
-  try { return checkAndLogAlerts(); } catch(e) { console.log('checkAndLogAlerts', e); }
-  ['kodex','tiger','ace','plus','rise','sol'].forEach(s => {
+  DIST_SOURCE_IDS.forEach(s => {
     try { getDistribution(s, true); } catch(e) { console.log(s, e); }
   });
 }
@@ -2945,6 +2948,18 @@ function setupInputMarkTrigger() {
     .forEach(t => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('markInputCells').timeBased().atHour(6).nearMinute(0).everyDays(1).create();
   console.log('markInputCells 트리거(매일 06시) 설치 완료');
+}
+
+// 분배캐시 선갱신 트리거: 매일 새벽 5시 1회. 6개사를 force로 다시 긁어 캐시를 채우므로 실행이 길다
+// → 사용자가 안 쓰는 시간대에만 돈다. 기존 refreshAllDistributions 트리거는 전부 지우고 다시 만든다
+// (수동으로 만들다가 2개가 중복 설치돼 있었고, 시간 제한이 없어 밤낮없이 6개사 스크랩을 돌리고 있었다).
+// 편집기에서 이 함수 1회 실행(▶)으로 설치.
+function setupRefreshTrigger() {
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'refreshAllDistributions')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('refreshAllDistributions').timeBased().atHour(5).nearMinute(0).everyDays(1).create();
+  console.log('refreshAllDistributions 트리거 재설정 완료 — 중복분 삭제 후 매일 05시 1회');
 }
 
 // 괴리율 알림 트리거: 30분마다(함수 내부에서 평일 09~16시 장중만 실제 체크). 편집기에서 이 함수 1회 실행(▶)으로 설치.

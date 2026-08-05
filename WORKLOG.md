@@ -9,6 +9,17 @@
 
 ---
 
+## 2026-08-05 (79) / — 트리거 15개 확인: `refreshAllDistributions` 결함 2건 수정. **블로킹 범인은 아직 미확정(정정)**
+- **`_diagTriggers()` + 트리거 화면 결과 (15개)**: `refreshAllDistributions` **×2**, `snapshotPortfolio` ×3(10·13·16시), `checkDistNotices`, `keepWarm`, `checkDeviationAlerts`, `snapshotPrices`, `clearOldYellowCells`, `markInputCells`, `compactPriceLog`, `flushKakaoPending`, `flushCalPending`, `sendMaturityAlerts`.
+  - `sendMaturityAlerts` 트리거 실재 확인 → (76)에서 만기알림 묶음을 남긴 판단이 맞았음.
+- **⚠️ 내 오판 정정**: 트리거 목록만 보고 "`refreshAllDistributions`가 블로킹 범인 확정"이라고 했는데, **트리거 화면의 최종 실행이 8/4 09:01·8/5 16:41 = 하루 1~2회**였다. 23:05 블로킹과 무관. **목록만으로 범인을 단정한 게 잘못.** 최종 실행 시각까지 봐야 했다.
+- **블로킹은 실재(추가 실측)**: 부하 없이 한 건씩 순차로 쳐도 `getBootstrap` 7.4 / `getSheetData` 9.1 / **`getPriceLog` 41.4** / `getNavMap` 1.6초. 같은 `getPriceLog`가 앞선 측정에선 2.6초였다. **범인은 여전히 미확정** — 확정하려면 블로킹이 난 시각(23:00~23:20)의 **실행 기록에서 기간 20초 넘는 실행의 함수명**을 봐야 한다.
+- **그래도 고친 것 — `refreshAllDistributions` 결함 2건**(블로킹 원인은 아니지만 명백한 결함):
+  1. **`return` 버그**: 첫 줄이 `return checkAndLogAlerts();`라 아래 6개사 force 루프가 **한 번도 실행된 적 없음** ⇒ 사용자가 원한 "미리 채워두기"가 실제로 안 돌고 있었다. → 캐시 선갱신만 하도록 본문 교체(공지 감지·카톡은 `checkDistNotices`가 이미 같은 `checkAndLogAlerts`를 돌리므로 **완전 중복이었음**).
+  2. **중복 트리거 2개 + 시간 제한 없음**: 수동 설치로 2개가 박혀 있었고 시간창이 없어 밤낮없이 돌았다. → **`setupRefreshTrigger()` 신설**(기존 전부 삭제 후 **매일 05시 1회**만). force 6개사는 실행이 기니 사용자가 안 쓰는 시간대로.
+- **검증**: `node --check` OK. `checkAndLogAlerts()` 호출부가 `checkDistNotices`(973줄)와 라우터 `checkAlerts`만 남은 것 확인 — 공지 알림 경로 안 끊김.
+- ⚠️ **다음 할 일(사용자 수동)**: ① Code.gs 편집기에 붙여넣기 → **`setupRefreshTrigger()` ▶실행**(재배포 불필요) ② **블로킹 시각대의 실행 기록 스크린샷** — 기간 20초 넘는 실행의 함수명이 나오면 그게 범인.
+
 ## 2026-08-05 (78) / — 재배포 후 검증: **스크리너·공지 성공**, 남은 30초는 **주기적 블로킹**(코드 아님)
 - **(77) 재배포 후 실측 — 두 건 확인**:
   - `getEtfScreener` **44·55·39초 → 2.85 / 2.67초.** ⇒ (77)②의 "시트가 날짜를 Date로 자동 변환해 캐시가 항상 미스" **가설이 맞았음**(역추적이었는데 적중).
