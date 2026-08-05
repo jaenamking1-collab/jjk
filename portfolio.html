@@ -1165,13 +1165,41 @@ function paintFromCache(){
   return true;
 }
 
-async function init() {
+// 부팅은 왕복 2번으로 끝낸다. getBootstrap 한 건이 환율·계좌·보유·분배·종목목록·알림을
+// 서버 실행 1회에서 모아 오고, getSheetData는 다른 스프레드시트라 경합이 없어 동시에 친다.
+// (예전엔 9건을 쐈는데 같은 시트를 여는 요청끼리 서로 막혀 사실상 순차 → 웜에도 15~30초.)
+// boot 인자는 진입 게이트가 이미 받아 둔 응답. 없으면(세션 재진입) 여기서 직접 받는다.
+async function init(boot) {
   const painted = paintFromCache();     // 캐시 있으면 즉시 렌더
   if (painted) showRefreshing(true);
-  await Promise.all([loadExchangeRate(), loadAccounts(), loadStockList()]);
+  const bootP  = boot ? Promise.resolve(boot) : api({ action:'getBootstrap', year: state.currentYear });
+  const sheetP = api({ action:'getSheetData' }).catch(() => ({ items: [] }));
+  const [b, sheet] = await Promise.all([bootP, sheetP]);
+  if (b && b.error) {                   // Code.gs 재배포 전이면 'Unknown action' → 예전 경로로 폴백
+    await Promise.all([loadExchangeRate(), loadAccounts(), loadStockList()]);
+    refreshAlerts();
+  } else {
+    applyBootstrap(b, sheet);
+  }
   setupYearSelects();
-  refreshAlerts(); // 알림 배지 갱신
   if (painted) showRefreshing(false);
+}
+
+// getBootstrap 응답 한 덩어리를 화면에 반영한다. 개별 load* 함수들은 탭 전환·저장 후
+// 부분 갱신에서 계속 쓰이므로 그대로 남겨 둔다(여기서만 안 쓸 뿐).
+function applyBootstrap(b, sheet) {
+  state.exchangeRate = b.rate || 1447;
+  document.getElementById('rateDisplay').textContent = `$1 = ${Math.round(state.exchangeRate).toLocaleString()}`;
+  const dsRateEl = document.getElementById('ds-rate'); if (dsRateEl) dsRateEl.textContent = Math.round(state.exchangeRate).toLocaleString();
+  state.accounts = b.accounts || [];
+  renderAccounts();
+  updateAccountSelects();
+  state.stockList = b.stockList || [];
+  _alertsCache = (b.alerts && b.alerts.alerts) || [];
+  renderAlerts();
+  renderAccountStats(b.holdings || [], b.dividends || [], sheet, b.divsAll || []);
+  _snapSet({ exchangeRate: state.exchangeRate, accounts: state.accounts,
+             holdings: b.holdings || [], divs: b.dividends || [], sheet: sheet || { items: [] }, divsFull: b.divsAll || [] });
 }
 
 async function loadExchangeRate() {
@@ -5205,15 +5233,17 @@ document.querySelectorAll('.modal-overlay').forEach(m => {
 // 비밀번호는 소스에 저장하지 않는다. 입력한 값을 백엔드 토큰으로 써서 서버가 검증한다.
 // (백엔드 Code.gs의 Script 속성 APP_TOKEN 과 일치해야 통과 → 공개 페이지여도 데이터 보호)
 let _booted = false;
-function bootApp() { if (_booted) return; _booted = true; init(); }
+function bootApp(boot) { if (_booted) return; _booted = true; init(boot); }
 function hideGate() { document.getElementById('gate').style.display = 'none'; }
-// 토큰 검증 호출. 재배포 직후·콜드스타트로 첫 요청이 실패할 수 있어 3초 뒤 1회 재시도한다.
+// 토큰 검증 호출. 검증만 하고 버리면 왕복 한 번이 통째로 낭비되므로 부팅 데이터를
+// 받는 getBootstrap으로 겸한다. 재배포 직후·콜드스타트로 첫 요청이 실패할 수 있어 3초 뒤 1회 재시도.
 async function gateCheck() {
+  const p = { action: 'getBootstrap', year: state.currentYear };
   try {
-    return await api({ action: 'getAccounts' });
+    return await api(p);
   } catch (e) {
     await new Promise(r => setTimeout(r, 3000));
-    return await api({ action: 'getAccounts' });      // 두 번째도 실패하면 throw → 연결 오류로 안내
+    return await api(p);                             // 두 번째도 실패하면 throw → 연결 오류로 안내
   }
 }
 async function submitGate() {
@@ -5237,7 +5267,7 @@ async function submitGate() {
       return;
     }
     sessionStorage.setItem('jjk_token', APP_TOKEN);
-    hideGate(); bootApp();
+    hideGate(); bootApp(r);                          // 게이트가 받은 부팅 데이터를 그대로 넘김
   } catch (e) {
     APP_TOKEN = '';
     err.textContent = '서버에 연결할 수 없습니다 (비밀번호 문제 아님). 재배포 직후면 1~2분 뒤 다시 시도하세요.';

@@ -9,6 +9,23 @@
 
 ---
 
+## 2026-08-05 (69) / — "여전히 느림" 진짜 원인 = 부팅 왕복 9번 + 시트 경합 (getBootstrap 신설)
+- **맥락**: (66)~(68)에서 잡은 keepWarm/APP_TOKEN은 **콜드스타트** 얘기였는데, **웜인데도 느리다**는 재신고. 추측 금지하고 라이브 curl로 실측함.
+- **실측 3종**:
+  - noop 액션(시트 안 건드림) 6회 = **1.2~2.4초** → **요청 1건당 고정 왕복비용**(구글 302 + userContent 홉). 줄일 수 없는 바닥값.
+  - noop **4건 병렬 4.6초 / 순차 13.5초** → 플랫폼은 병렬 처리 잘 함.
+  - 시트 읽는 **4건 병렬 12.6초 / 순차 14.5초** → **병렬 이득 거의 없음**. ⇒ 직렬화 주범은 플랫폼이 아니라 **스프레드시트 접근 경합**.
+- **근본 원인 2단**:
+  1. `getSheet()`(Code.gs)가 **호출마다** `SpreadsheetApp.openById` + 시트 전체 `getValues`. 같은 스프레드시트를 동시에 여는 실행끼리 서로 막아 **프론트의 `Promise.all`이 무력화**됨.
+  2. 부팅에 요청 **9건**(게이트 getAccounts / getExchangeRate / getAccounts **중복** / getHoldings·getDividends(연)·getSheetData·getDividends(전체) / getStockList / getAlerts). 9 × 직렬 ≈ **웜에도 15~30초**. localStorage 스냅샷 즉시렌더가 이걸 가려줬을 뿐, 캐시 없는 첫 방문·다른 기기에선 그대로 노출.
+- **수정**:
+  - `Code.gs` — ① `getSheet`가 스프레드시트 핸들을 **실행당 1회만** 열도록 `_ss` 캐시(전역은 실행 끝나면 소멸). ② **`getBootstrap(year)` 신설** — 한 실행에서 accounts·holdings·dividends(연/전체)·stockList·rate·alerts를 모아 반환. dividends는 전체를 **1회만 읽고 JS로 연도 필터**(시트 2회 읽기 제거). doGet에 라우팅 1줄.
+  - `portfolio.html` — `gateCheck`가 검증용 `getAccounts` 대신 **`getBootstrap`을 쳐서 부팅 데이터까지 겸함**(검증 왕복 낭비 제거). `bootApp(boot)`→`init(boot)`가 그 응답을 그대로 씀. `getSheetData`는 **다른 스프레드시트라 경합이 없어** 동시에 1건만 따로. `applyBootstrap(b, sheet)` 신설. **9왕복 → 2왕복**(게이트 통과 시엔 사실상 1+1).
+  - 기존 `loadExchangeRate`/`loadAccounts`/`loadAccountStats`/`loadStockList`/`refreshAlerts`는 탭 전환·저장 후 부분갱신에서 계속 쓰이므로 **그대로 둠**(init에서만 안 씀).
+- **배포 순서 함정 대비**: 프론트를 먼저 푸시하면 재배포 전 백엔드가 `getBootstrap`을 몰라 `{error:'Unknown action'}` → 빈 화면. `init`에 **`b.error`면 예전 9건 경로로 폴백**을 넣어 **배포 순서에 의존하지 않게** 함. 재배포 후 자동으로 빠른 경로로 전환됨.
+- **검증**: `node --check` 양쪽 OK. 원본 소스에서 함수를 그대로 추출해 가짜 시트/DOM으로 **18종 ALL PASS** — openById 실행당 1회, 페이로드 7종 포함, year 필터, boot 넘기면 getSheetData 1건만, boot 없으면 2건이 **동시 발사**, gateCheck가 getBootstrap을 치고 응답 반환, **첫 실패 시 3초 재시도 유지**, 재배포 전 응답 → 예전 경로 폴백.
+- ⚠️ **다음 할 일(수동)**: **Code.gs 재배포**(자동 아님). **성공기준: 캐시 없는 상태(시크릿창)에서 비번 입력 → 숫자 다 뜰 때까지 3~5초**(지금은 15~30초). 개발자도구 Network에 부팅 요청이 **getBootstrap + getSheetData 2건만** 보이면 새 경로로 도는 것. 9건 그대로면 재배포가 안 된 것(폴백 중).
+
 ## 2026-08-05 (68) / — 재배포 후 최종 검증: 잠금 유지 + 프론트 반영 + 워밍 정상
 - **재배포 직후 실측**(그동안 매번 깨지던 지점이라 선제 확인): `getAccounts` 토큰없음/9999 🔒차단, 1231만 데이터(792B). **재배포로 잠금 안 풀림** ✅
 - **GitHub Pages 프론트 반영 확인**: 공개 `portfolio.html`(298,814B)에 `gateCheck()` + '비밀번호 문제 아님' 문구 **둘 다 존재** → (65) 수정분이 실제 서비스에 떠 있음 ✅
