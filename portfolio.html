@@ -1349,24 +1349,6 @@ function renderAccountStats(allHoldings, allDivs, sheet, allDivsFull) {
   const grp = { 재남:{invest:0,value:0,div:0,proj:0,filledM:new Set()}, 은경:{invest:0,value:0,div:0,proj:0,filledM:new Set()} };
   let totalInvest=0, totalValue=0, totalDiv=0, totalHoldings=0, totalProj=0;
   const allFilledM = new Set();
-  // [임시 디버그] 계좌별 종목 평가액
-  const _rate = state.exchangeRate || 1537;
-  const _byAcc = {};
-  state.holdings.forEach(x => {
-    const acc = x.account_name || x.account_id || '?';
-    const tk = (x.ticker||'').toString().toUpperCase();
-    const qty = parseFloat(x.quantity)||0, avg = parseFloat(x.avg_price)||0;
-    const p = priceMap[tk];
-    const cur = (p && parseFloat(p.current)) ? parseFloat(p.current) : avg;
-    const valK = (x.currency==='USD' ? cur*qty*_rate : cur*qty);
-    if (!_byAcc[acc]) _byAcc[acc] = { sum:0, items:[] };
-    _byAcc[acc].sum += valK;
-    _byAcc[acc].items.push(`${tk} ${x.name||''} ${qty} -> ${Math.round(valK).toLocaleString()}${(!p||!parseFloat(p.current))?' [평단]':''}`);
-  });
-  Object.keys(_byAcc).forEach(acc => {
-    console.log(`\n=== ${acc} : ${Math.round(_byAcc[acc].sum).toLocaleString()} ===`);
-    _byAcc[acc].items.forEach(i => console.log('  '+i));
-  });
 
   state.accounts.forEach(a => {
     const h = state.holdings.filter(x => x.account_id === a.id);
