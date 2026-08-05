@@ -982,6 +982,11 @@ function checkDistNotices() {
 // 안 돌고 있었음). 게다가 공지 감지·카톡은 checkDistNotices(30분·공지창·09~18시)가 이미 같은
 // checkAndLogAlerts를 돌리므로 완전한 중복이었다. → 여기서는 캐시 선갱신만 한다.
 function refreshAllDistributions() {
+  // ⚠️ 6개사 force 스크랩이라 실행이 수 분 단위로 길다. Apps Script는 긴 실행이 슬롯을 물면
+  // 그동안 앱 요청이 전부 큐에 쌓이므로(2026-08-05 keepWarm 93초 사례), 트리거가 잘못된 주기로
+  // 걸려 있어도 낮에는 절대 안 돌도록 함수 안에서도 새벽만 통과시킨다(checkDistNotices와 같은 방식).
+  const hour = parseInt(Utilities.formatDate(new Date(), 'Asia/Seoul', 'H'), 10);
+  if (hour < 3 || hour > 6) return;
   DIST_SOURCE_IDS.forEach(s => {
     try { getDistribution(s, true); } catch(e) { console.log(s, e); }
   });
