@@ -3349,10 +3349,11 @@ function showTab(name) {
   if (name === 'savings') loadSavings();
   if (name === 'screener') loadScreener();
   if (name === 'distributions') {
-    // 캐시로 즉시 렌더 → 최근 10분 내 force 안 했으면 백그라운드로 최신 재파싱(새 공지 반영)
-    loadDistributions().then(() => {
-      if (Date.now() - _lastDistForce > 10 * 60 * 1000) loadDistributions(true, true);
-    });
+    // 캐시(분배캐시 시트)에서 바로 렌더. 예전엔 여기서 10분마다 force 재파싱을 백그라운드로 돌렸는데,
+    // force는 6개사를 실시간 스크랩해서 탭 진입이 30~60초 걸리고 일부 운용사는 타임아웃으로 '불러오기 실패'가 났다.
+    // 새 공지는 서버가 알아서 반영한다(공시 임박 구간 2시간·평소 6시간 TTL + refreshAllDistributions 트리거).
+    // 즉시 최신이 필요하면 우측 상단 '새로고침'이 force로 돈다.
+    loadDistributions();
     loadAllNotices();
   }
   if (name === 'holdings' && state.holdings.length) loadHoldingPrices(state.holdings);
@@ -3583,7 +3584,6 @@ const HOLIDAYS = {
 };
 
 let _distData = [];
-let _lastDistForce = 0;   // 마지막 force 재파싱 시각(ms). 탭 진입 시 백그라운드 자동 force throttle용.
 let _calWeekOffset = 0;   // 달력 주 단위 이동 (←/→ 버튼)
 let _schedMonthOffset = 0; // 운용사별 일정 표: 월 단위 이동 (0=이번 달)
 let _distGridMonthOffset = 0; // 내 보유 종목 분배 내역: 월 단위 이동 (0=이번 달)
@@ -3613,7 +3613,6 @@ function schedShiftMonth(dir) {
 async function loadDistributions(force, silent) {
   const grid = document.getElementById('distGrid');
   if (!grid) return;
-  if (force) _lastDistForce = Date.now();
   // 보유종목 매칭에 필요 → holdings 없으면 먼저 로드
   if (!state.holdings || !state.holdings.length) {
     try { state.holdings = (await api({ action:'getHoldings' })) || []; } catch(e) {}
@@ -4766,13 +4765,22 @@ function noticeShiftMonth(dir) {
   renderNotices();
 }
 
+// 공지를 GAS 프록시로 받는 운용사(TIGER·PLUS는 브라우저가 운용사 사이트를 직접 호출). 벌크 캐시 적용 대상.
+const NOTICE_VIA_GAS = ['kodex', 'ace', 'rise', 'sol'];
+
 async function loadAllNotices() {
   const grid = document.getElementById('noticeGrid');
   if (!grid) return;
   grid.innerHTML = '<div class="notice-loading">불러오는 중...</div>';
-  const results = await Promise.allSettled(NOTICE_SOURCES.map(s =>
-    s.fetch().then(items => ({ ...s, items })).catch(() => ({ ...s, items: [] }))
-  ));
+  // 빠른 경로: GAS로 받는 4곳의 서버 캐시를 한 번에 받는다(예전엔 운용사별 6번 → 캐시 미스 1건이 10초).
+  // 캐시에 없는 곳과 브라우저가 직접 긁는 곳은 기존대로 개별 병렬 요청 — 재배포 전이면 벌크가 비어 전부 이 경로로 간다.
+  const bulk = await api({ action: 'getEtfNoticesAll' }).catch(() => null);
+  const cached = (bulk && bulk.sources) || {};
+  const results = await Promise.allSettled(NOTICE_SOURCES.map(s => {
+    const hit = NOTICE_VIA_GAS.includes(s.id) ? cached[s.id] : null;
+    if (hit && !hit.stale) return Promise.resolve({ ...s, items: hit.items || [] });
+    return s.fetch().then(items => ({ ...s, items })).catch(() => ({ ...s, items: [] }));
+  }));
   _noticeData = results.map(r => r.value || {});
   renderNotices();
 }
