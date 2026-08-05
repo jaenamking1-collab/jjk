@@ -34,6 +34,7 @@ function doGet(e) {
       case 'getStockInfo':    result = getStockInfo(e.parameter.ticker, e.parameter.currency); break;
       case 'getStockList':    result = getStockList(); break;
       case 'getStockPrice':   result = getStockPrice(e.parameter.ticker, e.parameter.currency); break;
+      case 'getLivePrices':   result = getLivePrices(); break;
       case 'getStockHistory': result = getStockHistory(e.parameter.ticker, e.parameter.currency, e.parameter.days); break;
       case 'getEtfNotices':   result = getEtfNotices(e.parameter.source); break;
       case 'getEtfNoticesAll': result = getEtfNoticesAll(); break;
@@ -2100,6 +2101,65 @@ function flushCalPending() {
     ev.addPopupReminder(0); // 시작(=지금) 시각에 팝업 알림
     props.deleteProperty('CAL_PENDING');
   } catch(e) { console.log('flushCalPending', e); }
+}
+
+// 보유 종목 현재가·등락률을 네이버/야후에서 직접 받는다. { 티커: {current, prev, change} }
+// 왜: 예전엔 프론트가 '주식상황' 시트(getSheetData)를 읽어 현재가를 얻었는데, 그 시트가 실시간 시세
+// 수식이라 열 때마다 재계산돼 캐시 미스 시 10~50초가 걸렸다(2026-08-05 실측). 시세는 여기서 받고
+// '주식상황'은 원래 용도인 동기화 전용으로 남긴다.
+// 국내는 네이버 폴링 API가 콤마로 여러 종목을 한 번에 준다(ETF·일반주 모두) → 호출 1회.
+// 해외는 야후 배치(v7 quote)가 401이라 종목별 호출을 UrlFetchApp.fetchAll로 한 실행에서 병렬 처리.
+// 키는 holdings에 저장된 티커 원문 그대로 쓴다(프론트가 그 값으로 조회하므로 6자리 보정본을 키로 쓰면 안 맞는다).
+function getLivePrices() {
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get('liveprices_v1');
+  if (hit) return JSON.parse(hit);
+
+  const krw = {}, usd = [];   // krw: 조회코드 → 원문티커
+  getHoldings().forEach(h => {
+    const orig = (h.ticker || '').toString().replace(/^'/, '').trim().toUpperCase();
+    if (!orig) return;
+    if (String(h.currency).toUpperCase() === 'KRW') krw[padTicker(orig, 'KRW')] = orig;
+    else if (usd.indexOf(orig) < 0) usd.push(orig);
+  });
+
+  const prices = {};
+  const codes = Object.keys(krw);
+  if (codes.length) {
+    try {
+      const res = UrlFetchApp.fetch('https://polling.finance.naver.com/api/realtime/domestic/stock/' + codes.join(','),
+        { muteHttpExceptions: true });
+      const num = v => parseFloat(String(v == null ? '' : v).replace(/,/g, '')) || 0;
+      ((JSON.parse(res.getContentText()) || {}).datas || []).forEach(d => {
+        const key = krw[String(d.itemCode || '').toUpperCase()];
+        const cur = num(d.closePrice || d.tradePrice);
+        if (!key || !cur) return;
+        const diff = num(d.compareToPreviousClosePrice);
+        prices[key] = { current: cur, prev: cur - diff > 0 ? cur - diff : 0, change: parseFloat(d.fluctuationsRatio) || 0 };
+      });
+    } catch(e) { console.log('getLivePrices KRW', e); }
+  }
+  if (usd.length) {
+    try {
+      const reqs = usd.map(t => ({
+        url: 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(t) + '?interval=1d&range=1d',
+        muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' }
+      }));
+      UrlFetchApp.fetchAll(reqs).forEach((res, i) => {
+        try {
+          const meta = ((((JSON.parse(res.getContentText()) || {}).chart || {}).result || [])[0] || {}).meta;
+          const cur = meta && parseFloat(meta.regularMarketPrice) || 0;
+          if (!cur) return;
+          const prev = (meta && parseFloat(meta.chartPreviousClose)) || 0;
+          prices[usd[i]] = { current: cur, prev: prev, change: prev ? Math.round((cur - prev) / prev * 10000) / 100 : 0 };
+        } catch(e) {}
+      });
+    } catch(e) { console.log('getLivePrices USD', e); }
+  }
+
+  const out = { success: true, prices: prices };
+  if (Object.keys(prices).length) { try { cache.put('liveprices_v1', JSON.stringify(out), 60); } catch(e) {} }
+  return out;
 }
 
 function getSheetData(force) {
