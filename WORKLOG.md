@@ -9,6 +9,22 @@
 
 ---
 
+## 2026-08-05 (80) / — **블로킹 범인 확정 = `keepWarm` 자기호출 (93.7초)**. 자기호출 제거
+- **실행 기록에서 확정**(사용자가 23:00~23:15 구간 제공):
+  ```
+  Head  keepWarm  시간 기반  23:12:04  93.729초   ← 범인
+  Head  keepWarm  시간 기반  23:07:04   2.295초
+  Head  keepWarm  시간 기반  23:02:04   2.075초
+  ```
+  - 이 93.7초가 내가 `getPriceLog` **41.4초**를 관측한 시각과 겹친다. **결정적 대조: 같은 시각 서버쪽 `doGet`은 5.116초** ⇒ 나머지 **36초는 순수 큐 대기**.
+  - 원인 구조: `keepWarm`이 `UrlFetchApp.fetch(자기 웹앱 URL)`로 **자기를 호출** → 바깥 실행이 안쪽 `doGet`을 기다리는 동안 **실행 슬롯을 계속 점유** → 그 사이 들어온 요청 전부 큐 대기. (70)에서 "의심 하나 기록"으로만 남겼던 게 실측으로 확정됨.
+  - **콜드스타트를 막으려던 장치가 훨씬 큰 지연을 만들고 있었다** — 콜드스타트는 오래 안 쓰다 열 때 20~30초 **1회**, 이건 **5분마다** 최대 93초.
+- **수정**: `keepWarm`에서 자기호출 삭제 → `SpreadsheetApp.openById(SHEET_ID).getName()`만 남김(컨테이너·시트 핸들 워밍, 1초 이내). 트리거 주기 5분은 유지(이제 짧으니 무해). `_EXEC_URL`은 카톡 링크·캘린더 설명에서 계속 쓰이므로 **유지**(고아 아님 — grep으로 확인).
+  - ⚠️ **트레이드오프(정직하게)**: 예전 주석의 "실제 액션을 쳐야 외부 스크랩 경로까지 데워진다"는 효과는 약해질 수 있다. 콜드스타트가 다시 체감되면 트리거 주기 조정으로 재검토. 다만 **5분마다 93초 전면 대기보다는 압도적으로 낫다.**
+- **중요**: `keepWarm`은 **트리거**라 배포본이 아니라 **편집기에 저장된 코드**로 돈다 ⇒ **재배포 불필요, 붙여넣고 저장하면 즉시 적용.** (79)의 `refreshAllDistributions` 본문 수정도 동일.
+- **검증**: `node --check` OK. `_EXEC_URL` 참조 2곳(2031·2096줄) 살아있음 확인.
+- ⚠️ **다음 할 일(사용자 수동)**: ① Code.gs 편집기에 붙여넣고 **저장**(재배포 불필요) ② **`setupRefreshTrigger()` ▶실행**((79)의 중복 트리거 정리) ③ 저장 후 알려주면 **재측정해서 확인** — 성공 기준: `keepWarm` 실행 기간이 **1초 이내**, 앱 요청이 40초대로 튀지 않음.
+
 ## 2026-08-05 (79) / — 트리거 15개 확인: `refreshAllDistributions` 결함 2건 수정. **블로킹 범인은 아직 미확정(정정)**
 - **`_diagTriggers()` + 트리거 화면 결과 (15개)**: `refreshAllDistributions` **×2**, `snapshotPortfolio` ×3(10·13·16시), `checkDistNotices`, `keepWarm`, `checkDeviationAlerts`, `snapshotPrices`, `clearOldYellowCells`, `markInputCells`, `compactPriceLog`, `flushKakaoPending`, `flushCalPending`, `sendMaturityAlerts`.
   - `sendMaturityAlerts` 트리거 실재 확인 → (76)에서 만기알림 묶음을 남긴 판단이 맞았음.
