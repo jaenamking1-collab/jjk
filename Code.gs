@@ -5,7 +5,7 @@ const SHEET_ID = '1iNlOU1YBRyJ6redmVoLDE4q6VfnWqL22s32IQHdSKN8';
 // 올바른 token 파라미터가 있어야 통과한다(개인 계좌·보유·분배 데이터 보호).
 // 속성이 비어 있으면(미설정) 전부 허용 → 재배포 전까지 기존 앱이 끊기지 않음(하위호환).
 // getDistribution·getEtfNotices는 공개 분배금 페이지(프록시)가 쓰므로 토큰 없이 허용.
-const PUBLIC_ACTIONS = ['getDistribution', 'getEtfNotices', 'hitCounter'];
+const PUBLIC_ACTIONS = ['getDistribution', 'getDistributionAll', 'getEtfNotices', 'hitCounter'];
 function _authOk(action, token) {
   if (PUBLIC_ACTIONS.indexOf(action) !== -1) return true;
   const secret = PropertiesService.getScriptProperties().getProperty('APP_TOKEN');
@@ -58,6 +58,7 @@ function doGet(e) {
       case 'getEtfScreener':  result = getEtfScreener(); break;
       case 'getNavMap':       result = getNavMap(); break;
       case 'getDistribution': result = getDistribution(e.parameter.source, e.parameter.force === '1'); break;
+      case 'getDistributionAll': result = getDistributionAll(); break;
       case 'getDivSheetData': result = getDivSheetData(e.parameter.year); break;
       case 'getPortfolioLog': result = getPortfolioLog(); break;
       case 'getAlerts':       result = getAlerts(e.parameter.limit ? parseInt(e.parameter.limit) : 30); break;
@@ -723,10 +724,10 @@ function cycleRank(key) {
   return (parseInt(m[1]) * 12 + parseInt(m[2])) * 2 + (m[3] === '말' ? 1 : 0);
 }
 // 분배캐시는 source당 회차별 여러 행(최근 3회차) — 읽기는 최신 회차 행.
-function readDistCache(source) {
+// rows를 넘기면 시트를 다시 읽지 않는다(getDistributionAll이 6개사 몫을 1회 읽기로 처리).
+function readDistCache(source, rows) {
   try {
-    const sh = _distCacheSheet();
-    const rows = sh.getDataRange().getValues();
+    if (!rows) rows = _distCacheSheet().getDataRange().getValues();
     let best = null;
     for (let i = 1; i < rows.length; i++) {
       if (rows[i][0] !== source) continue;
@@ -760,12 +761,11 @@ function writeDistCache(source, payload, cycleKey) {
 }
 // 이전 회차(최근 2개) 종목을 items 뒤에 병합 — 지난 달 일정 표·공지 종목이 계속 보이게.
 // 종목별 sched가 없으면 그 회차 대표 일정을 채워 현재 회차 일정과 섞이지 않게 한다.
-function attachDistHistory(source, payload) {
+function attachDistHistory(source, payload, rows) {
   try {
     if (!payload || !payload.items) return payload;
     const cur = currentCycleKey();
-    const sh = _distCacheSheet();
-    const rows = sh.getDataRange().getValues();
+    if (!rows) rows = _distCacheSheet().getDataRange().getValues();
     const hist = [];
     for (let i = 1; i < rows.length; i++) {
       if (rows[i][0] !== source || rows[i][3] === cur) continue;
@@ -800,6 +800,34 @@ function finishDist(source, result, cache, cacheKey) {
     cache.put(cacheKey, JSON.stringify(result), distCacheTtlSec());
   }
   return result;
+}
+
+// 6개사 분배 데이터를 한 실행에서 한꺼번에 반환.
+// 왜: getDistribution(source)는 캐시 히트여도 readDistCache + attachDistHistory가 각각
+// 분배캐시 시트를 통째로 읽어(=호출당 2회), 프론트가 6개사를 동시에 치면 시트 전체 읽기가
+// 12회 발생해 3~20초씩 걸렸다. 여기선 시트를 1회만 읽고 6개사를 메모리에서 처리한다.
+// 캐시가 없거나 오래된 source는 stale:true로 표시만 한다 — 한 실행에서 6개사를 스크랩하면
+// 실행시간 제한에 걸리므로, 프론트가 그 source만 기존 getDistribution으로 개별 재요청한다.
+const DIST_SOURCE_IDS = ['kodex', 'tiger', 'ace', 'plus', 'rise', 'sol'];
+function getDistributionAll() {
+  let rows;
+  try { rows = _distCacheSheet().getDataRange().getValues(); } catch(e) { rows = []; }
+  const need = currentCycleKey();
+  const ttlMs = distCacheTtlSec() * 1000;
+  const sources = {};
+  DIST_SOURCE_IDS.forEach(s => {
+    // 신선도 판정은 getDistribution의 캐시 분기와 동일한 조건을 쓴다(동작 차이 방지).
+    const sc = readDistCache(s, rows);
+    let fresh = null;
+    if (sc && sc.payload && (sc.payload.items || []).length && sc.cycleKey === need) {
+      const saved = sc.savedAt instanceof Date
+        ? sc.savedAt
+        : new Date(String(sc.savedAt).replace(' ', 'T') + ':00+09:00');
+      if (!isNaN(saved) && (Date.now() - saved.getTime()) < ttlMs) fresh = attachDistHistory(s, sc.payload, rows);
+    }
+    sources[s] = fresh || { items: [], stale: true };
+  });
+  return { success: true, sources: sources };
 }
 
 function fetchDist_fallback(source) {
