@@ -3043,7 +3043,11 @@ function clearAllYellowNow() {
 // exec URL은 '기존 배포 편집(새 버전)' 재배포로는 바뀌지 않으므로 하드코딩해도 안전.
 const _EXEC_URL = 'https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec';
 function keepWarm() {
-  try { UrlFetchApp.fetch(_EXEC_URL + '?action=getExchangeRate', { muteHttpExceptions: true }); } catch (e) {}
+  // getExchangeRate는 PUBLIC_ACTIONS가 아니라, APP_TOKEN을 설정하면 토큰 없는 핑은
+  // _authOk에서 즉시 막혀 실제 경로가 안 데워진다(콜드스타트 재발). 속성에서 직접 읽어 붙인다.
+  const t = PropertiesService.getScriptProperties().getProperty('APP_TOKEN') || '';
+  const url = _EXEC_URL + '?action=getExchangeRate' + (t ? '&token=' + encodeURIComponent(t) : '');
+  try { UrlFetchApp.fetch(url, { muteHttpExceptions: true }); } catch (e) {}
 }
 // keepWarm 트리거: 5분마다. 편집기에서 이 함수를 한 번만 실행(▶)하면 설치된다.
 function setupKeepWarm() {
