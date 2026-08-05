@@ -2243,6 +2243,72 @@ function clearOldYellowCells() {
   if (out.length) trackSheet.getRange(2, 1, out.length, 2).setValues(out);
 }
 
+// ── 입력할 칸 노란색 표시 ─────────────────────────
+// 이번에 입력해야 할 달의 빈 칸을 노랗게 칠해 어디 넣을지 바로 보이게 한다.
+// 대상 달: 1~9일이면 지난 달(전월 월말분 입력 시기), 10일 이후면 이번 달.
+// 대상 행: D열이 '월중'/'월말'인 월배당 행만 (반기·분기·무배당은 매달 안 들어와 제외).
+// 이미 값이 있는 칸은 건드리지 않는다. 지난 달에 칠했다가 안 채운 표시는 매번 먼저 지워
+// 표시가 한 달치만 남게 한다(빈 칸이라 clearOldYellowCells의 7일 규칙엔 안 걸림).
+// (트리거 설치는 맨 아래 '수동 실행'의 setupInputMarkTrigger() 참고.)
+const MARK_COLOR = '#ffff00';
+
+// 분배금 탭에서 특정 연도 블록의 1월 컬럼 인덱스. 못 찾으면 -1.
+function _yearBlockStart(isYearTab, values, year) {
+  if (isYearTab) return 6;                               // 전용 탭: G(6)=1월
+  for (let hr = 0; hr < 3; hr++) {
+    const hrow = values[hr] || [];
+    for (let c = 0; c < hrow.length; c++) {
+      if (String(hrow[c] || '').replace(/\s/g, '') === year + '년') return c;
+    }
+  }
+  return -1;
+}
+
+function markInputCells() {
+  const now = new Date();
+  const day = parseInt(Utilities.formatDate(now, 'Asia/Seoul', 'd'), 10);
+  let ty = parseInt(Utilities.formatDate(now, 'Asia/Seoul', 'yyyy'), 10);
+  let tm = parseInt(Utilities.formatDate(now, 'Asia/Seoul', 'M'), 10);
+  if (day <= 9) { tm -= 1; if (tm === 0) { tm = 12; ty -= 1; } }   // 1~9일 = 전월 월말분 입력 시기
+
+  const ss = SpreadsheetApp.openById('19UsD0Tz6YL2eDoLdocL0ify8NLbUYSHaOOV-jtDqNLU');
+  const tab = ss.getSheetByName('분배금' + ty);
+  const sheet = tab || ss.getSheetByName('분배금');
+  if (!sheet) return;
+
+  const range = sheet.getDataRange();
+  const values = range.getValues();
+  const bgs = range.getBackgrounds();
+
+  const start = _yearBlockStart(!!tab, values, ty);
+  if (start < 0) { console.log(ty + '년 블록 없음 — 표시 생략'); return; }
+  const target = start + (tm - 1);
+
+  // 1) 묵은 표시 제거: 모든 연도 블록 월별칸 중 '값 없는' 노랑칸 (= 안 채운 입력 표시)
+  const cols = _monthCols(!!tab, values);
+  let cleared = 0;
+  for (let i = 4; i < values.length; i++) {
+    const bgRow = bgs[i] || [];
+    for (const c of cols) {
+      if (c >= bgRow.length) continue;
+      if (String(values[i][c] || '').trim() !== '') continue;
+      if (!_isYellow(bgRow[c])) continue;
+      sheet.getRange(i + 1, c + 1).setBackground(null); cleared++;
+    }
+  }
+
+  // 2) 이번에 입력할 달의 빈 칸 칠하기
+  let marked = 0;
+  for (let i = 4; i < values.length; i++) {
+    const cycle = String(values[i][3] || '').replace(/\s/g, '');   // D열 배당구분
+    if (cycle !== '월중' && cycle !== '월말') continue;
+    if (target >= (values[i] || []).length) continue;
+    if (String(values[i][target] || '').trim() !== '') continue;   // 이미 입력됨
+    sheet.getRange(i + 1, target + 1).setBackground(MARK_COLOR); marked++;
+  }
+  console.log(ty + '년 ' + tm + '월 칸 ' + marked + '개 표시 (묵은 표시 ' + cleared + '개 제거)');
+}
+
 // 'yyyy-MM-dd' 문자열 또는 Date → 'yyyy-MM-dd'
 function _ymd(v) {
   if (v instanceof Date) return Utilities.formatDate(v, 'Asia/Seoul', 'yyyy-MM-dd');
@@ -2921,6 +2987,16 @@ function setupYellowClearTrigger() {
     .forEach(t => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('clearOldYellowCells').timeBased().atHour(6).nearMinute(0).everyDays(1).create();
   console.log('clearOldYellowCells 트리거(매일 06시) 설치 완료');
+}
+
+// 입력칸 표시 트리거: 매일 06시. markInputCells가 이번에 입력할 달(1~9일=지난달, 이후=이번달)의
+// 월중·월말 행 빈 칸을 노랗게 칠한다. 편집기에서 이 함수 1회 실행(▶)으로 설치.
+function setupInputMarkTrigger() {
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'markInputCells')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('markInputCells').timeBased().atHour(6).nearMinute(0).everyDays(1).create();
+  console.log('markInputCells 트리거(매일 06시) 설치 완료');
 }
 
 // 괴리율 알림 트리거: 30분마다(함수 내부에서 평일 09~16시 장중만 실제 체크). 편집기에서 이 함수 1회 실행(▶)으로 설치.
