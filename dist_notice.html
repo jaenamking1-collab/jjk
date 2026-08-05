@@ -565,9 +565,15 @@ async function loadAllNotices(){
   const grid = document.getElementById('noticeGrid');
   if (!grid) return;
   grid.innerHTML = '<div class="notice-loading">불러오는 중...</div>';
-  const results = await Promise.allSettled(NOTICE_SOURCES.map(s =>
-    s.fetch().then(items => ({ ...s, items })).catch(() => ({ ...s, items: [] }))
-  ));
+  // 빠른 경로: 6개사 공지를 서버 캐시에서 한 번에(예전엔 운용사별 6번 → 캐시 미스 1건이 10초).
+  // 캐시에 없는 곳만 기존대로 개별 병렬 요청 — 재배포 전이면 벌크가 비어 전부 이 경로로 간다.
+  const bulk = await api({ action: 'getEtfNoticesAll' }).catch(() => null);
+  const cached = (bulk && bulk.sources) || {};
+  const results = await Promise.allSettled(NOTICE_SOURCES.map(s => {
+    const hit = cached[s.id];
+    if (hit && !hit.stale) return Promise.resolve({ ...s, items: hit.items || [] });
+    return s.fetch().then(items => ({ ...s, items })).catch(() => ({ ...s, items: [] }));
+  }));
   _noticeData = results.map(r => r.value || {});
   renderNotices();
 }

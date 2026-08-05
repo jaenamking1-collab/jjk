@@ -5,7 +5,7 @@ const SHEET_ID = '1iNlOU1YBRyJ6redmVoLDE4q6VfnWqL22s32IQHdSKN8';
 // 올바른 token 파라미터가 있어야 통과한다(개인 계좌·보유·분배 데이터 보호).
 // 속성이 비어 있으면(미설정) 전부 허용 → 재배포 전까지 기존 앱이 끊기지 않음(하위호환).
 // getDistribution·getEtfNotices는 공개 분배금 페이지(프록시)가 쓰므로 토큰 없이 허용.
-const PUBLIC_ACTIONS = ['getDistribution', 'getDistributionAll', 'getEtfNotices', 'hitCounter'];
+const PUBLIC_ACTIONS = ['getDistribution', 'getDistributionAll', 'getEtfNotices', 'getEtfNoticesAll', 'hitCounter'];
 function _authOk(action, token) {
   if (PUBLIC_ACTIONS.indexOf(action) !== -1) return true;
   const secret = PropertiesService.getScriptProperties().getProperty('APP_TOKEN');
@@ -36,6 +36,7 @@ function doGet(e) {
       case 'getStockPrice':   result = getStockPrice(e.parameter.ticker, e.parameter.currency); break;
       case 'getStockHistory': result = getStockHistory(e.parameter.ticker, e.parameter.currency, e.parameter.days); break;
       case 'getEtfNotices':   result = getEtfNotices(e.parameter.source); break;
+      case 'getEtfNoticesAll': result = getEtfNoticesAll(); break;
       // 공개 페이지 방문자 카운터: bump='1'이면 +1, 아니면 현재 값만 반환.
       // 누적(VISIT_COUNT)과 오늘(VISIT_TODAY, 날짜는 VISIT_TODAY_DATE로 판별해 자정에 리셋)을 함께 반환.
       case 'hitCounter': {
@@ -581,6 +582,21 @@ function getEtfNotices(source) {
   } catch(e) {
     return { success: false, items: [], error: e.toString() };
   }
+}
+
+// 6개사 공지를 한 실행에서 반환 — 스크립트캐시에 있는 것만 담고, 없는 곳은 stale:true로 표시만 한다.
+// 왜: 프론트가 운용사별로 6번 치면 캐시 미스 1건이 10초씩 걸려 탭 진입이 11초가 됐다. 그렇다고 한 실행에서
+// 6개사를 순차 스크랩하면 오히려 더 느리므로, stale인 곳만 프론트가 병렬로 개별 요청해 캐시를 채운다.
+function getEtfNoticesAll() {
+  let hits = {};
+  try { hits = CacheService.getScriptCache().getAll(DIST_SOURCE_IDS.map(s => 'notices_' + s)) || {}; } catch(e) {}
+  const sources = {};
+  DIST_SOURCE_IDS.forEach(s => {
+    let v = null;
+    if (hits['notices_' + s]) { try { v = JSON.parse(hits['notices_' + s]); } catch(e) {} }
+    sources[s] = (v && (v.items || []).length) ? v : { items: [], stale: true };
+  });
+  return { success: true, sources: sources };
 }
 
 // ── 분배금 공지 ──
@@ -2426,8 +2442,14 @@ function getEtfScreener() {
   const today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
   if (sh) {
     const rows = sh.getDataRange().getValues();
-    // 헤더가 현재 스키마 버전이고 당일자면 캐시 사용 (+시세만 실시간 덮어쓰기)
-    if (rows.length > 1 && rows[1][0] && rows[1][0].toString() === today &&
+    // 헤더가 현재 스키마 버전이고 당일자면 캐시 사용 (+시세만 실시간 덮어쓰기).
+    // 날짜 칸은 시트가 'yyyy-MM-dd' 문자열을 Date 값으로 자동 변환하는 일이 있어, 그대로 toString()하면
+    // 'Wed Aug 05 2026 …'이 되어 today와 영원히 안 맞는다(=캐시 항상 미스, 매번 135종목 재수집 40~55초).
+    // 그래서 Date/문자열 양쪽을 같은 형식으로 정규화해서 비교한다.
+    const cachedDay = rows.length > 1
+      ? (rows[1][0] instanceof Date ? Utilities.formatDate(rows[1][0], 'Asia/Seoul', 'yyyy-MM-dd') : String(rows[1][0] || '').trim())
+      : '';
+    if (rows.length > 1 && cachedDay === today &&
         rows[0].length >= SCREENER_HEADER.length && rows[0][0].toString() === SCREENER_HEADER[0]) {
       const cached = rows.slice(1).map(rowToScreener);
       try { overlayLivePrices(cached); } catch(e) {}
