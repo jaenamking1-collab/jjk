@@ -1291,25 +1291,6 @@ function fetchDist_kodex_api() {
     return { items: [], error: 'KODEX: ' + e.toString() };
   }
 }
-function parseKodexSchedule(html) {
-  const schedule = {};
-  const thRe = /<th[^>]*>([\s\S]*?)<\/th>\s*<td[^>]*>([\s\S]*?)<\/td>/g;
-  let m;
-  while ((m = thRe.exec(html))) {
-    const key = m[1].replace(/<[^>]+>/g,'').replace(/&nbsp;/g,' ').trim();
-    const val = m[2].replace(/<[^>]+>/g,'').replace(/&nbsp;/g,' ').trim();
-    if (!val) continue;
-    const dateM = val.match(/\d{4}[.\-\/]\d{1,2}[.\-\/]\d{1,2}|\d{1,2}월\s*\d{1,2}일|\d{1,2}[\/]\d{1,2}/);
-    if (!dateM) continue;
-    if (/공시/.test(key))    schedule['공시일']  = dateM[0];
-    if (/분배락/.test(key))  schedule['분배락일'] = dateM[0];
-    if (/기준/.test(key))    schedule['기준일']  = dateM[0];
-    if (/지급/.test(key))    schedule['지급일']  = dateM[0];
-  }
-  if (!Object.keys(schedule).length) return parseScheduleFromText(html.replace(/<[^>]+>/g,' '));
-  return schedule;
-}
-
 function fetchDist_tiger() {
   try {
     const fd = 'firstIndex=0&listCnt=20&pageIndex=1&detailsKey=&q=';
@@ -1408,26 +1389,6 @@ function parseTigerSchedule(html) {
     const m = text.match(re);
     if (m) schedule[label] = m[1].replace('.', '/');
   });
-  return schedule;
-}
-
-function parseAceSchedule(html) {
-  const schedule = {};
-  const text = html.replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' ').replace(/\s+/g,' ');
-  const now = new Date();
-  const curMonth = now.getMonth() + 1;
-  const noticeM = text.match(/분배금\s*공시일\s*\(?\s*(\d{1,2})월\s*(\d{1,2})일/);
-  if (noticeM) schedule['공시일'] = noticeM[1] + '월 ' + noticeM[2] + '일';
-  const baseM = text.match(/매월\s*(\d{1,2})일을?\s*지급기준일/);
-  if (baseM) {
-    schedule['기준일'] = curMonth + '월 ' + baseM[1] + '일';
-  } else {
-    const baseM2 = text.match(/(\d{1,2})월\s*(\d{1,2})일.{0,10}지급기준일|지급기준일.{0,10}(\d{1,2})월\s*(\d{1,2})일/);
-    if (baseM2) {
-      const mo = baseM2[1] || baseM2[3], dy = baseM2[2] || baseM2[4];
-      if (mo && dy) schedule['기준일'] = mo + '월 ' + dy + '일';
-    }
-  }
   return schedule;
 }
 
@@ -2120,31 +2081,6 @@ function flushCalPending() {
     ev.addPopupReminder(0); // 시작(=지금) 시각에 팝업 알림
     props.deleteProperty('CAL_PENDING');
   } catch(e) { console.log('flushCalPending', e); }
-}
-
-function parseScheduleFromText(text) {
-  const schedule = {};
-  const keyMap = [
-    ['공시일',    /공시일|공지일/],
-    ['분배락일',  /분배락/],
-    ['기준일',    /기준일/],
-    ['지급일',    /지급일|지급\(예정\)|지급예정/],
-  ];
-  keyMap.forEach(([label, re]) => {
-    const idx = text.search(re);
-    if (idx < 0) return;
-    const sub = text.slice(idx, idx + 80);
-    const datePatterns = [
-      /\d{4}[.\-\/]\d{1,2}[.\-\/]\d{1,2}/,
-      /\d{1,2}월\s*\d{1,2}일/,
-      /\d{1,2}[\/]\d{1,2}/,
-    ];
-    for (const dp of datePatterns) {
-      const m = sub.match(dp);
-      if (m) { schedule[label] = m[0].trim(); break; }
-    }
-  });
-  return schedule;
 }
 
 function getSheetData(force) {
@@ -2858,13 +2794,6 @@ function testDistribution() {
   });
 }
 
-function debugSmartToday() {
-  ['kodex','tiger','ace','rise','plus','sol'].forEach(src => {
-    const d = getDistribution(src, true);
-    console.log('[' + src + '] 종목:' + (d.items||[]).length + ' | 일정:' + JSON.stringify(d.schedule||{}));
-  });
-}
-
 // ── 수익로그 ──────────────────────────────
 function snapshotPortfolio() {
   const day = new Date().getDay();
@@ -2932,9 +2861,6 @@ function getPortfolioLog() {
   return { success: true, items };
 }
 
-function importHistoricalData() {
-  console.log('이미 실행 완료 (472행). 재실행 불필요.');
-}
 function testScreener() {
   const r = getEtfScreener();
   console.log('success:', r.success);
@@ -2942,60 +2868,6 @@ function testScreener() {
   console.log('error:', r.error||'없음');
   if (r.items && r.items[0]) console.log('샘플:', JSON.stringify(r.items[0]));
 }
-function testEtfCheckApi() {
-  const res = UrlFetchApp.fetch('https://www.etfcheck.co.kr/api/screener?type=basic',
-    { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } });
-  console.log('status:', res.getResponseCode());
-  console.log('body:', res.getContentText('UTF-8').slice(0, 300));
-}
-
-function testKrxEtf2() {
-  const today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyyMMdd');
-  const payload = 'bld=dbms/MDC/STAT/standard/MDCSTAT04301&trdDd=' + today + '&share=1&money=1&csvxls_isNo=false';
-  const res = UrlFetchApp.fetch('https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd', {
-    method: 'post',
-    payload: payload,
-    headers: {
-      'User-Agent': 'Mozilla/5.0',
-      'Referer': 'https://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC020103010901',
-      'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-      'Accept': 'application/json, text/javascript, */*',
-      'X-Requested-With': 'XMLHttpRequest'
-    },
-    muteHttpExceptions: true
-  });
-  console.log('status:', res.getResponseCode());
-  console.log('body:', res.getContentText('UTF-8').slice(0, 500));
-}
-
-function testEtfCheckJang() {
-  const res = UrlFetchApp.fetch('https://www.etfcheck.co.kr/user/common/getJangGubun', {
-    muteHttpExceptions: true,
-    headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.etfcheck.co.kr/' }
-  });
-  console.log('status:', res.getResponseCode());
-  console.log('sample:', res.getContentText('UTF-8').slice(0, 200));
-}
-function ck(){
-  const r=UrlFetchApp.fetch('https://www.samsungfund.com/api/v1/kodex/distribution.do?pageNo=1&pageSize=100',{muteHttpExceptions:true});
-  const j=JSON.parse(r.getContentText('UTF-8'));
-  console.log((j.dividList||[]).slice(0,5).map(x=>x.basicD+' '+x.fNm));
-}
-
-function ckSolCycle(){
-  const cache=CacheService.getScriptCache(); cache.remove('dist2_sol');
-  const r=getDistribution('sol',true);
-  console.log('전체:', r.items.length);
-  r.items.forEach(it=>console.log(`  ${it.ticker} ${it.name.slice(0,20)} | ${it.cycle} | 기준 ${it.sched?.기준일||'?'}`));
-}
-
-function debugSheetAcc(){
-  const r = getSheetData().items;
-  const s = {};
-  r.forEach(i => s[i.account] = (s[i.account]||0) + 1);
-  console.log(JSON.stringify(s, null, 2));
-}
-
 // ===================================================================
 // ===== 수동 실행 (편집기에서 함수 골라 ▶실행. 재배포와 별개) =====
 // 새로 만드는 "손으로 한 번 돌려야 하는" 함수는 전부 여기 아래에 둘 것.
