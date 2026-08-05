@@ -24,6 +24,7 @@ function doGet(e) {
   let result;
   try {
     switch(action) {
+      case 'getBootstrap':    result = getBootstrap(e.parameter.year); break;
       case 'getAccounts':     result = getAccounts(); break;
       case 'getHoldings':     result = getHoldings(e.parameter.account_id); break;
       case 'getDividends':    result = getDividends(e.parameter.year, e.parameter.account_id); break;
@@ -97,6 +98,25 @@ function doPost(e) {
     result = { error: err.toString() };
   }
   return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
+}
+
+// ── 부팅 통합 조회 ─────────────────────────
+// 첫 로딩이 느렸던 이유: 요청 1건당 왕복 고정비가 1.5~2초인데 부팅에 9건을 쐈고,
+// 그중 7건이 같은 스프레드시트를 열어 서로 막는 바람에 프론트의 Promise.all이 무력화됐다
+// (실측: 시트 액션 4건 병렬 12.6초 / 순차 14.5초 — 병렬 이득 없음. 시트 안 쓰는 액션은 병렬 잘 됨).
+// 여기서 한 실행 안에 필요한 탭을 모두 읽어 한 번에 돌려준다. getSheetData는 다른
+// 스프레드시트라 경합이 없으므로 프론트가 이 호출과 동시에 따로 친다(9왕복 → 2왕복).
+function getBootstrap(year) {
+  const divsAll = getDividends();
+  return {
+    accounts:  getAccounts(),
+    holdings:  getHoldings(),
+    dividends: year ? divsAll.filter(d => d.year.toString() === year.toString()) : divsAll,
+    divsAll:   divsAll,
+    stockList: getStockList(),
+    rate:      fetchExchangeRate(),
+    alerts:    getAlerts(30)
+  };
 }
 
 // ── ACCOUNTS ──────────────────────────────
@@ -369,7 +389,13 @@ function fetchExchangeRate() {
 }
 
 // ── 유틸 ──────────────────────────────────
-function getSheet(name) { return SpreadsheetApp.openById(SHEET_ID).getSheetByName(name); }
+// 스프레드시트 핸들은 실행 1회당 한 번만 연다. openById는 호출마다 수백ms~초 단위라
+// 탭을 여러 개 읽는 getBootstrap에서 그대로 누적됐다. 전역은 실행 끝나면 사라진다.
+let _ss = null;
+function getSheet(name) {
+  if (!_ss) _ss = SpreadsheetApp.openById(SHEET_ID);
+  return _ss.getSheetByName(name);
+}
 function deleteRowById(sheetName, id) {
   const sheet = getSheet(sheetName);
   const rows = sheet.getDataRange().getValues();
