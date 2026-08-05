@@ -9,6 +9,22 @@
 
 ---
 
+## 2026-08-05 (73) / — 분배 로딩 진짜 원인 = **캐시 읽기가 무거움**(트리거 아님) → `getDistributionAll` 신설
+- **(70)의 "트리거 블로킹" 가설 폐기.** 실행 기록 실측이 반증함:
+  - 22:00:21에 **doGet 12개 동시 → 전부 0.7~2.6초** ⇒ Apps Script는 병렬 잘 처리함. **직렬화 아님**.
+  - 22:00:24에 **doGet 6개 동시 → 6.7 / 8.5 / 12.9 / 18.0 / 46.0 / 49.3초**. 이 6개가 공개 페이지의 `getDistribution` × 6개사. 프론트 타임아웃 25초라 46·49초짜리는 실패 → **"불러오는 중…"에서 멈춤**(사용자 스샷).
+  - `keepWarm`은 5~10초짜리고 시각도 안 겹침 ⇒ **범인 아님**((70)의 자기호출 의심도 근거 없음).
+- **진짜 원인**: `getDistribution(source)`는 **캐시 히트여도** `readDistCache` + `attachDistHistory`가 각각 `openById` + `getDataRange().getValues()`로 **분배캐시 시트를 통째로** 읽는다 = **호출당 2회**. 시트엔 6개사 × 최근 3회차 통짜 JSON(SOL 72KB·KODEX 38KB, 한 회차만 ~160KB). 6개사 동시 호출 = **시트 전체 읽기 12회**.
+  - 라이브 확인: 6개 동시 2.5~19.6초 / **혼자 돌려도 kodex 3.8초·tiger 10.2초** ⇒ 경합이 아니라 읽기 자체가 비쌈(스크랩 아님. 반복해도 안 빨라짐).
+- **수정(사용자 선택: 호출 통합)**:
+  - `Code.gs` — **`getDistributionAll()` 신설**: 분배캐시 시트를 **1회만** 읽고 6개사를 메모리에서 처리. 신선도 판정은 `getDistribution`의 캐시 분기와 **같은 조건**(회차키 일치 + TTL 이내 + items 있음). 캐시가 없거나 오래된 source는 **`stale:true`로 표시만** 한다(한 실행에서 6개사 스크랩하면 실행시간 제한). `readDistCache(source, rows)` / `attachDistHistory(source, payload, rows)`에 **선택 인자 rows** 추가(안 넘기면 기존과 동일하게 동작 — 기존 호출부 무영향). 라우터 1줄 + `PUBLIC_ACTIONS`에 추가.
+  - `public_dist_proxy.gs` — `ALLOWED_ACTIONS`에 `getDistributionAll` 추가. **`cache.put`을 try/catch로 감쌈**: CacheService는 값 1건 100KB 초과 시 예외를 던지는데, 6개사 합본은 이걸 넘을 수 있어 그대로 두면 **응답 자체가 `{error}`로 죽는다**(캐시 못 넣는 건 괜찮음 → 캐시 미스로 동작).
+  - `dist_notice.html` + `portfolio.html`(`loadDistributions`) — 벌크 1건 호출 후 **stale인 운용사만** 개별 재요청. 중복되던 재시도 블록은 `fillStale(pred, ms)` 헬퍼로 합침. **`force`는 스크랩이 필요하므로 예전 개별 경로 그대로.**
+  - **배포 순서 함정 대비**((69)와 동일): 재배포 전이면 `getDistributionAll`이 `Unknown action`이라 `sources`가 없음 → **자동으로 예전 6건 경로로 폴백**. 프론트를 먼저 올려도 안 깨짐.
+- **검증**: `node --check` 4파일 OK. 원본 소스에서 함수를 그대로 떼어내 가짜 시트/api로 테스트 — **백엔드 16종 ALL PASS**(시트 읽기 **openById 1회·getValues 1회** 확인 / 회차불일치·TTL초과·행없음 → stale / 과거 회차 병합 / 빈 시트 / **개별 호출은 2회 읽기**임을 대조로 확인), **프론트 16종 ALL PASS**(dist_notice 11 + portfolio 5: 전부 신선→1건, 일부 stale→해당 운용사만, 재배포 전→7건 폴백, 벌크 예외→폴백, force→벌크 안 탐).
+- ⚠️ **다음 할 일(사용자 수동)**: ① **Code.gs 재배포**(기존 배포 편집 → 새 버전, URL 유지) ② **프록시 프로젝트에 `public_dist_proxy.gs` 반영 후 재배포**(공개 페이지가 프록시 경유일 때. `ALLOWED_ACTIONS`에 안 넣으면 공개 페이지는 계속 예전 6건 경로로 돎 — 안 깨지지만 안 빨라짐) ③ **`dist_notice.html` → `jjk-dist/index.html` 미러·푸시**.
+  - **성공 기준**: 분배금공지 탭/공개 페이지를 열 때 개발자도구 Network에 **`getDistributionAll` 1건만**(stale 없으면), 체감 **2~4초**. 6건이 그대로 보이면 재배포가 안 된 것(폴백 중). 실제 단축폭은 재배포 후 실측 필요 — **아직 예측치임**.
+
 ## 2026-08-05 (72) / — 괴리율 알림 **정상 판정**(고장 아님) + 로딩 느림 = (70) 블로킹으로 확정 이관
 - **`_diagDeviation()` 실행 결과**: 트리거 **1개 설치됨** / `DEVIATION_STATE` 총 4건 **below 없음**(전부 재무장) / 네이버 200 / 휴장가드 통과 / 보유 24건 최저 **-0.75%**(0040Y0 SOL 팔란티어).
 - **(71)의 "8/3에 안 떴으니 트리거가 죽었다" 가설 → 반증됨**:

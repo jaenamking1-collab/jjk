@@ -24,7 +24,7 @@
 const PRIVATE_URL = 'PASTE_PRIVATE_GAS_EXEC_URL_HERE';
 
 // 공개 허용 액션(분배금 공지 전용 · 읽기만)
-const ALLOWED_ACTIONS = ['getDistribution', 'getEtfNotices'];
+const ALLOWED_ACTIONS = ['getDistribution', 'getDistributionAll', 'getEtfNotices'];
 
 function doGet(e) {
   const p = (e && e.parameter) || {};
@@ -54,7 +54,10 @@ function doGet(e) {
       muteHttpExceptions: true, followRedirects: true
     });
     const body = res.getContentText();
-    cache.put(cacheKey, body, 1800); // 30분
+    // CacheService는 값 1건이 100KB를 넘으면 예외를 던진다. getDistributionAll처럼 6개사를
+    // 합친 응답은 이 한도를 넘을 수 있는데, 그때 캐시를 못 넣는 건 괜찮아도 응답까지
+    // 실패하면 안 되므로 여기서만 따로 삼킨다(캐시 미스로 동작).
+    try { cache.put(cacheKey, body, 1800); } catch (e) {}   // 30분
     return _raw(body);
   } catch (err) {
     return _json({ error: err.toString() });
