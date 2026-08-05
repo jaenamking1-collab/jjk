@@ -9,6 +9,17 @@
 
 ---
 
+## 2026-08-05 (66) / — APP_TOKEN 실제 적용 준비: keepWarm 토큰 누락 선제 수정
+- **맥락**: (65)에서 "비번이 사실상 없다"를 확인 → 사용자가 `APP_TOKEN=1231` 적용 결정. 켜기 전에 **토큰 때문에 조용히 깨질 곳**을 전수 조사함(안 하면 4번째 사고).
+- **전수 조사 결과**:
+  - ❌ **`keepWarm`(Code.gs:3045)** — `?action=getExchangeRate`를 **토큰 없이** 핑. `getExchangeRate`는 PUBLIC_ACTIONS가 아니라 토큰 켜는 순간 `_authOk`에서 즉시 차단 → 실제 경로가 안 데워져 **콜드스타트(20~30초) 재발**. 3039~3042줄 주석에 "빈 핑으론 안 데워져서 실제 액션을 친다"고 명시돼 있어 그 의도가 무력화됨. **→ 수정**: 스크립트 속성에서 토큰을 직접 읽어 붙임(소스에 비번 안 박음, 미설정이면 종전대로).
+  - ✅ 공개 페이지 `dist_notice.html` — 호출 액션이 `getDistribution`·`getEtfNotices`·`hitCounter` 3개뿐, **전부 PUBLIC_ACTIONS**. 영향 없음.
+  - ✅ `public_dist_proxy.gs` — 화이트리스트가 `getDistribution`/`getEtfNotices`뿐. 영향 없음.
+  - ✅ 프론트 `portfolio.html` — `api`/`apiPost`/`getAlerts`(1064)/`markAlertRead`(1106) **4곳 모두 token 전송 중**. 영향 없음.
+  - ✅ 시간 트리거들(snapshot·refresh·checkDistNotices 등)은 함수 직접 호출이라 `doGet`을 안 거침. 영향 없음.
+- **검증**: `node --check` OK. `_EXEC_URL` 사용처 4곳 확인 — 1997·2062는 카톡 링크(액션 없음), 3044 선언, 3049가 수정된 핑. 웹앱 URL로 나가는 자기호출은 keepWarm 하나뿐임을 확인.
+- ⚠️ **다음 할 일(사용자 수동)**: ① Code.gs 재배포 ② **프로젝트 설정 → 스크립트 속성 `APP_TOKEN` = `1231`** 추가(재배포 불필요·즉시 적용) ③ 적용 확인은 curl 3종(토큰없음/1231/9999) → **없음·9999는 `unauthorized`, 1231만 데이터**여야 성공.
+
 ## 2026-08-05 (65) / — "비번이 자꾸 안 먹힘"(3회째) 진짜 원인 = 거짓말하는 에러 메시지
 - **증상**: 재배포할 때마다 진입 게이트에서 "비밀번호가 틀렸습니다". 벌써 3번째. 콘솔엔 CORS 에러(`No 'Access-Control-Allow-Origin'`, `net::ERR_FAILED`)에 `token=1231`은 정상 전송됨.
 - **라이브 실측(curl)**: ① `/exec`는 **302 + `Access-Control-Allow-Origin: *`** → googleusercontent 리다이렉트 → JSON 200. **배포·액세스 권한 정상**. ② `getAccounts`를 **토큰 없이 / 1231 / 틀린 9999** 세 가지로 호출 → **전부 792바이트 정상 데이터**.
