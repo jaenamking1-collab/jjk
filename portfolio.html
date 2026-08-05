@@ -1165,15 +1165,28 @@ function paintFromCache(){
   return true;
 }
 
+// 현재가 소스. 예전엔 getSheetData('주식상황' 시트)를 읽었는데 그 시트가 실시간 시세 수식이라
+// 열 때마다 재계산돼 캐시 미스 시 10~50초가 걸렸다. 이제 네이버/야후에서 직접 받는다(1~2초).
+// 반환 형태를 예전 getSheetData와 같게 맞춰({items:[{ticker,current,change}]}) 소비처는 그대로 둔다.
+// 백엔드 재배포 전이거나 시세 소스가 죽으면 예전 경로로 자동 폴백 → 배포 순서에 안 깨진다.
+async function fetchPriceItems() {
+  const r = await api({ action:'getLivePrices' }).catch(() => null);
+  const prices = (r && r.prices) || null;
+  if (prices && Object.keys(prices).length) {
+    return { items: Object.keys(prices).map(t => ({ ticker: t, current: prices[t].current, change: prices[t].change })) };
+  }
+  return await api({ action:'getSheetData' }).catch(() => ({ items: [] }));
+}
+
 // 부팅은 왕복 2번으로 끝낸다. getBootstrap 한 건이 환율·계좌·보유·분배·종목목록·알림을
-// 서버 실행 1회에서 모아 오고, getSheetData는 다른 스프레드시트라 경합이 없어 동시에 친다.
+// 서버 실행 1회에서 모아 오고, 시세는 다른 경로라 경합이 없어 동시에 친다.
 // (예전엔 9건을 쐈는데 같은 시트를 여는 요청끼리 서로 막혀 사실상 순차 → 웜에도 15~30초.)
 // boot 인자는 진입 게이트가 이미 받아 둔 응답. 없으면(세션 재진입) 여기서 직접 받는다.
 async function init(boot) {
   const painted = paintFromCache();     // 캐시 있으면 즉시 렌더
   if (painted) showRefreshing(true);
   const bootP  = boot ? Promise.resolve(boot) : api({ action:'getBootstrap', year: state.currentYear });
-  const sheetP = api({ action:'getSheetData' }).catch(() => ({ items: [] }));
+  const sheetP = fetchPriceItems();
   const [b, sheet] = await Promise.all([bootP, sheetP]);
   if (b && b.error) {                   // Code.gs 재배포 전이면 'Unknown action' → 예전 경로로 폴백
     await Promise.all([loadExchangeRate(), loadAccounts(), loadStockList()]);
@@ -1306,7 +1319,7 @@ async function loadAccountStats() {
   const [allHoldings, allDivs, sheet, allDivsFull] = await Promise.all([
     api({ action:'getHoldings' }),
     api({ action:'getDividends', year: state.currentYear }),
-    api({ action:'getSheetData' }).catch(()=>({ items:[] })),
+    fetchPriceItems(),
     api({ action:'getDividends' }).catch(()=>[])
   ]);
   renderAccountStats(allHoldings, allDivs, sheet, allDivsFull);
@@ -2158,7 +2171,7 @@ async function loadDashboard() {
   const [allHoldings, allDivs, sheet] = await Promise.all([
     api({ action:'getHoldings' }),
     api({ action:'getDividends' }),
-    api({ action:'getSheetData' }).catch(()=>({items:[]}))
+    fetchPriceItems()
   ]);
   const holdings = allHoldings || [];
   const divs = allDivs || [];
@@ -4142,21 +4155,9 @@ async function loadHoldingPrices(holdings) {
       el.innerHTML = '<span style="color:var(--text3);font-size:11px">…</span>';
   });
 
-  // getSheetData는 외부 시트 재계산으로 간헐적으로 느리거나 실패 → 빈 결과면 1회 재시도
-  const fetchSheet = async () => {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const r = await api({ action:'getSheetData' });
-        if (r && (r.items||[]).length) return r;
-      } catch(e) {}
-      await new Promise(res => setTimeout(res, 1500));
-    }
-    return { items: [] };
-  };
-
-  // 시트 1회(+실패 시 재시도) + 시세로그 1회 (urlfetch 0회, CORS 없음)
+  // 시세 1회 + 시세로그 1회 + NAV 1회 (fetchPriceItems가 실패하면 예전 시트 경로로 폴백한다)
   const [sheet, log, navRes] = await Promise.all([
-    fetchSheet(),
+    fetchPriceItems(),
     api({ action:'getPriceLog' }).catch(()=>({ items:{} })),
     api({ action:'getNavMap' }).catch(()=>({ navs:{} }))
   ]);
@@ -4915,7 +4916,7 @@ async function loadPensionPlan() {
   const [holdings, divs, sheet] = await Promise.all([
     api({ action:'getHoldings' }).catch(()=>[]),
     api({ action:'getDividends', year }).catch(()=>[]),
-    api({ action:'getSheetData' }).catch(()=>({items:[]}))
+    fetchPriceItems()
   ]);
   const er = state.exchangeRate || 1400;
   const priceMap = {};
