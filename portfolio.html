@@ -400,7 +400,7 @@
     onkeydown="if(event.key==='Enter')submitGate()">
   <button onclick="submitGate()"
     style="width:220px;padding:11px;border:none;border-radius:10px;background:#a855f7;color:#fff;font-size:15px;font-weight:700;cursor:pointer">들어가기</button>
-  <div id="gateErr" style="display:none;color:#f87171;font-size:13px">비밀번호가 틀렸습니다</div>
+  <div id="gateErr" style="display:none;color:#f87171;font-size:13px;max-width:260px;text-align:center;line-height:1.5">비밀번호가 틀렸습니다</div>
 </div>
 
 <header>
@@ -5207,23 +5207,41 @@ document.querySelectorAll('.modal-overlay').forEach(m => {
 let _booted = false;
 function bootApp() { if (_booted) return; _booted = true; init(); }
 function hideGate() { document.getElementById('gate').style.display = 'none'; }
+// 토큰 검증 호출. 재배포 직후·콜드스타트로 첫 요청이 실패할 수 있어 3초 뒤 1회 재시도한다.
+async function gateCheck() {
+  try {
+    return await api({ action: 'getAccounts' });
+  } catch (e) {
+    await new Promise(r => setTimeout(r, 3000));
+    return await api({ action: 'getAccounts' });      // 두 번째도 실패하면 throw → 연결 오류로 안내
+  }
+}
 async function submitGate() {
   const el = document.getElementById('gatePw');
   const btn = document.querySelector('#gate button');
+  const err = document.getElementById('gateErr');
   const pw = el.value;
   if (!pw) { el.focus(); return; }
   APP_TOKEN = pw;
   btn.disabled = true; btn.textContent = '확인 중…';
-  document.getElementById('gateErr').style.display = 'none';
+  err.style.display = 'none';
   try {
-    const r = await api({ action: 'getAccounts' });   // 토큰 검증용 호출
-    if (r && r.error === 'unauthorized') throw new Error('bad');
+    const r = await gateCheck();
+    // 서버가 명시적으로 거부한 경우만 '비번 오답'. 그 외 실패(CORS·콜드스타트·로그인페이지 등)는
+    // 연결 문제이므로 구분해서 안내한다 — 예전엔 둘 다 '비밀번호가 틀렸습니다'로 떠서 오래 헤맸음.
+    if (r && r.error === 'unauthorized') {
+      APP_TOKEN = '';
+      err.textContent = '비밀번호가 틀렸습니다';
+      err.style.display = 'block';
+      el.value = ''; el.focus();
+      return;
+    }
     sessionStorage.setItem('jjk_token', APP_TOKEN);
     hideGate(); bootApp();
   } catch (e) {
     APP_TOKEN = '';
-    document.getElementById('gateErr').style.display = 'block';
-    el.value = ''; el.focus();
+    err.textContent = '서버에 연결할 수 없습니다 (비밀번호 문제 아님). 재배포 직후면 1~2분 뒤 다시 시도하세요.';
+    err.style.display = 'block';
   } finally {
     btn.disabled = false; btn.textContent = '들어가기';
   }
