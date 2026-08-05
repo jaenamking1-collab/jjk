@@ -2103,9 +2103,11 @@ function flushCalPending() {
 }
 
 function getSheetData(force) {
-  // '주식상황' 시트는 실시간 시세 수식 재계산 때문에 읽기에 최대 10초+ 걸림.
-  // 프론트가 로드/탭전환/일괄적용마다 반복 호출하므로 3분 캐시 → 첫 호출 외에는 즉시 응답.
-  // 단 동기화(force=1)는 방금 수정한 시트 값을 봐야 하므로 캐시를 건너뛴다.
+  // '주식상황' 시트는 실시간 시세 수식 재계산 때문에 읽기가 매우 무겁고 편차가 크다
+  // (2026-08-05 실측: 캐시 히트 1.7초 vs 미스 12·14·38·50초). 부팅·종목관리·엑셀 등 6곳에서
+  // 호출하므로 캐시가 만료될 때마다 누군가 이 10~50초를 뒤집어쓴다 → TTL을 3분에서 10분으로 늘려
+  // 그 확률을 1/3로 줄인다. 시세가 10분까지 지연되지만 배당 포트폴리오 추적엔 충분하고,
+  // 동기화(force=1)는 캐시를 건너뛰므로 항상 최신 시트 값을 본다.
   const cache = CacheService.getScriptCache();
   const hit = force ? null : cache.get('sheetData_v1');
   if (hit) return JSON.parse(hit);
@@ -2137,7 +2139,7 @@ function getSheetData(force) {
     });
   }
   const out = { success: true, items };
-  try { cache.put('sheetData_v1', JSON.stringify(out), 180); } catch(e) {} // 100KB 초과 시 캐시 생략
+  try { cache.put('sheetData_v1', JSON.stringify(out), 600); } catch(e) {} // 10분. 100KB 초과 시 캐시 생략
   return out;
 }
 
