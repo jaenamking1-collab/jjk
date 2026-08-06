@@ -1117,10 +1117,35 @@ document.addEventListener('click', e => {
 });
 
 let APP_TOKEN = sessionStorage.getItem('jjk_token') || '';  // 진입 비밀번호(백엔드 토큰)
+// Apps Script /exec 는 script.googleusercontent.com 으로 302된 뒤 응답을 돌려주는데,
+// 이 배달 구간이 간헐적으로 깨진다. 2026-08-06 실측: 느린 요청은 예외 없이 404였고(25~57초를
+// 끌다 404), 200을 받은 요청은 전부 1~4초였다. 같은 시각 서버 실행 기록은 0.5~0.8초 '완료됨' —
+// 서버는 일을 끝냈는데 응답만 못 온 것이다. 구글 쪽이라 백엔드로는 못 고친다.
+// 예전엔 여기에 타임아웃·재시도·상태코드 확인이 전혀 없어서 404 한 건이 30초 대기를 만들고,
+// 그 뒤 fetchPriceItems 의 폴백(getSheetData 10~50초)까지 불러 이중으로 느려졌다.
+// → 상태코드가 나쁘면 즉시 재시도하고, 응답이 안 오면 끊고 다시 친다(재시도는 1~4초에 붙는다).
+// 재시도는 api()가 읽기 전용 액션에만 쓰이므로 안전하다. 쓰기(apiPost)는 건드리지 않는다.
+// 진짜로 오래 걸리는 액션(시트 재계산·6개사 스크랩)은 끊으면 안 되므로 넉넉히 준다.
+const SLOW_ACTIONS = ['getSheetData', 'getDivSheetData', 'getDistribution', 'getDistributionAll',
+                      'getEtfScreener', 'getEtfNotices', 'getEtfNoticesAll', 'checkAlerts'];
 async function api(params) {
   const url = API + '?' + new URLSearchParams({ ...params, token: APP_TOKEN });
-  const res = await fetch(url, { redirect: 'follow' });
-  return res.json();
+  const limit = SLOW_ACTIONS.indexOf(params.action) !== -1 ? 90000 : 20000;
+  let last;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), limit);
+    try {
+      const res = await fetch(url, { redirect: 'follow', signal: ac.signal });
+      if (!res.ok) throw new Error('HTTP ' + res.status);   // 404 = 배달 실패 → 재시도
+      return await res.json();
+    } catch (e) {
+      last = e;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw last;
 }
 async function apiPost(data) {
   const res = await fetch(API + '?token=' + encodeURIComponent(APP_TOKEN), {
