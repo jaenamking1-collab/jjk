@@ -75,5 +75,6 @@ Adapted from the [Karpathy coding guidelines](https://x.com/karpathy/status/2015
 - `portfolio.html` — the entire frontend.
 - `dist_notice.html` — public standalone copy of the 분배금공지 tab (calendar + 운용사별 일정 + notices). It duplicates `renderMasterCalendar`/schedule-table code from `portfolio.html`; **any change to the 분배금공지 tab's calendar or schedule rendering must be mirrored here** or the public page silently diverges.
 - `Code.gs` — the Google Apps Script backend (mirror of the deployed script; not auto-deployed).
+- `okx_nft_alert.gs` — unrelated to the portfolio app: an OKX NFT (Kaia) Legendary/Mystic listing watcher that writes Google Calendar alerts. Mirror of a **separate** Apps Script project — do not merge it into `Code.gs` (its 30-min trigger would steal the portfolio backend's execution slots; see WORKLOG 85·86). Also not auto-deployed. Design: `docs/superpowers/specs/2026-08-08-okx-nft-legendary-alert-design.md`.
 - `WORKLOG.md` — running work log for syncing across the two PCs; append a dated entry each session.
 - `README.md` — one line (`# jjk`); no other docs.
