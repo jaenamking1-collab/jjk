@@ -2143,6 +2143,116 @@ function flushCalPending() {
   } catch(e) { console.log('flushCalPending', e); return false; }
 }
 
+// ── 분배 알림 워치독 ──────────────────────────────────
+// 왜: 2026-08-05~08-12에 알림이 전면 중단됐는데 아무도 몰랐다(_EXEC_URL 미선언 → 카톡·캘린더 동시 사망,
+// 대기열에 7건이 8일간 갇힘). 근본 문제는 **'침묵'과 '정상'이 구별되지 않는다**는 것 —
+//  ① 실패를 알리는 통로가 고장난 그 통로였고 ② _addAlert 중복억제로 경고는 한 번만 남고
+//  ③ 그 기록은 앱 🔔 패널에서만 보였다. 그래서 둘을 구별하게 만든다:
+//  · 이상이 있으면 **Gmail**로 보고 — 카톡·캘린더와 독립된 구글 서비스라 같이 죽지 않는다.
+//  · 월요일엔 이상이 없어도 카톡으로 '정상' 신호를 보낸다 → 통로가 죽으면 사용자에게
+//    침묵이 아니라 '월요일 신호가 안 왔다'로 드러난다.
+// 설계: docs/superpowers/specs/2026-08-12-dist-alert-watchdog-design.md
+// 트리거 설치는 맨 아래 '수동 실행'의 setupWatchdogTrigger() 참고. 이상을 고치지는 않고 보고만 한다.
+const WD_QUEUE_STUCK_HOURS = 6;   // 대기열이 이 시간 넘게 안 비면 발송 사망으로 본다(발송창이 08~23시이므로 기회는 충분했다는 뜻)
+const WD_RESEND_DAYS       = 3;   // 같은 이상은 이 간격으로만 재발송(매일 같은 메일이 쌓이지 않게)
+const WD_WINDOW_GRACE_DAYS = 3;   // 공지창 시작 후 이 일수가 지나야 '지연'으로 판정(창 초반엔 아직 안 올라온 게 정상)
+
+function distWatchdog() {
+  const props = PropertiesService.getScriptProperties();
+  const now = new Date();
+  const problems = [];
+
+  // ① 발송 전제 조건 — 이번 사고의 직접 원인부터 본다.
+  let execOk = false;
+  try { execOk = typeof _EXEC_URL === 'string' && /^https:/.test(_EXEC_URL); } catch(e) {}
+  if (!execOk) problems.push('발송 링크 상수(_EXEC_URL)가 없거나 값이 이상하다 → 카톡·캘린더가 둘 다 죽는다');
+  if (!props.getProperty('KAKAO_REST_KEY'))      problems.push('스크립트 속성 KAKAO_REST_KEY 없음');
+  if (!props.getProperty('KAKAO_REFRESH_TOKEN')) problems.push('스크립트 속성 KAKAO_REFRESH_TOKEN 없음');
+  try { CalendarApp.getDefaultCalendar().getName(); } catch(e) { problems.push('캘린더 접근 실패: ' + e); }
+
+  // ② 대기열 적체 — 큐에 타임스탬프가 없으므로 '비어있지 않은 것을 처음 본 시각'을 따로 기록해 나이를 재다.
+  const stuck = ['KAKAO_PENDING', 'CAL_PENDING'].filter(k => (props.getProperty(k) || '[]') !== '[]');
+  if (!stuck.length) {
+    props.deleteProperty('WD_QUEUE_SINCE');
+  } else {
+    const since = props.getProperty('WD_QUEUE_SINCE');
+    if (!since) {
+      props.setProperty('WD_QUEUE_SINCE', now.toISOString());
+    } else {
+      const hrs = (now.getTime() - new Date(since).getTime()) / 3600000;
+      if (hrs >= WD_QUEUE_STUCK_HOURS)
+        problems.push('대기열이 ' + Math.floor(hrs) + '시간째 안 비었다(' + stuck.join(', ') + ') → 발송 실패 중');
+    }
+  }
+
+  // ③ 파서 0건·stale  ④ 공지 지연
+  const day      = Number(Utilities.formatDate(now, 'Asia/Seoul', 'd'));
+  const curMonth = Number(Utilities.formatDate(now, 'Asia/Seoul', 'M'));
+  const winStart = day <= 20 ? 8 : 23;                    // 월중창 8일 시작 / 월말창 23일 시작
+  const judgeDelay = _inNoticeWindow(day) && day >= winStart + WD_WINDOW_GRACE_DAYS;
+  let all = null;
+  try { all = getDistributionAll(); } catch(e) { problems.push('getDistributionAll 실패: ' + e); }
+  const sources = (all && all.sources) || {};
+  const lines = [];
+  DIST_SOURCE_IDS.forEach(s => {
+    const r = sources[s];
+    if (!r) { problems.push(s + ' 응답 없음'); return; }
+    if (r.stale) problems.push(s + ' 데이터가 stale(갱신 실패)');
+    let fp;
+    try { fp = _fingerprint(s, r); } catch(e) { problems.push(s + ' 지문 계산 실패: ' + e); return; }
+    if (!fp.hasItems) problems.push(s + ' 종목 0건 — 파서 점검 필요');
+    else if (judgeDelay && _pubMonth(fp.pubDate) !== curMonth)
+      problems.push(s + ' 이번 달 공시일 없음(현재 ' + (fp.pubDate || '없음') + ') — 공지 지연 또는 파서 이상');
+    lines.push(s + ' ' + fp.itemCount + '건 / 공시일 ' + (fp.pubDate || '-'));
+  });
+
+  // 월요일 하트비트 — 대기열을 거치지 않고 직접 보낸다(정상 신호가 분배 알림에 섞이지 않게).
+  // 요일은 'u' 같은 포맷 문자에 의존하지 않고 날짜 문자열에서 직접 계산한다(0=일 … 1=월).
+  const ymd = Utilities.formatDate(now, 'Asia/Seoul', 'yyyy-MM-dd');
+  let heartbeat = '';
+  if (new Date(ymd + 'T00:00:00Z').getUTCDay() === 1) {
+    let ok = false;
+    try { ok = sendKakaoMemo('✅ 분배 알림 정상 (' + ymd + ')\n' + lines.join('\n')); }
+    catch(e) { console.log('하트비트 예외', e); }
+    heartbeat = ok ? '성공' : '실패';
+    if (!ok) problems.push('주간 정상신호 카톡 발송 실패 → 카톡 통로가 죽어 있다');
+  }
+
+  // 보고 — 이상이 있을 때만 메일. 같은 이상이면 WD_RESEND_DAYS 간격으로만.
+  let mailed = false;
+  if (problems.length) {
+    const sig = problems.slice().sort().join('|');
+    let last = {};
+    try { last = JSON.parse(props.getProperty('WD_LAST') || '{}'); } catch(e) {}
+    const days = last.ts ? (now.getTime() - new Date(last.ts).getTime()) / 86400000 : 999;
+    if (last.sig !== sig || days >= WD_RESEND_DAYS) {
+      const body = '분배 알림 파이프라인 점검에서 이상이 발견됐습니다.\n\n'
+        + problems.map((p, i) => (i + 1) + ') ' + p).join('\n')
+        + '\n\n[현재 파싱 상태]\n' + lines.join('\n')
+        + (heartbeat ? '\n\n주간 정상신호(카톡): ' + heartbeat : '')
+        + '\n\n확인 방법: Apps Script 편집기에서 _diagDistAlert() 로 상태를 보고,'
+        + ' _diagSendNow() 로 실제 발송을 시험하세요.'
+        + (execOk ? '\n앱: ' + _EXEC_URL : '');
+      try {
+        MailApp.sendEmail(Session.getEffectiveUser().getEmail(),
+          '[분배알림 이상] ' + problems.length + '건 — ' + Utilities.formatDate(now, 'Asia/Seoul', 'MM-dd HH:mm'), body);
+        props.setProperty('WD_LAST', JSON.stringify({ sig: sig, ts: now.toISOString() }));
+        mailed = true;
+      } catch(e) { console.log('워치독 메일 실패', e); }
+    } else {
+      console.log('같은 이상이 ' + WD_RESEND_DAYS + '일 내 이미 보고됨 — 메일 생략');
+    }
+  } else {
+    props.deleteProperty('WD_LAST');
+  }
+
+  console.log('워치독: 이상 ' + problems.length + '건' + (mailed ? ' (메일 발송)' : '')
+              + (heartbeat ? ' / 하트비트 ' + heartbeat : ''));
+  problems.forEach(p => console.log('  ⚠ ' + p));
+  lines.forEach(l => console.log('  · ' + l));
+  return { problems: problems, mailed: mailed, heartbeat: heartbeat };
+}
+
 // 보유 종목 현재가·등락률을 네이버/야후에서 직접 받는다. { 티커: {current, prev, change} }
 // 왜: 예전엔 프론트가 '주식상황' 시트(getSheetData)를 읽어 현재가를 얻었는데, 그 시트가 실시간 시세
 // 수식이라 열 때마다 재계산돼 캐시 미스 시 10~50초가 걸렸다(2026-08-05 실측). 시세는 여기서 받고
@@ -3111,6 +3221,17 @@ function clearAllYellowNow() {
 function keepWarm() {
   try { SpreadsheetApp.openById(SHEET_ID).getName(); } catch (e) {}
 }
+// 워치독 트리거: 매일 08:30. 편집기에서 이 함수를 한 번만 실행(▶)하면 설치된다.
+// 08:10의 flushKakaoPending·flushCalPending 보다 뒤에 둬서, 밤새 대기분이 먼저 나갈 기회를 준 다음 점검한다.
+// ⚠️ 첫 실행 때 구글이 Gmail 발송 권한을 한 번 묻는다(허용 필요).
+function setupWatchdogTrigger() {
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'distWatchdog')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('distWatchdog').timeBased().atHour(8).nearMinute(30).everyDays(1).create();
+  console.log('distWatchdog 트리거(매일 08:30) 설치 완료');
+}
+
 // keepWarm 트리거: 5분마다. 편집기에서 이 함수를 한 번만 실행(▶)하면 설치된다.
 function setupKeepWarm() {
   ScriptApp.getProjectTriggers()
