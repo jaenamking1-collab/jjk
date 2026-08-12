@@ -27,6 +27,17 @@
 - ⚠️ **다음 할 일(사용자)**: ① script.google.com에서 **새 프로젝트** 만들고 `okx_nft_alert.gs` 전체 붙여넣기 ② **`sendTestEvent()` 실행** → 권한 승인 → 2분 뒤 폰에 테스트 알림이 오는지 확인 ③ 안 오면 **구글 캘린더 앱에서 `OKX NFT` 캘린더 동기화 켜기**(새 캘린더는 기본 꺼짐인 경우가 있다) ④ `setupOkxTriggers()` 실행.
 - 🔎 **미확인**: 판매자가 가격만 낮췄을 때 OKX가 `sale.lastTime`을 갱신하는지(새 주문으로 처리될 것으로 봄). 갱신 안 되더라도 페이지네이션이 전체 리스팅을 훑으므로 인하 감지 자체는 된다.
 
+## 2026-08-12 (92) / — **clasp 연결 완료. 이제 Code.gs 수동 붙여넣기 없음 — `clasp push` 한 줄**
+- **배경**: 이날 Code.gs를 **네 번** 붙여넣었다(알림 결함 → SOL 파서 → `_EXEC_URL` → 워치독). 사용자가 "나보고 하라고?"라고 지적 — 맞는 지적이라 내가 세팅했다.
+- **한 것**: clasp 3.3.0 설치 / `scriptId`는 **Drive에서 직접 찾음**(`포트폴리오관리` = `1yYeK3W1aHUY…`). 나머지 두 프로젝트(`분배금공지배포용`·`okx_nft_alert`)도 Drive에 있는 걸 확인했고 **건드리지 않았다**.
+- ⭐ **`.claspignore`가 핵심**: 없으면 clasp가 루트의 모든 `.gs`/`.html`을 이 프로젝트로 밀어넣는다. `okx_nft_alert.gs`는 별개 프로젝트(합치면 30분 트리거가 실행 슬롯을 훔친다, (85)·(86))이고 `public_dist_proxy.gs`도 별개이며 `portfolio.html`·`dist_notice.html`은 프론트다. `**/**` 후 `!Code.gs`·`!appsscript.json`만 되살림 → `clasp status`로 검증(추적 `Code.gs`·`appsscript.json` 둘뿐).
+- ⚠️ **`clasp pull`을 저장소에서 그냥 돌리면 로컬 Code.gs를 옛 원격본으로 덮어써 작업이 날아간다.** 그래서 **임시 폴더로만 pull**해서 매니페스트만 꺼내고 원격 Code.gs는 비교용으로만 썼다. 원격 파일은 `Code.js`로 내려온다(clasp가 서버 코드를 로컬에서 `.js`로 쓴다 — 원격 파일명은 `Code`라 push 대상은 일치).
+- **`appsscript.json`은 원격에서 받은 것을 그대로** 넣었다(직접 쓰면 `webapp.access`·`executeAs` 같은 배포 설정을 바꿔버릴 위험). 실제 값: `timeZone Asia/Seoul`, `runtimeVersion V8`, `executeAs USER_DEPLOYING`, `access ANYONE_ANONYMOUS`.
+- **대조 결과**: 원격·로컬 **3415줄 / 함수 133개 동일**, 원격에만 있는 함수 **0개**(편집기에서 직접 만든 코드가 없다 = push가 아무것도 지우지 않는다). 바이트 차 3,415는 줄 수와 정확히 일치 → CRLF/LF 차이뿐. `clasp push` 성공(`Pushed 2 files`).
+- **사용자가 한 것은 `clasp login` 브라우저 '허용' 1회뿐.** 비밀번호는 내가 다루지 않았고, Apps Script API 토글은 **이미 켜져 있었다**(pull이 성공한 것이 그 증거).
+- **앞으로**: `Code.gs`를 고치면 **`clasp push`까지 내가 한다.** 트리거·수동 실행은 저장된 코드로 도니 즉시 적용, 웹앱(`/exec`)만 재배포 전까지 옛 버전 — 지금까지 방식과 동일. CLAUDE.md에 기록했다.
+  - ⚠️ **다른 PC(집/직장 중 나머지)에서는 `clasp login`을 한 번 더** 해야 한다(인증은 머신별, `.clasprc.json`은 홈 디렉터리에 있고 커밋 안 됨).
+
 ## 2026-08-12 (91) / — **워치독 신설: '침묵'과 '정상'을 구별하게 만들었다** (Gmail 이상 보고 + 월요일 카톡 하트비트)
 - **사용자 확인**: (90) 수정 후 **"공지 날라옴"** — `_EXEC_URL` 복구가 실제 발송으로 확인됐다. 이어서 하트비트 구현 승인("만들어" → "ㄱㄱ").
 - **설계 문서**: `docs/superpowers/specs/2026-08-12-dist-alert-watchdog-design.md` (커밋 `3566306`). 사용자 선택 = **Gmail 이상 보고 + 주1회 정상신호**, 점검 항목 **4개 전부**.
