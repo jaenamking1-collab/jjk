@@ -2028,6 +2028,13 @@ function markAlertRead(row) {
 const _KAKAO_SEND_FROM = 8;   // 발송 허용 시작 시각(포함)
 const _KAKAO_SEND_TO   = 23;  // 발송 허용 끝 시각(미포함) → 23~08시는 대기
 
+// 알림에 붙는 '앱 확인' 링크. exec URL은 '기존 배포 편집(새 버전)' 재배포로는 바뀌지 않으므로 하드코딩해도 안전.
+// ⚠️ 지우지 말 것 — 2026-08-05 커밋 d9cb46b(keepWarm 자기호출 삭제)에서 이 선언이 keepWarm 코드와 함께
+// 삭제됐는데 sendKakaoMemo·flushCalPending의 사용 2곳은 남아, 그날부터 8/12까지 **알림 발송이 전부 죽었다**
+// (ReferenceError → 대기열에 7건 적재된 채 방치). 당시 WORKLOG에 'grep으로 확인'이라 적었지만 확인한 것은
+// 사용처의 존재였고 선언의 생존이 아니었다. 참조를 지울 땐 선언이 여전히 필요한지 같이 볼 것.
+const _EXEC_URL = 'https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec';
+
 // 리프레시 토큰으로 액세스 토큰 발급. 회전된 리프레시 토큰이 오면 저장.
 function _kakaoAccessToken() {
   const props = PropertiesService.getScriptProperties();
@@ -2085,15 +2092,18 @@ function _notifyKakao(lines) {
 }
 
 // 대기열을 한 통(최대 200자)으로 묶어 발송하고 비운다. 실패 시 대기열 유지(다음에 재시도).
+// 반환값: 실제로 보냈으면 true (진단·호출부가 '갔는지'를 판별할 수 있게 한다. 대기열이 비어 보낼 게
+// 없었으면 true — 실패가 아니다.)
 function flushKakaoPending() {
   const props = PropertiesService.getScriptProperties();
   let queue = [];
   try { queue = JSON.parse(props.getProperty('KAKAO_PENDING') || '[]'); } catch(e) {}
-  if (!queue.length) return;
+  if (!queue.length) return true;
   const msg = ('📢 ETF 분배 알림\n' + queue.join('\n')).slice(0, 200);
   let ok = false;
   try { ok = sendKakaoMemo(msg); } catch(e) { console.log('flushKakaoPending', e); }
   if (ok) props.deleteProperty('KAKAO_PENDING');
+  return ok;
 }
 
 // ── 구글 캘린더 알림 (카톡 백업) ─────────────────────────────
@@ -2112,20 +2122,25 @@ function _notifyCal(lines) {
 }
 
 // 대기열을 구글 캘린더 일정 1건으로 만들고 비운다. 실패 시 대기열 유지(다음에 재시도).
+// 반환값은 flushKakaoPending과 같은 규칙(보냈으면 true, 보낼 게 없으면 true).
+// ⚠️ desc 계산을 try 안으로 옮겼다. 예전엔 try 밖이라 여기서 예외가 나면 함수 밖으로 튀어나가
+// _notifyCal → checkAndLogAlerts 까지 올라갔다. 실제로 _EXEC_URL 이 미선언이던 8/5~8/12에
+// 그 경로로 캘린더 알림이 통째로 죽었다.
 function flushCalPending() {
   const props = PropertiesService.getScriptProperties();
   let queue = [];
   try { queue = JSON.parse(props.getProperty('CAL_PENDING') || '[]'); } catch(e) {}
-  if (!queue.length) return;
-  const start = new Date();
-  const end = new Date(start.getTime() + 10 * 60 * 1000); // 10분짜리
-  const desc = queue.join('\n') + '\n\n앱 확인: ' + _EXEC_URL;
+  if (!queue.length) return true;
   try {
+    const start = new Date();
+    const end = new Date(start.getTime() + 10 * 60 * 1000); // 10분짜리
+    const desc = queue.join('\n') + '\n\n앱 확인: ' + _EXEC_URL;
     const ev = CalendarApp.getDefaultCalendar()
       .createEvent('📢 새 분배 공지 — 앱 확인', start, end, { description: desc });
     ev.addPopupReminder(0); // 시작(=지금) 시각에 팝업 알림
     props.deleteProperty('CAL_PENDING');
-  } catch(e) { console.log('flushCalPending', e); }
+    return true;
+  } catch(e) { console.log('flushCalPending', e); return false; }
 }
 
 // 보유 종목 현재가·등락률을 네이버/야후에서 직접 받는다. { 티커: {current, prev, change} }
@@ -3209,6 +3224,11 @@ function _diagDistAlert() {
   console.log('② 가드: 오늘 ' + day + '일 공지창=' + _inNoticeWindow(day) + ' / ' + hour + '시 09~18=' + (hour >= 9 && hour <= 18)
               + ' / 발송창 08~23=' + _kakaoWithinWindow() + '   (셋 다 true여야 알림이 나간다)');
 
+  // 발송 함수들이 참조하는 전역이 실제로 살아 있는지. 2026-08-05~08-12 알림 전면 중단의 원인이
+  // _EXEC_URL 미선언(ReferenceError)이었으므로, 같은 사고를 즉시 드러나게 여기서 확인한다.
+  try { console.log('①-2 _EXEC_URL: ' + (typeof _EXEC_URL === 'string' && /^https:/.test(_EXEC_URL) ? '정상' : '❌ 값 이상: ' + _EXEC_URL)); }
+  catch(e) { console.log('①-2 _EXEC_URL: ❌ 미선언 — 카톡·캘린더 발송이 둘 다 죽는다 (' + e + ')'); }
+
   const props = PropertiesService.getScriptProperties();
   const kq = props.getProperty('KAKAO_PENDING') || '[]';
   const cq = props.getProperty('CAL_PENDING')   || '[]';
@@ -3244,4 +3264,31 @@ function _diagDistAlert() {
       .forEach(r => console.log('   ' + r[0] + ' | ' + r[1] + ' | ' + r[2] + ' | ' + r[3] + ' | ' + r[5]));
   }
   return 'ok';
+}
+
+// 알림이 실제로 '가는지' 확인. ▶실행하면 대기열을 진짜로 발송해 보고 채널별 성공/실패를 찍는다.
+// 대기열이 비어 있으면 확인용 문구 1건을 넣어 보낸다(카톡 1통 + 캘린더 일정 1건이 실제로 온다).
+// 진단만 하고 안 보내는 _diagDistAlert 와 달리 이건 **실제 발송**이다.
+function _diagSendNow() {
+  const props = PropertiesService.getScriptProperties();
+  const before = { k: props.getProperty('KAKAO_PENDING') || '[]', c: props.getProperty('CAL_PENDING') || '[]' };
+  console.log('발송 전 대기열: KAKAO=' + before.k + '  CAL=' + before.c);
+
+  if (before.k === '[]' && before.c === '[]') {
+    const probe = ['✅ 발송 점검 ' + Utilities.formatDate(new Date(), 'Asia/Seoul', 'MM-dd HH:mm')];
+    props.setProperty('KAKAO_PENDING', JSON.stringify(probe));
+    props.setProperty('CAL_PENDING',   JSON.stringify(probe));
+    console.log('대기열이 비어 있어 점검용 1건을 넣었다.');
+  }
+
+  let k = false, c = false;
+  try { k = flushKakaoPending(); } catch(e) { console.log('카톡 예외: ' + e); }
+  try { c = flushCalPending();   } catch(e) { console.log('캘린더 예외: ' + e); }
+
+  const after = { k: props.getProperty('KAKAO_PENDING') || '[]', c: props.getProperty('CAL_PENDING') || '[]' };
+  console.log('카톡   : ' + (k && after.k === '[]' ? '✅ 발송됨(대기열 비움)' : '❌ 실패 — 대기열 유지: ' + after.k));
+  console.log('캘린더 : ' + (c && after.c === '[]' ? '✅ 발송됨(대기열 비움)' : '❌ 실패 — 대기열 유지: ' + after.c));
+  console.log(k || c ? '⇒ 최소 한 채널은 살아 있다. 실제로 카톡/캘린더에 왔는지 눈으로 확인할 것.'
+                     : '⇒ 두 채널 다 죽었다. 위 예외 메시지가 원인이다.');
+  return { kakao: k, calendar: c };
 }
