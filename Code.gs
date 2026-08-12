@@ -778,9 +778,29 @@ function writeDistCache(source, payload, cycleKey) {
 }
 // 이전 회차(최근 2개) 종목을 items 뒤에 병합 — 지난 달 일정 표·공지 종목이 계속 보이게.
 // 종목별 sched가 없으면 그 회차 대표 일정을 채워 현재 회차 일정과 섞이지 않게 한다.
+// 종목명 상한. 실제 최장 종목명은 30자 안쪽이다('KODEX 금융고배당TOP10타겟위클리커버드콜' 26자).
+// 파서가 표의 행 경계를 놓치면 본문·댓글·스크립트를 종목명에 통째로 삼킨 행이 만들어진다
+// (2026-08-12 실측: SOL 29,206자). 그런 행은 화면·달력을 오염시키고 **분배캐시 시트에 굳어**
+// 파서를 고친 뒤에도 계속 나온다 — 그래서 저장·병합 지점에서 버린다.
+const DIST_NAME_MAX = 60;
+function _dropJunkItems(items) {
+  return (items || []).filter(it => {
+    const n = String((it && it.name) || '');
+    if (n.length > DIST_NAME_MAX) {
+      console.log('분배 항목 폐기(종목명 ' + n.length + '자): ' + n.slice(0, 40));
+      return false;
+    }
+    return true;
+  });
+}
+
 function attachDistHistory(source, payload, rows) {
   try {
     if (!payload || !payload.items) return payload;
+    // 병합의 단일 관문이다(getDistribution·getDistributionAll 둘 다 여기를 지난다).
+    // 입력을 그대로 고치지 않도록 복사본에서 걸러낸다 — 캐시 시트에서 읽어온 객체일 수 있다.
+    const base = JSON.parse(JSON.stringify(payload));
+    base.items = _dropJunkItems(base.items);
     const cur = currentCycleKey();
     if (!rows) rows = _distCacheSheet().getDataRange().getValues();
     const hist = [];
@@ -788,9 +808,9 @@ function attachDistHistory(source, payload, rows) {
       if (rows[i][0] !== source || rows[i][3] === cur) continue;
       hist.push({ rank: cycleRank(rows[i][3]), raw: rows[i][1] });
     }
-    if (!hist.length) return payload;
+    if (!hist.length) return base;
     hist.sort((a, b) => b.rank - a.rank);
-    const out = JSON.parse(JSON.stringify(payload));
+    const out = base;
     const keyOf = (it, sched) => (it.ticker || it.name) + '|' + (it.cycle || '') + '|' + ((sched || {})['기준일'] || '');
     const seen = new Set(out.items.map(it => keyOf(it, it.sched)));
     hist.slice(0, 2).forEach(h => {
@@ -806,11 +826,14 @@ function attachDistHistory(source, payload, rows) {
         out.items.push(copy);
       });
     });
+    out.items = _dropJunkItems(out.items);   // 옛 회차 캐시에 굳은 쓰레기 행 제거
     return out;
   } catch(e) { return payload; }
 }
 // 파싱 결과 마무리: 시트캐시(회차별) 저장 → 이력 병합 → 스크립트캐시 → 반환
 function finishDist(source, result, cache, cacheKey) {
+  // 쓰레기 행을 캐시 시트에 굳히지 않는다(굳으면 파서를 고쳐도 계속 나온다).
+  if (result && result.items && result.items.length) result.items = _dropJunkItems(result.items);
   if (result && result.items && result.items.length) {
     writeDistCache(source, result, currentCycleKey());
     result = attachDistHistory(source, result);
