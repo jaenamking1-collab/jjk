@@ -1895,7 +1895,9 @@ function _addAlert(sheet, source, kind, message, level) {
   const last = sheet.getLastRow();
   if (last > 1) {
     const start = Math.max(2, last - 49);
-    const rows = sheet.getRange(start, 1, last - start + 1, 5).getValues();
+    // 6열까지 읽는다. 예전엔 5열만 읽어 r[5](상태)가 항상 undefined였고, 그래서
+    // "확인 처리한 알림은 다시 알릴 수 있다"는 의도가 작동하지 않았다(항상 true로 통과).
+    const rows = sheet.getRange(start, 1, last - start + 1, 6).getValues();
     for (const r of rows) {
       if (r[1] === source && r[2] === kind && r[3] === message && r[5] !== '확인') return false; // 이미 있음
     }
@@ -1960,16 +1962,29 @@ function checkAndLogAlerts() {
     newMeta.push([source, fp.source, fp.isOcr, fp.itemCount, fp.cycles, fp.pubDate, Utilities.formatDate(new Date(),'Asia/Seoul','yyyy-MM-dd HH:mm')]);
   });
 
+  // ⚠️ 순서가 중요하다. 예전엔 메타를 여기서 먼저 덮어쓰고 그 뒤에 알림을 보냈다. 그러면 발송이
+  // 실패해도 메타는 이미 새 공시일로 갱신되므로, 다음 실행부터 fp.pubDate === prev.pubDate 가 되어
+  // **그 공지는 영구히 다시 알림되지 않았다**(발송은 catch로 삼켜 console.log만 남으니 조용히 사라짐).
+  // → 알림을 먼저 보내고, 한 채널이라도 접수됐을 때만 메타를 갱신한다. 둘 다 실패하면 메타를 그대로
+  // 두어 다음 실행(30분 뒤)이 같은 공지를 다시 감지해 재시도한다.
+  // 카톡·캘린더는 서로 독립 — 카톡이 씹혀도 구글 캘린더 알림이 백업으로 뜨도록 각각 try로 감싼다.
+  let accepted = true;
+  if (kakaoMsgs.length) {
+    let okKakao = false, okCal = false;
+    try { _notifyKakao(kakaoMsgs); okKakao = true; } catch(e) { console.log('_notifyKakao 오류', e); }
+    try { _notifyCal(kakaoMsgs);   okCal   = true; } catch(e) { console.log('_notifyCal 오류', e); }
+    accepted = okKakao || okCal;
+    if (!accepted) console.log('알림 두 채널 모두 실패 — 메타를 갱신하지 않고 다음 실행에서 재시도');
+  }
+
   // 메타 갱신 (전체 덮어쓰기)
-  if (metaSheet.getLastRow() > 1) metaSheet.getRange(2,1,metaSheet.getLastRow()-1,7).clearContent();
-  if (newMeta.length) metaSheet.getRange(2,1,newMeta.length,7).setValues(newMeta);
+  if (accepted) {
+    if (metaSheet.getLastRow() > 1) metaSheet.getRange(2,1,metaSheet.getLastRow()-1,7).clearContent();
+    if (newMeta.length) metaSheet.getRange(2,1,newMeta.length,7).setValues(newMeta);
+  }
 
-  // 새 공지 감지 시 알림 (실패해도 감지·로그는 유지). 카톡·캘린더는 서로 독립 —
-  // 카톡이 씹혀도 구글 캘린더 알림이 백업으로 뜨도록 각각 try로 감싼다.
-  try { if (kakaoMsgs.length) _notifyKakao(kakaoMsgs); } catch(e) { console.log('_notifyKakao 오류', e); }
-  try { if (kakaoMsgs.length) _notifyCal(kakaoMsgs); } catch(e) { console.log('_notifyCal 오류', e); }
-
-  return { checked: 6, time: Utilities.formatDate(new Date(),'Asia/Seoul','yyyy-MM-dd HH:mm') };
+  return { checked: 6, notified: kakaoMsgs.length, accepted: accepted,
+           time: Utilities.formatDate(new Date(),'Asia/Seoul','yyyy-MM-dd HH:mm') };
 }
 
 // 화면에 줄 알림 목록 반환 (최근 N건, 미확인 우선)
@@ -3174,4 +3189,54 @@ function _diagDeviation() {
   rows.sort((a, b) => a.dev - b.dev);
   console.log('보유 국내 ' + Object.keys(held).length + '종목 중 ETF목록 매칭 ' + rows.length + '건 (낮은 순, ' + DEV_ALERT + '% 미만이 알림 대상)');
   rows.forEach(r => console.log('  ' + r.dev.toFixed(2) + '%  ' + r.t + '  ' + r.n + (state[r.t] === 'below' ? '  [below]' : '')));
+}
+
+// 분배 공지 알림 진단: "공지 떴는데 알림이 안 왔다" 확인용. ▶실행(아무것도 안 바꾸고 상태만 출력).
+// 알림이 안 오는 경로는 네 갈래뿐이라, 아래 출력이 그중 어디서 끊겼는지 한 번에 가른다.
+//   ① 트리거 없음  ② 창/시간 가드에 막힘  ③ 감지됐는데 대기열에 갇힘(발송 실패)  ④ 이미 소비됨(메타가 최신)
+function _diagDistAlert() {
+  const now = new Date();
+  const day  = Number(Utilities.formatDate(now, 'Asia/Seoul', 'd'));
+  const hour = Number(Utilities.formatDate(now, 'Asia/Seoul', 'H'));
+
+  const trigs = ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'checkDistNotices');
+  console.log('① 트리거: ' + (trigs.length ? trigs.length + '개' : '❌ 없음 → setupDistTriggers() 를 ▶실행할 것'));
+  console.log('② 가드: 오늘 ' + day + '일 공지창=' + _inNoticeWindow(day) + ' / ' + hour + '시 09~18=' + (hour >= 9 && hour <= 18)
+              + ' / 발송창 08~23=' + _kakaoWithinWindow() + '   (셋 다 true여야 알림이 나간다)');
+
+  const props = PropertiesService.getScriptProperties();
+  const kq = props.getProperty('KAKAO_PENDING') || '[]';
+  const cq = props.getProperty('CAL_PENDING')   || '[]';
+  console.log('③ 대기열: KAKAO_PENDING=' + kq + '   CAL_PENDING=' + cq);
+  console.log('   → 비어있지 않으면 감지는 됐고 발송이 실패해 갇힌 것. 카톡키='
+              + (props.getProperty('KAKAO_REST_KEY') ? '있음' : '없음')
+              + ' 리프레시토큰=' + (props.getProperty('KAKAO_REFRESH_TOKEN') ? '있음' : '없음'));
+  try { CalendarApp.getDefaultCalendar().getName(); console.log('   캘린더 접근: 정상'); }
+  catch(e) { console.log('   캘린더 접근: ❌ ' + e + '  ← 권한 미허용이면 백업 채널도 죽는다'); }
+
+  // ④ 저장된 메타(직전 공시일) vs 지금 파싱되는 공시일 — 같으면 '이미 소비됨'이라 알림이 안 난다.
+  const ms = _getOrCreateSheet('_파서메타', ['운용사','source','isOcr','itemCount','cycles','pubDate','updated']);
+  const rows = ms.getLastRow() > 1 ? ms.getRange(2,1,ms.getLastRow()-1,7).getValues() : [];
+  console.log('④ 저장된 메타 ' + rows.length + '행 (운용사 / 직전 공시일 / 갱신시각)');
+  rows.forEach(r => console.log('   ' + String(r[0]).padEnd(6) + ' prev=' + _normPubDate(r[5]) + '  updated=' + r[6]));
+  console.log('   지금 캐시로 파싱되는 공시일(force 안 씀 — 여기서 6개사 스크랩하면 오래 걸린다):');
+  ['kodex','tiger','ace','rise','plus','sol'].forEach(s => {
+    let fp;
+    try { fp = _fingerprint(s, getDistribution(s, false)); } catch(e) { console.log('   ' + s + ' 오류 ' + e); return; }
+    const prev = rows.filter(r => r[0] === s)[0];
+    const p = prev ? _normPubDate(prev[5]) : '(메타없음)';
+    console.log('   ' + s.padEnd(6) + ' now=' + (fp.pubDate || '(빈값)') + '  prev=' + p
+                + (fp.pubDate && fp.pubDate !== p ? '  ← 신규로 잡혀야 함' : '')
+                + (fp.hasItems ? '' : '  ⚠ 종목 0건'));
+  });
+
+  const ls = _getOrCreateSheet('알림로그', ['시각','운용사','종류','메시지','중요도','상태']);
+  const ln = ls.getLastRow();
+  console.log('⑤ 알림로그 최근 5건 (' + Math.max(0, ln - 1) + '건 중)');
+  if (ln > 1) {
+    const n = Math.min(5, ln - 1);
+    ls.getRange(ln - n + 1, 1, n, 6).getValues()
+      .forEach(r => console.log('   ' + r[0] + ' | ' + r[1] + ' | ' + r[2] + ' | ' + r[3] + ' | ' + r[5]));
+  }
+  return 'ok';
 }
