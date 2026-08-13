@@ -107,6 +107,7 @@
 | 분배금 | `Σ toKrw(amount)` | `portfolio.html:1400` |
 | 누적분배율 | `분배금/투자금×100` | `portfolio.html:1410` |
 | 환산분배율 | `projectAnnualDist()` 합계 / 투자금 × 100 | `portfolio.html:1315` |
+| 월별 투영 | `projectMonthly()` — 대시보드 12개월 막대·월평균 | `portfolio.html:2255~2278` |
 
 `toKrw(v, cur)` = `cur === 'USD' ? v * rate : v`.
 
