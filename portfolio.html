@@ -387,6 +387,39 @@
     .sv-notice { flex-basis:auto; width:100%; box-sizing:border-box; }
     .sv-main { width:100%; min-width:0; }
   }
+
+  /* 포트폴리오 탭 모바일 대응. 이 영역은 인라인 스타일로 짜여 있어 !important 없이는 못 이긴다.
+     데스크톱 폭 기준(합산 카드 6칸 min-width 합 710px + 패딩 ≈ 870px)이라 폰에서 카드의
+     overflow:hidden에 잘려 나갔다. 구조는 그대로 두고 폭 규칙만 덮는다. */
+  @media (max-width:768px) {
+    /* ① 상단 합산 카드 → 3칸 × 2줄 */
+    #summaryCard { padding:14px 12px !important; }
+    #summaryCard > div:last-child {           /* 첫 자식은 상단 3px 그라데이션 바 */
+      display:grid !important; grid-template-columns:repeat(3,1fr) !important; gap:12px 6px !important;
+    }
+    #summaryCard > div:last-child > div {
+      flex:none !important; min-width:0 !important; padding:0 !important; border-right:none !important;
+    }
+    #summaryCard > div:last-child > div > div:last-child {
+      font-size:14px !important; overflow-wrap:anywhere;   /* 9자리 숫자가 칸을 밀어내지 않게 */
+    }
+
+    /* ② 재남/은경 → 세로로 쌓기, 지표줄은 3칸씩 */
+    #personGrid { grid-template-columns:1fr !important; }
+    #personGrid > div > div:nth-child(2) {    /* 1=이름 헤더, 2=지표줄, 3=계좌 표 */
+      display:grid !important; grid-template-columns:repeat(3,1fr) !important; gap:10px 6px !important;
+      padding:11px 12px !important;
+    }
+    #personGrid > div > div:nth-child(2) > div {
+      flex:none !important; min-width:0 !important; padding:0 !important; border-right:none !important;
+    }
+    #personGrid > div > div:nth-child(2) > div > div:last-child {
+      font-size:13px !important; overflow-wrap:anywhere;   /* 16px면 199,931,984가 칸을 넘어 옆칸과 붙는다 */
+    }
+    /* 계좌 표는 8열이라 폰 폭에 절대 안 들어간다 → 표만 좌우 스크롤 */
+    #jn-accounts-table, #ek-accounts-table { overflow-x:auto !important; }
+    #jn-accounts-table table, #ek-accounts-table table { min-width:620px !important; }
+  }
 </style>
 </head>
 <body>
@@ -487,8 +520,8 @@
       </div>
     </div>
 
-    <!-- ② 재남(좌) / 은경(우) -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+    <!-- ② 재남(좌) / 은경(우) — 폰에서는 세로로 쌓인다(위 @media) -->
+    <div id="personGrid" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
       <!-- 재남 -->
       <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;overflow:hidden">
         <div style="background:#2563eb;padding:9px 16px"><span style="font-size:13px;font-weight:700;color:#fff">👤 재남</span></div>
