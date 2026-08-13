@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>포트폴리오 관리</title>
+<script>
+// 폰이면 폰 전용 화면으로 보낸다. ?pc=1 이면 이 파일을 그대로 쓴다(m.html의 'PC 화면으로' 링크).
+// 게이트보다 먼저 돌아야 비밀번호를 두 번 묻지 않는다 → head에서 즉시 실행한다.
+if (!/[?&]pc=1/.test(location.search) && window.innerWidth <= 768) {
+  location.replace('m.html' + location.hash);
+}
+</script>
 <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/npm/pretendard/dist/web/static/pretendard.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
