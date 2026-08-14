@@ -728,7 +728,7 @@ if (!/[?&]pc=1/.test(location.search) && window.innerWidth <= 768) {
 
     <div class="card mt-16">
       <div class="card-header">
-        <div class="card-title">📈 계좌별 누적 수익률</div>
+        <div class="card-title">📈 계좌별 누적 수익률 <span style="font-size:10px;font-weight:400;color:var(--text3)">· 드래그 이동 · 휠 확대/축소 · 더블클릭 초기화</span></div>
         <div style="display:flex;gap:6px">
           <button id="plModeDay"   class="btn btn-ghost btn-sm" onclick="setPlMode('day')"   style="background:var(--accent);color:#fff;border-color:var(--accent)">일</button>
           <button id="plModeMonth" class="btn btn-ghost btn-sm" onclick="setPlMode('month')">월</button>
@@ -2185,6 +2185,8 @@ async function saveDividendCell(input) {
 let _dashData = null;
 let _plMode = 'day';
 let _plLog  = null;
+let _plSpan = null;    // 보이는 점 개수(휠 줌). null=모드 기본값
+let _plOffset = 0;     // 최신에서 뒤로 민 점 개수(드래그 팬). 0=최신
 
 async function loadDashboard() {
   const year = parseInt(document.getElementById('dashYearSel').value) || new Date().getFullYear();
@@ -2363,6 +2365,7 @@ function acctTaxRate(name){
 
 function setPlMode(m) {
   _plMode = m;
+  _plSpan = null; _plOffset = 0;   // 모드 바뀌면 줌·팬 초기화
   ['Day','Month','Year'].forEach(x => {
     const el = document.getElementById('plMode' + x);
     if (el) el.style.cssText = (m === x.toLowerCase()) ? 'background:var(--accent);color:#fff;border-color:var(--accent)' : '';
@@ -2384,6 +2387,43 @@ async function loadPortfolioLog() {
   } catch(e) {
     if (el) el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:20px;text-align:center">로드 실패</div>';
   }
+}
+
+// 누적수익률 차트: 마우스 드래그=과거로 팬, 휠=줌, 더블클릭=초기화.
+// #plChart 노드는 innerHTML만 갈아끼워 유지되므로 리스너는 딱 한 번만 붙인다.
+function bindPlPanZoom(el) {
+  el.style.cursor = 'grab';
+  el.style.userSelect = 'none';
+  el.addEventListener('wheel', e => {
+    if (!_plLog || !_plLog.items) return;
+    e.preventDefault();
+    const cur = _plSpan || 10;
+    const step = Math.max(1, Math.round(cur * 0.2));
+    _plSpan = cur + (e.deltaY > 0 ? step : -step);   // 아래로=축소(더 많이), 위로=확대
+    renderPlChart();
+  }, { passive: false });
+  let dragging = false, lastX = 0, acc = 0;
+  el.addEventListener('pointerdown', e => {
+    dragging = true; lastX = e.clientX; acc = 0;
+    el.style.cursor = 'grabbing';
+    if (el.setPointerCapture) el.setPointerCapture(e.pointerId);
+  });
+  el.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    const ppp = el.clientWidth / Math.max(_plSpan || 10, 1);  // 점 하나당 픽셀
+    acc += e.clientX - lastX; lastX = e.clientX;
+    if (Math.abs(acc) >= ppp) {
+      const shift = Math.trunc(acc / ppp);
+      _plOffset += shift;        // 오른쪽으로 끌면(양수) 과거가 보이게
+      acc -= shift * ppp;
+      renderPlChart();
+    }
+  });
+  const endDrag = () => { dragging = false; el.style.cursor = 'grab'; };
+  el.addEventListener('pointerup', endDrag);
+  el.addEventListener('pointerleave', endDrag);
+  el.addEventListener('pointercancel', endDrag);
+  el.addEventListener('dblclick', () => { _plSpan = null; _plOffset = 0; renderPlChart(); });
 }
 
 function renderPlChart() {
@@ -2454,8 +2494,15 @@ function renderPlChart() {
   // 일 모드: 주말(토·일) 날짜 제외 → 평일만 남겨 x축을 균등 간격으로 (주말 빈칸 벌어짐 방지)
   if (_plMode === 'day') allKeys = allKeys.filter(k => { const g = new Date(k + 'T00:00:00').getDay(); return g !== 0 && g !== 6; });
   const maxN = _plMode === 'day' ? 22 : _plMode === 'month' ? 24 : 10;
-  const keys = allKeys.slice(-maxN);
+  // 드래그(팬)+휠(줌) 창. _plSpan=보이는 개수, _plOffset=최신에서 뒤로 민 개수.
+  let span = Math.max(4, Math.min(_plSpan || maxN, allKeys.length));
+  _plSpan = span;
+  const off = Math.max(0, Math.min(_plOffset, allKeys.length - span));
+  _plOffset = off;
+  const end = allKeys.length - off;
+  const keys = allKeys.slice(Math.max(0, end - span), end);
   if (!keys.length) { el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:20px;text-align:center">데이터 없음</div>'; return; }
+  if (!el._pzBound) { el._pzBound = true; bindPlPanZoom(el); }
 
   const COLORS = {
     '재남 키움 일반계좌':    '#3b82f6',
