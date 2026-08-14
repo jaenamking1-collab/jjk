@@ -516,12 +516,15 @@ function viewDash() {
   const mx = Math.max(...M.proj, 1);
   const bars = M.proj.map((v,i) => {
     const isNow = (i+1) === new Date().getMonth()+1 && D.year === new Date().getFullYear();
+    // portfolio.html:2331 과 동일 — 그 달 투영액의 99%↑가 실제 입력일 때만 '확정(초록)'.
+    // actual>0 만 보면 투영 위주 달에 실입력 하나만 껴도 초록+부풀린 금액이 뜬다.
+    const isActual = M.actual[i] > 0 && M.actual[i] >= v * 0.99;
     return `<div style="display:grid;grid-template-columns:26px 1fr 84px;gap:7px;align-items:center;padding:3px 0">
       <span class="muted" style="${isNow?'color:var(--accent);font-weight:800':''}">${i+1}월</span>
       <div style="height:13px;background:#f1f4fa;border-radius:4px;overflow:hidden">
-        <div style="height:100%;width:${v/mx*100}%;background:${M.actual[i]>0?'var(--green)':'#c7d2fe'};border-radius:4px"></div>
+        <div style="height:100%;width:${v/mx*100}%;background:${isActual?'var(--green)':'#c7d2fe'};border-radius:4px"></div>
       </div>
-      <span class="num" style="font-size:11px;text-align:right;${M.actual[i]>0?'color:var(--green)':'color:var(--text3)'}">${won(v)}</span>
+      <span class="num" style="font-size:11px;text-align:right;${isActual?'color:var(--green)':'color:var(--text3)'}">${won(v)}</span>
     </div>`;
   }).join('');
 
