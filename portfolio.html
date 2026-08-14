@@ -2235,11 +2235,20 @@ async function loadDashboard() {
     byHolding[hid][y][m] = parseFloat(d.amount) || 0;
   });
   const ALLM = [1,2,3,4,5,6,7,8,9,10,11,12];
+  // 지급월 판정. 예전엔 '과거 전 연도 지급월의 union'이라, 지급월이 해마다 밀리는
+  // 반기 리츠(롯데리츠 3→4월, 코람코 2→3월)가 연 2회인데 3개월로 잡혀 특정 달이 부풀었다.
+  // → 올해 실제 지급월 + 직전 연도 스케줄. 단 직전 월이 올해 월과 ±1개월 내면 '밀린 것'으로 보고 제외.
   const payMonthsOf = (h) => {
     const cyc = h.div_cycle || '';
     if (/월|주/.test(cyc)) return ALLM;
     const hist = byHolding[h.id] || {};
-    const ms = [...new Set(Object.values(hist).flatMap(o => Object.keys(o).map(Number)).filter(Boolean))].sort((a,b)=>a-b);
+    const thisY = Object.keys(hist[year] || {}).map(Number).filter(Boolean);
+    const priors = Object.keys(hist).map(Number).filter(y => y < year).sort((a,b)=>b-a);
+    const ref = priors.length ? Object.keys(hist[priors[0]]).map(Number).filter(Boolean) : [];
+    const merged = [...thisY];
+    // ponytail: ±1개월 드리프트만 병합. 2개월 이상 밀리는 경우는 드물어 무시.
+    ref.forEach(m => { if (!thisY.some(a => Math.abs(a - m) <= 1)) merged.push(m); });
+    const ms = [...new Set(merged)].sort((a,b)=>a-b);
     if (ms.length) return ms;
     if (/분기/.test(cyc)) return [3,6,9,12];
     if (/반기/.test(cyc)) return [6,12];

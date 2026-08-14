@@ -276,7 +276,14 @@ function projectMonthly(holdings, dividends, year) {
     if (/월|주/.test(cyc)) months = ALLM;
     else {
       const hist = byH[h.id] || {};
-      const ms = [...new Set(Object.values(hist).flatMap(o => Object.keys(o).map(Number)).filter(Boolean))].sort((a,b)=>a-b);
+      // portfolio.html payMonthsOf 와 동일 — union 대신 올해 실제월 + 직전 연도 스케줄(올해 월과
+      // ±1개월 겹치면 제외). 지급월 밀린 반기 리츠가 연 2회인데 3개월로 잡혀 부풀던 것 방지.
+      const thisMs = Object.keys(hist[year] || {}).map(Number).filter(Boolean);
+      const priors = Object.keys(hist).map(Number).filter(y => y < year).sort((a,b)=>b-a);
+      const ref = priors.length ? Object.keys(hist[priors[0]]).map(Number).filter(Boolean) : [];
+      const merged = [...thisMs];
+      ref.forEach(mm => { if (!thisMs.some(a => Math.abs(a - mm) <= 1)) merged.push(mm); });
+      const ms = [...new Set(merged)].sort((a,b)=>a-b);
       months = ms.length ? ms : (/분기/.test(cyc) ? [3,6,9,12] : /반기/.test(cyc) ? [6,12] : []);
     }
     months.forEach(m => {
