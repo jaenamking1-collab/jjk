@@ -13,13 +13,14 @@ There is **no build system, package manager, test suite, or lint config**. The f
 - **Editing**: The file is large with inline styles and one big script block. Use Grep to locate a function/section by line before editing rather than reading the whole file. Function definitions are plain `function name()` / `async function name()` at column 0, so `^(async )?function <name>` finds them fast.
 - **Preview**: Just open `portfolio.html` in a browser (the launch preview panel also renders it). No dev server.
 - **Commit/push**: History is a linear series of single-file "Update portfolio.html" commits on `main`, pushed to `origin` (GitHub `jaenamking1-collab/jjk`). Git identity is set locally as `jaenamking1-collab <jaenamking1@gmail.com>` (not global — new clones must set it). The owner works across **two PCs (work / home)** and wants every change committed and pushed automatically without asking.
-- **Two-PC routine**: This repo is edited from two machines. **Start every session with `git pull`** so the other PC's work (and `WORKLOG.md` / `CLAUDE.md` rules) is present before touching anything. **End every session by** adding one entry to the top of `WORKLOG.md`, then `git add .` → `git commit` → `git push`. `WORKLOG.md` is the running cross-PC log; keep it current.
+- **Two-PC routine**: This repo is edited from two machines. **The very first thing in every session — before reading anything, before `git pull`: run `git status`. If the tree is dirty, commit and push it immediately**, before any other action. A dirty tree at session start means *the previous session on this PC ended without committing* and that work is stranded — pulling first can turn it into a conflict, and reading first wastes the chance to rescue it. Then `git pull` so the other PC's work (and `WORKLOG.md` / `CLAUDE.md` rules) is present. **End every session by** adding one entry to the top of `WORKLOG.md`, then `git add .` → `git commit` → `git push`. `WORKLOG.md` is the running cross-PC log; keep it current.
+- **This is also automated — but don't rely on it alone.** `.claude/settings.json` (committed, so both PCs get it) holds two hooks: `SessionStart` rescues a dirty tree then pulls, and `Stop` commits + pushes at the end of every turn. Both are limited to `main` and skip mid-merge/rebase. **A PC that has never pulled since 2026-08-18 does not have them yet** — the hooks arrive via the very pull they are meant to perform, so on that one bootstrap session the rule above is the only thing protecting the work. Do it by hand there. (This gap is exactly how the 2026-08-18 school work was stranded — see WORKLOG 99.)
 
 ## 세션 연속성 (WORKLOG.md)
 
 이 프로젝트는 두 대의 Windows PC(직장 / 집)에서 Claude Code로 번갈아 작업한다. 대화 맥락이 PC 간에 이어지지 않으므로 `WORKLOG.md`를 Git으로 동기화되는 공유 메모리로 사용한다.
 
-- **세션 시작 시**: `WORKLOG.md`를 먼저 읽어 최근 작업 맥락과 "다음 할 일"을 파악한다.
+- **세션 시작 시**: ⚠️ **`git status`가 맨 처음이다.** 더러우면 **읽기도 pull도 하기 전에** 먼저 커밋·푸시한다 — 이전 세션이 커밋 없이 끝났다는 뜻이고, 그 작업은 이 PC에만 있다. 그 다음 `git pull`, 그 다음 `WORKLOG.md`를 읽어 맥락과 "다음 할 일"을 파악한다.
 - **세션 종료 시**: `WORKLOG.md` 맨 위에 새 항목(날짜, 장소(직장/집), 한 일, 다음 할 일)을 추가한다. 과거 항목은 수정하지 않는다.
 - **갱신 후**: `git add .` → `git commit` → `git push`까지 자동으로 수행한다. 사용자가 "항상 커밋·푸시"를 요청했으므로 매번 확인하지 않는다.
 
