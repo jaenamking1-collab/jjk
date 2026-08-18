@@ -446,9 +446,9 @@ if (!/[?&]pc=1/.test(location.search) && window.innerWidth <= 768) {
 
 <div class="tabs">
   <button class="tab active" onclick="showTab('accounts')">포트폴리오</button>
+  <button class="tab" onclick="showTab('dashboard')">대시보드</button>
   <button class="tab" onclick="showTab('holdings')">종목관리</button>
   <button class="tab" onclick="showTab('dividends')">분배금</button>
-  <button class="tab" onclick="showTab('dashboard')">대시보드</button>
   <button class="tab" onclick="showTab('pension')">연금플랜</button>
   <button class="tab" onclick="showTab('screener')">월배당 스크리너</button>
   <button class="tab" onclick="showTab('distributions')">분배금공지</button>
@@ -485,7 +485,7 @@ if (!/[?&]pc=1/.test(location.search) && window.innerWidth <= 768) {
       <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#3b82f6,#10b981,#8b5cf6)"></div>
       <div style="display:flex;gap:0;flex-wrap:wrap">
         <div style="flex:1.6;min-width:130px;padding:0 16px 0 0;border-right:1px solid var(--border)">
-          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">총 투자금</div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">투자원금</div>
           <div style="font-family:var(--mono);font-size:20px;font-weight:700" id="sum-invest">-</div>
         </div>
         <div style="flex:1.6;min-width:130px;padding:0 16px;border-right:1px solid var(--border)">
