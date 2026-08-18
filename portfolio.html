@@ -2551,6 +2551,8 @@ function renderPlChart() {
       <line x1="${P.l}" y1="${toY(v).toFixed(1)}" x2="${W-P.r}" y2="${toY(v).toFixed(1)}" stroke="var(--border)" stroke-width=".5" stroke-dasharray="3,3"/>
       <text x="${(P.l-4).toFixed(1)}" y="${(toY(v)+3.5).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--text3)">${fmt억(v)}</text>
     `).join('');
+    // 월 경계 세로 구분선 (day 모드)
+    const mSep=_plMode!=='day'?'':keys.map((k,i)=>(i>0&&k.slice(0,7)!==keys[i-1].slice(0,7))?`<line x1="${toX(i).toFixed(1)}" y1="${P.t}" x2="${toX(i).toFixed(1)}" y2="${(H-P.b).toFixed(1)}" stroke="var(--border)" stroke-width="1" stroke-dasharray="2,3"/>`:'').join('');
     // x축 레이블: clipPath 대신 viewBox 여백으로 잘림 방지, font-size 올리고 y위치 여유있게
     const xSvg=keys.map((k,i)=>xLbls[i]?`<text x="${toX(i).toFixed(1)}" y="${(H-5).toFixed(1)}" text-anchor="middle" font-size="10" fill="var(--text3)">${xLbls[i]}</text>`:'').join('');
     let seg=[],path='';
@@ -2572,7 +2574,7 @@ function renderPlChart() {
         <span style="font-family:var(--mono);font-size:12px;font-weight:700;color:var(--text)">${fmt억(lv)}</span>
       </div>
       <div style="font-size:9px;color:${dc};margin-bottom:4px;font-family:var(--mono)">${diff>=0?'+':''}${fmt억(diff)}</div>
-      <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;overflow:visible">${yLines}${xSvg}${path}</svg>
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;overflow:visible">${yLines}${mSep}${xSvg}${path}</svg>
     </div>`;
   };
 
@@ -2611,6 +2613,8 @@ function renderPlChart() {
       <line x1="${P.l}" y1="${toY(v).toFixed(1)}" x2="${W-P.r}" y2="${toY(v).toFixed(1)}" stroke="var(--border)" stroke-width=".5" stroke-dasharray="3,3"/>
       <text x="${(P.l-4).toFixed(1)}" y="${(toY(v)+3.5).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--text3)">${fmt억(v)}</text>
     `).join('');
+    // 월 경계 세로 구분선 (day 모드)
+    const mSep=_plMode!=='day'?'':keys.map((k,i)=>(i>0&&k.slice(0,7)!==keys[i-1].slice(0,7))?`<line x1="${toX(i).toFixed(1)}" y1="${P.t}" x2="${toX(i).toFixed(1)}" y2="${(H-P.b).toFixed(1)}" stroke="var(--border)" stroke-width="1" stroke-dasharray="2,3"/>`:'').join('');
     const xSvg=keys.map((k,i)=>xLbls[i]?`<text x="${toX(i).toFixed(1)}" y="${(H-4).toFixed(1)}" text-anchor="middle" font-size="10" fill="var(--text3)">${xLbls[i]}</text>`:'').join('');
     let seg=[],path='';
     pts.forEach((v,i)=>{
@@ -2637,7 +2641,7 @@ function renderPlChart() {
       const x=toX(o.i), y=toY(o.v), dy=peak?-7:13;
       lbl+=`<text x="${x.toFixed(1)}" y="${(y+dy).toFixed(1)}" text-anchor="middle" font-size="${isLast?7:6}" font-weight="${isLast?700:600}" fill="${isLast?'#7c3aed':'var(--text2)'}">${fmt억(o.v)}</text>`;
     });
-    return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;overflow:visible">${yLines}${xSvg}${path}${lbl}</svg>`;
+    return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;overflow:visible">${yLines}${mSep}${xSvg}${path}${lbl}</svg>`;
   };
 
   const jnAccs=['재남 키움 일반계좌','재남 키움 ISA','재남 키움 연금저축'];
