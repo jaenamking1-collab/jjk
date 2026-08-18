@@ -4863,15 +4863,26 @@ function noticeShiftMonth(dir) {
   renderNotices();
 }
 
-// 공지를 GAS 프록시로 받는 운용사(TIGER·PLUS는 브라우저가 운용사 사이트를 직접 호출). 벌크 캐시 적용 대상.
-const NOTICE_VIA_GAS = ['kodex', 'ace', 'rise', 'sol'];
+// 공지를 GAS 프록시로 받는 운용사 = 6개사 전부. 공개 페이지(dist_notice.html:230)와 같은 방식으로 통일했다.
+// 서버 벌크 캐시엔 이미 6개사가 다 들어 있는데 TIGER·PLUS만 브라우저가 운용사 사이트를 또 긁고 있었다.
+// 벌크에 없으면(stale) 아래 각 소스의 fetch로 자동 폴백하므로 예전 경로는 그대로 살아 있다.
+const NOTICE_VIA_GAS = ['kodex', 'tiger', 'ace', 'plus', 'rise', 'sol'];
+
+// 공지 스냅샷: 백엔드 응답이 평소 1.6초인데 5회에 1번꼴로 6~19초까지 튄다. 이 패널은 6개사가
+// 다 모여야 한 번에 그리므로 그동안 통째로 "불러오는 중…"에 멈춘다. 지난번 공지를 즉시 그려두고
+// 뒤에서 갱신한다 — 포트폴리오 첫 화면의 paintFromCache와 같은 방식.
+const _NSNAP_KEY = 'jjk_nsnap_v1';
 
 async function loadAllNotices() {
   const grid = document.getElementById('noticeGrid');
   if (!grid) return;
-  grid.innerHTML = '<div class="notice-loading">불러오는 중...</div>';
-  // 빠른 경로: GAS로 받는 4곳의 서버 캐시를 한 번에 받는다(예전엔 운용사별 6번 → 캐시 미스 1건이 10초).
-  // 캐시에 없는 곳과 브라우저가 직접 긁는 곳은 기존대로 개별 병렬 요청 — 재배포 전이면 벌크가 비어 전부 이 경로로 간다.
+  let snap = null;
+  try { snap = JSON.parse(localStorage.getItem(_NSNAP_KEY)); } catch(e) {}
+  const painted = !!(snap && snap.length);
+  if (painted) { _noticeData = snap; renderNotices(); showRefreshing(true); }
+  else grid.innerHTML = '<div class="notice-loading">불러오는 중...</div>';
+  // 빠른 경로: 6개사의 서버 캐시를 한 번에 받는다(예전엔 운용사별 6번 → 캐시 미스 1건이 10초).
+  // 캐시에 없는 곳(stale)만 기존대로 개별 병렬 요청 — 재배포 전이면 벌크가 비어 전부 이 경로로 간다.
   const bulk = await api({ action: 'getEtfNoticesAll' }).catch(() => null);
   const cached = (bulk && bulk.sources) || {};
   const results = await Promise.allSettled(NOTICE_SOURCES.map(s => {
@@ -4881,6 +4892,11 @@ async function loadAllNotices() {
   }));
   _noticeData = results.map(r => r.value || {});
   renderNotices();
+  if (painted) showRefreshing(false);
+  // 전부 0건이면 스냅샷을 덮지 않는다 — 일시적 실패가 다음 진입의 빈 화면으로 굳는 걸 막는다.
+  // (fetch 함수는 JSON 직렬화에서 자동으로 빠지고, renderNotices는 id·name·label·items만 쓴다.)
+  if (_noticeData.some(d => (d.items || []).length))
+    try { localStorage.setItem(_NSNAP_KEY, JSON.stringify(_noticeData)); } catch(e) {}
 }
 
 function renderNotices() {
