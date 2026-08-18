@@ -25,7 +25,14 @@
   - 📌 **하네스 함정 2개**: `data:` URL 미리보기는 `sessionStorage`가 막혀 **`portfolio.html:1129`에서 스크립트가 통째로 중단**된다 → 그 아래 모든 `const`가 TDZ("Cannot access X before initialization"). 내 코드 탓으로 오해하기 딱 좋다. **진짜 검증은 `http://localhost`로 띄워야 한다.** 또 미리보기 탭은 프레임을 안 돌려 **CSS transition이 멈춰** computed 값이 시작값에 고정된다.
   - 📌 Windows PowerShell에서 `Get-Content -Raw`는 한글을 cp949로 깨뜨려 **가짜 SyntaxError**를 만든다. `[IO.File]::ReadAllText(path, UTF8)`를 쓸 것.
 - ✅ **프론트만 수정 — Apps Script 재배포 불필요.**
-- **다음 할 일**: 공개 페이지 `dist_notice.html:570`도 **같은 all-or-nothing 구조**라 같은 증상이 난다(스냅샷만 없고 프록시 통일은 이미 돼 있음). 고치려면 별도 `jjk-dist` repo에 수동 미러가 필요해 **사용자 확인 후** 진행.
+- **(이어서) 공개 페이지도 같이 고쳤다** — 사용자 "당연히 해야지". `dist_notice.html`도 같은 all-or-nothing 구조라 스냅샷(`jjk_dnsnap_v1`)을 넣었다. 여긴 프록시 통일이 이미 돼 있어 `NOTICE_VIA_GAS` 변경은 불필요. `showRefreshing`이 없는 파일이라 배지 대신 **제목에 ' ⟳'**를 붙였다 가 갱신 끝나면 `renderNotices`가 제목을 새로 쓰면서 자동으로 지워진다.
+  - 검증 **11/11 PASS**(localhost + 실제 함수): 첫 방문 스피너 / 재방문 **0ms 렌더** / 스냅샷 HTML == 실데이터 HTML / ⟳ 표시·제거 / 0건일 때 스냅샷 보존 / stale 폴백 6개사.
+  - **`jjk-dist` repo 미러·푸시까지 완료** — 안 하면 라이브는 안 바뀐다.
+- ⭐ **권한 프롬프트가 자꾸 뜨는 원인도 같이 잡았다** (사용자: "그냥 니가 진행하라고 했는데 자꾸 묻는다").
+  - **원인은 WORKLOG 99와 판박이다**: 허용 목록 84개가 전부 **`.claude/settings.local.json`**에 있는데 `.gitignore`가 `.claude/*`(예외 `settings.json` 하나)라 **그 파일이 다른 PC로 간 적이 없다.** 한쪽에서 '계속 허용'을 아무리 눌러도 반대편은 처음부터 다시 묻는다.
+  - **조치**: 커밋되는 **`.claude/settings.json`에 `permissions` 신설**(allow 45 / deny 6). 실제 트랜스크립트 17세션·툴콜 1,968건을 세어 빈도 상위로 골랐다 — 브라우저 MCP 전체(javascript_tool 109회 등), `git add·commit·push`(사용자 상시 지시), `curl`, `Skill(*)`, `node --check`.
+  - 넣지 **않은** 것: `git status`·`ls`·`grep`·`head`·`cat`·`echo`는 원래 자동 허용이라 불필요. `Bash(python *)`·`Bash(node *)` 같은 **임의 코드 실행 와일드카드는 공유 파일에 안 넣었다**(로컬엔 이미 있음). `deny` 보호 규칙 6개는 **공유 파일에도 그대로 복사** — 허용만 공유하고 가드를 빼면 안 되니까.
+  - **검증**: JSON 파싱 OK / `hooks` 두 개가 **HEAD 버전과 문자열 단위로 완전 동일**함을 대조(권한 추가하다 훅을 깨먹지 않았는지가 제일 위험한 지점이었다).
 
 ## 2026-08-18 (99) 집 — ⭐**자동 커밋·푸시 훅이 한쪽 PC에만 있었다. 학교 작업이 갇힌 원인.**
 - **발단**: 사용자가 "학교에서 계좌 거래내역 넣는 작업"을 하고 왔는데 저장소에 없었다. 집 PC에서 확인:
