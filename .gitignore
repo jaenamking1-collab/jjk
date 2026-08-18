@@ -9,6 +9,14 @@ skills-lock.json
 # 2026-08-18 학교 작업이 커밋 안 된 채 남았다. settings.local.json 은 계속 무시한다(머신별 권한 목록).
 !.claude/settings.json
 
+# ⚠️ 개인 금융자료(거래내역·잔고 엑셀 등)는 절대 커밋하지 않는다.
+# 이 저장소는 GitHub에 **public**으로 공개돼 있고, Stop 훅이 매 턴 `git add -A`로 자동 커밋·푸시한다.
+# 즉 이 폴더에 엑셀을 그냥 두면 사람이 손대지 않아도 전 세계에 공개된다.
+# 거래내역 파일은 저장소가 아니라 **Google Drive**에 두고 거기서 읽을 것.
+*.xlsx
+*.xls
+*.csv
+
 # clasp 인증 토큰 — 절대 커밋하지 않는다(기본 위치는 홈 디렉터리지만 방어적으로 넣어둔다).
 # .clasp.json(scriptId)은 두 PC가 공유해야 하므로 커밋한다 — 비밀값이 아니고 편집기 URL에 그대로 있다.
 .clasprc.json
