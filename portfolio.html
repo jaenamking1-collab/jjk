@@ -2270,9 +2270,13 @@ async function loadDashboard() {
       const actual = thisYear[m] || 0;
       const amtK = divKrw(actual > 0 ? actual : perPay, cur);
       monthProj[m-1] += amtK;
-      if (actual > 0) monthActual[m-1] += divKrw(actual, cur);
       accYM[aid][year].months[m-1] += amtK;
       accYM[aid][year].total += amtK;
+    });
+    // 확정(입력)은 payMonthsOf 제한 없이 실제 입력된 모든 월을 합산 → 앱 월합계와 일치
+    Object.entries(thisYear).forEach(([mm, a]) => {
+      const v = parseFloat(a) || 0;
+      if (v > 0) monthActual[parseInt(mm)-1] += divKrw(v, cur);
     });
     Object.keys(byHolding[h.id] || {}).forEach(ys => {
       const yy = parseInt(ys); if (yy === year) return;
@@ -2335,13 +2339,16 @@ async function loadDashboard() {
 
   // ④ 월별 차트 (확정=진하게, 예상=연하게)
   const curMonth = new Date().getMonth(), nowY = new Date().getFullYear();
-  const max = Math.max(...monthProj,1);
+  // 지난 달은 확정(입력) 실측, 이번 달·미래는 예상(투영). 과거 연도 전부 확정, 미래 연도 전부 예상.
+  const isConfirmed = i => year < nowY || (year === nowY && i < curMonth);
+  const barVal = i => isConfirmed(i) ? monthActual[i] : monthProj[i];
+  const max = Math.max(...Array.from({length:12},(_,i)=>barVal(i)),1);
   const mlabels=['1','2','3','4','5','6','7','8','9','10','11','12'];
   document.getElementById('monthChart').innerHTML = `<div class="chart-bars">
-    ${monthProj.map((t,i)=>{
-      const isActual = monthActual[i] > 0 && monthActual[i] >= t*0.99;
-      const col = (i===curMonth&&year===nowY) ? 'var(--green)' : (isActual ? 'var(--accent)' : 'var(--accent2)');
-      const op = isActual ? '1' : '0.4';
+    ${mlabels.map((_,i)=>{
+      const t = barVal(i);
+      const col = (i===curMonth&&year===nowY) ? 'var(--green)' : (isConfirmed(i) ? 'var(--accent)' : 'var(--accent2)');
+      const op = isConfirmed(i) ? '1' : '0.4';
       return `<div class="bar-wrap">
         <div style="font-size:10px;color:var(--text2);font-family:var(--mono);margin-bottom:4px">${t?Math.round(t/10000)+'만':''}</div>
         <div class="bar" style="height:${Math.max((t/max)*120,2)}px;background:${col};opacity:${op}"></div>
