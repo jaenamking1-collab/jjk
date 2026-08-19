@@ -1858,9 +1858,10 @@ async function loadDividendGrid() {
   const accountId = document.getElementById('divAccountFilter').value;
   document.getElementById('dividendGrid').innerHTML = '<div class="loading"><span class="spinner"></span>불러오는 중...</div>';
 
-  const [allHoldings, allDivs] = await Promise.all([
+  const [allHoldings, allDivs, costMap] = await Promise.all([
     api({ action:'getHoldings' }),
-    api({ action:'getDividends', year })
+    api({ action:'getDividends', year }),
+    api({ action:'getCostBasis', year })       // 그달 말 원금(분모). 없으면 현재 원금으로 폴백
   ]);
 
   let holdings = allHoldings || [];
@@ -1905,7 +1906,7 @@ async function loadDividendGrid() {
     const invest = (parseFloat(h.avg_price)||0) * (parseFloat(h.quantity)||0);
     const investKrw = h.currency === 'USD' ? invest * er : invest;
     const isUsd = h.currency === 'USD';
-    let rowTotalKrw = 0;
+    let rowTotalKrw = 0, invSum = 0, invN = 0;
     const cells = months.map(m => {
       const key = `${h.id}_${m}`;
       const div = divMap[key];
@@ -1917,7 +1918,10 @@ async function loadDividendGrid() {
       // 표시: USD종목은 달러, KRW는 원화
       const displayVal = amt ? (isUsd ? amt.toFixed(2) : Math.round(amt).toLocaleString()) : '';
       const rawVal = div ? (div.raw_formula || displayVal) : '';
-      const monthRate = (investKrw > 0 && amtKrw > 0) ? (amtKrw / investKrw * 100).toFixed(2) : '';
+      const cb = (costMap || {})[key];
+      const invM = cb ? (cb.cur === 'USD' ? cb.cost * er : cb.cost) : investKrw;
+      if (amtKrw && invM > 0) { invSum += invM; invN++; }
+      const monthRate = (invM > 0 && amtKrw > 0) ? (amtKrw / invM * 100).toFixed(2) : '';
       const dol = isUsd && amt ? `<span style="font-size:1em;color:#92400e;font-weight:700;margin-right:2px">$</span>` : '';
       return `<td style="padding:0">
         <div style="display:flex;align-items:center;justify-content:flex-end;white-space:nowrap;padding:0 3px">
@@ -1935,11 +1939,12 @@ async function loadDividendGrid() {
       </td>`;
     }).join('');
     accSumKrw += rowTotalKrw;
-    const realRate = (investKrw > 0 && rowTotalKrw > 0) ? (rowTotalKrw / investKrw * 100).toFixed(2) : '-';
+    const investAvgKrw = invN ? invSum / invN : investKrw;   // 분배금 받은 달들의 평균 원금
+    const realRate = (investAvgKrw > 0 && rowTotalKrw > 0) ? (rowTotalKrw / investAvgKrw * 100).toFixed(2) : '-';
     const filledMonths = months.filter(m => { const key=`${h.id}_${m}`; return divMap[key] && parseFloat(divMap[key].amount) > 0; }).length;
     const cycStr2 = (h.div_cycle||'').split('|')[0];
     const ac2 = /주배당/.test(cycStr2) ? 52 : /월/.test(cycStr2) ? 12 : /분기/.test(cycStr2) ? 4 : /반기/.test(cycStr2) ? 2 : filledMonths > 0 ? (12/filledMonths) : 0;
-    const annualRate = (investKrw > 0 && filledMonths > 0 && rowTotalKrw > 0 && ac2 > 0) ? (rowTotalKrw / filledMonths * ac2 / investKrw * 100).toFixed(2) : '-';
+    const annualRate = (investAvgKrw > 0 && filledMonths > 0 && rowTotalKrw > 0 && ac2 > 0) ? (rowTotalKrw / filledMonths * ac2 / investAvgKrw * 100).toFixed(2) : '-';
     const divRowBg = h.currency === 'USD' ? '#fffbeb' : getAccColor(h.account_id);
     const acctCell = isGroupStart
       ? `<td rowspan="${acctSpan[idx]}" style="font-size:1em;color:#374151;font-weight:600;white-space:nowrap;vertical-align:middle;text-align:center;min-width:80px;background:${getAccColor(h.account_id)}">${acc?.name||''}</td>`
@@ -2004,9 +2009,10 @@ async function loadDivRateGrid() {
   const accountId = document.getElementById('divAccountFilter').value;
   document.getElementById('dividendGrid').innerHTML = '<div class="loading"><span class="spinner"></span>불러오는 중...</div>';
 
-  const [allHoldings, allDivs] = await Promise.all([
+  const [allHoldings, allDivs, costMap] = await Promise.all([
     api({ action:'getHoldings' }),
-    api({ action:'getDividends', year })
+    api({ action:'getDividends', year }),
+    api({ action:'getCostBasis', year })       // 그달 말 원금(분모). 없으면 현재 원금으로 폴백
   ]);
 
   let holdings = allHoldings || [];
@@ -2052,6 +2058,8 @@ async function loadDivRateGrid() {
     // 월별 금액·분배율 선계산
     const amtArr = Array(12).fill(0), rateArr = Array(12).fill(null);
     let rowTotalKrw = 0;
+    // 분모는 달마다 다르다 — 그달 말 원금(거래내역 복원분)을 쓰고, 없는 달만 현재 원금으로 폴백
+    let invSum = 0, invN = 0;
     months.forEach(m => {
       const div = divMap[`${h.id}_${m}`];
       const divCur = div ? (div.currency || (isUsd ? 'USD' : 'KRW')) : (isUsd ? 'USD' : 'KRW');
@@ -2059,8 +2067,13 @@ async function loadDivRateGrid() {
       const amtKrw = amt > 0 ? (divCur === 'USD' ? amt * er : amt) : 0;
       amtArr[m-1] = amt;
       if (amtKrw) { rowTotalKrw += amtKrw; monthTotalsKrw[m-1] += amtKrw; accMonthKrw[m-1] += amtKrw; }
-      rateArr[m-1] = (investKrw > 0 && amtKrw > 0) ? (amtKrw / investKrw * 100) : null;
+      const cb = (costMap || {})[`${h.id}_${m}`];
+      const invM = cb ? (cb.cur === 'USD' ? cb.cost * er : cb.cost) : investKrw;
+      if (amtKrw && invM > 0) { invSum += invM; invN++; }
+      rateArr[m-1] = (invM > 0 && amtKrw > 0) ? (amtKrw / invM * 100) : null;
     });
+    // 실분배율·환산분배율의 분모 = 분배금 받은 달들의 평균 원금
+    const investAvgKrw = invN ? invSum / invN : investKrw;
     accSumKrw += rowTotalKrw;
 
     const cells = months.map(m => {
@@ -2087,11 +2100,11 @@ async function loadDivRateGrid() {
       </td>`;
     }).join('');
 
-    const realRate = (investKrw > 0 && rowTotalKrw > 0) ? (rowTotalKrw / investKrw * 100).toFixed(2) : '-';
+    const realRate = (investAvgKrw > 0 && rowTotalKrw > 0) ? (rowTotalKrw / investAvgKrw * 100).toFixed(2) : '-';
     const filledMonths = months.filter(m => amtArr[m-1] > 0).length;
     const cycStr2 = (h.div_cycle||'').split('|')[0];
     const ac2 = /주배당/.test(cycStr2) ? 52 : /월/.test(cycStr2) ? 12 : /분기/.test(cycStr2) ? 4 : /반기/.test(cycStr2) ? 2 : filledMonths > 0 ? (12/filledMonths) : 0;
-    const annualRate = (investKrw > 0 && filledMonths > 0 && rowTotalKrw > 0 && ac2 > 0) ? (rowTotalKrw / filledMonths * ac2 / investKrw * 100).toFixed(2) : '-';
+    const annualRate = (investAvgKrw > 0 && filledMonths > 0 && rowTotalKrw > 0 && ac2 > 0) ? (rowTotalKrw / filledMonths * ac2 / investAvgKrw * 100).toFixed(2) : '-';
     const divRowBg = h.currency === 'USD' ? '#fffbeb' : getAccColor(h.account_id);
     const acctCell = isGroupStart
       ? `<td rowspan="${acctSpan[idx]}" style="font-size:1em;color:#374151;font-weight:600;white-space:nowrap;vertical-align:middle;text-align:center;min-width:80px;background:${getAccColor(h.account_id)}">${acc?.name||''}</td>`
