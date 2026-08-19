@@ -28,6 +28,7 @@ function doGet(e) {
       case 'getAccounts':     result = getAccounts(); break;
       case 'getHoldings':     result = getHoldings(e.parameter.account_id); break;
       case 'getDividends':    result = getDividends(e.parameter.year, e.parameter.account_id); break;
+      case 'getCostBasis':    result = getCostBasis(e.parameter.year); break;
       case 'getSavings':      result = getSavings(); break;
       case 'maturityAlertPreview': result = previewMaturityAlerts(); break;
       case 'getExchangeRate': result = { rate: fetchExchangeRate() }; break;
@@ -120,6 +121,23 @@ function getBootstrap(year) {
     rate:      fetchExchangeRate(),
     alerts:    getAlerts(30)
   };
+}
+
+// ── 원금월별 (분배율 분모) ─────────────────
+// 왜: 분모로 '지금 이 순간의 원금'(avg_price×quantity)을 쓰면 연중 수량이 바뀐 종목은
+// 지나간 달의 분배율까지 소급해서 틀린다. 거래내역에서 복원한 그달 말 원금을 쓴다.
+// 시트 '원금월별' = [holding_id, year, month, quantity, cost, currency]. 탭이 없으면 {} → 프론트가 현재 원금으로 폴백.
+function getCostBasis(year) {
+  const sheet = getSheet('원금월별');
+  if (!sheet) return {};
+  const rows = sheet.getDataRange().getValues();
+  const out = {};
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r[0] || (year && r[1].toString() !== year.toString())) continue;
+    out[r[0] + '_' + r[2]] = { qty: r[3], cost: r[4], cur: r[5] };
+  }
+  return out;
 }
 
 // ── ACCOUNTS ──────────────────────────────
