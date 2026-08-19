@@ -614,6 +614,10 @@ if (!/[?&]pc=1/.test(location.search) && window.innerWidth <= 768) {
           <option value="">계좌 선택</option>
           <option value="ALL" selected>전체 계좌</option>
         </select>
+        <label style="display:inline-flex;align-items:center;gap:5px;font-size:13px;color:var(--text);cursor:pointer"
+               title="수량 0인 종목 = 이미 판 것. 배당 기록 때문에 남겨둔 자리라 평소엔 숨긴다">
+          <input type="checkbox" id="showSoldHoldings" onchange="loadHoldings()"> 매도 종목 보기
+        </label>
         <button class="btn btn-primary" onclick="openModal('holding')">+ 종목 추가</button>
         <button class="btn" style="background:#f0fdf4;border:1px solid #86efac;color:#166534;" onclick="syncFromSheet()">🔄 스프레드시트 동기화</button>
       </div>
@@ -1655,8 +1659,12 @@ async function loadHoldings() {
     }
   });
   state.holdings = data || [];
-  renderHoldingsTable(data || []);
-  loadHoldingPrices(state.holdings); // 자동 시세 로드
+  // 수량 0 = 이미 판 종목. 과거 배당 기록을 붙이려고 만든 자리라 지우면 안 되고, 평소엔 숨긴다.
+  const showSold = document.getElementById('showSoldHoldings')?.checked;
+  const shown = showSold ? state.holdings
+                         : state.holdings.filter(h => (parseFloat(h.quantity) || 0) > 0);
+  renderHoldingsTable(shown);
+  loadHoldingPrices(shown); // 자동 시세 로드
 }
 
 function sortHoldings(holdings) {
@@ -1889,6 +1897,11 @@ async function loadDividendGrid() {
 
   let holdings = allHoldings || [];
   if (accountId) holdings = holdings.filter(h => h.account_id === accountId);
+  // 판 종목(수량 0)은 그 해에 배당을 받은 경우만 남긴다. 과거 배당을 넣으면서 매도 종목 32개가
+  // 딸려 들어와 목록이 97개가 됐다 — 안 거르면 올해 화면이 옛날 종목으로 도배된다.
+  const paidThisYear = new Set((allDivs || []).filter(d => parseFloat(d.amount) > 0)
+                                              .map(d => d.holding_id.toString()));
+  holdings = holdings.filter(h => (parseFloat(h.quantity) || 0) > 0 || paidThisYear.has(h.id.toString()));
   holdings = sortHoldings(holdings);
 
   const divMap = {};
@@ -2040,6 +2053,11 @@ async function loadDivRateGrid() {
 
   let holdings = allHoldings || [];
   if (accountId) holdings = holdings.filter(h => h.account_id === accountId);
+  // 판 종목(수량 0)은 그 해에 배당을 받은 경우만 남긴다. 과거 배당을 넣으면서 매도 종목 32개가
+  // 딸려 들어와 목록이 97개가 됐다 — 안 거르면 올해 화면이 옛날 종목으로 도배된다.
+  const paidThisYear = new Set((allDivs || []).filter(d => parseFloat(d.amount) > 0)
+                                              .map(d => d.holding_id.toString()));
+  holdings = holdings.filter(h => (parseFloat(h.quantity) || 0) > 0 || paidThisYear.has(h.id.toString()));
   holdings = sortHoldings(holdings);
 
   const divMap = {};
