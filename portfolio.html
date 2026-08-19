@@ -3569,6 +3569,11 @@ async function loadScorecard() {
   const td = (cls, title, html) => '<td' + (cls ? ' class="' + cls + '"' : '') +
     (title ? ' title="' + title + '"' : '') + '>' + html + '</td>';
 
+  // 색은 재남/은경 구분만. 계좌마다 다른 색(getAccColor)은 이 표에선 너무 알록달록하다.
+  const TONE = { 재남: '#eff6ff', 은경: '#fdf2f8' };
+  const TONE_SUM = { 재남: '#dbeafe', 은경: '#fce7f3' };
+  const toneOf = nm => TONE[nm.slice(0, 2)] || '';
+
   const line = s => {
     const hs = state.holdings.filter(x => x.account_id === s.account_id);
     const { invest, value } = acctInvestValue(hs, priceMap);
@@ -3595,7 +3600,8 @@ async function loadScorecard() {
   const tr = (r, cls, bg) => {
     const fl = r.flows.map(f => ({ date: f.date, amount: +f.amount }));
     const rate = xirr(fl, r.asset, today);
-    const days = fl.length ? (Date.now() - new Date(fl[0].date).getTime()) / 86400000 : 0;
+    const first = fl.length ? fl.map(f => f.date).sort()[0] : '-';
+    const days = fl.length ? (Date.now() - new Date(first).getTime()) / 86400000 : 0;
     const short = days > 0 && days < 365;
     const xt = short
       ? '첫 입금이 ' + (days / 30).toFixed(0) + '개월 전입니다. 짧은 기간을 1년으로 늘려 잡아 과장된 값입니다'
@@ -3623,13 +3629,14 @@ async function loadScorecard() {
       td('', '이익금 ÷ 투자원금 (누적, 기간 무시)', pct(r.profit, r.deposit)) +
       td('', '총수익 ÷ 투자원금 (누적, 기간 무시)', pct(r.total, r.deposit)) +
       td('', xt, xv) +
+      td('g', fl.length ? '첫 입금일 — ' + (days / 365.25).toFixed(1) + '년 굴렸다' : '', first) +
       '</tr>';
   };
 
-  const block = (p, tint) => {
+  const block = p => {
     const rs = rows.filter(r => r.name.startsWith(p));
-    return rs.map(r => tr(r, '', getAccColor(r.id))).join('') +
-           (rs.length ? tr(agg(p + ' 합계', rs), 'sub', tint) : '');
+    return rs.map(r => tr(r, '', TONE[p])).join('') +
+           (rs.length ? tr(agg(p + ' 합계', rs), 'sub', TONE_SUM[p]) : '');
   };
 
   // ── 한눈 요약: 카드 4장 + 계좌별 핵심만. 상세표는 그 아래.
@@ -3670,10 +3677,10 @@ async function loadScorecard() {
     '<table class="sc-table sc-sum"><thead><tr>' +
       '<th>계좌</th><th>투자원금</th><th>총자산</th><th>총수익</th><th>총수익률</th><th>기간</th><th>XIRR</th>' +
     '</tr></thead><tbody>' +
-      rows.filter(r => r.name.startsWith('재남')).map(r => sumRow(r, '', getAccColor(r.id))).join('') +
-      sumRow(agg('재남 합계', rows.filter(r => r.name.startsWith('재남'))), 'sub', '#bfdbfe') +
-      rows.filter(r => r.name.startsWith('은경')).map(r => sumRow(r, '', getAccColor(r.id))).join('') +
-      sumRow(agg('은경 합계', rows.filter(r => r.name.startsWith('은경'))), 'sub', '#fbcfe8') +
+      rows.filter(r => r.name.startsWith('재남')).map(r => sumRow(r, '', TONE['재남'])).join('') +
+      sumRow(agg('재남 합계', rows.filter(r => r.name.startsWith('재남'))), 'sub', TONE_SUM['재남']) +
+      rows.filter(r => r.name.startsWith('은경')).map(r => sumRow(r, '', TONE['은경'])).join('') +
+      sumRow(agg('은경 합계', rows.filter(r => r.name.startsWith('은경'))), 'sub', TONE_SUM['은경']) +
       sumRow(all, 'tot') +
     '</tbody></table>' +
     '<div style="font-size:12px;font-weight:700;color:#334155;margin:14px 0 4px">세부 내역</div>' +
@@ -3691,8 +3698,9 @@ async function loadScorecard() {
     '<th title="이익금 ÷ 투자원금">수익률</th>' +
     '<th title="총수익 ÷ 투자원금">총수익률</th>' +
     '<th title="넣은 시점을 반영한 연환산 수익률">XIRR</th>' +
+    '<th class="g" title="이 계좌에 처음 돈이 들어온 날">시작일</th>' +
     '</tr></thead><tbody>' +
-    block('재남', '#bfdbfe') + block('은경', '#fbcfe8') +
+    block('재남') + block('은경') +
     tr(agg('전체 합계', rows), 'tot') +
     '</tbody></table>';
 }
