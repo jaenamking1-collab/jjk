@@ -3629,7 +3629,9 @@ async function loadScorecard() {
       td('', '이익금 ÷ 투자원금 (누적, 기간 무시)', pct(r.profit, r.deposit)) +
       td('', '총수익 ÷ 투자원금 (누적, 기간 무시)', pct(r.total, r.deposit)) +
       td('', xt, xv) +
-      td('g', fl.length ? '첫 입금일 — ' + (days / 365.25).toFixed(1) + '년 굴렸다' : '', first) +
+      // 시작일은 계좌 행에만. 합계 행의 '가장 이른 날'은 아무 의미가 없다
+      td('g', cls ? '' : (fl.length ? '첫 입금일 — ' + (days / 365.25).toFixed(1) + '년 굴렸다' : ''),
+         cls ? '' : first) +
       '</tr>';
   };
 
