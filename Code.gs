@@ -3205,39 +3205,56 @@ function testScreener() {
 // ===== 수동 실행 (편집기에서 함수 골라 ▶실행. 재배포와 별개) =====
 
 // ── 2025년 이전 배당 일괄 입력 (일회성) ──────────────────────────────
-// 왜 함수인가: dividends 시트는 holding_id로 묶이는데 과거 배당 중 상당수는 **이미 판 종목**이라
+// 왜 함수인가: dividends 시트는 holding_id로 묶이는데 과거 배당의 상당수는 **이미 판 종목**이라
 // holdings에 자리가 없다. 그래서 (계좌, 티커/이름)이 없으면 **수량 0짜리 종목을 먼저 만들고** 배당을 붙인다.
 // 데이터: 시트 '배당임포트 2025년이전' [account_id, ticker, name, year, month, amount, currency]
 // 여러 번 돌려도 안전하다 — (holding_id, year, month)가 이미 있으면 건너뛴다.
-// 실행: 편집기에서 이 함수 골라 ▶. 로그에 만든 종목·넣은 배당 건수가 찍힌다.
+//
+// ⚠️ 1차 실행(2026-08-19 16:21)에서 로그는 "162건 입력"인데 시트엔 안 들어갔다. 그래서
+//    쓰기 직후 **다시 읽어 행 수를 대조**하고, 안 늘었으면 예외를 던지도록 고쳤다.
+//    dividends 시트는 **헤더 행이 없다**(1행부터 데이터). getDividends()가 slice(1)로 첫 행을
+//    버리고 있는데 그건 별개 문제고, 여기서는 전 행을 훑는다.
 function importDividends() {
   const SRC = '1UWa4bORYbedjdh9cF8RhjKVIysceo-uhT00Xcg29mKM';
   const src = SpreadsheetApp.openById(SRC).getSheets()[0].getDataRange().getValues();
-  const hs = getSheet('holdings'), ds = getSheet('dividends');
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const hs = ss.getSheetByName('holdings'), ds = ss.getSheetByName('dividends');
+  if (!hs || !ds) throw new Error('시트 없음: holdings=' + !!hs + ' dividends=' + !!ds);
+
+  // dividends 시트에 헤더가 없다 → getDividends()의 slice(1)이 첫 배당 1건을 계속 버리고 있었다.
+  // saveDividend·deleteRowById도 i=1부터 도니 첫 행은 수정·삭제도 안 된다. 여기서 헤더를 심어 정상화한다.
+  let headerAdded = false;
+  if (ds.getLastRow() > 0 && ds.getRange(1, 1).getValue().toString() !== 'id') {
+    ds.insertRowBefore(1);
+    ds.getRange(1, 1, 1, 6).setValues([['id', 'holding_id', 'year', 'month', 'amount', 'currency']]);
+    headerAdded = true;
+  }
+
   const hRows = hs.getDataRange().getValues();
   const dRows = ds.getDataRange().getValues();
+  const before = { h: hs.getLastRow(), d: ds.getLastRow(), dRows: dRows.length };
 
   const key = (acc, tk, nm) => acc + '|' + (tk ? 'T:' + tk.toString().trim().toUpperCase()
                                                : 'N:' + nm.toString().trim());
   const hMap = {};
-  for (let i = 1; i < hRows.length; i++) {
-    if (!hRows[i][0]) continue;
+  for (let i = 0; i < hRows.length; i++) {
+    if (!hRows[i][0] || hRows[i][0] === 'id') continue;
     hMap[key(hRows[i][1], hRows[i][2], hRows[i][3])] = hRows[i][0];
-    if (hRows[i][2]) hMap[key(hRows[i][1], '', hRows[i][3])] = hRows[i][0];   // 이름으로도 찾히게
+    if (hRows[i][2]) hMap[key(hRows[i][1], '', hRows[i][3])] = hRows[i][0];
   }
   const seen = {};
-  for (let i = 1; i < dRows.length; i++) {
-    if (dRows[i][0]) seen[dRows[i][1] + '_' + dRows[i][2] + '_' + dRows[i][3]] = true;
+  for (let i = 0; i < dRows.length; i++) {
+    if (dRows[i][0] && dRows[i][0] !== 'id') seen[dRows[i][1] + '_' + dRows[i][2] + '_' + dRows[i][3]] = true;
   }
 
   const newH = [], newD = [];
-  let stamp = new Date().getTime(), made = 0, added = 0, skipped = 0;
+  let stamp = new Date().getTime(), made = 0, skipped = 0;
   for (let i = 1; i < src.length; i++) {
     const r = src[i];
     if (!r[0] || !r[3]) continue;
     const acc = r[0].toString(), tk = r[1] ? r[1].toString().trim() : '', nm = r[2].toString().trim();
     let hid = hMap[key(acc, tk, nm)] || hMap[key(acc, '', nm)];
-    if (!hid) {                                   // 이미 판 종목 → 수량 0으로 자리만 만든다
+    if (!hid) {
       hid = (stamp++).toString();
       newH.push([hid, acc, "'" + tk, nm, 0, 0, r[6] || 'KRW', '매도완료', new Date().toISOString()]);
       hMap[key(acc, tk, nm)] = hid;
@@ -3247,13 +3264,26 @@ function importDividends() {
     const k = hid + '_' + r[3] + '_' + r[4];
     if (seen[k]) { skipped++; continue; }
     seen[k] = true;
-    newD.push([(stamp++).toString(), hid, r[3], r[4], r[5], r[6] || 'KRW']);
-    added++;
+    newD.push([(stamp++).toString(), hid, Number(r[3]), Number(r[4]), Number(r[5]), r[6] || 'KRW']);
   }
-  if (newH.length) hs.getRange(hs.getLastRow() + 1, 1, newH.length, newH[0].length).setValues(newH);
-  if (newD.length) ds.getRange(ds.getLastRow() + 1, 1, newD.length, newD[0].length).setValues(newD);
-  const msg = '종목 ' + made + '개 신규(수량 0) / 배당 ' + added + '건 입력 / ' + skipped + '건 이미 있어 건너뜀';
+
+  if (newH.length) {
+    hs.getRange(hs.getLastRow() + 1, 1, newH.length, 9).setValues(newH);
+  }
+  if (newD.length) {
+    ds.getRange(ds.getLastRow() + 1, 1, newD.length, 6).setValues(newD);
+  }
+  SpreadsheetApp.flush();                            // 쓰기 확정 후 다시 읽어 대조
+
+  const after = { h: hs.getLastRow(), d: ds.getLastRow(), dRows: ds.getDataRange().getValues().length };
+  const msg = '[importDividends] 시트=' + ds.getName() + '(' + ss.getId().slice(0, 8) + ')' +
+    ' | 배당 ' + before.d + '행 → ' + after.d + '행 (신규 ' + newD.length + ', 중복건너뜀 ' + skipped + ')' +
+    ' | 종목 ' + before.h + '행 → ' + after.h + '행 (신규 ' + made + ')' +
+    (headerAdded ? ' | ⚠ dividends 헤더 행이 없어서 새로 심었다(첫 배당 1건이 앱에서 안 보이던 원인)' : '');
   console.log(msg);
+  if (newD.length && after.d - before.d !== newD.length) {
+    throw new Error('배당 쓰기 실패 — 기대 ' + newD.length + '행 증가, 실제 ' + (after.d - before.d) + '행. ' + msg);
+  }
   return msg;
 }
 
