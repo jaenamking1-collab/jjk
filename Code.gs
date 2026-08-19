@@ -29,6 +29,7 @@ function doGet(e) {
       case 'getHoldings':     result = getHoldings(e.parameter.account_id); break;
       case 'getDividends':    result = getDividends(e.parameter.year, e.parameter.account_id); break;
       case 'getCostBasis':    result = getCostBasis(e.parameter.year); break;
+      case 'getAccountSummary': result = getAccountSummary(); break;
       case 'getSavings':      result = getSavings(); break;
       case 'maturityAlertPreview': result = previewMaturityAlerts(); break;
       case 'getExchangeRate': result = { rate: fetchExchangeRate() }; break;
@@ -153,6 +154,25 @@ function getCostBasis(year) {
     for (const id in state) out[id + '_' + m] = state[id];
   }
   return out;
+}
+
+// ── 계좌요약 (계좌 성적표 탭) ───────────────
+// 앱이 모르는 값 = 증권사 거래내역에서만 나오는 누적치: 순입금·계좌간이체·매매총액·실현손익·배당누적.
+// 평가금액·보유원금은 프론트가 holdings와 현재가로 계산하므로 여기 없다.
+// 시트 [account_id, name, deposit, transfer, buy, sell, realized, inkind, div, interest]. 못 열면 [] → 탭이 안내문을 띄운다.
+// inkind = 타사대체입고(현물이관) 원가. 현금 입금은 아니지만 외부에서 들어온 자본이라 투자원금에 포함한다.
+const SUMMARY_SHEET_ID = '1h2dyPSjBVQrwBMqM6Uv-GUD4nP0p5OXo7ojPea8FbFc';
+function getAccountSummary() {
+  let rows;
+  try {
+    rows = SpreadsheetApp.openById(SUMMARY_SHEET_ID).getSheets()[0].getDataRange().getValues();
+  } catch (e) {
+    return [];
+  }
+  return rows.slice(1).filter(function(r) { return r[0]; }).map(function(r) {
+    return { account_id: r[0], name: r[1], deposit: r[2], transfer: r[3], buy: r[4],
+             sell: r[5], realized: r[6], inkind: r[7], div: r[8], interest: r[9] };
+  });
 }
 
 // ── ACCOUNTS ──────────────────────────────

@@ -449,6 +449,7 @@ if (!/[?&]pc=1/.test(location.search) && window.innerWidth <= 768) {
   <button class="tab" onclick="showTab('dashboard')">대시보드</button>
   <button class="tab" onclick="showTab('holdings')">종목관리</button>
   <button class="tab" onclick="showTab('dividends')">분배금</button>
+  <button class="tab" onclick="showTab('scorecard')">계좌성적표</button>
   <button class="tab" onclick="showTab('pension')">연금플랜</button>
   <button class="tab" onclick="showTab('screener')">월배당 스크리너</button>
   <button class="tab" onclick="showTab('distributions')">분배금공지</button>
@@ -789,6 +790,15 @@ if (!/[?&]pc=1/.test(location.search) && window.innerWidth <= 768) {
   </div>
 
   <!-- ── 은경 저축 탭 ── -->
+  <div id="tab-scorecard" class="page">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+      <h2 style="margin:0">계좌 성적표</h2>
+      <span class="muted" style="font-size:0.85em">증권사 거래내역 기준 누적치 · 평가금액은 실시간</span>
+      <button class="btn" style="margin-left:auto" onclick="loadScorecard()">새로고침</button>
+    </div>
+    <div id="scorecardBox" class="table-wrap"></div>
+  </div>
+
   <div id="tab-savings" class="page">
     <div class="card">
       <div id="sv-table"></div>
@@ -1394,12 +1404,7 @@ function renderAccountStats(allHoldings, allDivs, sheet, allDivsFull) {
     const h = state.holdings.filter(x => x.account_id === a.id);
     totalHoldings += h.length;
 
-    const invest = h.reduce((s, x) => s + toKrw((parseFloat(x.avg_price)||0)*(parseFloat(x.quantity)||0), x.currency), 0);
-    const value = h.reduce((s, x) => {
-      const qty = parseFloat(x.quantity)||0, avg = parseFloat(x.avg_price)||0;
-      const cur = priceMap[(x.ticker||'').toString().toUpperCase()];
-      return s + toKrw(cur ? cur*qty : avg*qty, x.currency);
-    }, 0);
+    const { invest, value } = acctInvestValue(h, priceMap);
 
     const hIds = h.map(x => x.id);
     const acctDivs = state.dividends.filter(d => hIds.includes(d.holding_id));
@@ -3469,6 +3474,7 @@ function showTab(name) {
   if (name === 'dividends') reloadDivGrid();
   if (name === 'dashboard') loadDashboard();
   if (name === 'pension') loadPensionPlan();
+  if (name === 'scorecard') loadScorecard();
   if (name === 'savings') loadSavings();
   if (name === 'screener') loadScreener();
   if (name === 'distributions') {
@@ -3481,6 +3487,107 @@ function showTab(name) {
   }
   if (name === 'holdings' && state.holdings.length) loadHoldingPrices(state.holdings);
   if (name === 'excel' && !state.holdings.length) loadAccountStats();
+}
+
+// ── 계좌 보유원금·평가금액 (단일 정의) ──────
+// renderAccountStats와 계좌 성적표가 같은 식을 쓰게 한다. 현재가가 없으면 평단으로 대체(=손익 0).
+function acctInvestValue(hs, priceMap) {
+  const toKrw = (v, cur) => cur === 'USD' ? v * (state.exchangeRate || 1400) : v;
+  let invest = 0, value = 0;
+  (hs || []).forEach(x => {
+    const qty = parseFloat(x.quantity) || 0, avg = parseFloat(x.avg_price) || 0;
+    const cur = priceMap[(x.ticker || '').toString().trim().toUpperCase()];
+    invest += toKrw(avg * qty, x.currency);
+    value  += toKrw((cur || avg) * qty, x.currency);
+  });
+  return { invest, value };
+}
+
+// ── 계좌 성적표 ─────────────────────────────
+// 앱은 '지금 보유'만 안다. 순입금·매매총액·실현손익·배당누적은 증권사 거래내역에서만 나오므로
+// '계좌요약' 시트(getAccountSummary)에서 받아 붙인다. 시트가 비면 안내문만 띄운다.
+//   이익금  = 평가손익(평가금액−보유원금) + 실현손익      ← 배당 제외
+//   총수익  = 이익금 + 배당누적(+이자)
+//   수익률  = 이익금 / 순입금,  총수익률 = 총수익 / 순입금
+async function loadScorecard() {
+  const box = document.getElementById('scorecardBox');
+  box.innerHTML = '<div class="loading"><span class="spinner"></span>불러오는 중...</div>';
+  const [sum, sheet] = await Promise.all([
+    api({ action: 'getAccountSummary' }).catch(() => []),
+    fetchPriceItems()
+  ]);
+  if (!sum || !sum.length) {
+    box.innerHTML = '<div class="empty"><p>계좌요약 시트를 읽지 못했습니다.</p></div>';
+    return;
+  }
+  const priceMap = {};
+  ((sheet && sheet.items) || []).forEach(it => {
+    const t = (it.ticker || '').toString().trim().toUpperCase();
+    if (t && parseFloat(it.current)) priceMap[t] = parseFloat(it.current);
+  });
+
+  const n = v => Math.round(v).toLocaleString();
+  const sgn = v => `<span style="color:${v > 0 ? '#dc2626' : v < 0 ? '#2563eb' : '#6b7280'};font-weight:600">${v > 0 ? '+' : ''}${n(v)}</span>`;
+  const pct = (a, b) => b > 0 ? `<span style="color:${a > 0 ? '#dc2626' : a < 0 ? '#2563eb' : '#6b7280'};font-weight:600">${(a / b * 100).toFixed(2)}%</span>` : '-';
+
+  const line = s => {
+    const h = state.holdings.filter(x => x.account_id === s.account_id);
+    const { invest, value } = acctInvestValue(h, priceMap);
+    // 그 계좌에 들어온 자본 = 외부입금 + 계좌간이체 + 현물이관(타사대체입고).
+    // 현물이관을 빼면 주식만 옮겨온 계좌는 원금이 텅 비어 수익률이 폭발한다(재남 키움 일반 = 102%였다).
+    const inkind = +s.inkind || 0;
+    const deposit = +s.deposit + (+s.transfer || 0) + inkind;
+    const div = (+s.div || 0) + (+s.interest || 0);
+    const unreal = value - invest, profit = unreal + (+s.realized || 0);
+    return { name: s.name, deposit, trade: (+s.buy || 0) + (+s.sell || 0), buy: +s.buy || 0, sell: +s.sell || 0,
+             value, invest, unreal, realized: +s.realized || 0, profit, div, total: profit + div, inkind };
+  };
+  const rows = state.accounts.map(a => sum.find(x => x.account_id.toString() === a.id.toString()))
+                             .filter(Boolean).map(line);
+  const agg = (label, rs) => rs.reduce((o, r) => {
+    ['deposit','trade','buy','sell','value','invest','unreal','realized','profit','div','total','inkind']
+      .forEach(k => o[k] = (o[k] || 0) + r[k]);
+    return o;
+  }, { name: label });
+
+  const tr = (r, style) => `<tr style="${style || ''}">
+    <td style="text-align:left;white-space:nowrap">${r.name}</td>
+    <td>${n(r.deposit)}${r.inkind ? `<br><span style="font-size:0.8em;color:#64748b">현물이관 ${n(r.inkind)} 포함</span>` : ''}</td>
+    <td>${n(r.value)}</td>
+    <td>${n(r.invest)}</td>
+    <td>${sgn(r.unreal)}</td>
+    <td>${sgn(r.realized)}</td>
+    <td>${sgn(r.profit)}</td>
+    <td>${n(r.div)}</td>
+    <td>${sgn(r.total)}</td>
+    <td>${pct(r.profit, r.deposit)}</td>
+    <td>${pct(r.total, r.deposit)}</td>
+    <td style="font-size:0.85em;color:#64748b;white-space:nowrap">${n(r.trade)}<br>매수 ${n(r.buy)} / 매도 ${n(r.sell)}</td>
+  </tr>`;
+
+  const bySub = ['재남', '은경'].map(p => {
+    const rs = rows.filter(r => r.name.startsWith(p));
+    return rs.length ? tr(agg(`${p} 소계`, rs), 'background:#f1f5f9;font-weight:600') : '';
+  });
+
+  box.innerHTML = `<table class="tbl" style="text-align:right">
+    <thead><tr>
+      <th style="text-align:left">계좌</th><th>투자원금<br><span style="font-weight:400;font-size:0.8em">(순입금)</span></th>
+      <th>평가금액</th><th>보유원금</th><th>평가손익</th><th>실현손익</th>
+      <th>이익금<br><span style="font-weight:400;font-size:0.8em">(배당 제외)</span></th>
+      <th>배당누적</th><th>총수익<br><span style="font-weight:400;font-size:0.8em">(배당 포함)</span></th>
+      <th>수익률</th><th>총수익률</th><th>거래총액</th>
+    </tr></thead>
+    <tbody>
+      ${rows.filter(r => r.name.startsWith('재남')).map(r => tr(r)).join('')}${bySub[0]}
+      ${rows.filter(r => r.name.startsWith('은경')).map(r => tr(r)).join('')}${bySub[1]}
+      ${tr(agg('전체 합계', rows), 'background:#334155;color:#fff;font-weight:700')}
+    </tbody>
+  </table>
+  <p class="muted" style="font-size:0.85em;margin-top:8px">
+    투자원금 = 외부 입금 − 출금 + 계좌간 이체 + 현물이관(타사대체입고 원가) · 이익금 = 평가손익 + 실현손익(배당 제외) · 수익률 = 이익금 ÷ 투자원금<br>
+    배당누적·실현손익·매매총액은 증권사 거래내역 전 기간 기준. 앱에 등록되지 않은 계좌(은경 미래에셋 IRP, 재남 미래에셋 일반)는 빠져 있습니다.
+  </p>`;
 }
 
 // ── 은경 저축 ─────────────────────────────
