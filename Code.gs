@@ -128,8 +128,9 @@ function getBootstrap(year) {
 // 지나간 달의 분배율까지 소급해서 틀린다. 거래내역에서 복원한 그달 말 원금을 쓴다.
 // 데이터: 별도 시트 '원금월별' [holding_id, year, month, quantity, cost, currency].
 // 원금은 매매가 있을 때만 바뀌므로 **바뀐 달만** 들어있다 → 그 다음 달부터는 이월해서 채운다.
+// 이번 달 행은 앱 holdings 기준(증권사 동기화가 거래내역 다운로드보다 최신이라).
 // 시트를 못 열면 {} → 프론트가 현재 원금으로 폴백하므로 앱이 깨지지 않는다.
-const COST_SHEET_ID = '16_L9hKS6ajlaGhXNgqdjem__S1QInQ68Z2cViJOqzVU';
+const COST_SHEET_ID = '1zjDhF53_yFbFzRdrf3zlZm2CdduSMkBCiu8wVFGPzn8';
 function getCostBasis(year) {
   const y = parseInt(year, 10) || new Date().getFullYear();
   let rows;
