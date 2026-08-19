@@ -3203,6 +3203,61 @@ function testScreener() {
 }
 // ===================================================================
 // ===== 수동 실행 (편집기에서 함수 골라 ▶실행. 재배포와 별개) =====
+
+// ── 2025년 이전 배당 일괄 입력 (일회성) ──────────────────────────────
+// 왜 함수인가: dividends 시트는 holding_id로 묶이는데 과거 배당 중 상당수는 **이미 판 종목**이라
+// holdings에 자리가 없다. 그래서 (계좌, 티커/이름)이 없으면 **수량 0짜리 종목을 먼저 만들고** 배당을 붙인다.
+// 데이터: 시트 '배당임포트 2025년이전' [account_id, ticker, name, year, month, amount, currency]
+// 여러 번 돌려도 안전하다 — (holding_id, year, month)가 이미 있으면 건너뛴다.
+// 실행: 편집기에서 이 함수 골라 ▶. 로그에 만든 종목·넣은 배당 건수가 찍힌다.
+function importDividends() {
+  const SRC = '1UWa4bORYbedjdh9cF8RhjKVIysceo-uhT00Xcg29mKM';
+  const src = SpreadsheetApp.openById(SRC).getSheets()[0].getDataRange().getValues();
+  const hs = getSheet('holdings'), ds = getSheet('dividends');
+  const hRows = hs.getDataRange().getValues();
+  const dRows = ds.getDataRange().getValues();
+
+  const key = (acc, tk, nm) => acc + '|' + (tk ? 'T:' + tk.toString().trim().toUpperCase()
+                                               : 'N:' + nm.toString().trim());
+  const hMap = {};
+  for (let i = 1; i < hRows.length; i++) {
+    if (!hRows[i][0]) continue;
+    hMap[key(hRows[i][1], hRows[i][2], hRows[i][3])] = hRows[i][0];
+    if (hRows[i][2]) hMap[key(hRows[i][1], '', hRows[i][3])] = hRows[i][0];   // 이름으로도 찾히게
+  }
+  const seen = {};
+  for (let i = 1; i < dRows.length; i++) {
+    if (dRows[i][0]) seen[dRows[i][1] + '_' + dRows[i][2] + '_' + dRows[i][3]] = true;
+  }
+
+  const newH = [], newD = [];
+  let stamp = new Date().getTime(), made = 0, added = 0, skipped = 0;
+  for (let i = 1; i < src.length; i++) {
+    const r = src[i];
+    if (!r[0] || !r[3]) continue;
+    const acc = r[0].toString(), tk = r[1] ? r[1].toString().trim() : '', nm = r[2].toString().trim();
+    let hid = hMap[key(acc, tk, nm)] || hMap[key(acc, '', nm)];
+    if (!hid) {                                   // 이미 판 종목 → 수량 0으로 자리만 만든다
+      hid = (stamp++).toString();
+      newH.push([hid, acc, "'" + tk, nm, 0, 0, r[6] || 'KRW', '매도완료', new Date().toISOString()]);
+      hMap[key(acc, tk, nm)] = hid;
+      hMap[key(acc, '', nm)] = hid;
+      made++;
+    }
+    const k = hid + '_' + r[3] + '_' + r[4];
+    if (seen[k]) { skipped++; continue; }
+    seen[k] = true;
+    newD.push([(stamp++).toString(), hid, r[3], r[4], r[5], r[6] || 'KRW']);
+    added++;
+  }
+  if (newH.length) hs.getRange(hs.getLastRow() + 1, 1, newH.length, newH[0].length).setValues(newH);
+  if (newD.length) ds.getRange(ds.getLastRow() + 1, 1, newD.length, newD[0].length).setValues(newD);
+  const msg = '종목 ' + made + '개 신규(수량 0) / 배당 ' + added + '건 입력 / ' + skipped + '건 이미 있어 건너뜀';
+  console.log(msg);
+  return msg;
+}
+
+
 // 새로 만드는 "손으로 한 번 돌려야 하는" 함수는 전부 여기 아래에 둘 것.
 // ===================================================================
 

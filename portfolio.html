@@ -161,6 +161,14 @@ if (!/[?&]pc=1/.test(location.search) && window.innerWidth <= 768) {
   .holdings-compact th { padding:4px 8px; border-bottom:2px solid #111827; text-align:center; }
   tr:hover td { background:var(--bg4); }
   .sv-tbl tr:last-child td { border-bottom:none; } /* 은경 저축 표만: 자체 2px 프레임이 아래선 담당. 나머지 표는 마지막 행에도 아래 테두리 유지 */
+  /* ── 계좌 성적표 요약: 카드 4장 + 한눈 표 ── */
+  .sc-cards { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+  .sc-card { flex:1 1 170px; border:2px solid #111827; padding:8px 12px; background:#f8fafc; }
+  .sc-card .k { font-size:11px; font-weight:700; color:#334155; letter-spacing:.5px; }
+  .sc-card .v { font-size:19px; font-weight:800; color:#111827; line-height:1.35; }
+  .sc-card .s { font-size:11px; color:#334155; font-weight:600; }
+  .sc-sum { margin-bottom:14px; }
+  .sc-sum td, .sc-sum th { font-size:13px; }
   /* ── 계좌 성적표: 스크리너와 같은 톤(2px 프레임 + 그룹 구분선) ── */
   .sc-table { border:2px solid #111827; }
   .sc-table thead th { border-bottom:2px solid #111827; text-align:center; }
@@ -1824,7 +1832,7 @@ async function renderHoldingsTable(holdings) {
 // ── DIVIDENDS ────────────────────────────
 function setupYearSelects() {
   const cur = new Date().getFullYear();
-  const years = Array.from({length:5}, (_,i) => cur - 2 + i);
+  const years = Array.from({length: cur - 2015}, (_, i) => 2016 + i).reverse();
   const opts = years.map(y => `<option value="${y}" ${y===cur?'selected':''}>${y}년</option>`).join('');
   document.getElementById('dashYearSel').innerHTML = opts;
   document.getElementById('dashYear').textContent = cur + '년';
@@ -1832,9 +1840,10 @@ function setupYearSelects() {
 }
 
 // 분배금 그리드 연도 설정(cur±2 범위로 클램프). 값은 숨은 input, 라벨은 화살표 사이 텍스트.
+// 하한 2016 = 거래내역에 배당이 남아 있는 첫 해(은경 키움 2016-08 개설). 상한은 내년까지.
 function setDivYear(y) {
   const cur = new Date().getFullYear();
-  y = Math.max(cur - 2, Math.min(cur + 2, y));
+  y = Math.max(2016, Math.min(cur + 1, y));
   document.getElementById('divYear').value = y;
   const lbl = document.getElementById('divYearLabel');
   if (lbl) lbl.textContent = y + '년';
@@ -3623,7 +3632,52 @@ async function loadScorecard() {
            (rs.length ? tr(agg(p + ' 합계', rs), 'sub', tint) : '');
   };
 
-  box.innerHTML = '<table class="sc-table"><thead><tr>' +
+  // ── 한눈 요약: 카드 4장 + 계좌별 핵심만. 상세표는 그 아래.
+  const yearsOf = r => {
+    const ds = r.flows.map(f => f.date).sort();
+    return ds.length ? (Date.now() - new Date(ds[0]).getTime()) / 31557600000 : 0;
+  };
+  const sumRow = (r, cls, bg) => {
+    const yr = yearsOf(r);
+    const rate = xirr(r.flows.map(f => ({ date: f.date, amount: +f.amount })), r.asset, today);
+    return '<tr class="' + (cls || '') + '"' + (bg ? ' style="background:' + bg + '"' : '') + '>' +
+      td('', '', r.name) +
+      td('', '이 계좌에 실제로 들어온 돈', n(r.deposit)) +
+      td('', '주식 + 예수금', n(r.asset)) +
+      td('', '총자산 − 투자원금 (배당·실현·평가손익 전부 포함)', sgn(r.asset - r.deposit)) +
+      td('', '총수익 ÷ 투자원금. 기간을 무시한 누적값이다', pct(r.asset - r.deposit, r.deposit)) +
+      td('', '첫 입금부터 오늘까지', yr ? yr.toFixed(1) + '년' : '-') +
+      td('', yr < 1 ? '1년 미만이라 연환산이 과장된다' : '넣은 시점을 반영한 연환산 수익률',
+         rate == null ? '-' : '<span style="color:' + col(rate) + '">' + rate.toFixed(2) + '%</span>' +
+           (yr && yr < 1 ? '<sup style="color:#b45309">1년↓</sup>' : '')) +
+      '</tr>';
+  };
+  const all = agg('전체 합계', rows);
+  const allYr = yearsOf(all);
+  const allXirr = xirr(all.flows.map(f => ({ date: f.date, amount: +f.amount })), all.asset, today);
+  const card = (k, v, sub) => '<div class="sc-card"><div class="k">' + k + '</div><div class="v">' + v +
+    '</div><div class="s">' + (sub || '') + '</div></div>';
+
+  box.innerHTML =
+    '<div class="sc-cards">' +
+      card('투자원금', n(all.deposit) + '원', '외부에서 넣은 돈 (' + allYr.toFixed(1) + '년간)') +
+      card('총자산', n(all.asset) + '원', '주식 ' + n(all.value) + ' + 예수금 ' + n(all.cash)) +
+      card('총수익', sgn(all.asset - all.deposit) + '원',
+           '원금 대비 ' + pct(all.asset - all.deposit, all.deposit)) +
+      card('연환산 수익률', (allXirr == null ? '-' : '<span style="color:' + col(allXirr) + '">' +
+           allXirr.toFixed(2) + '%</span>'), 'XIRR — 넣은 시점 반영') +
+    '</div>' +
+    '<table class="sc-table sc-sum"><thead><tr>' +
+      '<th>계좌</th><th>투자원금</th><th>총자산</th><th>총수익</th><th>총수익률</th><th>기간</th><th>XIRR</th>' +
+    '</tr></thead><tbody>' +
+      rows.filter(r => r.name.startsWith('재남')).map(r => sumRow(r, '', getAccColor(r.id))).join('') +
+      sumRow(agg('재남 합계', rows.filter(r => r.name.startsWith('재남'))), 'sub', '#bfdbfe') +
+      rows.filter(r => r.name.startsWith('은경')).map(r => sumRow(r, '', getAccColor(r.id))).join('') +
+      sumRow(agg('은경 합계', rows.filter(r => r.name.startsWith('은경'))), 'sub', '#fbcfe8') +
+      sumRow(all, 'tot') +
+    '</tbody></table>' +
+    '<div style="font-size:12px;font-weight:700;color:#334155;margin:14px 0 4px">세부 내역</div>' +
+    '<table class="sc-table"><thead><tr>' +
     '<th>계좌</th>' +
     '<th title="외부입금 − 출금 + 계좌간이체 + 현물이관. 이 계좌에 실제로 들어온 돈">투자원금</th>' +
     '<th class="g">주식</th><th title="계좌에 남은 현금">예수금</th><th title="주식 + 예수금">총자산</th>' +
