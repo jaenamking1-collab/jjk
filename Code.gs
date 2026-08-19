@@ -126,16 +126,30 @@ function getBootstrap(year) {
 // ── 원금월별 (분배율 분모) ─────────────────
 // 왜: 분모로 '지금 이 순간의 원금'(avg_price×quantity)을 쓰면 연중 수량이 바뀐 종목은
 // 지나간 달의 분배율까지 소급해서 틀린다. 거래내역에서 복원한 그달 말 원금을 쓴다.
-// 시트 '원금월별' = [holding_id, year, month, quantity, cost, currency]. 탭이 없으면 {} → 프론트가 현재 원금으로 폴백.
+// 데이터: 별도 시트 '원금월별' [holding_id, year, month, quantity, cost, currency].
+// 원금은 매매가 있을 때만 바뀌므로 **바뀐 달만** 들어있다 → 그 다음 달부터는 이월해서 채운다.
+// 시트를 못 열면 {} → 프론트가 현재 원금으로 폴백하므로 앱이 깨지지 않는다.
+const COST_SHEET_ID = '16_L9hKS6ajlaGhXNgqdjem__S1QInQ68Z2cViJOqzVU';
 function getCostBasis(year) {
-  const sheet = getSheet('원금월별');
-  if (!sheet) return {};
-  const rows = sheet.getDataRange().getValues();
-  const out = {};
-  for (let i = 1; i < rows.length; i++) {
+  const y = parseInt(year, 10) || new Date().getFullYear();
+  let rows;
+  try {
+    rows = SpreadsheetApp.openById(COST_SHEET_ID).getSheets()[0].getDataRange().getValues();
+  } catch (e) {
+    return {};
+  }
+  const state = {}, changes = [];
+  for (let i = 1; i < rows.length; i++) {       // 시트는 연·월 오름차순
     const r = rows[i];
-    if (!r[0] || (year && r[1].toString() !== year.toString())) continue;
-    out[r[0] + '_' + r[2]] = { qty: r[3], cost: r[4], cur: r[5] };
+    if (!r[0]) continue;
+    const v = { qty: r[3], cost: r[4], cur: r[5] };
+    if (r[1] < y) state[r[0]] = v;              // 작년까지의 마지막 값 = 올해 1월 시작값
+    else if (r[1] === y) changes.push({ id: r[0], month: r[2], v: v });
+  }
+  const out = {};
+  for (let m = 1; m <= 12; m++) {
+    changes.forEach(function(c) { if (c.month === m) state[c.id] = c.v; });
+    for (const id in state) out[id + '_' + m] = state[id];
   }
   return out;
 }
