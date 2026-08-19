@@ -1889,10 +1889,11 @@ async function loadDividendGrid() {
   const accountId = document.getElementById('divAccountFilter').value;
   document.getElementById('dividendGrid').innerHTML = '<div class="loading"><span class="spinner"></span>불러오는 중...</div>';
 
-  const [allHoldings, allDivs, costMap] = await Promise.all([
+  const [allHoldings, allDivs, costMap, distAll] = await Promise.all([
     api({ action:'getHoldings' }),
     api({ action:'getDividends', year }),
-    api({ action:'getCostBasis', year })       // 그달 말 원금(분모). 없으면 현재 원금으로 폴백
+    api({ action:'getCostBasis', year }),      // 그달 말 원금(분모). 없으면 현재 원금으로 폴백
+    api({ action:'getDistributionAll' }).catch(() => null)   // 지급일 지난 미입력 셀 표시용
   ]);
 
   let holdings = allHoldings || [];
@@ -1959,7 +1960,14 @@ async function loadDividendGrid() {
       if (amtKrw && invM > 0) { invSum += invM; invN++; }
       const monthRate = (invM > 0 && amtKrw > 0) ? (amtKrw / invM * 100).toFixed(2) : '';
       const dol = isUsd && amt ? `<span style="font-size:1em;color:#92400e;font-weight:700;margin-right:2px">$</span>` : '';
-      return `<td style="padding:0">
+      // 노랑 = 채워야 하는데 비어 있는 칸. 두 가지로 판단한다.
+      //  ① 공지 지급일이 오늘 앞뒤 3일 안 (이번 회차)
+      //  ② 이미 지나간 달인데 그 달에 보유 중이었고 월배당 종목이다 (놓친 회차 — 계속 노랑으로 남는다)
+      const cbq = costMap && costMap[`${h.id}_${m}`];
+      const heldThen = cbq ? (parseFloat(cbq.qty) || 0) > 0 : (parseFloat(h.quantity) || 0) > 0;
+      const missed = isThisYear && m < thisMonth && isMonthly && heldThen;
+      const due = !amt && ((dueMap[h.id] && dueMap[h.id].has(m)) || missed);
+      return `<td style="padding:0${due ? ';background:#fef08a' : ''}"${due ? ' title="' + (missed ? '지나간 달인데 배당이 안 들어가 있습니다' : '공지 지급일입니다 — 입력할 차례') + '"' : ''}>
         <div style="display:flex;align-items:center;justify-content:flex-end;white-space:nowrap;padding:0 3px">
           ${dol}<input class="div-cell ${amt?'has-value':''}" title="${monthRate?'분배율 '+monthRate+'%':''}"
           type="text" value="${displayVal}"
@@ -2062,6 +2070,10 @@ async function loadDivRateGrid() {
 
   const divMap = {};
   (allDivs || []).forEach(d => { divMap[`${d.holding_id}_${d.month}`] = d; });
+  // 공지 지급일이 오늘 앞뒤 3일 안인데 아직 안 채운 칸 = 입력할 차례. 올해 화면에서만 의미가 있다.
+  const thisMonth = new Date().getMonth() + 1;
+  const isThisYear = parseInt(year) === new Date().getFullYear();
+  const dueMap = (isThisYear && distAll) ? distDueMap(distAll, holdings, 3) : {};
 
   if (!holdings.length) {
     document.getElementById('dividendGrid').innerHTML = '<div class="empty"><div class="empty-icon">💰</div><p>종목이 없습니다</p></div>';
@@ -4032,25 +4044,73 @@ async function loadDistributions(force, silent) {
   if (silent) showRefreshing(false);
 }
 
+// 공지 날짜 문자열 → {m, d}. 달력과 '입력 필요' 표시가 같은 파서를 써야 결과가 안 갈린다.
+function distParseDay(str) {
+  if (!str) return null;
+  const full = str.match(/(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
+  if (full) return { m: parseInt(full[2]), d: parseInt(full[3]) };
+  const ko = str.match(/(\d{1,2})월\s*(\d{1,2})일/);
+  if (ko) return { m: parseInt(ko[1]), d: parseInt(ko[2]) };
+  const sl = str.match(/(\d{1,2})[\/\.](\d{1,2})/);
+  if (sl) return { m: parseInt(sl[1]), d: parseInt(sl[2]) };
+  return null;
+}
+// 공지 종목명 ↔ 보유 종목명 정규화 (운용사 표기가 제각각이다)
+function distNormName(x) {
+  return (x || '').toString().replace(/\s+/g, '').replace(/ETF/gi, '')
+    .replace(/\(합성\)/g, '').replace(/\(합성H\)/g, '').replace(/\(합성 H\)/g, '')
+    .replace(/\(H\)/gi, '').replace(/[·\-+]/g, '').toUpperCase();
+}
+
+// 공지의 지급일이 오늘 앞뒤 N일 안에 든 보유종목 → { holding_id: Set(월) }
+// 분배금 그리드에서 '아직 입력 안 한 셀'을 노랗게 칠하는 데 쓴다.
+function distDueMap(allData, holdings, days) {
+  const out = {};
+  const now = new Date(), Y = now.getFullYear(), win = days * 86400000;
+  const byTicker = {}, byName = {};
+  (holdings || []).forEach(h => {
+    const t = (h.ticker || '').toString().trim().toUpperCase();
+    if (t) (byTicker[t] = byTicker[t] || []).push(h);
+    const n = distNormName(h.name);
+    if (n) (byName[n] = byName[n] || []).push(h);
+  });
+  (allData || []).forEach(c => {
+    const rep2 = (c.data && c.data.schedule) || {};
+    ((c.data && c.data.items) || []).forEach(it => {
+      const sch = (it.sched && Object.keys(it.sched).length) ? it.sched : rep2;
+      const p = distParseDay(sch['지급일']);
+      if (!p) return;
+      let pay = new Date(Y, p.m - 1, p.d);
+      // 공지엔 연도가 없다 → 12월/1월 경계에서 11개월 어긋나는 걸 보정
+      if (pay - now > 300 * 86400000) pay = new Date(Y - 1, p.m - 1, p.d);
+      if (now - pay > 300 * 86400000) pay = new Date(Y + 1, p.m - 1, p.d);
+      if (Math.abs(pay - now) > win) return;
+      const t = (it.ticker || '').toString().trim().toUpperCase();
+      const n = distNormName(it.name);
+      // 티커 → 이름 완전일치 → 포함관계 순. 앱은 '삼성 KODEX …', 공지는 'KODEX … ETF'라
+      // 운용사 접두어 때문에 완전일치가 자주 빗나간다. 8자 이상일 때만 포함으로 붙인다.
+      let hs = (t && byTicker[t]) || byName[n] || [];
+      if (!hs.length && n.length >= 8) {
+        hs = (holdings || []).filter(h => {
+          const hn = distNormName(h.name);
+          return hn.length >= 8 && (hn.indexOf(n) >= 0 || n.indexOf(hn) >= 0);
+        });
+      }
+      hs.forEach(h => { (out[h.id] = out[h.id] || new Set()).add(pay.getMonth() + 1); });
+    });
+  });
+  return out;
+}
+
 function renderMasterCalendar(allData) {
   const now = new Date();
   const year = now.getFullYear(), month = now.getMonth() + 1;
   // 달력 제목 표시 안 함
-
-  const parseDay = (str) => {
-    if (!str) return null;
-    const full = str.match(/(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
-    if (full) return { m: parseInt(full[2]), d: parseInt(full[3]) };
-    const ko = str.match(/(\d{1,2})월\s*(\d{1,2})일/);
-    if (ko) return { m: parseInt(ko[1]), d: parseInt(ko[2]) };
-    const sl = str.match(/(\d{1,2})[\/\.](\d{1,2})/);
-    if (sl) return { m: parseInt(sl[1]), d: parseInt(sl[2]) };
-    return null;
-  };
+  const parseDay = distParseDay;
 
   // 보유종목 매칭 준비 (티커 + 종목명)
   const myTickers = new Set((state.holdings || []).map(h => (h.ticker||'').toString().trim().toUpperCase()));
-  const normName = s => (s||'').toString().replace(/\s+/g,'').replace(/ETF/gi,'').replace(/\(합성\)/g,'').replace(/\(합성H\)/g,'').replace(/\(합성 H\)/g,'').replace(/\(H\)/gi,'').replace(/[·\-+]/g,'').toUpperCase();
+  const normName = distNormName;
   const myNames = new Set((state.holdings || []).map(h => normName(h.name)));
   const isHeld = it => {
     const t = (it.ticker||'').toString().trim().toUpperCase();
