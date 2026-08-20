@@ -3389,7 +3389,8 @@ async function syncDividendsFromSheet() {
   body.innerHTML = '<div style="text-align:center;padding:32px;"><span class="spinner"></span> 스프레드시트 분배금 불러오는 중...</div>';
   document.getElementById('divSyncApplyBtn').style.display = 'none';
 
-  const year = document.getElementById('divYear').value;
+  // divYear 초기값이 ''이면 getDivSheetData/getDividends가 연도를 못 잡고 parseInt(year)=NaN이 된다
+  const year = document.getElementById('divYear').value || String(new Date().getFullYear());
   let sheetDiv;
   try {
     sheetDiv = await api({ action: 'getDivSheetData', year });
