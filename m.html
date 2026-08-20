@@ -362,7 +362,7 @@ function render() {
 
 function statsBlock(s) {
   return `<div class="stats">
-    <div><div class="k">총 매입금액</div><div class="v">${won(s.invest)}</div></div>
+    <div><div class="k">총매입</div><div class="v">${won(s.invest)}</div></div>
     <div><div class="k">총 평가금</div><div class="v">${won(s.value)}</div></div>
     <div><div class="k">수익금(률)</div><div class="v ${cls(s.pl)}">${sign(s.pl)}<br>(${pct(s.pl, s.invest)})</div></div>
     <div><div class="k">연간 분배금</div><div class="v" style="color:var(--green)">${won(s.div)}</div></div>
@@ -389,7 +389,7 @@ function viewHome() {
         <div class="c ${cls(p.pl)}">${pct(p.pl, p.invest)}</div>
       </button>
       ${isOpen ? `<div class="detail"><dl>
-        <dt>매입금액</dt><dd>${won(p.invest)}</dd>
+        <dt>총매입</dt><dd>${won(p.invest)}</dd>
         <dt>평가금</dt><dd>${won(p.value)}</dd>
         <dt>수익금</dt><dd class="${cls(p.pl)}">${sign(p.pl)}</dd>
         <dt>연간 분배금</dt><dd style="color:var(--green)">${won(p.div)}</dd>
@@ -431,7 +431,7 @@ function viewStocks() {
         <dt>수량</dt><dd>${c.qty.toLocaleString()}</dd>
         <dt>평균단가</dt><dd>${usd ? '$' + c.avg.toFixed(2) : won(c.avg)}</dd>
         <dt>현재가</dt><dd>${usd ? '$' + c.price.toFixed(2) : won(c.price)}${c.isLive ? '' : ' <span class="muted">(시세없음)</span>'}</dd>
-        <dt>매입금액</dt><dd>${won(c.invest)}</dd>
+        <dt>총매입</dt><dd>${won(c.invest)}</dd>
         <dt>평가금</dt><dd>${won(c.value)}</dd>
         <dt>손익</dt><dd class="${cls(c.pl)}">${sign(c.pl)}</dd>
         <dt>환산 연분배금</dt><dd style="color:var(--purple)">${won(toKrw(proj, h.currency))}</dd>
@@ -452,7 +452,7 @@ function viewStocks() {
     </div>
     <div class="card">
       <div class="stats" style="grid-template-columns:repeat(3,1fr)">
-        <div><div class="k">매입금액</div><div class="v">${won(t.i)}</div></div>
+        <div><div class="k">총매입</div><div class="v">${won(t.i)}</div></div>
         <div><div class="k">평가금</div><div class="v">${won(t.v)}</div></div>
         <div><div class="k">손익</div><div class="v ${cls(t.v-t.i)}">${pct(t.v-t.i, t.i)}</div></div>
       </div>
