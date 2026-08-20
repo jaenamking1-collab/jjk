@@ -1903,12 +1903,23 @@ async function loadDividendGrid() {
 
   let holdings = allHoldings || [];
   if (accountId) holdings = holdings.filter(h => h.account_id === accountId);
-  // 판 종목(수량 0)은 그 해에 배당을 받은 경우만 남긴다. 과거 배당을 넣으면서 매도 종목 32개가
-  // 딸려 들어와 목록이 97개가 됐다 — 안 거르면 올해 화면이 옛날 종목으로 도배된다.
+  // **그 해에 갖고 있던 종목만** 보여준다. 판단 근거 두 가지:
+  //   ① 그 해에 배당을 받았다  ② 원금월별(costMap)에 그 해 보유수량이 있다
+  // 올해 화면만 예외로 '지금 보유 중'도 포함한다(막 사서 아직 배당 전인 종목).
+  // 안 거르면 2024년 화면에 2026년에 산 종목이 빈 줄로 쏟아진다.
   const paidThisYear = new Set((allDivs || [])
     .filter(d => parseFloat(d.amount) > 0 && String(d.year) === String(year))
     .map(d => d.holding_id.toString()));
-  holdings = holdings.filter(h => (parseFloat(h.quantity) || 0) > 0 || paidThisYear.has(h.id.toString()));
+  const heldThatYear = id => {
+    for (let m = 1; m <= 12; m++) {
+      const cb = (costMap || {})[`${id}_${m}`];
+      if (cb && (parseFloat(cb.qty) || 0) > 0) return true;
+    }
+    return false;
+  };
+  const curYear = parseInt(year) === new Date().getFullYear();
+  holdings = holdings.filter(h => paidThisYear.has(h.id.toString()) || heldThatYear(h.id)
+                                  || (curYear && (parseFloat(h.quantity) || 0) > 0));
   holdings = sortHoldings(holdings);
 
   const divMap = {};
@@ -2097,12 +2108,23 @@ async function loadDivRateGrid() {
 
   let holdings = allHoldings || [];
   if (accountId) holdings = holdings.filter(h => h.account_id === accountId);
-  // 판 종목(수량 0)은 그 해에 배당을 받은 경우만 남긴다. 과거 배당을 넣으면서 매도 종목 32개가
-  // 딸려 들어와 목록이 97개가 됐다 — 안 거르면 올해 화면이 옛날 종목으로 도배된다.
+  // **그 해에 갖고 있던 종목만** 보여준다. 판단 근거 두 가지:
+  //   ① 그 해에 배당을 받았다  ② 원금월별(costMap)에 그 해 보유수량이 있다
+  // 올해 화면만 예외로 '지금 보유 중'도 포함한다(막 사서 아직 배당 전인 종목).
+  // 안 거르면 2024년 화면에 2026년에 산 종목이 빈 줄로 쏟아진다.
   const paidThisYear = new Set((allDivs || [])
     .filter(d => parseFloat(d.amount) > 0 && String(d.year) === String(year))
     .map(d => d.holding_id.toString()));
-  holdings = holdings.filter(h => (parseFloat(h.quantity) || 0) > 0 || paidThisYear.has(h.id.toString()));
+  const heldThatYear = id => {
+    for (let m = 1; m <= 12; m++) {
+      const cb = (costMap || {})[`${id}_${m}`];
+      if (cb && (parseFloat(cb.qty) || 0) > 0) return true;
+    }
+    return false;
+  };
+  const curYear = parseInt(year) === new Date().getFullYear();
+  holdings = holdings.filter(h => paidThisYear.has(h.id.toString()) || heldThatYear(h.id)
+                                  || (curYear && (parseFloat(h.quantity) || 0) > 0));
   holdings = sortHoldings(holdings);
 
   const divMap = {};
