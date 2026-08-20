@@ -4165,7 +4165,9 @@ function distDueMap(allData, holdings, days) {
       // 티커 → 이름 완전일치 → 포함관계 순. 앱은 '삼성 KODEX …', 공지는 'KODEX … ETF'라
       // 운용사 접두어 때문에 완전일치가 자주 빗나간다. 8자 이상일 때만 포함으로 붙인다.
       let hs = (t && byTicker[t]) || byName[n] || [];
-      if (!hs.length && n.length >= 8) {
+      // 티커가 있는 공지 항목은 포함 매칭을 쓰지 않는다 — 'KODEX 금융고배당TOP10'(월중, 0089D0)이
+      // 접두어라는 이유로 'KODEX 금융고배당TOP10타겟위클리커버드콜'(월말, 498410)에 붙어버린다.
+      if (!hs.length && !t && n.length >= 8) {
         hs = (holdings || []).filter(h => {
           const hn = distNormName(h.name);
           return hn.length >= 8 && (hn.indexOf(n) >= 0 || n.indexOf(hn) >= 0);
