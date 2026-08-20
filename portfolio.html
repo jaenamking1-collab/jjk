@@ -1931,8 +1931,10 @@ async function loadDividendGrid() {
     return false;
   };
   const curYear = parseInt(year) === new Date().getFullYear();
-  holdings = holdings.filter(h => paidThisYear.has(h.id.toString()) || heldThatYear(h.id)
-                                  || (curYear && (parseFloat(h.quantity) || 0) > 0));
+  // 올해 화면은 '배당을 받았거나 지금 보유 중'만. 올해 중에 팔았고 배당도 없는 종목까지
+  // 넣으면 빈 줄만 쏟아진다. 지난 연도는 그때 보유했으면 기록으로 남긴다.
+  holdings = holdings.filter(h => paidThisYear.has(h.id.toString())
+                                  || (curYear ? (parseFloat(h.quantity) || 0) > 0 : heldThatYear(h.id)));
   holdings = sortHoldings(holdings);
 
   const divMap = {};
@@ -2143,8 +2145,10 @@ async function loadDivRateGrid() {
     return false;
   };
   const curYear = parseInt(year) === new Date().getFullYear();
-  holdings = holdings.filter(h => paidThisYear.has(h.id.toString()) || heldThatYear(h.id)
-                                  || (curYear && (parseFloat(h.quantity) || 0) > 0));
+  // 올해 화면은 '배당을 받았거나 지금 보유 중'만. 올해 중에 팔았고 배당도 없는 종목까지
+  // 넣으면 빈 줄만 쏟아진다. 지난 연도는 그때 보유했으면 기록으로 남긴다.
+  holdings = holdings.filter(h => paidThisYear.has(h.id.toString())
+                                  || (curYear ? (parseFloat(h.quantity) || 0) > 0 : heldThatYear(h.id)));
   holdings = sortHoldings(holdings);
 
   const divMap = {};
