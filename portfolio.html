@@ -1885,7 +1885,10 @@ function reloadDivGrid() {
 }
 
 async function loadDividendGrid() {
-  const year = document.getElementById('divYear').value;
+  // divYear는 숨은 input이고 초기값이 빈 문자열이다. setupYearSelects()는 부팅 맨 끝에서야 채우므로
+  // 그전에 탭을 열면 year=''로 나가고, 서버의 `if (year)`가 거짓이라 **전 연도**를 다 돌려준다.
+  // 그러면 divMap이 holding_id_월 키로 덮어써서 2023·2024 배당이 2026 화면에 섞인다. → 폴백 필수.
+  const year = document.getElementById('divYear').value || String(new Date().getFullYear());
   const accountId = document.getElementById('divAccountFilter').value;
   document.getElementById('dividendGrid').innerHTML = '<div class="loading"><span class="spinner"></span>불러오는 중...</div>';
 
@@ -1902,13 +1905,15 @@ async function loadDividendGrid() {
   if (accountId) holdings = holdings.filter(h => h.account_id === accountId);
   // 판 종목(수량 0)은 그 해에 배당을 받은 경우만 남긴다. 과거 배당을 넣으면서 매도 종목 32개가
   // 딸려 들어와 목록이 97개가 됐다 — 안 거르면 올해 화면이 옛날 종목으로 도배된다.
-  const paidThisYear = new Set((allDivs || []).filter(d => parseFloat(d.amount) > 0)
-                                              .map(d => d.holding_id.toString()));
+  const paidThisYear = new Set((allDivs || [])
+    .filter(d => parseFloat(d.amount) > 0 && String(d.year) === String(year))
+    .map(d => d.holding_id.toString()));
   holdings = holdings.filter(h => (parseFloat(h.quantity) || 0) > 0 || paidThisYear.has(h.id.toString()));
   holdings = sortHoldings(holdings);
 
   const divMap = {};
-  (allDivs || []).forEach(d => {
+  // 방어선: 서버가 다른 해를 섞어 보내도 화면에선 그 해만 쓴다
+  (allDivs || []).filter(d => String(d.year) === String(year)).forEach(d => {
     divMap[`${d.holding_id}_${d.month}`] = d;
   });
 
@@ -2077,7 +2082,10 @@ async function paintDueCells(holdings) {
 // 분배율 추이(읽기 전용): 월 금액 아래에 그달 분배율(%)과 전달 대비 증감(pp) 표시.
 // 증감 = 이번달% − 전달%(m-1). 빨강=상승, 파랑=하락. 전달 값 없거나 1월이면 증감 없음.
 async function loadDivRateGrid() {
-  const year = document.getElementById('divYear').value;
+  // divYear는 숨은 input이고 초기값이 빈 문자열이다. setupYearSelects()는 부팅 맨 끝에서야 채우므로
+  // 그전에 탭을 열면 year=''로 나가고, 서버의 `if (year)`가 거짓이라 **전 연도**를 다 돌려준다.
+  // 그러면 divMap이 holding_id_월 키로 덮어써서 2023·2024 배당이 2026 화면에 섞인다. → 폴백 필수.
+  const year = document.getElementById('divYear').value || String(new Date().getFullYear());
   const accountId = document.getElementById('divAccountFilter').value;
   document.getElementById('dividendGrid').innerHTML = '<div class="loading"><span class="spinner"></span>불러오는 중...</div>';
 
@@ -2091,13 +2099,16 @@ async function loadDivRateGrid() {
   if (accountId) holdings = holdings.filter(h => h.account_id === accountId);
   // 판 종목(수량 0)은 그 해에 배당을 받은 경우만 남긴다. 과거 배당을 넣으면서 매도 종목 32개가
   // 딸려 들어와 목록이 97개가 됐다 — 안 거르면 올해 화면이 옛날 종목으로 도배된다.
-  const paidThisYear = new Set((allDivs || []).filter(d => parseFloat(d.amount) > 0)
-                                              .map(d => d.holding_id.toString()));
+  const paidThisYear = new Set((allDivs || [])
+    .filter(d => parseFloat(d.amount) > 0 && String(d.year) === String(year))
+    .map(d => d.holding_id.toString()));
   holdings = holdings.filter(h => (parseFloat(h.quantity) || 0) > 0 || paidThisYear.has(h.id.toString()));
   holdings = sortHoldings(holdings);
 
   const divMap = {};
-  (allDivs || []).forEach(d => { divMap[`${d.holding_id}_${d.month}`] = d; });
+  // 방어선: 서버가 다른 해를 섞어 보내도 화면에선 그 해만 쓴다
+  (allDivs || []).filter(d => String(d.year) === String(year))
+                 .forEach(d => { divMap[`${d.holding_id}_${d.month}`] = d; });
   if (!holdings.length) {
     document.getElementById('dividendGrid').innerHTML = '<div class="empty"><div class="empty-icon">💰</div><p>종목이 없습니다</p></div>';
     return;

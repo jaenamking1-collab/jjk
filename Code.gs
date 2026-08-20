@@ -3204,6 +3204,45 @@ function testScreener() {
 // ===================================================================
 // ===== 수동 실행 (편집기에서 함수 골라 ▶실행. 재배포와 별개) =====
 
+// ── 진단: dividends 연도 값이 어떻게 저장돼 있나 ─────────────────────
+// 2026년 화면에 2023·2024년 배당이 섞여 나온다. getDividends의 필터
+//   data.filter(r => r[2].toString() === year.toString())
+// 가 안 먹는다는 뜻이라, year 칸에 실제로 무엇이 들어 있는지(타입 포함) 찍어본다.
+// 편집기에서 ▶ 실행 → 로그 복사해서 주면 된다. 아무것도 바꾸지 않는다(읽기 전용).
+function diagDividendYears() {
+  const rows = SpreadsheetApp.openById(SHEET_ID).getSheetByName('dividends').getDataRange().getValues();
+  const byYear = {}, byType = {};
+  for (let i = 1; i < rows.length; i++) {
+    const y = rows[i][2];
+    if (rows[i][0] === '' && rows[i][1] === '') continue;
+    const t = (y instanceof Date) ? 'Date' : typeof y;
+    const k = t + ':' + String(y);
+    byType[t] = (byType[t] || 0) + 1;
+    byYear[k] = (byYear[k] || 0) + 1;
+  }
+  console.log('총 ' + (rows.length - 1) + '행 / 헤더=' + JSON.stringify(rows[0]));
+  console.log('year 타입별: ' + JSON.stringify(byType));
+  console.log('year 값별(상위 20): ' + JSON.stringify(
+    Object.keys(byYear).sort(function (a, b) { return byYear[b] - byYear[a]; }).slice(0, 20)
+      .map(function (k) { return k + '=' + byYear[k]; })));
+
+  // 화면에서 문제된 행 샘플: 금액으로 찾는다
+  const probes = [744607, 1027219, 1170381, 402545, 30550];
+  probes.forEach(function (amt) {
+    for (let i = 1; i < rows.length; i++) {
+      if (Number(rows[i][4]) === amt) {
+        console.log('금액 ' + amt + ' → ' + JSON.stringify(rows[i]) +
+          ' | year타입=' + (rows[i][2] instanceof Date ? 'Date' : typeof rows[i][2]) +
+          ' | month타입=' + (typeof rows[i][3]) +
+          ' | getDividends비교: "' + String(rows[i][2]) + '" === "2026" ? ' + (String(rows[i][2]) === '2026'));
+        break;
+      }
+    }
+  });
+  return 'ok';
+}
+
+
 // ── 2025년 이전 배당 일괄 입력 (일회성) ──────────────────────────────
 // 왜 함수인가: dividends 시트는 holding_id로 묶이는데 과거 배당의 상당수는 **이미 판 종목**이라
 // holdings에 자리가 없다. 그래서 (계좌, 티커/이름)이 없으면 **수량 0짜리 종목을 먼저 만들고** 배당을 붙인다.
