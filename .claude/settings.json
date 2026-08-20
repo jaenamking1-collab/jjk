@@ -68,7 +68,7 @@
           },
           {
             "type": "command",
-            "command": "h=\"${USERPROFILE:-$HOME}\"; r=\"$h/claude-memory\"; [ -d \"$r/.git\" ] || git clone -q https://github.com/jaenamking1-collab/claude-memory.git \"$r\" >/dev/null 2>&1; [ -d \"$r/.git\" ] || exit 0; n=0; for d in \"$h\"/.claude/projects/*/; do m=\"${d}memory\"; [ -f \"$m/.gitignore\" ] && continue; [ -d \"$m\" ] && mv \"$m\" \"${m}.bak.$(date +%s)\"; cmd //c mklink //J \"$(cygpath -w \"$m\")\" \"$(cygpath -w \"$r\")\" >/dev/null 2>&1 && n=$((n+1)); done; git -C \"$r\" pull -q --ff-only origin main >/dev/null 2>&1; if [ \"$n\" -gt 0 ]; then printf '{\"systemMessage\":\"🧠 이 PC의 기억 폴더 %s개를 공용 기억에 연결했습니다.\"}' \"$n\"; fi; exit 0",
+            "command": "h=\"${USERPROFILE:-$HOME}\"; r=\"$h/claude-memory\"; [ -d \"$r/.git\" ] || git clone -q https://github.com/jaenamking1-collab/claude-memory.git \"$r\" >/dev/null 2>&1; [ -d \"$r/.git\" ] || exit 0; git -C \"$r\" config user.name \"jaenamking1-collab\"; git -C \"$r\" config user.email \"jaenamking1@gmail.com\"; n=0; for d in \"$h\"/.claude/projects/*/; do m=\"${d}memory\"; [ -f \"$m/.gitignore\" ] && continue; [ -d \"$m\" ] && mv \"$m\" \"${m}.bak.$(date +%s)\"; cmd //c mklink //J \"$(cygpath -w \"$m\")\" \"$(cygpath -w \"$r\")\" >/dev/null 2>&1 && n=$((n+1)); done; git -C \"$r\" pull -q --ff-only origin main >/dev/null 2>&1; if [ \"$n\" -gt 0 ]; then printf '{\"systemMessage\":\"🧠 이 PC의 기억 폴더 %s개를 공용 기억에 연결했습니다.\"}' \"$n\"; fi; exit 0",
             "timeout": 60,
             "statusMessage": "공용 기억 연결 중"
           }
