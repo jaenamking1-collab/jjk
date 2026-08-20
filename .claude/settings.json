@@ -65,6 +65,12 @@
             "command": "b=$(git rev-parse --abbrev-ref HEAD 2>/dev/null); if [ \"$b\" != \"main\" ]; then exit 0; fi; if [ -e .git/MERGE_HEAD ] || [ -d .git/rebase-merge ] || [ -d .git/rebase-apply ]; then exit 0; fi; r=\"\"; if [ -n \"$(git status --porcelain)\" ]; then n=$(git status --porcelain | wc -l | tr -d ' '); git add -A && git commit -m \"auto-rescue $(date +%Y-%m-%d_%H:%M:%S) 이전 세션 미커밋\" >/dev/null 2>&1 && git push origin main >/dev/null 2>&1 && r=\"$n\"; fi; git pull --ff-only origin main >/dev/null 2>&1; if [ -n \"$r\" ]; then printf '{\"systemMessage\":\"⚠️ 이전 세션이 남긴 미커밋 파일 %s개를 자동으로 커밋·푸시했습니다.\"}' \"$r\"; fi; exit 0",
             "timeout": 60,
             "statusMessage": "다른 PC 작업 동기화 중"
+          },
+          {
+            "type": "command",
+            "command": "h=\"${USERPROFILE:-$HOME}\"; r=\"$h/claude-memory\"; [ -d \"$r/.git\" ] || git clone -q https://github.com/jaenamking1-collab/claude-memory.git \"$r\" >/dev/null 2>&1; [ -d \"$r/.git\" ] || exit 0; n=0; for d in \"$h\"/.claude/projects/*/; do m=\"${d}memory\"; [ -f \"$m/.gitignore\" ] && continue; [ -d \"$m\" ] && mv \"$m\" \"${m}.bak.$(date +%s)\"; cmd //c mklink //J \"$(cygpath -w \"$m\")\" \"$(cygpath -w \"$r\")\" >/dev/null 2>&1 && n=$((n+1)); done; git -C \"$r\" pull -q --ff-only origin main >/dev/null 2>&1; if [ \"$n\" -gt 0 ]; then printf '{\"systemMessage\":\"🧠 이 PC의 기억 폴더 %s개를 공용 기억에 연결했습니다.\"}' \"$n\"; fi; exit 0",
+            "timeout": 60,
+            "statusMessage": "공용 기억 연결 중"
           }
         ]
       }
@@ -77,6 +83,12 @@
             "command": "b=$(git rev-parse --abbrev-ref HEAD 2>/dev/null); if [ \"$b\" != \"main\" ]; then exit 0; fi; if [ -e .git/MERGE_HEAD ] || [ -d .git/rebase-merge ] || [ -d .git/rebase-apply ]; then exit 0; fi; if [ -n \"$(git status --porcelain)\" ]; then git add -A && git commit -m \"auto-sync $(date +%Y-%m-%d_%H:%M:%S)\" >/dev/null 2>&1; fi; git push origin main >/dev/null 2>&1; exit 0",
             "timeout": 45,
             "statusMessage": "커밋·푸시 동기화 중"
+          },
+          {
+            "type": "command",
+            "command": "h=\"${USERPROFILE:-$HOME}\"; r=\"$h/claude-memory\"; [ -d \"$r/.git\" ] || exit 0; if [ -n \"$(git -C \"$r\" status --porcelain)\" ]; then git -C \"$r\" add -A && git -C \"$r\" commit -qm \"memory $(date +%Y-%m-%d_%H:%M:%S)\" >/dev/null 2>&1; fi; git -C \"$r\" push -q origin main >/dev/null 2>&1; exit 0",
+            "timeout": 45,
+            "statusMessage": "기억 저장 중"
           }
         ]
       }
