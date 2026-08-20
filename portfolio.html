@@ -2091,7 +2091,11 @@ async function paintDueCells(holdings) {
   let distAll = null;
   try { distAll = await api({ action:'getDistributionAll' }); } catch (e) { return; }
   if (!distAll) return;
-  const due = distDueMap(distAll, holdings, 3);
+  // 서버는 {success, sources:{kodex:…}} 객체로 준다. distDueMap은 [{data:…}] 배열을 받는다
+  // (분배금 공지 탭이 쓰는 모양). 안 맞추면 forEach에서 터져서 노랑이 통째로 안 칠해진다.
+  const list = Array.isArray(distAll) ? distAll
+             : Object.values(distAll.sources || {}).map(data => ({ data }));
+  const due = distDueMap(list, holdings, 3);
   // 지급일 ±3일 창 안이면 **이미 입력한 칸도** 노랑을 유지한다(이번 회차 표시). 창이 지나면 알아서 빠진다.
   document.querySelectorAll('#dividendGrid input.div-cell').forEach(inp => {
     const hid = inp.dataset.holding, m = parseInt(inp.dataset.month);
