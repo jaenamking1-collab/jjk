@@ -233,6 +233,12 @@ function deleteAccount(id) {
 }
 
 // ── HOLDINGS ──────────────────────────────
+// 국내 종목코드는 6자리다. 시트엔 '88260'처럼 앞 0이 빠진 행이 섞여 있어 티커로 붙는
+// 매칭(공지 지급일 표시 등)이 빗나간다. 읽을 때 채워주면 마이그레이션이 필요 없다.
+function _padTicker(v) {
+  const t = v != null ? v.toString().trim() : '';
+  return /^[0-9]{1,5}$/.test(t) ? ('000000' + t).slice(-6) : t;
+}
 function getHoldings(account_id) {
   const sheet = getSheet('holdings');
   const rows = sheet.getDataRange().getValues();
@@ -242,7 +248,7 @@ function getHoldings(account_id) {
   return data.map(r => ({
     id: r[0],
     account_id: r[1],
-    ticker: r[2] != null ? r[2].toString().trim() : '',
+    ticker: _padTicker(r[2]),
     name: r[3],
     avg_price: r[4],
     quantity: r[5],
