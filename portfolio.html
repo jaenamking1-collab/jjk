@@ -2006,10 +2006,16 @@ async function loadDividendGrid() {
       const heldThen = cbq ? (parseFloat(cbq.qty) || 0) > 0
                            : (!costIds.has(String(h.id)) && (parseFloat(h.quantity) || 0) > 0);
       const firstM = firstCostMonth[String(h.id)];
-      const missed = isThisYear && m < thisMonth && isMonthly && heldThen
-                     && !(firstM > 1 && m === firstM);
-      const due = !amt && missed;   // 공지 기준 이번 회차는 렌더 후 paintDueCells()가 덧칠한다
-      return `<td style="padding:0${due ? ';background:#fef08a' : ''}"${due ? ' title="' + (missed ? '지나간 달인데 배당이 안 들어가 있습니다' : '공지 지급일입니다 — 입력할 차례') + '"' : ''}>
+      // 매수 첫 달은 배당락 뒤에 샀으면 그 회차가 아예 없다. 그렇다고 노랑에서 통째로 빼면
+      // '첫 달에도 받는 종목'의 놓친 회차를 영영 못 잡는다 → 옅은 노랑으로 따로 표시한다.
+      const isFirstM = firstM > 1 && m === firstM;
+      const missed = isThisYear && m < thisMonth && isMonthly && heldThen;
+      const due = !amt && missed && !isFirstM;   // 공지 기준 이번 회차는 렌더 후 paintDueCells()가 덧칠한다
+      const maybe = !amt && missed && isFirstM;
+      const bg = due ? ';background:#fef08a' : maybe ? ';background:#fef9c3' : '';
+      const tip = due ? '지나간 달인데 배당이 안 들어가 있습니다'
+                : maybe ? '매수 첫 달입니다 — 배당락 뒤 매수면 이 회차는 없습니다. 받았으면 입력하세요' : '';
+      return `<td style="padding:0${bg}"${tip ? ` title="${tip}"` : ''}>
         <div style="display:flex;align-items:center;justify-content:flex-end;white-space:nowrap;padding:0 3px">
           ${dol}<input class="div-cell ${amt?'has-value':''}" title="${monthRate?'분배율 '+monthRate+'%':''}"
           type="text" value="${displayVal}"
