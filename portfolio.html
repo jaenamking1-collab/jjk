@@ -1045,6 +1045,7 @@ if (!/[?&]pc=1/.test(location.search) && window.innerWidth <= 768) {
         <label>배당 주기</label>
         <select id="holdingDivCycle">
           <option value="월초">월초</option>
+          <option value="월중">월중</option>
           <option value="월말">월말</option>
           <option value="분기배당">분기배당</option>
           <option value="반기배당">반기배당</option>
@@ -1776,6 +1777,7 @@ async function renderHoldingsTable(holdings) {
       <button class="btn btn-ghost btn-sm" onclick="openAccountOrderModal()" style="margin-left:8px">⚙️ 계좌 순서 변경</button>
       <button class="btn btn-primary btn-sm" onclick="loadHoldingPrices(state.holdings)" style="margin-left:4px">📈 시세 불러오기</button>
       <button class="btn btn-ghost btn-sm" onclick="applyAllCategories()" style="margin-left:4px">🏷️ 추종 일괄적용</button>
+      <button class="btn btn-ghost btn-sm" onclick="applyAllDivCycles()" style="margin-left:4px">🗓️ 배당주기 공지동기화</button>
     </div>
     <div class="table-wrap" style="text-align:center">
     <table class="holdings-compact" style="width:auto;margin:0 auto">
@@ -5145,6 +5147,53 @@ async function applyAllCategories() {
     } catch(e) { skipped++; }
   }
   alert(`완료: ${updated}개 재적용, ${skipped}개 변경없음`);
+  await loadHoldings();
+}
+
+// 배당주기(월중/월말)를 운용사 공지 기준으로 맞춘다. 앱의 '월초'는 사람이 손으로 넣은 표기라
+// 실제 회차와 자주 어긋난다 — 공지엔 월중/월말 2종뿐이고, 그게 지급일 노랑 표시의 기준이다.
+// 안전장치: ① 공지에 **명시된** cycle만 쓴다(기준일로 추정하지 않는다) ② 지금 월배당(월초/월중/월말)인
+// 종목만 건드린다 — 분기·반기·주배당·무배당을 월배당으로 덮어쓰지 않는다 ③ 섹터(|뒤)는 보존한다.
+async function applyAllDivCycles() {
+  const holdings = state.holdings;
+  if (!holdings || !holdings.length) { alert('종목이 없습니다.'); return; }
+  let distAll = null;
+  try { distAll = await api({ action:'getDistributionAll' }); } catch (e) { distAll = null; }
+  const sources = distAll && distAll.sources;
+  if (!sources) { alert('공지를 불러오지 못했습니다.'); return; }
+
+  const cyc = {};                                   // 티커 → 공지가 명시한 회차 (최신 회차 우선)
+  Object.keys(sources).forEach(k => ((sources[k] || {}).items || []).forEach(it => {
+    const t = (it.ticker || '').toString().trim();
+    if (t && it.cycle && !cyc[t]) cyc[t] = it.cycle;
+  }));
+
+  const MONTHLY = ['월초', '월중', '월말'];
+  const todo = holdings.filter(h => {
+    const t = (h.ticker || '').toString().trim();
+    const cur = (h.div_cycle || '').split('|')[0];
+    return cyc[t] && MONTHLY.indexOf(cur) >= 0 && cur !== cyc[t];
+  });
+  if (!todo.length) { alert('공지와 다른 종목이 없습니다.'); return; }
+
+  const NL = String.fromCharCode(10);
+  const preview = todo.slice(0, 12).map(h => `· ${h.name} : ${(h.div_cycle||'').split('|')[0]} → ${cyc[h.ticker.toString().trim()]}`).join(NL);
+  const more = todo.length > 12 ? NL + '… 외 ' + (todo.length - 12) + '개' : '';
+  if (!confirm(todo.length + '개 종목의 배당주기를 공지 기준으로 바꿉니다.' + NL + NL + preview + more)) return;
+
+  let updated = 0, failed = 0;
+  for (const h of todo) {
+    const cat = (h.div_cycle || '').split('|')[1];
+    const next = cyc[h.ticker.toString().trim()] + (cat ? '|' + cat : '');
+    try {
+      await apiPost({ action: 'updateHolding', id: h.id, account_id: h.account_id,
+        ticker: h.ticker, name: h.name, avg_price: h.avg_price,
+        quantity: h.quantity, currency: h.currency, div_cycle: next });
+      h.div_cycle = next;
+      updated++;
+    } catch (e) { failed++; }
+  }
+  alert(`완료: ${updated}개 변경${failed ? ', ' + failed + '개 실패' : ''}`);
   await loadHoldings();
 }
 
