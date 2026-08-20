@@ -1900,7 +1900,14 @@ async function loadDividendGrid() {
   // 원금월별에 이력이 있는 종목은 '그 달 항목 없음 = 그때 안 갖고 있었다'로 읽는다.
   // 아예 이력이 없는 종목(거래내역 복원 안 된 것)만 현재 수량으로 폴백한다.
   // 안 그러면 매수 전 달까지 '놓친 회차' 노랑이 칠해진다.
-  const costIds = new Set(Object.keys(costMap || {}).map(k => k.slice(0, k.lastIndexOf('_'))));
+  // 신규 매수 첫 달은 배당락 뒤에 샀으면 그 회차를 못 받는다 → 노랑에서 뺀다.
+  // 첫 등장이 1월이면 '1월 신규매수'와 '작년부터 이월'이 구분이 안 되므로 빼지 않는다.
+  const costIds = new Set(), firstCostMonth = {};
+  Object.keys(costMap || {}).forEach(k => {
+    const i = k.lastIndexOf('_'), id = k.slice(0, i), m = parseInt(k.slice(i + 1));
+    costIds.add(id);
+    if (!firstCostMonth[id] || m < firstCostMonth[id]) firstCostMonth[id] = m;
+  });
   // ⚠️ 공지(getDistributionAll)는 여기 끼우면 안 된다 — 6개 운용사 파싱이라 느리고,
   // Promise.all은 all-or-nothing이라 그리드 전체가 그 지연을 뒤집어쓴다(WORKLOG 100·102).
   // 표를 먼저 그리고, 공지는 나중에 도착하면 칸 색만 칠한다.
@@ -1993,7 +2000,9 @@ async function loadDividendGrid() {
       const cbq = costMap && costMap[`${h.id}_${m}`];
       const heldThen = cbq ? (parseFloat(cbq.qty) || 0) > 0
                            : (!costIds.has(String(h.id)) && (parseFloat(h.quantity) || 0) > 0);
-      const missed = isThisYear && m < thisMonth && isMonthly && heldThen;
+      const firstM = firstCostMonth[String(h.id)];
+      const missed = isThisYear && m < thisMonth && isMonthly && heldThen
+                     && !(firstM > 1 && m === firstM);
       const due = !amt && missed;   // 공지 기준 이번 회차는 렌더 후 paintDueCells()가 덧칠한다
       return `<td style="padding:0${due ? ';background:#fef08a' : ''}"${due ? ' title="' + (missed ? '지나간 달인데 배당이 안 들어가 있습니다' : '공지 지급일입니다 — 입력할 차례') + '"' : ''}>
         <div style="display:flex;align-items:center;justify-content:flex-end;white-space:nowrap;padding:0 3px">
@@ -2083,14 +2092,14 @@ async function paintDueCells(holdings) {
   try { distAll = await api({ action:'getDistributionAll' }); } catch (e) { return; }
   if (!distAll) return;
   const due = distDueMap(distAll, holdings, 3);
+  // 지급일 ±3일 창 안이면 **이미 입력한 칸도** 노랑을 유지한다(이번 회차 표시). 창이 지나면 알아서 빠진다.
   document.querySelectorAll('#dividendGrid input.div-cell').forEach(inp => {
-    if (inp.value) return;                       // 이미 입력된 칸은 건드리지 않는다
     const hid = inp.dataset.holding, m = parseInt(inp.dataset.month);
     if (!due[hid] || !due[hid].has(m)) return;
     const td = inp.closest('td');
     if (td) {
       td.style.background = '#fef08a';
-      td.title = '공지 지급일입니다 — 입력할 차례';
+      td.title = inp.value ? '이번 회차 지급일입니다 (입력 완료)' : '공지 지급일입니다 — 입력할 차례';
     }
   });
 }
