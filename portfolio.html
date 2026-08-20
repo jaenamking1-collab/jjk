@@ -1889,12 +1889,14 @@ async function loadDividendGrid() {
   const accountId = document.getElementById('divAccountFilter').value;
   document.getElementById('dividendGrid').innerHTML = '<div class="loading"><span class="spinner"></span>불러오는 중...</div>';
 
-  const [allHoldings, allDivs, costMap, distAll] = await Promise.all([
+  const [allHoldings, allDivs, costMap] = await Promise.all([
     api({ action:'getHoldings' }),
     api({ action:'getDividends', year }),
-    api({ action:'getCostBasis', year }),      // 그달 말 원금(분모). 없으면 현재 원금으로 폴백
-    api({ action:'getDistributionAll' }).catch(() => null)   // 지급일 지난 미입력 셀 표시용
+    api({ action:'getCostBasis', year })       // 그달 말 원금(분모). 없으면 현재 원금으로 폴백
   ]);
+  // ⚠️ 공지(getDistributionAll)는 여기 끼우면 안 된다 — 6개 운용사 파싱이라 느리고,
+  // Promise.all은 all-or-nothing이라 그리드 전체가 그 지연을 뒤집어쓴다(WORKLOG 100·102).
+  // 표를 먼저 그리고, 공지는 나중에 도착하면 칸 색만 칠한다.
 
   let holdings = allHoldings || [];
   if (accountId) holdings = holdings.filter(h => h.account_id === accountId);
@@ -1918,6 +1920,8 @@ async function loadDividendGrid() {
   const er = state.exchangeRate || 1400;
   const months = Array.from({length:12}, (_,i) => i+1);
   const monthTotalsKrw = Array(12).fill(0); // 항상 원화 환산
+  const thisMonth = new Date().getMonth() + 1;
+  const isThisYear = parseInt(year) === new Date().getFullYear();
 
   // 계좌별 연속 개수 (rowspan용)
   const acctSpan = {};
@@ -1943,6 +1947,9 @@ async function loadDividendGrid() {
     const invest = (parseFloat(h.avg_price)||0) * (parseFloat(h.quantity)||0);
     const investKrw = h.currency === 'USD' ? invest * er : invest;
     const isUsd = h.currency === 'USD';
+    // 월배당만 '지나간 달 미입력'을 노랗게 한다. 분기·반기는 어느 달이 회차인지 공지 없이는 모른다.
+    const cycStr0 = (h.div_cycle || '').split('|')[0];
+    const isMonthly = /월/.test(cycStr0) && !/분기|반기/.test(cycStr0);
     let rowTotalKrw = 0, invSum = 0, invN = 0;
     const cells = months.map(m => {
       const key = `${h.id}_${m}`;
@@ -1966,7 +1973,7 @@ async function loadDividendGrid() {
       const cbq = costMap && costMap[`${h.id}_${m}`];
       const heldThen = cbq ? (parseFloat(cbq.qty) || 0) > 0 : (parseFloat(h.quantity) || 0) > 0;
       const missed = isThisYear && m < thisMonth && isMonthly && heldThen;
-      const due = !amt && ((dueMap[h.id] && dueMap[h.id].has(m)) || missed);
+      const due = !amt && missed;   // 공지 기준 이번 회차는 렌더 후 paintDueCells()가 덧칠한다
       return `<td style="padding:0${due ? ';background:#fef08a' : ''}"${due ? ' title="' + (missed ? '지나간 달인데 배당이 안 들어가 있습니다' : '공지 지급일입니다 — 입력할 차례') + '"' : ''}>
         <div style="display:flex;align-items:center;justify-content:flex-end;white-space:nowrap;padding:0 3px">
           ${dol}<input class="div-cell ${amt?'has-value':''}" title="${monthRate?'분배율 '+monthRate+'%':''}"
@@ -2044,6 +2051,27 @@ async function loadDividendGrid() {
     </div>
   `;
   applyDivFont();
+
+  // 공지는 느리다 → 표를 다 그린 뒤에 받아서 '이번 회차인데 빈 칸'만 덧칠한다.
+  if (isThisYear) paintDueCells(holdings);
+}
+
+// 공지 지급일이 임박·경과한 빈 칸을 노랗게. 렌더를 막지 않으려고 따로 뗀 함수.
+async function paintDueCells(holdings) {
+  let distAll = null;
+  try { distAll = await api({ action:'getDistributionAll' }); } catch (e) { return; }
+  if (!distAll) return;
+  const due = distDueMap(distAll, holdings, 3);
+  document.querySelectorAll('#dividendGrid input.div-cell').forEach(inp => {
+    if (inp.value) return;                       // 이미 입력된 칸은 건드리지 않는다
+    const hid = inp.dataset.holding, m = parseInt(inp.dataset.month);
+    if (!due[hid] || !due[hid].has(m)) return;
+    const td = inp.closest('td');
+    if (td) {
+      td.style.background = '#fef08a';
+      td.title = '공지 지급일입니다 — 입력할 차례';
+    }
+  });
 }
 
 // 분배율 추이(읽기 전용): 월 금액 아래에 그달 분배율(%)과 전달 대비 증감(pp) 표시.
@@ -2070,11 +2098,6 @@ async function loadDivRateGrid() {
 
   const divMap = {};
   (allDivs || []).forEach(d => { divMap[`${d.holding_id}_${d.month}`] = d; });
-  // 공지 지급일이 오늘 앞뒤 3일 안인데 아직 안 채운 칸 = 입력할 차례. 올해 화면에서만 의미가 있다.
-  const thisMonth = new Date().getMonth() + 1;
-  const isThisYear = parseInt(year) === new Date().getFullYear();
-  const dueMap = (isThisYear && distAll) ? distDueMap(distAll, holdings, 3) : {};
-
   if (!holdings.length) {
     document.getElementById('dividendGrid').innerHTML = '<div class="empty"><div class="empty-icon">💰</div><p>종목이 없습니다</p></div>';
     return;
