@@ -2404,6 +2404,7 @@ async function loadDashboard() {
 
   const monthProj = Array(12).fill(0);    // 확정+예상 (더리치식 풀 투영)
   const monthActual = Array(12).fill(0);  // 입력 확정만
+  const monthWho = Array.from({length:12}, () => []);   // 그 달 투영에 뭐가 얼마나 들어갔나(막대 툴팁)
   const accYM = {};
   // 투영은 **지금 보유 중인 종목만** 넣는다. 판 종목까지 넣으면 그 종목의 과거 지급월·과거
   // 평균액이 앞으로도 계속 들어오는 것처럼 잡혀 이번 달·연간 예상이 부푼다.
@@ -2421,6 +2422,7 @@ async function loadDashboard() {
       const actual = thisYear[m] || 0;
       const amtK = divKrw(actual > 0 ? actual : perPay, cur);
       monthProj[m-1] += amtK;
+      monthWho[m-1].push({ name: h.name || h.ticker, amt: amtK, est: !(actual > 0) });
       accYM[aid][year].months[m-1] += amtK;
       accYM[aid][year].total += amtK;
     });
@@ -2500,7 +2502,15 @@ async function loadDashboard() {
       const t = barVal(i);
       const col = (i===curMonth&&year===nowY) ? 'var(--green)' : (isConfirmed(i) ? 'var(--accent)' : 'var(--accent2)');
       const op = isConfirmed(i) ? '1' : '0.4';
-      return `<div class="bar-wrap">
+      // 툴팁: 이 달 금액이 뭘로 이뤄졌는지. 예상이 섞인 달은 '왜 이만큼인지'가 안 보인다.
+      const who = (monthWho[i] || []).slice().sort((a,b)=>b.amt-a.amt);
+      const est = who.filter(x=>x.est).reduce((a,b)=>a+b.amt,0);
+      const tip = isConfirmed(i)
+        ? mlabels[i]+'월 확정 '+Math.round(t).toLocaleString()
+        : [mlabels[i]+'월 예상 '+Math.round(monthProj[i]).toLocaleString(),
+           '  확정 입력 '+Math.round(monthProj[i]-est).toLocaleString()+' + 예상 '+Math.round(est).toLocaleString(),
+           ''].concat(who.slice(0,8).map(x=>(x.est?'· ':'✔ ')+x.name+'  '+Math.round(x.amt).toLocaleString())).join(String.fromCharCode(10));
+      return `<div class="bar-wrap" title="${tip.replace(/"/g,'')}">
         <div style="font-size:10px;color:var(--text2);font-family:var(--mono);margin-bottom:4px">${t?Math.round(t/10000)+'만':''}</div>
         <div class="bar" style="height:${Math.max((t/max)*120,2)}px;background:${col};opacity:${op}"></div>
         <div class="bar-label">${mlabels[i]}월</div>
