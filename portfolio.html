@@ -1373,6 +1373,7 @@ function projectAnnualDist(holdings, dividends, year) {
   };
   const perH = {};
   (holdings || []).forEach(h => {
+    if ((parseFloat(h.quantity) || 0) <= 0) { perH[h.id] = 0; return; }   // 판 종목은 앞으로 안 나온다
     const thisYear = (byH[h.id] && byH[h.id][year]) || {};
     let vals = Object.values(thisYear).filter(v => v > 0);
     if (!vals.length) vals = Object.values(byH[h.id] || {}).flatMap(o => Object.values(o)).filter(v => v > 0);
@@ -2371,7 +2372,7 @@ async function loadDashboard() {
   const pl = valued - valuedCost, plPct = valuedCost>0? pl/valuedCost*100 : 0;
 
   // 분배금 집계 — 종목별 투영(입력=확정, 빈 지급월=평균 예상) + USD 환산
-  const divKrw = (a, cur) => a; // 분배금 모두 KRW 저장
+  const divKrw = (a, cur) => cur === 'USD' ? a * rate : a;   // USD 종목은 달러로 저장된다(그리드와 동일)
   const byHolding = {};
   divs.forEach(d => {
     const hid = d.holding_id, y = parseInt(d.year), m = parseInt(d.month);
@@ -2404,15 +2405,19 @@ async function loadDashboard() {
   const monthProj = Array(12).fill(0);    // 확정+예상 (더리치식 풀 투영)
   const monthActual = Array(12).fill(0);  // 입력 확정만
   const accYM = {};
+  // 투영은 **지금 보유 중인 종목만** 넣는다. 판 종목까지 넣으면 그 종목의 과거 지급월·과거
+  // 평균액이 앞으로도 계속 들어오는 것처럼 잡혀 이번 달·연간 예상이 부푼다.
+  // 확정(monthActual)은 판 종목의 올해 입력분도 그대로 더한다 — 실제로 받은 돈이다.
   holdings.forEach(h => {
     const cur = h.currency, aid = h.account_id;
+    const held = (parseFloat(h.quantity) || 0) > 0;
     const thisYear = (byHolding[h.id] && byHolding[h.id][year]) || {};
     let vals = Object.values(thisYear).filter(v => v > 0);
     if (!vals.length) vals = Object.values(byHolding[h.id] || {}).flatMap(o => Object.values(o)).filter(v => v > 0);
     const perPay = vals.length ? vals.reduce((a,b)=>a+b,0) / vals.length : 0;
     (accYM[aid] = accYM[aid] || {});
     (accYM[aid][year] = accYM[aid][year] || { months: Array(12).fill(0), total: 0 });
-    payMonthsOf(h).forEach(m => {
+    (held ? payMonthsOf(h) : []).forEach(m => {
       const actual = thisYear[m] || 0;
       const amtK = divKrw(actual > 0 ? actual : perPay, cur);
       monthProj[m-1] += amtK;
