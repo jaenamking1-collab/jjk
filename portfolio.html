@@ -2405,40 +2405,26 @@ async function loadDashboard() {
   const monthProj = Array(12).fill(0);    // 확정+예상 (더리치식 풀 투영)
   const monthActual = Array(12).fill(0);  // 입력 확정만
   const monthWho = Array.from({length:12}, () => []);   // 그 달 투영에 뭐가 얼마나 들어갔나(막대 툴팁)
-  const accYM = {};
   // 투영은 **지금 보유 중인 종목만** 넣는다. 판 종목까지 넣으면 그 종목의 과거 지급월·과거
   // 평균액이 앞으로도 계속 들어오는 것처럼 잡혀 이번 달·연간 예상이 부푼다.
   // 확정(monthActual)은 판 종목의 올해 입력분도 그대로 더한다 — 실제로 받은 돈이다.
   holdings.forEach(h => {
-    const cur = h.currency, aid = h.account_id;
+    const cur = h.currency;
     const held = (parseFloat(h.quantity) || 0) > 0;
     const thisYear = (byHolding[h.id] && byHolding[h.id][year]) || {};
     let vals = Object.values(thisYear).filter(v => v > 0);
     if (!vals.length) vals = Object.values(byHolding[h.id] || {}).flatMap(o => Object.values(o)).filter(v => v > 0);
     const perPay = vals.length ? vals.reduce((a,b)=>a+b,0) / vals.length : 0;
-    (accYM[aid] = accYM[aid] || {});
-    (accYM[aid][year] = accYM[aid][year] || { months: Array(12).fill(0), total: 0 });
     (held ? payMonthsOf(h) : []).forEach(m => {
       const actual = thisYear[m] || 0;
       const amtK = divKrw(actual > 0 ? actual : perPay, cur);
       monthProj[m-1] += amtK;
       monthWho[m-1].push({ name: h.name || h.ticker, amt: amtK, est: !(actual > 0) });
-      accYM[aid][year].months[m-1] += amtK;
-      accYM[aid][year].total += amtK;
     });
     // 확정(입력)은 payMonthsOf 제한 없이 실제 입력된 모든 월을 합산 → 앱 월합계와 일치
     Object.entries(thisYear).forEach(([mm, a]) => {
       const v = parseFloat(a) || 0;
       if (v > 0) monthActual[parseInt(mm)-1] += divKrw(v, cur);
-    });
-    Object.keys(byHolding[h.id] || {}).forEach(ys => {
-      const yy = parseInt(ys); if (yy === year) return;
-      (accYM[aid][yy] = accYM[aid][yy] || { months: Array(12).fill(0), total: 0 });
-      Object.entries(byHolding[h.id][yy]).forEach(([mm, a]) => {
-        const k = divKrw(parseFloat(a) || 0, cur);
-        accYM[aid][yy].months[parseInt(mm)-1] += k;
-        accYM[aid][yy].total += k;
-      });
     });
   });
   const annualProj = monthProj.reduce((a,b)=>a+b,0);
