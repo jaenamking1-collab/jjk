@@ -132,7 +132,7 @@ function getBootstrap(year) {
 // 원금은 매매가 있을 때만 바뀌므로 **바뀐 달만** 들어있다 → 그 다음 달부터는 이월해서 채운다.
 // 이번 달 행은 앱 holdings 기준(증권사 동기화가 거래내역 다운로드보다 최신이라).
 // 시트를 못 열면 {} → 프론트가 현재 원금으로 폴백하므로 앱이 깨지지 않는다.
-const COST_SHEET_ID = '1zjDhF53_yFbFzRdrf3zlZm2CdduSMkBCiu8wVFGPzn8';
+const COST_SHEET_ID = '1WyMQis17RXCM3fqifnhyM6FXfXoOESiYvcsskMmM3mU';  // v2: 매도 종목 32개 추가(2016~), 219행
 function getCostBasis(year) {
   const y = parseInt(year, 10) || new Date().getFullYear();
   let rows;
