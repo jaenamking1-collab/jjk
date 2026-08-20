@@ -132,7 +132,9 @@ function getBootstrap(year) {
 // 원금은 매매가 있을 때만 바뀌므로 **바뀐 달만** 들어있다 → 그 다음 달부터는 이월해서 채운다.
 // 이번 달 행은 앱 holdings 기준(증권사 동기화가 거래내역 다운로드보다 최신이라).
 // 시트를 못 열면 {} → 프론트가 현재 원금으로 폴백하므로 앱이 깨지지 않는다.
-const COST_SHEET_ID = '1WyMQis17RXCM3fqifnhyM6FXfXoOESiYvcsskMmM3mU';  // v2: 매도 종목 32개 추가(2016~), 219행
+// 매도로 이력이 끊긴 달엔 '0주' 행이 들어 있다 — 없으면 이월이 마지막 수량을 영원히 끌고 가서
+// 2년 전에 판 종목이 올해 화면에 빈 줄로 뜬다.
+const COST_SHEET_ID = '1DC8cBZkDm1yj0_VjbsNR3Ij4GeDPtyZv1UKrkpm-dF0';  // v3: 매도 종목 32개 + 0주 행 33개, 252행
 function getCostBasis(year) {
   const y = parseInt(year, 10) || new Date().getFullYear();
   let rows;
