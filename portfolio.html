@@ -4494,6 +4494,39 @@ function renderMasterCalendar(allData) {
   document.getElementById('distScheduleList').innerHTML = tableHtml;
 }
 
+// 운용사 카드 하단 '특별 공지' 줄. 좌측 공지 패널이 쓰는 _noticeData를 그대로 재사용한다(새 데이터 소스 0).
+// 정기 월중·월말 회차는 위 표와 좌측 패널에 이미 있으니 빼고, **비정기 사건만** 최근 90일 최대 3건.
+// 제목 키워드로만 판정한다 — normalizeNoticeTitle의 cycle은 ACE 분기에서 특별 공지도 '월말'로 떨어진다.
+const DIST_ISSUE_RE = /특별|임시|추가분배|결산|상장폐지|해지|청산|합병|분할|병합|정정|변경|중단|투자유의|괴리/;
+function distIssueNotices(items, now) {
+  const t = now || Date.now();
+  return (items || [])
+    .filter(n => {
+      if (!DIST_ISSUE_RE.test(n.title || '')) return false;
+      const m = String(n.date || '').match(/(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
+      return m ? (t - new Date(+m[1], +m[2] - 1, +m[3]).getTime()) < 90 * 86400000 : false;
+    })
+    .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
+    .slice(0, 3);
+}
+// 카드 폭에 맞춘 한 줄짜리 링크 목록. 없으면 아무것도 안 그린다(카드 높이는 그리드가 맞춘다).
+function distIssueFooter(srcId, color) {
+  const src = (_noticeData || []).find(n => n.id === srcId) || {};
+  const notes = distIssueNotices(src.items);
+  if (!notes.length) return '';
+  return `<div style="border-top:1px dashed ${color}55;padding:6px 8px;display:flex;flex-direction:column;gap:3px">
+    ${notes.map(n => {
+      const tag = /특별|임시|추가분배|결산/.test(n.title) ? '특별' : '이슈';
+      const title = (n.title || '').replace(/</g, '&lt;');
+      return `<div style="display:flex;align-items:center;gap:5px;font-size:11px;line-height:1.3">
+        <span style="flex-shrink:0;background:${color}1a;color:${color};font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px">${tag}</span>
+        <a href="${n.url}" target="_blank" style="color:var(--text2);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${title.replace(/"/g, '&quot;')}">${title}</a>
+        <span style="margin-left:auto;flex-shrink:0;font-family:var(--mono);font-size:10px;color:var(--text3)">${(n.date || '').slice(5)}</span>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
 function renderDistGrid(allData) {
   const grid = document.getElementById('distGrid');
   if (!grid) return;
@@ -4564,7 +4597,7 @@ function renderDistGrid(allData) {
       <div style="padding:8px 12px;border-bottom:1px solid ${c.color}33;display:flex;align-items:center;gap:6px;background:${c.color}1f">
         <span style="font-weight:700;font-size:13px;color:${c.color}">${c.name}</span>
         <span style="font-size:11px;color:var(--text3)">${c.label}</span>
-      </div>${body}
+      </div>${body}${distIssueFooter(c.id, c.color)}
     </div>`;
   });
 
@@ -5355,7 +5388,7 @@ async function loadAllNotices() {
   let snap = null;
   try { snap = JSON.parse(localStorage.getItem(_NSNAP_KEY)); } catch(e) {}
   const painted = !!(snap && snap.length);
-  if (painted) { _noticeData = snap; renderNotices(); showRefreshing(true); }
+  if (painted) { _noticeData = snap; renderNotices(); if (_distData.length) renderDistGrid(_distData); showRefreshing(true); }
   else grid.innerHTML = '<div class="notice-loading">불러오는 중...</div>';
   // 빠른 경로: 6개사의 서버 캐시를 한 번에 받는다(예전엔 운용사별 6번 → 캐시 미스 1건이 10초).
   // 캐시에 없는 곳(stale)만 기존대로 개별 병렬 요청 — 재배포 전이면 벌크가 비어 전부 이 경로로 간다.
@@ -5368,6 +5401,7 @@ async function loadAllNotices() {
   }));
   _noticeData = results.map(r => r.value || {});
   renderNotices();
+  if (_distData.length) renderDistGrid(_distData);   // 카드 하단 특별공지 줄은 이 데이터로 그린다
   if (painted) showRefreshing(false);
   // 전부 0건이면 스냅샷을 덮지 않는다 — 일시적 실패가 다음 진입의 빈 화면으로 굳는 걸 막는다.
   // (fetch 함수는 JSON 직렬화에서 자동으로 빠지고, renderNotices는 id·name·label·items만 쓴다.)
