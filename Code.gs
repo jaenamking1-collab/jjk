@@ -611,8 +611,12 @@ function fetchAceApi(url) {
 
 // ── ETF 공지 프록시 ──
 function getEtfNotices(source) {
+  // 5건이면 정기 월중·월말 공지만으로 두세 달치가 다 차서, 특별분배·정정 같은 비정기 건이
+  // 목록 밖으로 밀려난다(분배탭 카드 하단 '특별 공지' 줄이 그걸 쓴다). 같은 요청 한 번에서
+  // 더 파싱할 뿐이라 비용은 그대로다.
+  const NOTICE_MAX = 12;
   const cache = CacheService.getScriptCache();
-  const cacheKey = 'notices_' + source;
+  const cacheKey = 'notices_v2_' + source;   // v2: NOTICE_MAX 12건. 키를 올려 옛 5건 캐시를 즉시 버린다
   const cached = cache.get(cacheKey);
   if (cached) return JSON.parse(cached);
   try {
@@ -620,18 +624,18 @@ function getEtfNotices(source) {
     if (source === 'kodex') {
       const html = UrlFetchApp.fetch('https://www.samsungfund.com/etf/lounge/notice.do?category=DIVIDEND', { muteHttpExceptions: true }).getContentText('UTF-8');
       const matches = [...html.matchAll(/notice-view\.do\?no=(\d+)[^"]*"[^>]*>([\s\S]*?)<\/a>/g)];
-      matches.slice(0, 5).forEach(m => {
+      matches.slice(0, NOTICE_MAX).forEach(m => {
         const inner = m[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
         const date = (inner.match(/\d{4}\.\d{2}\.\d{2}/) || [''])[0];
         items.push({ title: inner.replace(date, '').trim(), date, url: 'https://www.samsungfund.com/etf/lounge/notice-view.do?no=' + m[1] });
       });
     } else if (source === 'ace') {
       const json = fetchAceApi('https://papi.aceetf.co.kr/api/notices?categoryNo=61&page=1&searchValue=');
-      (json.data || []).slice(0, 5).forEach(n => items.push({ title: n.title || '', date: (n.regDate || '').replace(/-/g, '.'), url: 'https://www.aceetf.co.kr/cs/notice/' + n.id }));
+      (json.data || []).slice(0, NOTICE_MAX).forEach(n => items.push({ title: n.title || '', date: (n.regDate || '').replace(/-/g, '.'), url: 'https://www.aceetf.co.kr/cs/notice/' + n.id }));
     } else if (source === 'rise') {
       const html = UrlFetchApp.fetch('https://www.riseetf.co.kr/cust/notice?searchText=%EB%B6%84%EB%B0%B0%EA%B8%88&searchType4=tab', { muteHttpExceptions: true }).getContentText('UTF-8');
       html.split('<li class=').slice(1).forEach(block => {
-        if (items.length >= 5) return;
+        if (items.length >= NOTICE_MAX) return;
         const idM = block.match(/href="(\/cust\/notice\/\d+)/);
         const titleM = block.match(/class="body01">([\s\S]*?)<\/p>/);
         const dateM = block.match(/class="body02">\s*([\d.]+)/);
@@ -640,7 +644,7 @@ function getEtfNotices(source) {
     } else if (source === 'sol') {
       // SOL은 홈페이지가 아니라 네이버 블로그에 분배금 공지를 올린다(홈페이지는 늦거나 누락).
       // 그래서 목록도 블로그에서 받고, 클릭하면 블로그 글로 이동시킨다.
-      _solNotices().filter(n => /분배금/.test(n.title) && !/이벤트/.test(n.title)).slice(0, 5).forEach(n => items.push({
+      _solNotices().filter(n => /분배금/.test(n.title) && !/이벤트/.test(n.title)).slice(0, NOTICE_MAX).forEach(n => items.push({
         title: n.title,
         date: String(n.date).slice(0, 10).replace(/-/g, '.'),
         url: n.logNo ? 'https://blog.naver.com/soletf/' + n.logNo : 'https://blog.naver.com/soletf'
@@ -650,7 +654,7 @@ function getEtfNotices(source) {
       const fd = 'firstIndex=0&listCnt=20&pageIndex=1&detailsKey=&q=';
       const html = UrlFetchApp.fetch('https://investments.miraeasset.com/tigeretf/ko/customer/notice/list.ajax', { method:'post', payload:fd, headers:{'Content-Type':'application/x-www-form-urlencoded','User-Agent':'Mozilla/5.0'}, muteHttpExceptions:true }).getContentText('UTF-8');
       html.split('<li').slice(1).forEach(b => {
-        if (items.length >= 5 || !b.includes('분배금')) return;
+        if (items.length >= NOTICE_MAX || !b.includes('분배금')) return;
         const titleM = b.match(/class="txt"[^>]*>([\s\S]*?)<\//);
         if (!titleM) return;
         const title = titleM[1].replace(/<[^>]+>/g,'').replace(/\s+/g,' ').trim();
@@ -663,7 +667,7 @@ function getEtfNotices(source) {
       const html = UrlFetchApp.fetch('https://www.plusetf.co.kr/customer/notice/list', { headers:{'User-Agent':'Mozilla/5.0'}, muteHttpExceptions:true }).getContentText('UTF-8');
       const re = /href="(\/customer\/notice\/detail\?n=\d+)"[^>]*>([\s\S]*?)<\/a>/g;
       let m;
-      while ((m = re.exec(html)) && items.length < 5) {
+      while ((m = re.exec(html)) && items.length < NOTICE_MAX) {
         const txt = m[2].replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
         if (!txt.includes('분배금')) continue;
         const date = (txt.match(/\d{4}\.\d{2}\.\d{2}/) || [''])[0];
@@ -683,11 +687,11 @@ function getEtfNotices(source) {
 // 6개사를 순차 스크랩하면 오히려 더 느리므로, stale인 곳만 프론트가 병렬로 개별 요청해 캐시를 채운다.
 function getEtfNoticesAll() {
   let hits = {};
-  try { hits = CacheService.getScriptCache().getAll(DIST_SOURCE_IDS.map(s => 'notices_' + s)) || {}; } catch(e) {}
+  try { hits = CacheService.getScriptCache().getAll(DIST_SOURCE_IDS.map(s => 'notices_v2_' + s)) || {}; } catch(e) {}
   const sources = {};
   DIST_SOURCE_IDS.forEach(s => {
     let v = null;
-    if (hits['notices_' + s]) { try { v = JSON.parse(hits['notices_' + s]); } catch(e) {} }
+    if (hits['notices_v2_' + s]) { try { v = JSON.parse(hits['notices_v2_' + s]); } catch(e) {} }
     sources[s] = (v && (v.items || []).length) ? v : { items: [], stale: true };
   });
   return { success: true, sources: sources };
