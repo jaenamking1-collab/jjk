@@ -17,6 +17,9 @@ skills-lock.json
 *.xls
 *.csv
 
+# 파이썬 위젯(tools/ticker.pyw) 실행 부산물
+__pycache__/
+
 # clasp 인증 토큰 — 절대 커밋하지 않는다(기본 위치는 홈 디렉터리지만 방어적으로 넣어둔다).
 # .clasp.json(scriptId)은 두 PC가 공유해야 하므로 커밋한다 — 비밀값이 아니고 편집기 URL에 그대로 있다.
 .clasprc.json
