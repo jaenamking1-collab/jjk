@@ -3263,6 +3263,7 @@ async function syncFromSheet() {
   removed.forEach(m => { rmCntByAcc[m.accName] = (rmCntByAcc[m.accName]||0) + 1; });
   const suspiciousAccs = Object.keys(rmCntByAcc).filter(a => rmCntByAcc[a] > (appCntByAcc[a]||0) * 0.5);
   const safeRemoved = removed.filter(m => !suspiciousAccs.includes(m.accName));
+  let html = '';   // ⚠️ 아래 경고 블록이 먼저 쓰므로 여기서 선언한다(뒤에 두면 TDZ ReferenceError → '비교 중'에서 멈춤)
   if (suspiciousAccs.length) {
     html += `<div style="background:#fef2f2;border:1px solid #dc2626;border-radius:8px;padding:10px;margin:12px 0;font-size:12px;color:#991b1b">
       ⚠️ 다음 계좌는 종목 다수가 시트에서 누락되어 <b>정렬/파싱 오류</b>로 판단, 삭제 제안에서 제외했습니다: ${suspiciousAccs.join(', ')}.<br>
@@ -3273,8 +3274,6 @@ async function syncFromSheet() {
   _pendingSyncChanges = changes;
 
   // UI 렌더
-  let html = '';
-
   if (changes.length === 0 && missing.length === 0 && _pendingSyncRemoves.length === 0 && !suspiciousAccs.length) {
     html = '<div style="text-align:center;padding:32px;color:#166534;font-size:15px;">✅ 모든 종목이 일치합니다.</div>';
   }
