@@ -449,11 +449,25 @@ MARGIN = 4
 SNAP = 24                                # 화면 가장자리 자석 범위(px)
 
 
-def work_area():
-    """작업 표시줄을 뺀 화면 영역 (왼쪽, 위, 오른쪽, 아래)."""
-    r = ctypes.wintypes.RECT()
+class MONITORINFO(ctypes.Structure):
+    _fields_ = [("cbSize", ctypes.wintypes.DWORD), ("rcMonitor", ctypes.wintypes.RECT),
+                ("rcWork", ctypes.wintypes.RECT), ("dwFlags", ctypes.wintypes.DWORD)]
+
+
+def work_area(x=0, y=0):
+    """(x, y)가 놓인 모니터의 작업 영역 (왼쪽, 위, 오른쪽, 아래).
+    ⚠️ SPI_GETWORKAREA 는 주 모니터만 알려줘서, 그걸 쓰면 보조 모니터로 옮겨도
+    놓는 순간 주 모니터 안으로 되돌아온다. 모니터별로 물어봐야 한다."""
     try:
-        ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(r), 0)
+        u = ctypes.windll.user32
+        u.MonitorFromPoint.argtypes = [ctypes.wintypes.POINT, ctypes.wintypes.DWORD]
+        u.MonitorFromPoint.restype = ctypes.c_void_p          # 64비트 핸들이 잘리지 않게
+        u.GetMonitorInfoW.argtypes = [ctypes.c_void_p, ctypes.POINTER(MONITORINFO)]
+        mi = MONITORINFO()
+        mi.cbSize = ctypes.sizeof(MONITORINFO)
+        pt = ctypes.wintypes.POINT(int(x), int(y))
+        u.GetMonitorInfoW(u.MonitorFromPoint(pt, 2), ctypes.byref(mi))   # 2 = 가장 가까운 모니터
+        r = mi.rcWork
         return r.left, r.top, r.right, r.bottom
     except Exception:
         return 0, 0, root.winfo_screenwidth(), root.winfo_screenheight()
@@ -463,13 +477,15 @@ def place_panel():
     """저장된 위치(없으면 우하단)에 시세창을 놓고, 버튼을 그 위에 붙임."""
     root.update_idletasks()
     tab.update_idletasks()
-    left, top, right, bottom = work_area()
     pw, ph = root.winfo_reqwidth(), root.winfo_reqheight()
     tw, th = tab.winfo_reqwidth(), tab.winfo_reqheight()
     if cfg.get("pos"):
         px, py = cfg["pos"]
     else:
+        left, top, right, bottom = work_area()            # 처음엔 주 모니터 우하단
         px, py = right - pw - MARGIN, bottom - ph - MARGIN
+    # 클램프는 창이 놓인 모니터 기준으로 — 그래야 보조 모니터 위치가 유지된다
+    left, top, right, bottom = work_area(px + pw // 2, py + ph // 2)
     px = min(max(px, left), max(left, right - pw))
     py = min(max(py, top), max(top, bottom - ph))
     root.geometry("+%d+%d" % (px, py))
@@ -499,7 +515,7 @@ drag = {}
 
 
 def move(e):
-    left, top, right, bottom = work_area()
+    left, top, right, bottom = work_area(e.x_root, e.y_root)   # 커서가 있는 모니터에 자석
     w, h = root.winfo_width(), root.winfo_height()
     x, y = e.x_root - drag["x"], e.y_root - drag["y"]
     if abs(x - left) < SNAP:
