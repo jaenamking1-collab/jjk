@@ -23,7 +23,7 @@ DEFAULT = {
 
 SPARK = "https://query1.finance.yahoo.com/v7/finance/spark?range=1d&interval=1d&symbols="
 NAVER = "https://polling.finance.naver.com/api/realtime/domestic/{}/{}"
-BITHUMB = "https://api.bithumb.com/public/ticker/ALL_KRW"
+UPBIT = "https://api.upbit.com/v1/ticker?markets="
 UA = {"User-Agent": "Mozilla/5.0", "Referer": "https://finance.naver.com/"}
 BG, FG, DIM, ACC, LINE = "#2a2f3a", "#f2f5fa", "#9aa5ba", "#7db3ff", "#4d576c"
 ROWLINE = "#353c4a"                      # 행 사이 얇은 선
@@ -125,18 +125,14 @@ def naver(kind, syms):
     return out
 
 
-def bithumb(syms):
-    """국내 코인 시세. 야후(CCC)는 해외 평균이라 국내 거래소와 차이가 커서 빗썸을 씀."""
-    data = get(BITHUMB)["data"]
+def upbit(syms):
+    """국내 코인 시세. 야후(CCC)는 해외 평균이라 국내 거래소와 차이가 커서 업비트를 씀."""
+    markets = ",".join("KRW-" + s.split("-")[0] for s in syms)
     out = {}
-    for sym in syms:
-        d = data.get(sym.split("-")[0])
-        if not d:
-            continue
-        price, prev = num(d["closing_price"]), num(d["opening_price"])
-        diff = price - prev
-        out[sym] = (price, diff, diff / prev * 100 if prev else 0.0,
-                    0 if price >= 100 else 2, None)
+    for d in get(UPBIT + markets):
+        price, diff = d["trade_price"], d["signed_change_price"]
+        out[d["market"].split("-")[1] + "-KRW"] = (
+            price, diff, d["signed_change_rate"] * 100, 0 if price >= 100 else 2, None)
     return out
 
 
@@ -316,10 +312,10 @@ def refresh():
                     pass
         if groups["coin"]:
             try:
-                data.update(bithumb(groups["coin"]))
+                data.update(upbit(groups["coin"]))
             except Exception:
                 pass
-            # 빗썸이 안 되거나 상장 안 된 코인은 야후로 대체
+            # 업비트가 안 되거나 상장 안 된 코인은 야후로 대체
             groups["yahoo"] += [k for k in groups["coin"] if k not in data]
         if groups["yahoo"]:
             try:
