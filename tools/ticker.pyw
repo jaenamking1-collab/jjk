@@ -15,6 +15,7 @@ DEFAULT = {
     "refresh_sec": 5,
     "topmost": True,
     "hidden": False,
+    "collapsed": [],                     # 구분선 단위 그룹 접힘 상태
 }
 
 SPARK = "https://query1.finance.yahoo.com/v7/finance/spark?range=1d&interval=1d&symbols="
@@ -55,6 +56,25 @@ def cut(name):
         if w > NAME_W:
             return name[:i] + "…"
     return name
+
+
+def groups_of(tickers):
+    """--- 를 기준으로 그룹 나누기."""
+    gs, cur = [], []
+    for line in tickers:
+        if line.strip().startswith(SEP):
+            gs.append(cur)
+            cur = []
+        else:
+            cur.append(line)
+    gs.append(cur)
+    return [g for g in gs if g]
+
+
+def visible():
+    """접지 않은 그룹의 종목 줄만."""
+    gs = groups_of(cfg["tickers"])
+    return [x for i, g in enumerate(gs) for x in g if not cfg["collapsed"][i]]
 
 
 def num(s):
@@ -108,6 +128,7 @@ def save(cfg):
 cfg = load()
 rows = {}
 alerts = {}                              # 반짝일 종목 -> 색
+caps = []                                # 그룹 접기 버튼 (평소 숨김, 마우스 올리면 표시)
 timer = None
 
 root = tk.Tk()
@@ -132,25 +153,65 @@ def build():
         w.destroy()
     rows.clear()
     alerts.clear()
+    caps.clear()
+    gs = groups_of(cfg["tickers"])
+    col = list(cfg.get("collapsed") or [])
+    cfg["collapsed"] = (col + [False] * len(gs))[:len(gs)]
     r = 0
-    for line in cfg["tickers"]:
-        if line.strip().startswith(SEP):
-            tk.Frame(body, bg=LINE, height=1).grid(row=r, column=0, columnspan=3,
-                                                   sticky="ew", pady=1)
-            r += 1
+    for gi, group in enumerate(gs):
+        shut = cfg["collapsed"][gi]
+        strip = tk.Frame(body, bg=BG)
+        strip.grid(row=r, column=0, columnspan=3, sticky="ew")
+        r += 1
+        bar = tk.Frame(strip, bg=LINE, height=1)
+        bar.pack(fill="x", expand=True, pady=4)
+        # place로 띄워서 창 크기에 영향 없음. 평소엔 숨김, 마우스 올리면 왼쪽에 나타남
+        cap = tk.Label(strip, text="▸%d" % len(group) if shut else "▾", bg=BG, fg=ACC,
+                       font=("Segoe UI Symbol", 7), cursor="hand2")
+        caps.append(cap)
+        for w in (strip, cap, bar):
+            w.bind("<Button-1>", lambda e, i=gi: fold(i))
+        if shut:
             continue
-        sym, name = split(line)
-        given = name != sym                      # 직접 지정한 이름은 약칭 처리 안 함
-        nm = tk.Label(body, text=name if given else cut(name), bg=BG, fg=FG,
-                      font=("Malgun Gothic", 8, "bold"))
-        nm.grid(row=r, column=0, sticky="w", padx=(0, 2))
-        p = tk.Label(body, text="…", bg=BG, fg=FG, font=("Consolas", 9))
-        c = tk.Label(body, text="", bg=BG, fg=DIM, font=("Consolas", 8))
-        p.grid(row=r, column=1, sticky="e")
-        c.grid(row=r, column=2, sticky="e", padx=(3, 0))
-        rows[sym] = (nm, p, c, given)
-        tk.Frame(body, bg=ROWLINE, height=1).grid(row=r + 1, column=0, columnspan=3, sticky="ew")
-        r += 2
+        for line in group:
+            sym, name = split(line)
+            given = name != sym                  # 직접 지정한 이름은 약칭 처리 안 함
+            nm = tk.Label(body, text=name if given else cut(name), bg=BG, fg=FG,
+                          font=("Malgun Gothic", 8, "bold"))
+            nm.grid(row=r, column=0, sticky="w", padx=(0, 2))
+            p = tk.Label(body, text="…", bg=BG, fg=FG, font=("Consolas", 9))
+            c = tk.Label(body, text="", bg=BG, fg=DIM, font=("Consolas", 8))
+            p.grid(row=r, column=1, sticky="e")
+            c.grid(row=r, column=2, sticky="e", padx=(3, 0))
+            rows[sym] = (nm, p, c, given)
+            tk.Frame(body, bg=ROWLINE, height=1).grid(row=r + 1, column=0, columnspan=3,
+                                                      sticky="ew")
+            r += 2
+
+
+def hover(show):
+    for cap in caps:
+        if show:
+            cap.place(x=0, rely=0.5, anchor="w")
+        else:
+            cap.place_forget()
+
+
+def maybe_hide():
+    x, y = root.winfo_pointerxy()
+    inside = (root.winfo_rootx() <= x <= root.winfo_rootx() + root.winfo_width()
+              and root.winfo_rooty() <= y <= root.winfo_rooty() + root.winfo_height())
+    hover(inside)
+
+
+def fold(i):
+    """구분선 클릭 -> 그 그룹 접기/펴기. 접힌 그룹은 시세도 안 불러옴."""
+    cfg["collapsed"][i] = not cfg["collapsed"][i]
+    save(cfg)
+    build()
+    refresh()
+    place_panel()
+    root.after(1500, place_panel)        # 시세가 채워져 크기가 바뀌면 다시 붙임
 
 
 def paint(sym, res):
@@ -193,7 +254,7 @@ def schedule(sec):
 
 def refresh():
     def work():
-        keys = [split(x)[0] for x in cfg["tickers"] if not x.strip().startswith(SEP)]
+        keys = [split(x)[0] for x in visible()]
         groups = {"index": [], "stock": [], "yahoo": []}
         for k in keys:
             groups["index" if k in INDEX else "stock" if CODE.match(k) else "yahoo"].append(k)
@@ -326,6 +387,9 @@ def toggle(_=None):
 
 
 tab_btn.bind("<Button-1>", toggle)
+
+root.bind("<Enter>", lambda e: hover(True))
+root.bind("<Leave>", lambda e: root.after(120, maybe_hide))
 
 drag = {}
 root.bind("<Button-1>", lambda e: drag.update(x=e.x_root - root.winfo_x(), y=e.y_root - root.winfo_y()))
