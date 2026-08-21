@@ -3267,6 +3267,11 @@ async function _syncFromSheetInner(body, step) {
     if (!acc) continue;
     // 시트 동기화 대상 계좌만 (SHEET_ACC_MAP 값에 존재하는 계좌)
     if (!Object.values(SHEET_ACC_MAP).includes(acc.name)) continue;
+    // 수량 0 = 이미 판 종목. 주식상황 시트는 판 종목을 아예 안 적고, 앱은 과거 배당을
+    // 붙일 자리로 남겨둔다(loadHoldings의 '매도 종목 보기' 참고). 즉 '시트에 없음'이 정상이다.
+    // 삭제 후보로 올리면 (a) 배당 이력 있는 매도 종목을 날릴 수 있고 (b) 매도가 많은 계좌는
+    // 매번 '절반 초과 누락' 안전장치에 걸려 경고만 뜨고 삭제 제안이 통째로 막힌다.
+    if ((parseFloat(h.quantity) || 0) <= 0) continue;
     let key = (h.ticker || '').toString().toUpperCase();
     if (/^\d{1,5}$/.test(key)) key = key.padStart(6, '0');
     if (!sheetKeySet.has(acc.name + '|' + key)) {
