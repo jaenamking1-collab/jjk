@@ -17,15 +17,18 @@ DEFAULT = {
     "hidden": False,
     "collapsed": [],                     # 구분선 단위 그룹 접힘 상태
     "pos": None,                         # 직접 옮긴 위치 (없으면 우하단 자동)
+    "bg_op": 80,                         # 바탕 불투명도 0~100 (80 = 지금 상태)
+    "text_op": 80,                       # 글자 불투명도 0~100 (80 = 지금 상태)
 }
 
 SPARK = "https://query1.finance.yahoo.com/v7/finance/spark?range=1d&interval=1d&symbols="
 NAVER = "https://polling.finance.naver.com/api/realtime/domestic/{}/{}"
+BITHUMB = "https://api.bithumb.com/public/ticker/ALL_KRW"
 UA = {"User-Agent": "Mozilla/5.0", "Referer": "https://finance.naver.com/"}
 BG, FG, DIM, ACC, LINE = "#2a2f3a", "#f2f5fa", "#9aa5ba", "#7db3ff", "#4d576c"
 ROWLINE = "#353c4a"                      # 행 사이 얇은 선
 FIELD = "#1f242e"                        # 설정창 입력칸
-ALPHA = 0.94                             # 창 불투명도 (1.0 = 불투명)
+THEME = {}                               # 불투명도가 반영된 현재 색
 UP, DOWN = "#ff5c66", "#5aa8ff"          # 국내식: 상승 빨강, 하락 파랑
 SEP = "---"
 ALERT = 5.0                              # 등락률 이 이상이면 반짝임
@@ -57,6 +60,29 @@ def cut(name):
         if w > NAME_W:
             return name[:i] + "…"
     return name
+
+
+def mix(a, b, t):
+    """색 a와 b를 t 비율로 섞기 (t=0 -> a, t=1 -> b)."""
+    t = max(0.0, min(1.0, t))
+    ca, cb = (int(a[1:][i:i + 2], 16) for i in (0, 2, 4)), (int(b[1:][i:i + 2], 16) for i in (0, 2, 4))
+    return "#%02x%02x%02x" % tuple(round(x + (y - x) * t) for x, y in zip(ca, cb))
+
+
+def theme():
+    """80 = 지금 보이는 상태. 그 아래는 배경에 묻히고, 위로는 더 또렷해짐."""
+    t = cfg["text_op"] / 100.0
+    for key, base in (("fg", FG), ("dim", DIM), ("up", UP), ("down", DOWN)):
+        THEME[key] = mix(BG, base, t / 0.8) if t <= 0.8 else mix(base, "#ffffff", (t - 0.8) * 2.5)
+    root.attributes("-alpha", 0.70 + cfg["bg_op"] * 0.003)      # 80 -> 0.94
+    for sym in rows:
+        nm, p, c, _ = rows[sym]
+        nm.config(fg=THEME["fg"])
+        p.config(fg=THEME["fg"])
+        if sym in last:
+            paint(sym, last[sym])
+        else:
+            c.config(fg=THEME["dim"])
 
 
 def groups_of(tickers):
@@ -99,6 +125,21 @@ def naver(kind, syms):
     return out
 
 
+def bithumb(syms):
+    """국내 코인 시세. 야후(CCC)는 해외 평균이라 국내 거래소와 차이가 커서 빗썸을 씀."""
+    data = get(BITHUMB)["data"]
+    out = {}
+    for sym in syms:
+        d = data.get(sym.split("-")[0])
+        if not d:
+            continue
+        price, prev = num(d["closing_price"]), num(d["opening_price"])
+        diff = price - prev
+        out[sym] = (price, diff, diff / prev * 100 if prev else 0.0,
+                    0 if price >= 100 else 2, None)
+    return out
+
+
 def yahoo(syms):
     """해외·코인·환율. 한 번의 요청으로 전 종목."""
     out = {}
@@ -129,6 +170,7 @@ def save(cfg):
 cfg = load()
 rows = {}
 alerts = {}                              # 반짝일 종목 -> 색
+last = {}                                # 마지막 시세 (색만 다시 칠할 때 사용)
 caps = []                                # 그룹 접기 버튼 (평소 숨김, 마우스 올리면 표시)
 timer = None
 
@@ -136,7 +178,6 @@ root = tk.Tk()
 root.overrideredirect(True)
 root.attributes("-topmost", cfg["topmost"])
 root.configure(bg=BG)
-root.attributes("-alpha", ALPHA)
 root.geometry("+40+40")
 
 head = tk.Frame(root, bg=BG)
@@ -188,6 +229,7 @@ def build():
             tk.Frame(body, bg=ROWLINE, height=1).grid(row=r + 1, column=0, columnspan=3,
                                                       sticky="ew")
             r += 2
+    theme()
 
 
 def hover(show):
@@ -222,16 +264,18 @@ def paint(sym, res):
     if res is None:
         c.config(text="err", fg=DIM)
         return
+    last[sym] = res
     price, diff, pct, dec, name = res
     if name and not given and nm.cget("text") == sym:   # 코드만 넣었으면 종목명 자동 표시
         nm.config(text=cut(name))
     if abs(pct) >= ALERT:
-        alerts[sym] = UP if diff > 0 else DOWN
+        alerts[sym] = THEME["up"] if diff > 0 else THEME["down"]
     elif alerts.pop(sym, None):
         c.config(bg=BG)
     text = fmt(price, dec)
     p.config(text=text, font=("Consolas", 7 if len(text) > 9 else 9))   # 자릿수 많으면 축소
-    c.config(text=f"{pct:+.2f}%", fg=UP if diff > 0 else DOWN if diff < 0 else DIM)
+    c.config(text=f"{pct:+.2f}%",
+             fg=THEME["up"] if diff > 0 else THEME["down"] if diff < 0 else THEME["dim"])
 
 
 def blink(on=[False]):
@@ -256,9 +300,10 @@ def schedule(sec):
 def refresh():
     def work():
         keys = [split(x)[0] for x in visible()]
-        groups = {"index": [], "stock": [], "yahoo": []}
+        groups = {"index": [], "stock": [], "coin": [], "yahoo": []}
         for k in keys:
-            groups["index" if k in INDEX else "stock" if CODE.match(k) else "yahoo"].append(k)
+            groups["index" if k in INDEX else "stock" if CODE.match(k)
+                   else "coin" if k.endswith("-KRW") else "yahoo"].append(k)
 
         data, wait = {}, 0
         for kind in ("index", "stock"):
@@ -269,6 +314,13 @@ def refresh():
                     data.update({s: got[INDEX.get(s, s)] for s in syms if INDEX.get(s, s) in got})
                 except Exception:
                     pass
+        if groups["coin"]:
+            try:
+                data.update(bithumb(groups["coin"]))
+            except Exception:
+                pass
+            # 빗썸이 안 되거나 상장 안 된 코인은 야후로 대체
+            groups["yahoo"] += [k for k in groups["coin"] if k not in data]
         if groups["yahoo"]:
             try:
                 data.update(yahoo(groups["yahoo"]))
@@ -289,7 +341,6 @@ def settings(_=None):
     win = tk.Toplevel(root, bg=BG)
     win.title("설정")
     win.attributes("-topmost", True)
-    win.attributes("-alpha", ALPHA)
     win.geometry(f"+{root.winfo_x() + 20}+{root.winfo_y() + 20}")
     tk.Label(win, text="목록 (한 줄에 하나 · 심볼=이름 · --- 는 구분선)", bg=BG, fg=DIM,
              font=("Malgun Gothic", 9)).pack(anchor="w", padx=12, pady=(12, 4))
@@ -306,6 +357,24 @@ def settings(_=None):
     tk.Checkbutton(win, text="항상 위에 표시", variable=top, bg=BG, fg=FG, selectcolor=FIELD,
                    activebackground=BG, activeforeground=FG, bd=0, highlightthickness=0,
                    font=("Malgun Gothic", 9)).pack(anchor="w", padx=8)
+    was = (cfg["bg_op"], cfg["text_op"])
+
+    def slider(label, key):
+        row = tk.Frame(win, bg=BG)
+        row.pack(fill="x", padx=10, pady=(2, 0))
+        tk.Label(row, text=label, bg=BG, fg=DIM, width=8, anchor="w",
+                 font=("Malgun Gothic", 9)).pack(side="left")
+        sc = tk.Scale(row, from_=20, to=100, orient="horizontal", bg=BG, fg=FG,
+                      troughcolor=FIELD, activebackground=ACC, highlightthickness=0,
+                      bd=0, sliderrelief="flat", length=150, font=("Consolas", 7),
+                      command=lambda v: (cfg.update({key: int(float(v))}), theme()))
+        sc.set(cfg[key])
+        sc.pack(side="left")
+        return sc
+
+    slider("바탕 투명", "bg_op")
+    slider("글자 진하기", "text_op")
+
     bar = tk.Frame(win, bg=BG)
     bar.pack(fill="x", padx=12, pady=(4, 12))
     tk.Label(bar, text="갱신(초)", bg=BG, fg=DIM, font=("Malgun Gothic", 9)).pack(side="left")
@@ -335,7 +404,13 @@ def settings(_=None):
 
     tk.Button(bar, text="저장", command=apply, bg=ACC, fg="#12151c", relief="flat",
               font=("Malgun Gothic", 9, "bold"), padx=14, cursor="hand2").pack(side="right")
-    tk.Button(bar, text="취소", command=win.destroy, bg=FIELD, fg=FG, relief="flat",
+    def cancel():
+        cfg.update(bg_op=was[0], text_op=was[1])
+        theme()
+        win.destroy()
+
+    win.protocol("WM_DELETE_WINDOW", cancel)
+    tk.Button(bar, text="취소", command=cancel, bg=FIELD, fg=FG, relief="flat",
               font=("Malgun Gothic", 9), padx=10, cursor="hand2").pack(side="right", padx=6)
 
 
