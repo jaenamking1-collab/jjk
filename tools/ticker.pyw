@@ -1,7 +1,7 @@
 # 바탕화면 실시간 시세 위젯. 드래그로 이동, 톱니로 설정.
 # 목록 한 줄에 하나: "심볼" 또는 "심볼=표시이름", "---" 는 구분선.
 # 국내(6자리 코드, KOSPI/KOSDAQ)는 네이버 실시간, 해외/코인/환율은 야후.
-import ctypes, ctypes.wintypes, json, os, re, tkinter as tk
+import ctypes, ctypes.wintypes, json, os, re, time, tkinter as tk
 import urllib.error, urllib.parse, urllib.request
 from threading import Thread
 
@@ -24,6 +24,7 @@ DEFAULT = {
 SPARK = "https://query1.finance.yahoo.com/v7/finance/spark?range=1d&interval=1d&symbols="
 NAVER = "https://polling.finance.naver.com/api/realtime/domestic/{}/{}"
 UPBIT = "https://api.upbit.com/v1/ticker?markets="
+CANDLE = "https://api.upbit.com/v1/candles/minutes/60?count=25&market="
 UA = {"User-Agent": "Mozilla/5.0", "Referer": "https://finance.naver.com/"}
 BG, FG, DIM, ACC, LINE = "#2a2f3a", "#f2f5fa", "#9aa5ba", "#7db3ff", "#4d576c"
 ROWLINE = "#353c4a"                      # 행 사이 얇은 선
@@ -32,6 +33,10 @@ THEME = {}                               # 불투명도가 반영된 현재 색
 UP, DOWN = "#ff5c66", "#5aa8ff"          # 국내식: 상승 빨강, 하락 파랑
 SEP = "---"
 ALERT = 5.0                              # 등락률 이 이상이면 반짝임
+COIN_SEC = 20                            # 코인은 20초마다만 조회 (거래소가 잦은 요청을 끊음)
+coin_at = [0.0]                          # 마지막 조회 시각
+coin_ok = [0.0]                          # 마지막으로 거래소가 응답한 시각
+ref24 = {}                               # 코인 -> (조회시각, 24시간 전 가격)
 INDEX = {"KOSPI": "KOSPI", "KOSDAQ": "KOSDAQ", "^KS11": "KOSPI", "^KQ11": "KOSDAQ"}
 CODE = re.compile(r"^[0-9]{4}[0-9A-Z]{2}$")   # 069500, 0005A0 같은 국내 종목코드
 NAME_W = 17                              # 이름 최대 폭(한글 2, 영문 1). 넘으면 잘림
@@ -125,14 +130,29 @@ def naver(kind, syms):
     return out
 
 
+def ref_price(market):
+    """24시간 전 가격. 거래소 화면과 같은 기준이며 5분마다만 다시 조회."""
+    ts, val = ref24.get(market, (0, None))
+    if time.time() - ts > 300:
+        try:
+            val = get(CANDLE + market)[-1]["trade_price"]
+            ref24[market] = (time.time(), val)
+        except Exception:
+            pass
+    return val
+
+
 def upbit(syms):
-    """국내 코인 시세. 야후(CCC)는 해외 평균이라 국내 거래소와 차이가 커서 업비트를 씀."""
+    """국내 코인 시세(업비트). 야후는 해외 평균가라 국내 거래소와 차이가 큼.
+    등락률은 거래소 화면과 같은 24시간 기준 (업비트 전일대비는 09시 기준이라 다름)."""
     markets = ",".join("KRW-" + s.split("-")[0] for s in syms)
     out = {}
     for d in get(UPBIT + markets):
-        price, diff = d["trade_price"], d["signed_change_price"]
+        price = d["trade_price"]
+        prev = ref_price(d["market"]) or d["prev_closing_price"]
+        diff = price - prev
         out[d["market"].split("-")[1] + "-KRW"] = (
-            price, diff, d["signed_change_rate"] * 100, 0 if price >= 100 else 2, None)
+            price, diff, diff / prev * 100 if prev else 0.0, 0 if price >= 100 else 2, None)
     return out
 
 
@@ -311,12 +331,15 @@ def refresh():
                 except Exception:
                     pass
         if groups["coin"]:
-            try:
-                data.update(upbit(groups["coin"]))
-            except Exception:
-                pass
-            # 업비트가 안 되거나 상장 안 된 코인은 야후로 대체
-            groups["yahoo"] += [k for k in groups["coin"] if k not in data]
+            if time.time() - coin_at[0] >= COIN_SEC:
+                coin_at[0] = time.time()
+                try:
+                    data.update(upbit(groups["coin"]))
+                    coin_ok[0] = time.time()
+                except Exception:
+                    pass
+            if time.time() - coin_ok[0] > 120:    # 거래소가 오래 막히면 야후라도
+                groups["yahoo"] += [k for k in groups["coin"] if k not in data]
         if groups["yahoo"]:
             try:
                 data.update(yahoo(groups["yahoo"]))
@@ -327,7 +350,8 @@ def refresh():
 
         root.after(0, status.config, {"text": "요청 과다 · 1분 대기" if wait else ""})
         for k in keys:
-            root.after(0, paint, k, data.get(k))
+            if k in data or k not in last:    # 못 받아온 건 직전 값 그대로 둠
+                root.after(0, paint, k, data.get(k))
         root.after(0, schedule, wait or cfg["refresh_sec"])
 
     Thread(target=work, daemon=True).start()
