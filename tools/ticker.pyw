@@ -16,6 +16,7 @@ DEFAULT = {
     "topmost": True,
     "hidden": False,
     "collapsed": [],                     # 구분선 단위 그룹 접힘 상태
+    "pos": None,                         # 직접 옮긴 위치 (없으면 우하단 자동)
 }
 
 SPARK = "https://query1.finance.yahoo.com/v7/finance/spark?range=1d&interval=1d&symbols="
@@ -350,29 +351,37 @@ tab.geometry("+%d+%d" % (tab.winfo_screenwidth() - tab.winfo_reqwidth() - 12,
 
 
 MARGIN = 4
+SNAP = 24                                # 화면 가장자리 자석 범위(px)
 
 
 def work_area():
-    """작업 표시줄을 뺀 화면 영역 (오른쪽, 아래)."""
+    """작업 표시줄을 뺀 화면 영역 (왼쪽, 위, 오른쪽, 아래)."""
     r = ctypes.wintypes.RECT()
     try:
         ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(r), 0)
-        return r.right, r.bottom
+        return r.left, r.top, r.right, r.bottom
     except Exception:
-        return root.winfo_screenwidth(), root.winfo_screenheight()
+        return 0, 0, root.winfo_screenwidth(), root.winfo_screenheight()
 
 
 def place_panel():
-    """시세창은 화면 오른쪽 맨 아래, 버튼은 그 바로 위. 숨기면 버튼이 맨 아래로 내려감."""
+    """저장된 위치(없으면 우하단)에 시세창을 놓고, 버튼을 그 위에 붙임."""
     root.update_idletasks()
     tab.update_idletasks()
-    right, bottom = work_area()
+    left, top, right, bottom = work_area()
     pw, ph = root.winfo_reqwidth(), root.winfo_reqheight()
     tw, th = tab.winfo_reqwidth(), tab.winfo_reqheight()
-    py = bottom - ph - MARGIN
-    root.geometry("+%d+%d" % (right - pw - MARGIN, py))
-    ty = (py - th - 2) if not cfg["hidden"] else (bottom - th - MARGIN)
-    tab.geometry("+%d+%d" % (right - tw - MARGIN, ty))
+    if cfg.get("pos"):
+        px, py = cfg["pos"]
+    else:
+        px, py = right - pw - MARGIN, bottom - ph - MARGIN
+    px = min(max(px, left), max(left, right - pw))
+    py = min(max(py, top), max(top, bottom - ph))
+    root.geometry("+%d+%d" % (px, py))
+    ty = py - th - 2
+    if ty < top:                          # 위쪽에 붙였으면 버튼을 아래로
+        ty = py + ph + 2
+    tab.geometry("+%d+%d" % (px + pw - tw, ty))
 
 
 def toggle(_=None):
@@ -392,13 +401,38 @@ root.bind("<Enter>", lambda e: hover(True))
 root.bind("<Leave>", lambda e: root.after(120, maybe_hide))
 
 drag = {}
+
+
+def move(e):
+    left, top, right, bottom = work_area()
+    w, h = root.winfo_width(), root.winfo_height()
+    x, y = e.x_root - drag["x"], e.y_root - drag["y"]
+    if abs(x - left) < SNAP:
+        x = left
+    if abs(x + w - right) < SNAP:
+        x = right - w
+    if abs(y - top) < SNAP:
+        y = top
+    if abs(y + h - bottom) < SNAP:
+        y = bottom - h
+    root.geometry("+%d+%d" % (x, y))
+
+
+def drop(_=None):
+    cfg["pos"] = [root.winfo_x(), root.winfo_y()]
+    save(cfg)
+    place_panel()                         # 버튼도 따라오게
+
+
 root.bind("<Button-1>", lambda e: drag.update(x=e.x_root - root.winfo_x(), y=e.y_root - root.winfo_y()))
-root.bind("<B1-Motion>", lambda e: root.geometry(f"+{e.x_root - drag['x']}+{e.y_root - drag['y']}"))
+root.bind("<B1-Motion>", move)
+root.bind("<ButtonRelease-1>", drop)
 gear.bind("<Button-1>", lambda e: (settings(), "break")[1])
 menu = tk.Menu(root, tearoff=0)
 menu.add_command(label="새로고침", command=refresh)
 menu.add_command(label="설정", command=settings)
 menu.add_command(label="숨기기/보이기", command=toggle)
+menu.add_command(label="위치 초기화", command=lambda: (cfg.update(pos=None), save(cfg), place_panel()))
 menu.add_command(label="닫기", command=root.destroy)
 root.bind("<Button-3>", lambda e: menu.tk_popup(e.x_root, e.y_root))
 tab_btn.bind("<Button-3>", lambda e: menu.tk_popup(e.x_root, e.y_root))
