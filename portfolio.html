@@ -3156,20 +3156,40 @@ let _pendingSyncChanges = [];
 let _pendingSyncAdds = [];
 let _pendingSyncRemoves = [];
 
+// ⚠️ 예전엔 여기서 예외가 나면 모달이 '비교 중...'에 영구히 멈춰 원인이 안 보였다.
+// 전체를 try/catch로 감싸고 단계·경과초를 찍어 어디서 멈췄는지 화면에서 바로 읽히게 한다.
 async function syncFromSheet() {
   const modal = document.getElementById('modal-sync');
   const body  = document.getElementById('syncResultBody');
   modal.style.display = 'flex';
-  body.innerHTML = '<div style="text-align:center;padding:32px;"><span class="spinner"></span> 스프레드시트 불러오는 중...</div>';
   document.getElementById('syncApplyBtn').style.display = 'none';
 
-  let sheetData;
+  const t0 = Date.now();
+  const step = (msg) => {
+    const sec = ((Date.now() - t0) / 1000).toFixed(1);
+    body.innerHTML = `<div style="text-align:center;padding:32px;"><span class="spinner"></span> ${msg}
+      <div style="margin-top:8px;font-size:12px;color:var(--text3)">${sec}초 경과</div></div>`;
+  };
+  step('스프레드시트 불러오는 중...');
+  const ticker = setInterval(() => {
+    const el = body.querySelector('div div');
+    if (el) el.textContent = `${((Date.now() - t0) / 1000).toFixed(1)}초 경과`;
+  }, 200);
+
   try {
-    sheetData = await api({ action: 'getSheetData', force: 1 });
-  } catch(e) {
-    body.innerHTML = `<div style="color:#dc2626;padding:16px;">오류: ${e}</div>`;
-    return;
+    await _syncFromSheetInner(body, step);
+  } catch (e) {
+    body.innerHTML = `<div style="color:#dc2626;padding:16px;white-space:pre-wrap;font-size:12px">
+      동기화 중단 (${((Date.now() - t0) / 1000).toFixed(1)}초 지점)
+
+${(e && e.stack) || e}</div>`;
+  } finally {
+    clearInterval(ticker);
   }
+}
+
+async function _syncFromSheetInner(body, step) {
+  const sheetData = await api({ action: 'getSheetData', force: 1 });
 
   // GAS 재배포 전이면 quantity/avg_price 없을 수 있음 → 방어
   const sheetItems = (sheetData.items || []).filter(it =>
@@ -3185,7 +3205,7 @@ async function syncFromSheet() {
     return;
   }
 
-  body.innerHTML = `<div style="text-align:center;padding:20px;color:var(--text3);">⚙️ 비교 중... (${sheetItems.length}개 항목)</div>`;
+  step(`⚙️ 비교 중... (${sheetItems.length}개 항목)`);
 
   // 앱 holdings를 {계좌명: {티커: holding}} 맵으로
   const appMap = {};
