@@ -680,16 +680,21 @@ function distIssueNotices(items, now){
 function distIssueFooter(srcId, color, shown){
   const src = (_noticeData || []).find(n => n.id === srcId) || {};
   const notes = distIssueNotices(src.items).filter(n => !(shown || new Set()).has(n.url));  // 위 슬롯에 이미 뜬 건 빼기
-  if (!notes.length) return '';
+  // 비어 있어도 틀은 남긴다 — 월중·월말 빈 슬롯이 '-'로 자리를 지키는 것과 같다.
+  const empty = `<div style="display:flex;align-items:center;gap:5px;min-width:0">
+        <span style="flex-shrink:0;background:${color}12;color:${color}99;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px">공지</span>
+        <span style="flex:1;min-width:0;font-size:11px;line-height:1.3;color:var(--text3)">특별·이슈 공지 없음</span>
+        <span style="flex-shrink:0;font-family:var(--mono);font-size:10px;color:var(--text3)">-</span>
+      </div>`;
   return `<div style="margin-top:6px;padding-top:6px;border-top:1px dashed ${color}66;display:flex;flex-direction:column;gap:4px">
-    ${notes.map(n => {
+    ${notes.length ? notes.map(n => {
       const tag = /특별|임시|추가분배|결산/.test(n.title) ? '특별' : '이슈';
       return `<div style="display:flex;align-items:center;gap:5px;min-width:0">
         <span style="flex-shrink:0;background:${color}1a;color:${color};font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px">${tag}</span>
         <a href="${n.url}" target="_blank" rel="noopener" style="flex:1;min-width:0;font-size:11px;line-height:1.3;color:var(--text2);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(n.title)}">${esc(n.title)}</a>
         <span style="flex-shrink:0;font-family:var(--mono);font-size:10px;color:var(--text3)">${esc((n.date || '').slice(5))}</span>
       </div>`;
-    }).join('')}
+    }).join('') : empty}
   </div>`;
 }
 
