@@ -156,6 +156,18 @@ function getCostBasis(year) {
     changes.forEach(function(c) { if (c.month === m) state[c.id] = c.v; });
     for (const id in state) out[id + '_' + m] = state[id];
   }
+  // 이번 달부터는 시트가 아니라 앱 holdings가 최신이다(증권사 동기화가 거래내역 다운로드보다 빠르다).
+  // 이월값을 그대로 두면 오늘 추가매수한 만큼 분모가 모자라 이번 달 분배율이 부풀려진다.
+  // 덤: 원금월별에 이력이 없는 신규 종목도 여기서 처음 등장하므로, 지나간 달이 '놓친 회차' 노랑으로 오칠되지 않는다.
+  const now = new Date();
+  if (y === now.getFullYear()) {
+    getHoldings().forEach(function(h) {
+      const v = { qty: h.quantity,
+                  cost: (parseFloat(h.avg_price) || 0) * (parseFloat(h.quantity) || 0),
+                  cur: h.currency };
+      for (let m = now.getMonth() + 1; m <= 12; m++) out[h.id + '_' + m] = v;
+    });
+  }
   return out;
 }
 
