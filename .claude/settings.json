@@ -104,6 +104,18 @@
           }
         ]
       }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${USERPROFILE:-$HOME}/claude-memory/hooks/index_transcripts.py\" save final 2>/dev/null; h=\"${USERPROFILE:-$HOME}\"; r=\"$h/claude-memory\"; [ -d \"$r/.git\" ] || exit 0; if [ -n \"$(git -C \"$r\" status --porcelain)\" ]; then git -C \"$r\" add -A && git -C \"$r\" commit -qm \"transcript $(date +%Y-%m-%d_%H:%M:%S)\" >/dev/null 2>&1; fi; git -C \"$r\" push -q origin main >/dev/null 2>&1; exit 0",
+            "timeout": 90,
+            "statusMessage": "대화 기록 마무리 저장 중"
+          }
+        ]
+      }
     ]
   }
 }
