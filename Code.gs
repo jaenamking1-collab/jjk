@@ -825,6 +825,8 @@ function currentCycleKey() {
   const day = parseInt(Utilities.formatDate(now, 'Asia/Seoul', 'd'), 10);
   return ym + '-' + (day <= 20 ? '중' : '말');
 }
+// 분배캐시 시트에 남길 과거 회차 수. 월중·월말이 각각 한 회차라 24 = 약 1년치.
+const DIST_KEEP_CYCLES = 24;
 function _distCacheSheet() {
   const ss = SpreadsheetApp.openById(SHEET_ID);
   let sh = ss.getSheetByName('분배캐시');
@@ -866,10 +868,11 @@ function writeDistCache(source, payload, cycleKey) {
       mine.push({ row: i + 1, rank: cycleRank(rows[i][3]) });
     }
     sh.appendRow(rec);
-    // source당 최근 3회차만 유지(방금 쓴 행 + 이전 2회차) — 나머지는 아래쪽 행부터 삭제
-    if (mine.length > 2) {
+    // source당 최근 1년치 회차 유지(월중·월말 각 12회 = 24) — 그보다 오래된 행만 삭제.
+    // 화면에는 attachDistHistory가 이전 2회차만 붙이고, 나머지는 과거 조회용으로 시트에 남는다.
+    if (mine.length > DIST_KEEP_CYCLES) {
       mine.sort((a, b) => b.rank - a.rank);
-      mine.slice(2).sort((a, b) => b.row - a.row).forEach(r => sh.deleteRow(r.row));
+      mine.slice(DIST_KEEP_CYCLES).sort((a, b) => b.row - a.row).forEach(r => sh.deleteRow(r.row));
     }
   } catch(e) {}
 }
