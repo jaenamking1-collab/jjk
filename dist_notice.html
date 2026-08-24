@@ -182,6 +182,7 @@
       <div id="gridTitle" style="font-size:15px;font-weight:700">📋 공지 종목 전체</div>
       <button onclick="gridShiftMonth(-1)" title="이전 달" style="width:24px;height:24px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;line-height:1">←</button>
       <button onclick="gridShiftMonth(1)" title="다음 달" style="width:24px;height:24px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;line-height:1">→</button>
+      <button id="favToggle" onclick="toggleFavOnly()" title="★ 표시한 종목만 보기 (이 브라우저에 저장됩니다)" style="margin-left:auto;padding:4px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:12px;font-weight:700;cursor:pointer;line-height:1.4">☆ 관심만</button>
     </div>
     <div id="distGrid"><div style="color:var(--text3);font-size:13px"><span class="spinner"></span>불러오는 중...</div></div>
   </div>
@@ -710,9 +711,38 @@ function renderNoticeBoard() {
 }
 
 
+// ── 관심 종목 ──
+// 공시 종목이 100개가 넘어 방문자마다 보고 싶은 것만 남길 수 있게 한다.
+// 저장은 그 사람 브라우저(localStorage)에만 — 서버에 아무것도 안 남고 방문자끼리 섞이지도 않는다.
+const FAV_KEY = 'distFav', FAVONLY_KEY = 'distFavOnly';
+let _fav = new Set((() => { try { return JSON.parse(localStorage.getItem(FAV_KEY)) || []; } catch(e) { return []; } })());
+let _favOnly = localStorage.getItem(FAVONLY_KEY) === '1';
+let _gridData = [];                       // 별을 눌렀을 때 다시 그리려고 마지막 데이터를 들고 있는다
+
+function toggleFav(ticker){
+  if (!ticker) return;
+  _fav.has(ticker) ? _fav.delete(ticker) : _fav.add(ticker);
+  localStorage.setItem(FAV_KEY, JSON.stringify([..._fav]));
+  renderDistGrid(_gridData);
+}
+function toggleFavOnly(){
+  _favOnly = !_favOnly;
+  localStorage.setItem(FAVONLY_KEY, _favOnly ? '1' : '0');
+  renderDistGrid(_gridData);
+}
+
 function renderDistGrid(allData){
   const grid = document.getElementById('distGrid');
   if (!grid) return;
+  _gridData = allData || _gridData;
+  allData = _gridData;
+  const favBtn = document.getElementById('favToggle');
+  if (favBtn) {
+    favBtn.textContent = (_favOnly ? '★ 관심만' : '☆ 관심만') + (_fav.size ? ` (${_fav.size})` : '');
+    favBtn.style.background = _favOnly ? '#f59e0b' : 'var(--bg2)';
+    favBtn.style.color = _favOnly ? '#fff' : 'var(--text)';
+    favBtn.style.borderColor = _favOnly ? '#f59e0b' : 'var(--border)';
+  }
   const curMonth = new Date().getMonth() + 1;
   // ←/→ 로 고른 달만 표시(기준일 없으면 지급일의 월로 귀속)
   const selM = ((curMonth - 1 + _gridMonthOffset) % 12 + 12) % 12 + 1;
@@ -739,12 +769,15 @@ function renderDistGrid(allData){
       if (it.hist) return false;
       const sch = (it.sched && Object.keys(it.sched).length) ? it.sched : (d.schedule || {});
       const rm = monthOf(sch['기준일'] || sch['지급일']);
-      return rm === selM; // 선택한 달의 회차만
+      if (rm !== selM) return false;                       // 선택한 달의 회차만
+      return !(_favOnly && _fav.size) || _fav.has(it.ticker);
     });
+    if (_favOnly && _fav.size && !items.length) return ''; // 관심 종목이 없는 운용사 카드는 통째로 숨김
     let body;
     if (items.length) {
       body = `<div class="dist-items"><table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead><tr style="background:var(--bg3)">
+          <th style="padding:5px 2px;text-align:center;font-size:10px;color:var(--text3);border:1px solid var(--border)" title="별을 눌러 관심 종목으로 담습니다">★</th>
           <th style="padding:5px 6px;text-align:center;font-size:10px;color:var(--text3);border:1px solid var(--border)">주기</th>
           <th style="padding:5px 8px;text-align:left;font-size:10px;color:var(--text3);border:1px solid var(--border)">코드</th>
           <th style="padding:5px 8px;text-align:left;font-size:10px;color:var(--text3);border:1px solid var(--border)">종목명</th>
@@ -755,7 +788,9 @@ function renderDistGrid(allData){
           const cyc = cycleOf(it, d.schedule);
           const cycColor = cyc === '월중' ? '#2563eb' : cyc === '월말' ? '#db2777' : 'var(--text3)';
           const rowBg = cyc === '월중' ? 'background:#2563eb0a;' : cyc === '월말' ? 'background:#db27770a;' : '';
+          const on = _fav.has(it.ticker);
           return `<tr style="${rowBg}">
+          <td onclick="toggleFav('${it.ticker || ''}')" title="관심 종목 담기/빼기" style="padding:5px 2px;text-align:center;cursor:pointer;user-select:none;font-size:13px;line-height:1;color:${on ? '#f59e0b' : 'var(--text3)'};border:1px solid var(--border)">${on ? '★' : '☆'}</td>
           <td style="padding:5px 6px;text-align:center;white-space:nowrap;border:1px solid var(--border)">${cyc ? `<span style="display:inline-block;white-space:nowrap;background:${cycColor}1a;color:${cycColor};font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px">${cyc}</span>` : '-'}</td>
           <td style="padding:5px 8px;font-size:11px;font-family:var(--mono);border:1px solid var(--border)">${it.ticker || ''}</td>
           <td class="dg-name" style="padding:5px 8px;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:1px solid var(--border)" title="${esc(it.name)}">${esc(it.name)}</td>
@@ -776,7 +811,9 @@ function renderDistGrid(allData){
       </div>${body}
     </div>`;
   });
-  grid.innerHTML = `<div class="dist-grid">${cards.join('')}</div>`;
+  const hint = (_favOnly && !_fav.size)
+    ? `<div style="padding:8px 10px;margin-bottom:8px;border:1px dashed #f59e0b;border-radius:8px;font-size:12px;color:var(--text3)">★ 표시한 종목이 아직 없습니다. 아래 표의 ☆를 눌러 담으면 그 종목만 보입니다.</div>` : '';
+  grid.innerHTML = hint + `<div class="dist-grid">${cards.join('')}</div>`;
 }
 
 // 새로고침 버튼: 페이지 자체를 다시 로드(배포된 새 코드 반영) + 데이터 강제 갱신
