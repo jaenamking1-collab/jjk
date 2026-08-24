@@ -1,27 +1,54 @@
 # 바탕화면 실시간 시세 위젯. 드래그로 이동, 톱니로 설정.
 # 목록 한 줄에 하나: "심볼" 또는 "심볼=표시이름", "---" 는 구분선.
 # 국내(6자리 코드, KOSPI/KOSDAQ)는 네이버 실시간, 해외/코인/환율은 야후.
-import ctypes, ctypes.wintypes, datetime, json, os, re, shutil, time, tkinter as tk
+import ctypes, ctypes.wintypes, datetime, json, os, re, shutil, subprocess, time, tkinter as tk
 import urllib.error, urllib.parse, urllib.request
 from threading import Thread
 
-def config_path():
-    """설정은 두 PC(직장/집)에서 같아야 한다. 비공개 저장소 claude-memory(세션 훅이
-    자동으로 pull/push)를 우선 쓰고, 그게 없는 PC에서는 스크립트 옆 파일을 쓴다."""
+def git(repo, *args, timeout=15):
+    """조용한 git 호출. 실패해도 위젯은 그냥 뜬다(설정 동기화는 부가 기능일 뿐)."""
+    try:
+        return subprocess.run(("git", "-C", repo) + args, timeout=timeout,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).returncode
+    except Exception:
+        return 1
+
+
+def sync():
+    """종목 목록을 다른 PC와 맞춘다. 켤 때 한 번, 목록을 고칠 때 한 번.
+    Claude Code 훅에만 기대면 그 폴더에서 세션을 안 연 날은 설정이 그대로 어긋난다
+    (2026-08-24: 집 PC가 사흘째 옛 목록을 보고 있었다). 위젯이 직접 챙긴다.
+    양쪽이 목록을 고쳤으면 다른 PC 것을 따르고, 내 것은 .conflict 파일로 옆에 남긴다."""
+    if not SHARED:
+        return
+    repo = os.path.dirname(os.path.dirname(SHARED))
+    git(repo, "add", "ticker")
+    git(repo, "commit", "-m", "ticker: 종목 목록 변경")     # 바뀐 게 없으면 조용히 실패
+    if git(repo, "pull", "--rebase", "--quiet", "origin", "main"):
+        git(repo, "rebase", "--abort")
+        if os.path.exists(SHARED):
+            shutil.copy(SHARED, LOCAL + ".conflict")   # 저장소 밖에 둔다(커밋 지저분해짐 방지)
+        git(repo, "reset", "--hard", "origin/main")
+    git(repo, "push", "--quiet", "origin", "main")
+
+
+def shared_path():
+    """두 PC가 같아야 하는 건 종목 목록뿐이다. 그건 비공개 저장소 claude-memory에 두고,
+    창 위치·불투명도처럼 그 PC 사정인 값은 LOCAL(스크립트 옆)에만 남긴다.
+    한 파일에 섞으면 창을 옮긴 것만으로 충돌이 나서 목록이 유실된다."""
     if os.environ.get("TICKER_CONFIG"):
-        return os.environ["TICKER_CONFIG"]
-    local = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ticker_config.json")
+        return None                                # 경로를 직접 지정한 PC는 공유 안 함
     repo = os.path.join(os.path.expanduser("~"), "claude-memory")
     if not os.path.isdir(os.path.join(repo, ".git")):
-        return local
-    shared = os.path.join(repo, "ticker", "ticker_config.json")
-    os.makedirs(os.path.dirname(shared), exist_ok=True)
-    if not os.path.exists(shared) and os.path.exists(local):
-        shutil.copy(local, shared)                # 기존 설정 한 번만 옮겨옴
-    return shared
+        return None
+    os.makedirs(os.path.join(repo, "ticker"), exist_ok=True)
+    return os.path.join(repo, "ticker", "ticker_config.json")
 
 
-CONFIG = config_path()
+LOCAL = os.environ.get("TICKER_CONFIG") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "ticker_config.json")
+SHARED = shared_path()
 DEFAULT = {
     "tickers": ["KOSPI=코스피", "069500=코덱스200", "USDKRW=X=환율",
                 "---",
@@ -208,20 +235,45 @@ def yahoo(syms):
     return out
 
 
-def load():
+def read(path):
     try:
-        with open(CONFIG, encoding="utf-8") as f:
-            return {**DEFAULT, **json.load(f)}
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
     except Exception:
-        return json.loads(json.dumps(DEFAULT))
+        return {}
+
+
+def write(path, data):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def load():
+    """스크립트 옆 파일(그 PC 설정) 위에 공용 저장소의 종목 목록을 덮어쓴다."""
+    cfg = {**DEFAULT, **read(LOCAL)}
+    if SHARED:
+        sync()                                     # 다른 PC가 바꾼 목록을 먼저 받아온다
+        tickers = read(SHARED).get("tickers")
+        if tickers:
+            cfg["tickers"] = tickers
+        else:
+            write(SHARED, {"tickers": cfg["tickers"]})   # 공용이 비어 있으면 내 것으로 시작
+            sync()
+    return cfg
 
 
 def save(cfg):
-    with open(CONFIG, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    write(LOCAL, cfg)
+    # 목록을 고쳤을 때만 다른 PC로 올린다. 창 위치·접힘·불투명도는 그 PC에만 남는다.
+    global pushed
+    if SHARED and cfg["tickers"] != pushed:
+        pushed = list(cfg["tickers"])
+        write(SHARED, {"tickers": pushed})
+        Thread(target=sync, daemon=True).start()
 
 
 cfg = load()
+pushed = list(cfg["tickers"])            # 마지막으로 올린 종목 목록
 rows = {}
 alerts = {}                              # 반짝일 종목 -> 색
 last = {}                                # 마지막 시세 (색만 다시 칠할 때 사용)
