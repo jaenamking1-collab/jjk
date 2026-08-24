@@ -1,7 +1,7 @@
 # 바탕화면 실시간 시세 위젯. 드래그로 이동, 톱니로 설정.
 # 목록 한 줄에 하나: "심볼" 또는 "심볼=표시이름", "---" 는 구분선.
 # 국내(6자리 코드, KOSPI/KOSDAQ)는 네이버 실시간, 해외/코인/환율은 야후.
-import ctypes, ctypes.wintypes, json, os, re, time, tkinter as tk
+import ctypes, ctypes.wintypes, datetime, json, os, re, time, tkinter as tk
 import urllib.error, urllib.parse, urllib.request
 from threading import Thread
 
@@ -24,6 +24,8 @@ DEFAULT = {
 SPARK = "https://query1.finance.yahoo.com/v7/finance/spark?range=1d&interval=1d&symbols="
 NAVER = "https://polling.finance.naver.com/api/realtime/domestic/{}/{}"
 BITHUMB = "https://api.bithumb.com/public/ticker/ALL_KRW"   # 한 번에 KRW 마켓 전 종목
+UPBIT = "https://api.upbit.com/v1/ticker?markets="           # 빗썸이 막힐 때 대체
+UPCANDLE = "https://api.upbit.com/v1/candles/minutes/60?count=1&market={}&to={}"
 UA = {"User-Agent": "Mozilla/5.0", "Referer": "https://finance.naver.com/"}
 BG, FG, DIM, ACC, LINE = "#2a2f3a", "#f2f5fa", "#9aa5ba", "#7db3ff", "#4d576c"
 ROWLINE = "#353c4a"                      # 행 사이 얇은 선
@@ -35,6 +37,7 @@ ALERT = 5.0                              # 등락률 이 이상이면 반짝임
 COIN_SEC = 20                            # 코인은 20초마다만 조회 (거래소가 잦은 요청을 끊음)
 coin_at = [0.0]                          # 마지막 조회 시각
 coin_ok = [0.0]                          # 마지막으로 거래소가 응답한 시각
+midnight = {}                            # 코인 -> (날짜, 자정 시가) 하루 한 번만 조회
 INDEX = {"KOSPI": "KOSPI", "KOSDAQ": "KOSDAQ", "^KS11": "KOSPI", "^KQ11": "KOSDAQ"}
 CODE = re.compile(r"^[0-9]{4}[0-9A-Z]{2}$")   # 069500, 0005A0 같은 국내 종목코드
 NAME_W = 17                              # 이름 최대 폭(한글 2, 영문 1). 넘으면 잘림
@@ -143,6 +146,35 @@ def bithumb(syms):
         diff = price - prev
         out[s] = (price, diff, diff / prev * 100 if prev else 0.0,
                   0 if price >= 100 else 2, None)
+    return out
+
+
+def kst_midnight_open(market):
+    """오늘 00시(KST) 시가. 빗썸 화면과 같은 기준으로 맞추기 위함. 하루 한 번만 조회."""
+    now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
+    day = now.strftime("%Y%m%d")
+    if midnight.get(market, ("",))[0] != day:
+        to = (now.replace(hour=0, minute=0, second=0, microsecond=0)
+              + datetime.timedelta(hours=1)).astimezone(datetime.timezone.utc)
+        try:
+            c = get(UPCANDLE.format(market, to.strftime("%Y-%m-%dT%H:%M:%S")))
+            midnight[market] = (day, c[0]["opening_price"])
+        except Exception:
+            return None
+    return midnight[market][1]
+
+
+def upbit(syms):
+    """빗썸이 막혔을 때 쓰는 대체 소스. 업비트 화면 기준(09시)이 아니라 빗썸과 같은
+    자정 기준으로 등락률을 계산한다."""
+    markets = ",".join("KRW-" + x.split("-")[0] for x in syms)
+    out = {}
+    for d in get(UPBIT + markets):
+        price = d["trade_price"]
+        prev = kst_midnight_open(d["market"]) or d["prev_closing_price"]
+        diff = price - prev
+        out[d["market"].split("-")[1] + "-KRW"] = (
+            price, diff, diff / prev * 100 if prev else 0.0, 0 if price >= 100 else 2, None)
     return out
 
 
@@ -323,11 +355,13 @@ def refresh():
         if groups["coin"]:
             if time.time() - coin_at[0] >= COIN_SEC:
                 coin_at[0] = time.time()
-                try:
-                    data.update(bithumb(groups["coin"]))
-                    coin_ok[0] = time.time()
-                except Exception:
-                    pass
+                for source in (bithumb, upbit):      # 빗썸이 막히면 업비트로
+                    try:
+                        data.update(source(groups["coin"]))
+                        coin_ok[0] = time.time()
+                        break
+                    except Exception:
+                        continue
             if time.time() - coin_ok[0] > 120:    # 거래소가 오래 막히면 야후라도
                 groups["yahoo"] += [k for k in groups["coin"] if k not in data]
         if groups["yahoo"]:
