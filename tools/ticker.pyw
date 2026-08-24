@@ -1,11 +1,27 @@
 # 바탕화면 실시간 시세 위젯. 드래그로 이동, 톱니로 설정.
 # 목록 한 줄에 하나: "심볼" 또는 "심볼=표시이름", "---" 는 구분선.
 # 국내(6자리 코드, KOSPI/KOSDAQ)는 네이버 실시간, 해외/코인/환율은 야후.
-import ctypes, ctypes.wintypes, datetime, json, os, re, time, tkinter as tk
+import ctypes, ctypes.wintypes, datetime, json, os, re, shutil, time, tkinter as tk
 import urllib.error, urllib.parse, urllib.request
 from threading import Thread
 
-CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ticker_config.json")
+def config_path():
+    """설정은 두 PC(직장/집)에서 같아야 한다. 비공개 저장소 claude-memory(세션 훅이
+    자동으로 pull/push)를 우선 쓰고, 그게 없는 PC에서는 스크립트 옆 파일을 쓴다."""
+    if os.environ.get("TICKER_CONFIG"):
+        return os.environ["TICKER_CONFIG"]
+    local = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ticker_config.json")
+    repo = os.path.join(os.path.expanduser("~"), "claude-memory")
+    if not os.path.isdir(os.path.join(repo, ".git")):
+        return local
+    shared = os.path.join(repo, "ticker", "ticker_config.json")
+    os.makedirs(os.path.dirname(shared), exist_ok=True)
+    if not os.path.exists(shared) and os.path.exists(local):
+        shutil.copy(local, shared)                # 기존 설정 한 번만 옮겨옴
+    return shared
+
+
+CONFIG = config_path()
 DEFAULT = {
     "tickers": ["KOSPI=코스피", "069500=코덱스200", "USDKRW=X=환율",
                 "---",
