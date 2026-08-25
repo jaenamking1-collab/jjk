@@ -6,6 +6,7 @@ import urllib.error, urllib.parse, urllib.request
 from threading import Thread
 
 RAW = "https://raw.githubusercontent.com/jaenamking1-collab/jjk/main/tools/ticker.pyw"
+update_note = ["확인 안 함"]             # 설정창에 보여줄 마지막 갱신 결과
 
 
 def repo_of(path):
@@ -33,15 +34,17 @@ def self_update():
         return
     repo = repo_of(me)
     if repo:
-        git(repo, "pull", "--ff-only", "--quiet")
+        ok = git(repo, "pull", "--ff-only", "--quiet") == 0
+        update_note[0] = "최신" if ok else "확인 실패(작업 중이거나 오프라인)"
     else:
         try:
             new = urllib.request.urlopen(RAW, timeout=8).read()
             if len(new) > 10000 and b"tkinter" in new and new != before:
                 with open(me, "wb") as f:
                     f.write(new)
+            update_note[0] = "최신"
         except Exception:
-            pass                                   # 인터넷이 없으면 있던 걸로 그냥 돈다
+            update_note[0] = "확인 실패(인터넷)"    # 인터넷이 없으면 있던 걸로 그냥 돈다
     try:
         if open(me, "rb").read() != before:
             os.execv(sys.executable, [sys.executable, me])
@@ -595,6 +598,13 @@ def settings(_=None):
         chip.pack(side="left", padx=3)
         chip.bind("<Button-1>", lambda e, c=c: pick(c))
         chips.append((chip, c))
+
+    # 어느 파일이 도는지·언제 코드인지 한눈에. (2026-08-24: 저장소는 최신인데 옛 드라이브
+    # 사본이 돌고 있어서 "왜 안 바뀌냐"로 한나절을 썼다. 눈으로 보이면 그럴 일이 없다.)
+    me = os.path.abspath(__file__)
+    stamp = time.strftime("%m-%d %H:%M", time.localtime(os.path.getmtime(me)))
+    tk.Label(win, text="코드 %s · %s\n%s" % (stamp, update_note[0], me), bg=BG, fg=DIM,
+             justify="left", font=("Malgun Gothic", 7)).pack(anchor="w", padx=12, pady=(6, 0))
 
     bar = tk.Frame(win, bg=BG)
     bar.pack(fill="x", padx=12, pady=(4, 12))
