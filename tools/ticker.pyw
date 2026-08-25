@@ -132,6 +132,7 @@ FIELD = "#1f242e"                        # 설정창 입력칸
 THEME = {}                               # 불투명도가 반영된 현재 색
 UP, DOWN = "#ff5c66", "#5aa8ff"          # 국내식: 상승 빨강, 하락 파랑
 SEP = "---"
+RATIO = "/"                              # "XRP-KRW/KAIA-KRW" = 1 XRP가 몇 KAIA인지
 ALERT = 5.0                              # 등락률 이 이상이면 반짝임
 COIN_SEC = 5                             # 코인 조회 간격(초). 주식과 같은 속도로 본다
 COIN_SLOW = 20                           # 거래소가 요청을 끊는 곳(학교망)에서는 이만큼 물러선다
@@ -555,8 +556,14 @@ def schedule(sec):
 def refresh():
     def work():
         keys = [split(x)[0] for x in visible()]
-        groups = {"index": [], "stock": [], "coin": [], "yahoo": []}
+        # "A/B" 는 교환비율 줄이다(1 A = 몇 B). 화면엔 비율만 뜨지만 시세는 둘 다 받아야 한다.
+        need = []
         for k in keys:
+            for one in (k.split("/") if RATIO in k else [k]):
+                if one not in need:
+                    need.append(one)
+        groups = {"index": [], "stock": [], "coin": [], "yahoo": []}
+        for k in need:
             groups["index" if k in INDEX else "stock" if CODE.match(k)
                    else "coin" if k.endswith("-KRW") else "yahoo"].append(k)
 
@@ -618,6 +625,17 @@ def refresh():
                 "코인: 빗썸 %d초 전 값" % coin_lag[0] if coin_src[0] == "빗썸" and coin_lag[0] > 15 else
                 "" if coin_src[0] in ("빗썸", "") else "코인: " + coin_src[0])
         root.after(0, status.config, {"text": note})
+        for k in keys:                        # 교환비율 줄 계산 (1 A = 몇 B)
+            if RATIO in k:
+                a, b = k.split(RATIO, 1)
+                if a in data and b in data and data[b][0]:
+                    pa, da = data[a][0], data[a][1]
+                    pb, db = data[b][0], data[b][1]
+                    now = pa / pb
+                    was = (pa - da) / (pb - db) if (pb - db) else 0
+                    gap = now - was
+                    data[k] = (now, gap, gap / was * 100 if was else 0.0,
+                               2 if now < 100 else 0, None)
         for k in keys:
             if k in data or k not in last:    # 못 받아온 건 직전 값 그대로 둠
                 root.after(0, paint, k, data.get(k))
@@ -638,6 +656,7 @@ def settings(_=None):
     txt.pack(padx=12)
     tip = ("국내: 6자리 코드만 (069500, 0005A0) · 지수 KOSPI KOSDAQ\n"
            "환율 USDKRW=X · 코인 BTC-KRW · 미국 AAPL\n"
+           "교환비율: XRP-KRW/KAIA-KRW=XRP당카이아\n"
            "이름이 길면 069500=코덱스200 처럼 직접 지정")
     tk.Label(win, text=tip, bg=BG, fg=DIM, justify="left",
              font=("Malgun Gothic", 8)).pack(anchor="w", padx=12, pady=(4, 6))
