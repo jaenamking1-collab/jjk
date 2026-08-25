@@ -8,37 +8,46 @@ from threading import Thread
 RAW = "https://raw.githubusercontent.com/jaenamking1-collab/jjk/main/tools/ticker.pyw"
 
 
-def in_repo(path):
-    """이 파일이 git 저장소 안에 있나(= 내 PC의 작업본인가)."""
+def repo_of(path):
+    """이 파일이 들어 있는 git 저장소의 위치(없으면 None)."""
     d = os.path.dirname(os.path.abspath(path))
     while True:
         if os.path.isdir(os.path.join(d, ".git")):
-            return True
+            return d
         up = os.path.dirname(d)
         if up == d:
-            return False
+            return None
         d = up
 
 
 def self_update():
-    """남에게 준 사본은 켤 때 스스로 최신본으로 갈아끼운다.
-    저장소 안에서 도는 내 작업본은 건드리지 않는다 — 작업 중인 코드가 덮이면 안 된다.
-    받아온 게 온전한 파이썬 파일일 때만 교체하고, 교체했으면 새 코드로 다시 시작한다."""
+    """켤 때마다 최신 코드로 맞춘다. 사람이 명령을 외워서 칠 필요가 없어야 한다.
+    - 저장소 안(내 PC): `git pull --ff-only` — 작업 중인 변경이 있으면 pull이 그냥 실패하므로
+      내가 고치던 코드가 덮일 일이 없다.
+    - 저장소 밖(남에게 준 사본): GitHub raw에서 받아 자기 자신을 갈아끼운다.
+    파일이 실제로 바뀐 경우에만 새 코드로 다시 시작한다."""
     me = os.path.abspath(__file__)
-    if in_repo(me):
-        return
     try:
-        new = urllib.request.urlopen(RAW, timeout=8).read()
-        if len(new) < 10000 or b"tkinter" not in new or new == open(me, "rb").read():
-            return
-        with open(me, "wb") as f:
-            f.write(new)
+        before = open(me, "rb").read()
     except Exception:
-        return                                     # 인터넷이 없으면 있던 걸로 그냥 돈다
-    os.execv(sys.executable, [sys.executable, me])
+        return
+    repo = repo_of(me)
+    if repo:
+        git(repo, "pull", "--ff-only", "--quiet")
+    else:
+        try:
+            new = urllib.request.urlopen(RAW, timeout=8).read()
+            if len(new) > 10000 and b"tkinter" in new and new != before:
+                with open(me, "wb") as f:
+                    f.write(new)
+        except Exception:
+            pass                                   # 인터넷이 없으면 있던 걸로 그냥 돈다
+    try:
+        if open(me, "rb").read() != before:
+            os.execv(sys.executable, [sys.executable, me])
+    except Exception:
+        pass
 
-
-self_update()
 
 def git(repo, *args, timeout=15):
     """조용한 git 호출. 실패해도 위젯은 그냥 뜬다(설정 동기화는 부가 기능일 뿐)."""
@@ -48,6 +57,9 @@ def git(repo, *args, timeout=15):
                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).returncode
     except Exception:
         return 1
+
+
+self_update()
 
 
 def sync():
