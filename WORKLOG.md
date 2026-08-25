@@ -26,6 +26,8 @@
   - 이 컨테이너는 `script.google.com`(웹앱 `/exec`)이 정책 차단(403)이라 라이브 응답 확인은 불가. `script.googleapis.com`(배포 API)은 열려 있다.
 - ⚠️ **이 세션은 `main`에 못 쓴다** — 전부 `claude/school-wrap-up-content-59vfyq` 브랜치에 있다. **PC에서 main으로 합쳐야 두 PC에 반영된다.**
 
+- **남에게 주는 설치기 추가**(`tools/ticker_setup.bat`): 그 파일 하나만 주면 파이썬 확인·설치(winget) → 최신 `ticker.pyw` 내려받기(`%LOCALAPPDATA%\ticker`) → 바탕화면 바로가기 → 실행까지 한 번에. 내 설정 파일은 안 딸려 간다. 받은 사람 PC엔 `~/claude-memory`가 없으니 `SHARED=None` → 그 사람 종목 변경은 그 PC에만 남고 내 목록에 영향이 없다(빈 HOME으로 실제 확인).
+
 **다음 할 일**: ① 브랜치를 main에 합치고 집 PC에서 `git pull` → 위젯 껐다 켜서 17종목 확인 ② 집 PC에서 Claude Code가 **jjk 폴더**로 열리는지 확인(훅 승인 창 포함) — 안 되면 훅을 사용자 설정(`~/.claude/settings.json`)으로 옮기는 방안 ③ ~~분배금 재배포~~ — 확인해 보니 학교에서 이미 완료(@156).
 
 ---
