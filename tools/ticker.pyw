@@ -537,7 +537,6 @@ def settings(_=None):
     win = tk.Toplevel(root, bg=BG)
     win.title("설정")
     win.attributes("-topmost", True)
-    win.geometry(f"+{root.winfo_x() + 20}+{root.winfo_y() + 20}")
     tk.Label(win, text="목록 (한 줄에 하나 · 심볼=이름 · --- 는 구분선)", bg=BG, fg=DIM,
              font=("Malgun Gothic", 9)).pack(anchor="w", padx=12, pady=(12, 4))
     txt = tk.Text(win, width=30, height=12, bg=FIELD, fg=FG, insertbackground=FG,
@@ -636,6 +635,7 @@ def settings(_=None):
     win.protocol("WM_DELETE_WINDOW", cancel)
     tk.Button(bar, text="취소", command=cancel, bg=FIELD, fg=FG, relief="flat",
               font=("Malgun Gothic", 9), padx=10, cursor="hand2").pack(side="right", padx=6)
+    place_settings(win)
 
 
 tab = tk.Toplevel(root, bg=ACC)
@@ -675,6 +675,29 @@ def work_area(x=0, y=0):
         return r.left, r.top, r.right, r.bottom
     except Exception:
         return 0, 0, root.winfo_screenwidth(), root.winfo_screenheight()
+
+
+def place_settings(win):
+    """설정창이 시세창을 가리지 않게 옆에 붙인다. 왼쪽 → 오른쪽 → 위 순으로 자리를 본다."""
+    win.update_idletasks()
+    anchor = tab if cfg.get("hidden") else root   # 숨긴 상태면 작은 버튼을 기준으로
+    anchor.update_idletasks()
+    w, h = win.winfo_reqwidth(), win.winfo_reqheight()
+    px, py = anchor.winfo_x(), anchor.winfo_y()
+    pw = anchor.winfo_width() or anchor.winfo_reqwidth()
+    ph = anchor.winfo_height() or anchor.winfo_reqheight()
+    left, top, right, bottom = work_area(px + pw // 2, py + ph // 2)
+    gap = 6
+    if px - gap - w >= left:                      # 왼쪽에 자리가 있으면 왼쪽
+        x = px - gap - w
+    elif px + pw + gap + w <= right:              # 없으면 오른쪽
+        x = px + pw + gap
+    else:                                         # 양옆이 안 되면 위(모자라면 아래)
+        x = min(max(px, left), max(left, right - w))
+        y = py - gap - h
+        win.geometry("+%d+%d" % (x, max(top, y if y >= top else min(bottom - h, py + ph + gap))))
+        return
+    win.geometry("+%d+%d" % (x, min(max(py + ph - h, top), max(top, bottom - h))))
 
 
 def place_panel():
