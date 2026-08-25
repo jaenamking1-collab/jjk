@@ -410,11 +410,11 @@ back = tk.Toplevel(root)
 back.overrideredirect(True)
 back.attributes("-topmost", cfg["topmost"])
 back.configure(bg=BG)
-try:
-    root.attributes("-transparentcolor", KEY)
-    TRANSPARENT = True
-except Exception:                        # 윈도우가 아니면 예전처럼 창 전체 투명도로
-    back.withdraw()
+# ⛔ 2026-08-25: 색상키 투명(-transparentcolor)은 이 환경에서 글자 잔상이 남아 화면이
+# 뭉개졌다(사용자 스크린샷 확인). 창 전체 투명도로 되돌린다 — 바탕을 흐리게 하면 글자도
+# 같이 흐려지지만, 적어도 읽을 수는 있다. 다시 시도하려면 아래 두 줄을 살리면 된다.
+#     root.attributes("-transparentcolor", KEY); TRANSPARENT = True
+back.withdraw()
 
 
 def panel_bg():
