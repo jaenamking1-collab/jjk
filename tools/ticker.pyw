@@ -1,9 +1,44 @@
 # 바탕화면 실시간 시세 위젯. 드래그로 이동, 톱니로 설정.
 # 목록 한 줄에 하나: "심볼" 또는 "심볼=표시이름", "---" 는 구분선.
 # 국내(6자리 코드, KOSPI/KOSDAQ)는 네이버 실시간, 해외/코인/환율은 야후.
-import ctypes, ctypes.wintypes, datetime, json, os, re, shutil, subprocess, time, tkinter as tk
+import ctypes, ctypes.wintypes, datetime, json, os, re, shutil, subprocess, sys, time, tkinter as tk
 import urllib.error, urllib.parse, urllib.request
 from threading import Thread
+
+RAW = "https://raw.githubusercontent.com/jaenamking1-collab/jjk/main/tools/ticker.pyw"
+
+
+def in_repo(path):
+    """이 파일이 git 저장소 안에 있나(= 내 PC의 작업본인가)."""
+    d = os.path.dirname(os.path.abspath(path))
+    while True:
+        if os.path.isdir(os.path.join(d, ".git")):
+            return True
+        up = os.path.dirname(d)
+        if up == d:
+            return False
+        d = up
+
+
+def self_update():
+    """남에게 준 사본은 켤 때 스스로 최신본으로 갈아끼운다.
+    저장소 안에서 도는 내 작업본은 건드리지 않는다 — 작업 중인 코드가 덮이면 안 된다.
+    받아온 게 온전한 파이썬 파일일 때만 교체하고, 교체했으면 새 코드로 다시 시작한다."""
+    me = os.path.abspath(__file__)
+    if in_repo(me):
+        return
+    try:
+        new = urllib.request.urlopen(RAW, timeout=8).read()
+        if len(new) < 10000 or b"tkinter" not in new or new == open(me, "rb").read():
+            return
+        with open(me, "wb") as f:
+            f.write(new)
+    except Exception:
+        return                                     # 인터넷이 없으면 있던 걸로 그냥 돈다
+    os.execv(sys.executable, [sys.executable, me])
+
+
+self_update()
 
 def git(repo, *args, timeout=15):
     """조용한 git 호출. 실패해도 위젯은 그냥 뜬다(설정 동기화는 부가 기능일 뿐)."""
