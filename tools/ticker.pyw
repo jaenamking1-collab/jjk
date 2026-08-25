@@ -124,6 +124,8 @@ UA = {"User-Agent": "Mozilla/5.0", "Referer": "https://finance.naver.com/"}
 BG, FG, DIM, ACC, LINE = "#2a2f3a", "#f2f5fa", "#9aa5ba", "#7db3ff", "#4d576c"
 # 고를 수 있는 바탕색. 글자가 흰 계열이라 어두운 색만 넣는다.
 PALETTE = ["#2a2f3a", "#000000", "#16233d", "#2b1f3d", "#14312a"]
+KEY = "#010203"                          # 이 색 픽셀은 창에서 아예 뚫린다(윈도우 전용)
+TRANSPARENT = False                      # 뚫기가 되는 환경인지 (아래 root 만들고 판단)
 ROWLINE = "#353c4a"                      # 행 사이 얇은 선
 FIELD = "#1f242e"                        # 설정창 입력칸
 THEME = {}                               # 불투명도가 반영된 현재 색
@@ -135,6 +137,7 @@ COIN_SLOW = 20                           # 거래소가 요청을 끊는 곳(학
 coin_at = [0.0]                          # 마지막 조회 시각
 coin_ok = [0.0]                          # 마지막으로 거래소가 응답한 시각
 coin_gap = [COIN_SEC]                    # 지금 쓰는 간격 (실패하면 늘고, 되면 다시 줄인다)
+coin_src = [""]                          # 코인 값의 출처 (빗썸/업비트/야후) — 화면에 표시
 midnight = {}                            # 코인 -> (날짜, 자정 시가) 하루 한 번만 조회
 INDEX = {"KOSPI": "KOSPI", "KOSDAQ": "KOSDAQ", "^KS11": "KOSPI", "^KQ11": "KOSDAQ"}
 CODE = re.compile(r"^[0-9]{4}[0-9A-Z]{2}$")   # 069500, 0005A0 같은 국내 종목코드
@@ -178,7 +181,12 @@ def theme():
     t = cfg["text_op"] / 100.0
     for key, base in (("fg", FG), ("dim", DIM), ("up", UP), ("down", DOWN)):
         THEME[key] = mix(BG, base, t / 0.8) if t <= 0.8 else mix(base, "#ffffff", (t - 0.8) * 2.5)
-    root.attributes("-alpha", cfg["bg_op"] / 100.0)             # 0 = 완전 투명
+    if TRANSPARENT:
+        root.attributes("-alpha", 1.0)                          # 글자 창은 항상 또렷하게
+        back.configure(bg=BG)
+        back.attributes("-alpha", cfg["bg_op"] / 100.0)         # 바탕만 흐려진다
+    else:
+        root.attributes("-alpha", cfg["bg_op"] / 100.0)         # 뚫기가 안 되면 예전처럼
     for sym in rows:
         nm, p, c, _ = rows[sym]
         nm.config(fg=THEME["fg"])
@@ -367,17 +375,47 @@ timer = None
 root = tk.Tk()
 root.overrideredirect(True)
 root.attributes("-topmost", cfg["topmost"])
-root.configure(bg=BG)
 root.geometry("+40+40")
 
-head = tk.Frame(root, bg=BG)
+# 바탕과 글자를 창 두 개로 나눈다. Tk의 투명도(-alpha)는 창 전체에 걸려서 한 창에 두면
+# 바탕을 흐리게 할 때 글자까지 같이 사라진다. 그래서 바탕은 back 창이 alpha로 그리고,
+# 글자 창(root)은 바탕색 픽셀만 뚫어(-transparentcolor) 글자는 항상 또렷하게 남긴다.
+back = tk.Toplevel(root)
+back.overrideredirect(True)
+back.attributes("-topmost", cfg["topmost"])
+back.configure(bg=BG)
+try:
+    root.attributes("-transparentcolor", KEY)
+    TRANSPARENT = True
+except Exception:                        # 윈도우가 아니면 예전처럼 창 전체 투명도로
+    back.withdraw()
+
+
+def panel_bg():
+    """시세창 안쪽 배경색. 뚫기가 되면 KEY(투명), 아니면 그냥 바탕색."""
+    return KEY if TRANSPARENT else BG
+
+
+root.configure(bg=panel_bg())
+head = tk.Frame(root, bg=panel_bg())
 head.pack(fill="x", padx=6, pady=(2, 0))
-status = tk.Label(head, text="", bg=BG, fg=ACC, font=("Malgun Gothic", 7))
+status = tk.Label(head, text="", bg=panel_bg(), fg=ACC, font=("Malgun Gothic", 7))
 status.pack(side="left", padx=6)
-gear = tk.Label(head, text="⚙", bg=BG, fg=ACC, font=("Segoe UI Symbol", 9), cursor="hand2")
+gear = tk.Label(head, text="⚙", bg=panel_bg(), fg=ACC, font=("Segoe UI Symbol", 9), cursor="hand2")
 gear.pack(side="right", padx=(8, 0))
-body = tk.Frame(root, bg=BG)
+body = tk.Frame(root, bg=panel_bg())
 body.pack(fill="both", padx=6, pady=(0, 4))
+
+
+def sync_back():
+    """배경 창을 시세창과 같은 자리·같은 크기로 두고, 글자 창을 그 위로 올린다."""
+    if not TRANSPARENT:
+        return
+    root.update_idletasks()
+    w = root.winfo_width() or root.winfo_reqwidth()
+    h = root.winfo_height() or root.winfo_reqheight()
+    back.geometry("%dx%d+%d+%d" % (w, h, root.winfo_x(), root.winfo_y()))
+    root.lift(back)
 
 
 def build():
@@ -392,13 +430,13 @@ def build():
     r = 0
     for gi, group in enumerate(gs):
         shut = cfg["collapsed"][gi]
-        strip = tk.Frame(body, bg=BG)
+        strip = tk.Frame(body, bg=panel_bg())
         strip.grid(row=r, column=0, columnspan=3, sticky="ew")
         r += 1
         bar = tk.Frame(strip, bg=LINE, height=1)
         bar.pack(fill="x", expand=True, pady=4)
         # place로 띄워서 창 크기에 영향 없음. 평소엔 숨김, 마우스 올리면 왼쪽에 나타남
-        cap = tk.Label(strip, text="▸%d" % len(group) if shut else "▾", bg=BG, fg=ACC,
+        cap = tk.Label(strip, text="▸%d" % len(group) if shut else "▾", bg=panel_bg(), fg=ACC,
                        font=("Segoe UI Symbol", 7), cursor="hand2")
         caps.append(cap)
         for w in (strip, cap, bar):
@@ -408,11 +446,11 @@ def build():
         for line in group:
             sym, name = split(line)
             given = name != sym                  # 직접 지정한 이름은 약칭 처리 안 함
-            nm = tk.Label(body, text=name if given else cut(name), bg=BG, fg=FG,
+            nm = tk.Label(body, text=name if given else cut(name), bg=panel_bg(), fg=FG,
                           font=("Malgun Gothic", 8, "bold"))
             nm.grid(row=r, column=0, sticky="w", padx=(0, 2))
-            p = tk.Label(body, text="…", bg=BG, fg=FG, font=("Consolas", 9))
-            c = tk.Label(body, text="", bg=BG, fg=DIM, font=("Consolas", 8))
+            p = tk.Label(body, text="…", bg=panel_bg(), fg=FG, font=("Consolas", 9))
+            c = tk.Label(body, text="", bg=panel_bg(), fg=DIM, font=("Consolas", 8))
             p.grid(row=r, column=1, sticky="e")
             c.grid(row=r, column=2, sticky="e", padx=(3, 0))
             rows[sym] = (nm, p, c, given)
@@ -420,6 +458,7 @@ def build():
                                                       sticky="ew")
             r += 2
     theme()
+    sync_back()                          # 줄 수가 바뀌면 배경 창 크기도 맞춘다
 
 
 def hover(show):
@@ -461,7 +500,7 @@ def paint(sym, res):
     if abs(pct) >= ALERT:
         alerts[sym] = THEME["up"] if diff > 0 else THEME["down"]
     elif alerts.pop(sym, None):
-        c.config(bg=BG)
+        c.config(bg=panel_bg())
     text = fmt(price, dec)
     p.config(text=text, font=("Consolas", 7 if len(text) > 9 else 9))   # 자릿수 많으면 축소
     c.config(text=f"{pct:+.2f}%",
@@ -476,7 +515,7 @@ def blink(on=[False]):
     for sym, color in list(alerts.items()):
         if sym in rows:
             c = rows[sym][2]
-            c.config(bg=color if on[0] else BG, fg="#12151c" if on[0] else color)
+            c.config(bg=color if on[0] else panel_bg(), fg="#12151c" if on[0] else color)
     root.after(500, blink)
 
 
@@ -512,13 +551,16 @@ def refresh():
                         data.update(source(groups["coin"]))
                         coin_ok[0] = time.time()
                         coin_gap[0] = COIN_SEC       # 잘 받아지면 계속 빠르게
+                        coin_src[0] = "빗썸" if source is bithumb else "업비트"
                         break
                     except Exception:
                         continue
                 else:
                     coin_gap[0] = COIN_SLOW          # 둘 다 막히면 물러섰다가 다시 시도
+                    coin_src[0] = "거래소 막힘"
             if time.time() - coin_ok[0] > 120:    # 거래소가 오래 막히면 야후라도
                 groups["yahoo"] += [k for k in groups["coin"] if k not in data]
+                coin_src[0] = "야후(해외평균)"
         if groups["yahoo"]:
             try:
                 data.update(yahoo(groups["yahoo"]))
@@ -527,7 +569,9 @@ def refresh():
             except Exception:
                 pass
 
-        root.after(0, status.config, {"text": "요청 과다 · 1분 대기" if wait else ""})
+        note = ("요청 과다 · 1분 대기" if wait else
+                "" if coin_src[0] in ("빗썸", "") else "코인: " + coin_src[0])
+        root.after(0, status.config, {"text": note})
         for k in keys:
             if k in data or k not in last:    # 못 받아온 건 직전 값 그대로 둠
                 root.after(0, paint, k, data.get(k))
@@ -730,14 +774,18 @@ def place_panel():
     if ty < top:                          # 위쪽에 붙였으면 버튼을 아래로
         ty = py + ph + 2
     tab.geometry("+%d+%d" % (px + pw - tw, ty))
+    sync_back()
 
 
 def toggle(_=None):
     cfg["hidden"] = not cfg["hidden"]
     if cfg["hidden"]:
         root.withdraw()
+        back.withdraw()
     else:
         root.deiconify()
+        if TRANSPARENT:
+            back.deiconify()
     place_panel()
     tab_btn.config(text="◀" if cfg["hidden"] else "▶")
     save(cfg)
@@ -764,6 +812,8 @@ def move(e):
     if abs(y + h - bottom) < SNAP:
         y = bottom - h
     root.geometry("+%d+%d" % (x, y))
+    if TRANSPARENT:
+        back.geometry("+%d+%d" % (x, y))
 
 
 def drop(_=None):
@@ -772,9 +822,16 @@ def drop(_=None):
     place_panel()                         # 버튼도 따라오게
 
 
-root.bind("<Button-1>", lambda e: drag.update(x=e.x_root - root.winfo_x(), y=e.y_root - root.winfo_y()))
+grab = lambda e: drag.update(x=e.x_root - root.winfo_x(), y=e.y_root - root.winfo_y())
+root.bind("<Button-1>", grab)
 root.bind("<B1-Motion>", move)
 root.bind("<ButtonRelease-1>", drop)
+# 뚫린 부분은 클릭이 배경 창으로 내려간다 — 거기서도 끌기·우클릭·펼침이 되어야 한다
+back.bind("<Button-1>", grab)
+back.bind("<B1-Motion>", move)
+back.bind("<ButtonRelease-1>", drop)
+back.bind("<Enter>", lambda e: hover(True))
+back.bind("<Leave>", lambda e: root.after(120, maybe_hide))
 gear.bind("<Button-1>", lambda e: (settings(), "break")[1])
 menu = tk.Menu(root, tearoff=0)
 menu.add_command(label="새로고침", command=refresh)
@@ -784,6 +841,7 @@ menu.add_command(label="위치 초기화", command=lambda: (cfg.update(pos=None)
 menu.add_command(label="닫기", command=root.destroy)
 root.bind("<Button-3>", lambda e: menu.tk_popup(e.x_root, e.y_root))
 tab_btn.bind("<Button-3>", lambda e: menu.tk_popup(e.x_root, e.y_root))
+back.bind("<Button-3>", lambda e: menu.tk_popup(e.x_root, e.y_root))
 
 build()
 refresh()
