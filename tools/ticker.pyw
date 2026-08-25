@@ -138,6 +138,7 @@ coin_at = [0.0]                          # 마지막 조회 시각
 coin_ok = [0.0]                          # 마지막으로 거래소가 응답한 시각
 coin_gap = [COIN_SEC]                    # 지금 쓰는 간격 (실패하면 늘고, 되면 다시 줄인다)
 coin_src = [""]                          # 코인 값의 출처 (빗썸/업비트/야후) — 화면에 표시
+coin_lag = [0.0]                         # 거래소가 준 값이 몇 초 전 것인지 (캐시된 응답 판별)
 midnight = {}                            # 코인 -> (날짜, 자정 시가) 하루 한 번만 조회
 INDEX = {"KOSPI": "KOSPI", "KOSDAQ": "KOSDAQ", "^KS11": "KOSPI", "^KQ11": "KOSDAQ"}
 CODE = re.compile(r"^[0-9]{4}[0-9A-Z]{2}$")   # 069500, 0005A0 같은 국내 종목코드
@@ -267,6 +268,8 @@ def bithumb(syms):
     '24시간 전 대비'는 또 다른 값이다(2026-08-21 XRP: 13.4 / 9.2 / 20.3%).
     보고 있는 화면과 같아야 하므로 빗썸 전일대비(opening_price=자정 시가)를 쓴다."""
     d = get(BITHUMB)["data"]
+    ts = float(d.get("date") or 0) / 1000.0      # 응답에 박힌 거래소 시각
+    coin_lag[0] = max(0.0, time.time() - ts) if ts else 0.0
     out = {}
     for s in syms:
         v = d.get(s.split("-")[0])
@@ -570,6 +573,7 @@ def refresh():
                 pass
 
         note = ("요청 과다 · 1분 대기" if wait else
+                "코인: 빗썸 %d초 전 값" % coin_lag[0] if coin_src[0] == "빗썸" and coin_lag[0] > 15 else
                 "" if coin_src[0] in ("빗썸", "") else "코인: " + coin_src[0])
         root.after(0, status.config, {"text": note})
         for k in keys:
