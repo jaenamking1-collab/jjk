@@ -115,9 +115,11 @@ THEME = {}                               # 불투명도가 반영된 현재 색
 UP, DOWN = "#ff5c66", "#5aa8ff"          # 국내식: 상승 빨강, 하락 파랑
 SEP = "---"
 ALERT = 5.0                              # 등락률 이 이상이면 반짝임
-COIN_SEC = 20                            # 코인은 20초마다만 조회 (거래소가 잦은 요청을 끊음)
+COIN_SEC = 5                             # 코인 조회 간격(초). 주식과 같은 속도로 본다
+COIN_SLOW = 20                           # 거래소가 요청을 끊는 곳(학교망)에서는 이만큼 물러선다
 coin_at = [0.0]                          # 마지막 조회 시각
 coin_ok = [0.0]                          # 마지막으로 거래소가 응답한 시각
+coin_gap = [COIN_SEC]                    # 지금 쓰는 간격 (실패하면 늘고, 되면 다시 줄인다)
 midnight = {}                            # 코인 -> (날짜, 자정 시가) 하루 한 번만 조회
 INDEX = {"KOSPI": "KOSPI", "KOSDAQ": "KOSDAQ", "^KS11": "KOSPI", "^KQ11": "KOSDAQ"}
 CODE = re.compile(r"^[0-9]{4}[0-9A-Z]{2}$")   # 069500, 0005A0 같은 국내 종목코드
@@ -488,15 +490,18 @@ def refresh():
                 except Exception:
                     pass
         if groups["coin"]:
-            if time.time() - coin_at[0] >= COIN_SEC:
+            if time.time() - coin_at[0] >= coin_gap[0] - 0.5:   # 0.5초는 루프 흔들림 여유
                 coin_at[0] = time.time()
                 for source in (bithumb, upbit):      # 빗썸이 막히면 업비트로
                     try:
                         data.update(source(groups["coin"]))
                         coin_ok[0] = time.time()
+                        coin_gap[0] = COIN_SEC       # 잘 받아지면 계속 빠르게
                         break
                     except Exception:
                         continue
+                else:
+                    coin_gap[0] = COIN_SLOW          # 둘 다 막히면 물러섰다가 다시 시도
             if time.time() - coin_ok[0] > 120:    # 거래소가 오래 막히면 야후라도
                 groups["yahoo"] += [k for k in groups["coin"] if k not in data]
         if groups["yahoo"]:
