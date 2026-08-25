@@ -95,8 +95,9 @@ DEFAULT = {
     "hidden": False,
     "collapsed": [],                     # 구분선 단위 그룹 접힘 상태
     "pos": None,                         # 직접 옮긴 위치 (없으면 우하단 자동)
-    "bg_op": 80,                         # 바탕 불투명도 0~100 (80 = 지금 상태)
+    "bg_op": 85,                         # 바탕 불투명도 0~100 (0 = 완전 투명, 100 = 불투명)
     "text_op": 80,                       # 글자 불투명도 0~100 (80 = 지금 상태)
+    "bg_color": "#2a2f3a",               # 바탕색 (PALETTE에서 고름)
 }
 
 SPARK = "https://query1.finance.yahoo.com/v7/finance/spark?range=1d&interval=1d&symbols="
@@ -106,6 +107,8 @@ UPBIT = "https://api.upbit.com/v1/ticker?markets="           # 빗썸이 막힐 
 UPCANDLE = "https://api.upbit.com/v1/candles/minutes/60?count=1&market={}&to={}"
 UA = {"User-Agent": "Mozilla/5.0", "Referer": "https://finance.naver.com/"}
 BG, FG, DIM, ACC, LINE = "#2a2f3a", "#f2f5fa", "#9aa5ba", "#7db3ff", "#4d576c"
+# 고를 수 있는 바탕색. 글자가 흰 계열이라 어두운 색만 넣는다.
+PALETTE = ["#2a2f3a", "#000000", "#16233d", "#2b1f3d", "#14312a"]
 ROWLINE = "#353c4a"                      # 행 사이 얇은 선
 FIELD = "#1f242e"                        # 설정창 입력칸
 THEME = {}                               # 불투명도가 반영된 현재 색
@@ -158,7 +161,7 @@ def theme():
     t = cfg["text_op"] / 100.0
     for key, base in (("fg", FG), ("dim", DIM), ("up", UP), ("down", DOWN)):
         THEME[key] = mix(BG, base, t / 0.8) if t <= 0.8 else mix(base, "#ffffff", (t - 0.8) * 2.5)
-    root.attributes("-alpha", 0.70 + cfg["bg_op"] * 0.003)      # 80 -> 0.94
+    root.attributes("-alpha", cfg["bg_op"] / 100.0)             # 0 = 완전 투명
     for sym in rows:
         nm, p, c, _ = rows[sym]
         nm.config(fg=THEME["fg"])
@@ -167,6 +170,30 @@ def theme():
             paint(sym, last[sym])
         else:
             c.config(fg=THEME["dim"])
+
+
+def repaint(w, old, new):
+    """창 안에서 옛 바탕색을 쓰던 것만 새 색으로 바꾼다(입력칸 등 다른 색은 그대로)."""
+    try:
+        if str(w.cget("bg")) == old:
+            w.configure(bg=new)
+    except Exception:
+        pass
+    for child in w.winfo_children():
+        repaint(child, old, new)
+
+
+def set_bg(color, win=None):
+    """바탕색 변경. 종목 줄은 만들 때 색이 박히므로 다시 그린다."""
+    global BG
+    old, BG = BG, color
+    cfg["bg_color"] = color
+    repaint(root, old, BG)
+    if win is not None:
+        repaint(win, old, BG)
+    build()
+    theme()
+    save(cfg)
 
 
 def groups_of(tickers):
@@ -285,7 +312,11 @@ def write(path, data):
 
 def load():
     """스크립트 옆 파일(그 PC 설정) 위에 공용 저장소의 종목 목록을 덮어쓴다."""
-    cfg = {**DEFAULT, **read(LOCAL)}
+    mine = read(LOCAL)
+    cfg = {**DEFAULT, **mine}
+    if mine and "bg_color" not in mine:
+        # 옛 눈금은 20~100이 알파 0.76~1.0이었다. 보이던 밝기 그대로 새 눈금으로 옮긴다.
+        cfg["bg_op"] = round(70 + cfg["bg_op"] * 0.3)
     if SHARED:
         sync()                                     # 다른 PC가 바꾼 목록을 먼저 받아온다
         tickers = read(SHARED).get("tickers")
@@ -309,6 +340,7 @@ def save(cfg):
 
 cfg = load()
 pushed = list(cfg["tickers"])            # 마지막으로 올린 종목 목록
+BG = cfg.get("bg_color") or BG           # 저장해 둔 바탕색으로 시작
 rows = {}
 alerts = {}                              # 반짝일 종목 -> 색
 last = {}                                # 마지막 시세 (색만 다시 칠할 때 사용)
@@ -504,23 +536,49 @@ def settings(_=None):
     tk.Checkbutton(win, text="항상 위에 표시", variable=top, bg=BG, fg=FG, selectcolor=FIELD,
                    activebackground=BG, activeforeground=FG, bd=0, highlightthickness=0,
                    font=("Malgun Gothic", 9)).pack(anchor="w", padx=8)
-    was = (cfg["bg_op"], cfg["text_op"])
+    was = (cfg["bg_op"], cfg["text_op"], cfg["bg_color"])
 
-    def slider(label, key):
+    def slider(label, key, lo):
         row = tk.Frame(win, bg=BG)
         row.pack(fill="x", padx=10, pady=(2, 0))
         tk.Label(row, text=label, bg=BG, fg=DIM, width=8, anchor="w",
                  font=("Malgun Gothic", 9)).pack(side="left")
-        sc = tk.Scale(row, from_=20, to=100, orient="horizontal", bg=BG, fg=FG,
+        sc = tk.Scale(row, from_=lo, to=100, orient="horizontal", bg=BG, fg=FG,
                       troughcolor=FIELD, activebackground=ACC, highlightthickness=0,
                       bd=0, sliderrelief="flat", length=150, font=("Consolas", 7),
                       command=lambda v: (cfg.update({key: int(float(v))}), theme()))
         sc.set(cfg[key])
         sc.pack(side="left")
+
+        # 눌러서 끌면 그 자리로 — Tk 기본은 홈만 잡아야 끌리고 여백은 한 칸씩 움직인다
+        def drag(e):
+            span = max(1, sc.winfo_width() - 14)
+            sc.set(max(lo, min(100, round(lo + (e.x - 7) / span * (100 - lo)))))
+            return "break"
+        sc.bind("<Button-1>", drag)
+        sc.bind("<B1-Motion>", drag)
         return sc
 
-    slider("바탕 투명", "bg_op")
-    slider("글자 진하기", "text_op")
+    slider("바탕 투명", "bg_op", 0)          # 0 = 완전 투명
+    slider("글자 진하기", "text_op", 20)
+
+    crow = tk.Frame(win, bg=BG)
+    crow.pack(fill="x", padx=10, pady=(6, 2))
+    tk.Label(crow, text="바탕색", bg=BG, fg=DIM, width=8, anchor="w",
+             font=("Malgun Gothic", 9)).pack(side="left")
+    chips = []
+
+    def pick(color):
+        set_bg(color, win)
+        for chip, c in chips:               # repaint가 옛 바탕색 칩까지 바꾸므로 되돌린다
+            chip.config(bg=c, highlightbackground=ACC if c == color else FIELD)
+
+    for c in PALETTE:
+        chip = tk.Label(crow, bg=c, width=3, height=1, cursor="hand2",
+                        highlightthickness=2, highlightbackground=ACC if c == BG else FIELD)
+        chip.pack(side="left", padx=3)
+        chip.bind("<Button-1>", lambda e, c=c: pick(c))
+        chips.append((chip, c))
 
     bar = tk.Frame(win, bg=BG)
     bar.pack(fill="x", padx=12, pady=(4, 12))
@@ -553,6 +611,8 @@ def settings(_=None):
               font=("Malgun Gothic", 9, "bold"), padx=14, cursor="hand2").pack(side="right")
     def cancel():
         cfg.update(bg_op=was[0], text_op=was[1])
+        if cfg["bg_color"] != was[2]:
+            set_bg(was[2], win)
         theme()
         win.destroy()
 
