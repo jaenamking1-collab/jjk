@@ -118,7 +118,7 @@ DEFAULT = {
 
 SPARK = "https://query1.finance.yahoo.com/v7/finance/spark?range=1d&interval=1d&symbols="
 NAVER = "https://polling.finance.naver.com/api/realtime/domestic/{}/{}"
-BITHUMB = "https://api.bithumb.com/public/ticker/ALL_KRW"   # 한 번에 KRW 마켓 전 종목
+BITHUMB = "https://api.bithumb.com/public/ticker/{}_KRW"     # 종목별. ALL_KRW는 캐시를 타서 값이 멎는다
 UPBIT = "https://api.upbit.com/v1/ticker?markets="           # 빗썸이 막힐 때 대체
 UPCANDLE = "https://api.upbit.com/v1/candles/minutes/60?count=1&market={}&to={}"
 UA = {"User-Agent": "Mozilla/5.0", "Referer": "https://finance.naver.com/"}
@@ -273,18 +273,16 @@ def bithumb(syms):
     ⚠️ 등락률 기준은 거래소마다 다르다 — 빗썸 화면은 자정, 업비트 화면은 09시,
     '24시간 전 대비'는 또 다른 값이다(2026-08-21 XRP: 13.4 / 9.2 / 20.3%).
     보고 있는 화면과 같아야 하므로 빗썸 전일대비(opening_price=자정 시가)를 쓴다."""
-    d = get(BITHUMB)["data"]
-    ts = float(d.get("date") or 0) / 1000.0      # 응답에 박힌 거래소 시각
-    coin_lag[0] = max(0.0, time.time() - ts) if ts else 0.0
-    out = {}
+    out, lag = {}, 0.0
     for s in syms:
-        v = d.get(s.split("-")[0])
-        if not isinstance(v, dict):       # 'date' 키와 상장 안 된 종목 걸러냄
-            continue
+        v = get(BITHUMB.format(s.split("-")[0]))["data"]
         price, prev = float(v["closing_price"]), float(v["opening_price"])
+        ts = float(v.get("date") or 0) / 1000.0   # 응답에 박힌 거래소 시각
+        lag = max(lag, time.time() - ts if ts else 0.0)
         diff = price - prev
         out[s] = (price, diff, diff / prev * 100 if prev else 0.0,
                   0 if price >= 100 else 2, None)
+    coin_lag[0] = max(0.0, lag)
     return out
 
 
