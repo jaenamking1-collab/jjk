@@ -113,6 +113,7 @@ DEFAULT = {
     "bg_op": 85,                         # 바탕 불투명도 0~100 (0 = 완전 투명, 100 = 불투명)
     "text_op": 80,                       # 글자 불투명도 0~100 (80 = 지금 상태)
     "bg_color": "#2a2f3a",               # 바탕색 (PALETTE에서 고름)
+    "coin_prem": {},                     # 코인별 국내가 ÷ 해외가 (거래소가 막힌 곳에서 쓴다)
 }
 
 SPARK = "https://query1.finance.yahoo.com/v7/finance/spark?range=1d&interval=1d&symbols="
@@ -140,6 +141,11 @@ coin_gap = [COIN_SEC]                    # 지금 쓰는 간격 (실패하면 �
 coin_src = [""]                          # 코인 값의 출처 (빗썸/업비트/야후) — 화면에 표시
 coin_lag = [0.0]                         # 거래소가 준 값이 몇 초 전 것인지 (캐시된 응답 판별)
 midnight = {}                            # 코인 -> (날짜, 자정 시가) 하루 한 번만 조회
+coin_prem = {}                           # 코인 -> 국내가 ÷ 해외가. 거래소가 막힌 동안 환산에 쓴다
+coin_base = {}                           # 코인 -> (날짜, 국내 자정 시가). 등락률 기준을 빗썸과 맞춘다
+coin_ext = [True]                        # 야후에 코인도 함께 물어볼지 (코인 탓에 실패하면 끈다)
+prem_at = [0.0]                          # 환산비를 마지막으로 저장한 시각
+PREM_SAVE = 600                          # 환산비 저장 간격(초)
 INDEX = {"KOSPI": "KOSPI", "KOSDAQ": "KOSDAQ", "^KS11": "KOSPI", "^KQ11": "KOSDAQ"}
 CODE = re.compile(r"^[0-9]{4}[0-9A-Z]{2}$")   # 069500, 0005A0 같은 국내 종목코드
 NAME_W = 17                              # 이름 최대 폭(한글 2, 영문 1). 넘으면 잘림
@@ -282,6 +288,11 @@ def bithumb(syms):
     return out
 
 
+def kst_day():
+    """오늘 날짜(KST). 코인 등락률 기준인 자정이 언제인지 판단할 때 쓴다."""
+    return datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9))).strftime("%Y%m%d")
+
+
 def kst_midnight_open(market):
     """오늘 00시(KST) 시가. 빗썸 화면과 같은 기준으로 맞추기 위함. 하루 한 번만 조회."""
     now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
@@ -323,6 +334,19 @@ def yahoo(syms):
         dec = 2 if r["symbol"].endswith("=X") or m.get("currency") != "KRW" else 0
         out[r["symbol"]] = (price, diff, diff / prev * 100 if prev else 0.0, dec, None)
     return out
+
+
+def convert(sym, far):
+    """국내 거래소가 막혔을 때, 해외 시세(far)에 마지막으로 잰 비율을 곱해 국내가를 추정한다.
+    등락률은 국내 자정 시가(빗썸 화면 기준)를 알고 있으면 그걸 쓰고, 없으면 해외 기준."""
+    r = coin_prem.get(sym) or 1.0
+    price = far[0] * r
+    day, prev = coin_base.get(sym) or ("", 0)
+    if day != kst_day() or not prev:
+        prev = (far[0] - far[1]) * r
+    diff = price - prev
+    return (price, diff, diff / prev * 100 if prev else 0.0,
+            0 if price >= 100 else 2, None)
 
 
 def read(path):
@@ -368,6 +392,7 @@ def save(cfg):
 
 cfg = load()
 pushed = list(cfg["tickers"])            # 마지막으로 올린 종목 목록
+coin_prem.update(cfg.get("coin_prem") or {})
 BG = cfg.get("bg_color") or BG           # 저장해 둔 바탕색으로 시작
 rows = {}
 alerts = {}                              # 반짝일 종목 -> 색
@@ -546,31 +571,50 @@ def refresh():
                     data.update({s: got[INDEX.get(s, s)] for s in syms if INDEX.get(s, s) in got})
                 except Exception:
                     pass
-        if groups["coin"]:
-            if time.time() - coin_at[0] >= coin_gap[0] - 0.5:   # 0.5초는 루프 흔들림 여유
-                coin_at[0] = time.time()
-                for source in (bithumb, upbit):      # 빗썸이 막히면 업비트로
-                    try:
-                        data.update(source(groups["coin"]))
-                        coin_ok[0] = time.time()
-                        coin_gap[0] = COIN_SEC       # 잘 받아지면 계속 빠르게
-                        coin_src[0] = "빗썸" if source is bithumb else "업비트"
-                        break
-                    except Exception:
-                        continue
-                else:
-                    coin_gap[0] = COIN_SLOW          # 둘 다 막히면 물러섰다가 다시 시도
-                    coin_src[0] = "거래소 막힘"
-            if time.time() - coin_ok[0] > 120:    # 거래소가 오래 막히면 야후라도
-                groups["yahoo"] += [k for k in groups["coin"] if k not in data]
-                coin_src[0] = "야후(해외평균)"
-        if groups["yahoo"]:
+        if groups["coin"] and time.time() - coin_at[0] >= coin_gap[0] - 0.5:  # 0.5초는 흔들림 여유
+            coin_at[0] = time.time()
+            for source in (bithumb, upbit):          # 빗썸이 막히면 업비트로
+                try:
+                    data.update(source(groups["coin"]))
+                    coin_ok[0] = time.time()
+                    coin_gap[0] = COIN_SEC           # 잘 받아지면 계속 빠르게
+                    coin_src[0] = "빗썸" if source is bithumb else "업비트"
+                    break
+                except Exception:
+                    continue
+            else:
+                coin_gap[0] = COIN_SLOW              # 둘 다 막히면 물러섰다가 다시 시도
+                coin_src[0] = "거래소 막힘"
+
+        # 야후에는 코인도 같이 물어본다(요청은 그대로 한 번). 거래소가 살아 있을 땐 국내가와의
+        # 비율을 재 두고, 막히면 그 비율로 해외 시세를 국내가로 환산해서 쓴다.
+        ext, ylist = {}, groups["yahoo"] + (groups["coin"] if coin_ext[0] else [])
+        if ylist:
             try:
-                data.update(yahoo(groups["yahoo"]))
+                ext = yahoo(ylist)
             except urllib.error.HTTPError as e:
                 wait = 60 if e.code == 429 else 0    # 요청 과다 -> 1분 쉬었다 재시도
             except Exception:
-                pass
+                try:                                 # 코인 심볼 탓이면 주식만이라도 받는다
+                    ext = yahoo(groups["yahoo"]) if groups["yahoo"] else {}
+                    coin_ext[0] = False
+                except Exception:
+                    pass
+        data.update({k: v for k, v in ext.items() if k not in groups["coin"]})
+
+        blocked = time.time() - coin_ok[0] > 30      # 한두 번 걸러도 직전 값이 아직 쓸 만하다
+        for k in groups["coin"]:
+            if k in data:                            # 거래소에서 받았다 -> 해외와의 비율을 기억
+                if ext.get(k) and ext[k][0]:
+                    coin_prem[k] = data[k][0] / ext[k][0]
+                    coin_base[k] = (kst_day(), data[k][0] - data[k][1])
+            elif ext.get(k) and blocked:
+                data[k] = convert(k, ext[k])
+                coin_src[0] = "해외 환산" if k in coin_prem else "해외평균(환산비 없음)"
+        if coin_prem and time.time() - prem_at[0] > PREM_SAVE:
+            prem_at[0] = time.time()
+            cfg["coin_prem"] = {k: round(v, 6) for k, v in coin_prem.items()}
+            root.after(0, save, cfg)
 
         note = ("요청 과다 · 1분 대기" if wait else
                 "코인: 빗썸 %d초 전 값" % coin_lag[0] if coin_src[0] == "빗썸" and coin_lag[0] > 15 else
@@ -846,6 +890,9 @@ menu.add_command(label="닫기", command=root.destroy)
 root.bind("<Button-3>", lambda e: menu.tk_popup(e.x_root, e.y_root))
 tab_btn.bind("<Button-3>", lambda e: menu.tk_popup(e.x_root, e.y_root))
 back.bind("<Button-3>", lambda e: menu.tk_popup(e.x_root, e.y_root))
+# 바탕을 클릭하면 윈도우가 바탕 창을 앞으로 올려 글자가 덮인다. 누를 때마다 다시 올려준다.
+for _ev in ("<Button-1>", "<ButtonRelease-1>", "<Button-3>"):
+    back.bind(_ev, lambda e: sync_back(), add="+")
 
 build()
 refresh()
