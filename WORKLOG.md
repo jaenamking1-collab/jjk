@@ -9,6 +9,18 @@
 
 ---
 
+## 2026-08-27 (124) / 학교 — 답변 문체 반말 문제: 존댓말 규칙을 **전역 CLAUDE.md**로 승격
+
+- **증상**: jjk 하위 방(세션)들에서 사용자에게 반말로 답한다는 지적.
+- **원인**: 존댓말 규칙이 메모리 파일(`use-korean-polite.md`) 하나뿐이었다. **CLAUDE.md가 메모리를 이긴다.** 게다가 이 `CLAUDE.md`는 전체가 반말 지시문(`~한다`, `~하지 마라`)이라 답변 문체까지 거기 끌려갔다. 유저 레벨 `~/.claude/CLAUDE.md`는 아예 없었다.
+- **조치**: 규칙 본문을 `~/claude-memory/CLAUDE-global.md`에 두고 `~/.claude/CLAUDE.md`로 **하드링크**했다(커밋 `84f21b0`). 저장소가 두 PC 간 동기화되니 본문은 자동으로 따라온다.
+  - 심볼릭 링크는 **관리자 권한이 필요해서 실패**했다(개발자 모드 꺼짐). 하드링크는 같은 볼륨이면 권한 없이 된다. Git Bash의 `ln -s`는 조용히 **복사본**을 만드니 링크 여부를 `Get-Item .LinkType`으로 반드시 확인할 것.
+
+**다음 할 일 (집 PC)**: `~/.claude/CLAUDE.md`가 아직 없다. `git pull` 후 아래 한 줄이면 끝난다 — 그 PC 세션이 알아서 실행하면 된다.
+```
+New-Item -ItemType HardLink -Path "$HOME\.claude\CLAUDE.md" -Target "$HOME\claude-memory\CLAUDE-global.md"
+```
+
 ## 2026-08-26 (123) / 학교 — 비디오 다운로더를 **학교 PC에서 최신본으로**: `update.bat` 하나로
 
 - 이건 `jjk`가 아니라 **두 번째 프로젝트** [`video-downloader-extension`](https://github.com/jaenamking1-collab/video-downloader-extension)(비공개) 이야기다. 크롬 확장(MV3) + `server.py` 로컬 서버(포트 57891), yt-dlp/ffmpeg/gallery-dl 래퍼.
