@@ -22,7 +22,16 @@
 - **사람이 해야 하는 건 딱 하나**: `chrome://extensions` 에서 확장 새로고침. 안 하면 서버만 새 코드고 `content.js`/`background.js` 는 옛 코드로 돈다. `cookies.txt` 는 깃에 없으므로 PC 마다 따로 둔다(X/인스타 비공개용).
 - `~/claude-memory/video-downloader-project.md` 에도 같은 요약을 남겼다.
 
-**다음 할 일**: ① 학교 PC에서 `update.bat` 실제 실행 — 배치 문법이 컨테이너에서 검증이 안 됐으니 첫 실행 결과(특히 폴더를 제대로 찾는지)를 봐야 한다 ② 집 PC에서도 같은 파일로 맞추기 ③ (ticker) 집 PC `git pull` → `ticker_move.ps1` 실행 후 H: 사본 정리.
+- ✅ **학교 PC 실행 완료 (같은 세션 내).** 실제로 돌려보니 사전 정보가 두 군데 틀렸다.
+  - **폴더가 `C:\Users\azsxd\Downloads\video_downloader_extension` 이었다.** 메모(`~/claude-memory/video-downloader-project.md`)의 `OneDrive\문서`가 아니다. 경로를 넘겨짚지 않고 찾게 만든 게 그대로 값을 했다.
+  - **그 폴더는 git 사본이 아니었다** — `git pull` 이 `not a git repository` 로 끝났다. 8/13에 git 을 붙인 건 다른 PC였다. `update.bat` 의 변환 경로(백업 → init → fetch → `checkout -f`)를 손으로 한 번 태워 사본으로 바꿨고, 영상·`cookies.txt` 는 그대로 남았다.
+- 🔥 **`_backup` 이 크롬 확장 로드를 통째로 막았다.** `Cannot load extension with file or directory name _backup. Filenames starting with "_" are reserved for use by the system.` **크롬은 확장 폴더 안에 `_` 로 시작하는 이름이 하나라도 있으면 매니페스트를 안 읽는다.** 내가 만든 백업 폴더가 원인이었다 — 미리 알았어야 했다.
+  - **고쳐서 푸시 (`417771c`)**: 백업 자리를 `%LOCALAPPDATA%\vdl_backup` 으로 옮기고, **예전 버전이 확장 폴더 안에 만든 `_backup` 도 실행할 때 밖으로 옮긴다**(집 PC 가 그 상태가 될 수 있어서). 덤으로 yt-dlp 가 PATH 에서 잡히는지, PATH 쪽과 방금 받은 쪽 버전이 어긋나지 않는지도 확인해 알려준다.
+  - 옮긴 뒤 확장 **새로고침 성공** = 학교 PC 는 최신본으로 다 맞춰졌다.
+- **yt-dlp 는 이상 없었다.** pip 가 `%APPDATA%\Python\Python314\Scripts` 가 PATH 에 없다고 경고했지만, `where yt-dlp` → `C:\Python314\Scripts\yt-dlp.exe`, 버전 `2026.08.19` = **PyPI 최신 그대로**. 서버가 쓰는 쪽이 이미 최신이라 아무 문제 없었다. 다만 pip 가 사본을 하나 더 만드는 구조라 **다음 릴리스부터는 서버 쪽만 낡을 수 있다** — 그래서 위 버전 어긋남 검사를 넣었다.
+- `fc /b` 로 백업과 새 소스를 비교하니 **전 파일이 "다름"** 으로 나왔는데, 바이트 비교라 줄바꿈(CRLF↔LF)만 달라도 걸린다. `git diff --ignore-cr-at-eol` 로 다시 보라고 안내했고 결과는 아직 안 받았다. 백업은 `%LOCALAPPDATA%\vdl_backup` 에 그대로 있으니 잃은 건 없다.
+
+**다음 할 일**: ① 이 브랜치를 **main 에 합쳐야** 두 PC 에 반영된다 ② 집 PC 에서 `update.bat` 실행 — 그 PC 는 폴더가 `OneDrive\문서` 일 수도, git 사본이 아닐 수도 있으니 스크립트가 알아서 처리한다. 확장 폴더에 `_backup` 이 있으면 자동으로 밖으로 옮긴다 ③ (ticker) 집 PC `git pull` → `ticker_move.ps1` 실행 후 H: 사본 정리.
 
 ---
 
