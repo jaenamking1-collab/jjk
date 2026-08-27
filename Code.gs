@@ -3560,6 +3560,76 @@ function resetAllTriggers() {
   return { removed: removed, total: after, untouched: others };
 }
 
+// ── 손으로 돌리는 건 이 두 개면 된다: 점검() · 수리() ──────────────
+// 왜: 편집기 함수 드롭다운에 최상위 함수가 141개 뜨고 그중 손으로 돌릴 것이 17개다.
+// "뭔가 이상한데 뭘 눌러야 하지"를 매번 찾는 게 일이었다(2026-08-27). 이름 둘만 기억하면 되게 묶는다.
+// 기존 setup*·_diag*는 그대로 둔다 — 하나씩 따로 쓸 일이 남아 있다.
+// 한글 이름을 쓴 건 드롭다운에서 눈에 띄게 하려는 것이다(이 파일에서 유일한 한글 함수명).
+
+// 상태만 본다. 아무것도 바꾸지 않는다.
+function 점검() {
+  const fmt = d => Utilities.formatDate(d, 'Asia/Seoul', 'yyyy-MM-dd HH:mm');
+  console.log('■ 점검 ' + fmt(new Date()));
+
+  const byFn = {};
+  ScriptApp.getProjectTriggers().forEach(t => {
+    const f = t.getHandlerFunction(); byFn[f] = (byFn[f] || 0) + 1;
+  });
+  console.log('◆ 트리거');
+  let missing = 0;
+  TRIGGER_PLAN.forEach(p => {
+    const n = byFn[p[0]] || 0;
+    if (!n) missing++;
+    console.log('  ' + (n ? '✅' : '❌ 없음') + ' ' + p[0] + (n > 1 ? ' ×' + n : ''));
+    delete byFn[p[0]];
+  });
+  Object.keys(byFn).forEach(f => console.log('  · 계획 밖: ' + f + (byFn[f] > 1 ? ' ×' + byFn[f] : '')));
+  if (missing) console.log('  → ' + missing + '개가 빠졌다. 수리() 를 실행할 것');
+
+  // 분배캐시가 '신선'하지 않으면 화면은 그 운용사를 통째로 빈칸으로 그린다(getDistributionAll이 stale로 판정).
+  const need = currentCycleKey(), ttlH = distCacheTtlSec() / 3600;
+  console.log('◆ 분배캐시 — 현재 회차 ' + need + ' / 신선 기준 ' + ttlH + '시간');
+  const rows = _distCacheSheet().getDataRange().getValues();
+  DIST_SOURCE_IDS.forEach(s => {
+    const sc = readDistCache(s, rows);
+    if (!sc) { console.log('  ❌ ' + s + ' — 캐시 없음'); return; }
+    const saved = sc.savedAt instanceof Date
+      ? sc.savedAt
+      : new Date(String(sc.savedAt).replace(' ', 'T') + ':00+09:00');
+    const hrs = isNaN(saved) ? null : (Date.now() - saved.getTime()) / 3600000;
+    const fresh = sc.cycleKey === need && hrs !== null && hrs < ttlH;
+    console.log('  ' + (fresh ? '✅' : '⚠') + ' ' + s + ' ' + (sc.payload.items || []).length + '건 / ' + sc.cycleKey
+      + ' / ' + (hrs === null ? String(sc.savedAt) : fmt(saved) + ' (' + hrs.toFixed(1) + '시간 전)')
+      + (fresh ? '' : ' ← 화면에선 빈칸으로 나온다'));
+  });
+
+  const log = _getOrCreateSheet('알림로그', ['시각','운용사','종류','메시지','중요도','상태']);
+  const last = log.getLastRow();
+  if (last > 1) {
+    const r = log.getRange(last, 1, 1, 4).getValues()[0];
+    console.log('◆ 알림로그 마지막: ' + r[0] + ' | ' + r[1] + ' | ' + r[3]);
+  }
+}
+
+// 고친다: 트리거 재설치 → 6개사 강제 재파싱(캐시 채우기).
+// 실행이 6분을 넘으면 Apps Script가 끊으므로 5분에서 스스로 멈춘다 — 남은 건 30분 트리거가 이어 채운다.
+function 수리() {
+  console.log('■ 수리 시작');
+  resetAllTriggers();
+  console.log('◆ 6개사 강제 재파싱 (1~3분 걸린다)');
+  const T0 = Date.now();
+  for (let i = 0; i < DIST_SOURCE_IDS.length; i++) {
+    if (Date.now() - T0 > 300000) { console.log('  ⏱ 5분 초과 — 나머지는 30분 트리거가 채운다'); break; }
+    const s = DIST_SOURCE_IDS[i], t0 = Date.now();
+    let n = 0, err = '';
+    try { const r = getDistribution(s, true); n = ((r || {}).items || []).length; err = (r || {}).error || ''; }
+    catch(e) { err = String(e); }
+    console.log('  ' + (n ? '✅' : '❌') + ' ' + s + ' ' + n + '건 (' + ((Date.now() - t0) / 1000).toFixed(1) + '초)'
+      + (err ? ' — ' + err : ''));
+  }
+  console.log('■ 수리 완료 — 점검() 으로 확인');
+}
+
 // 카카오 연동 점검: 스크립트 속성(KAKAO_REST_KEY·KAKAO_REFRESH_TOKEN) 설정 후 ▶실행 →
 // 나에게 테스트 카톡 1건 발송. 카톡이 오면 연동 완료.
 function testKakao() {
