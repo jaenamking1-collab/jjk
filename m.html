@@ -912,7 +912,10 @@ async function submitGate() {
     if (r && r.error === 'unauthorized') {
       APP_TOKEN = '';
       btn.disabled = false; btn.textContent = '들어가기';
-      err.textContent = '비밀번호가 틀렸습니다'; err.style.display = 'block';
+      err.textContent = r.locked
+        ? '비밀번호를 여러 번 틀려 5분간 잠겼습니다. 잠시 뒤 다시 시도하세요.'
+        : '비밀번호가 틀렸습니다';
+      err.style.display = 'block';
       el.value = ''; el.focus();
       return;
     }
