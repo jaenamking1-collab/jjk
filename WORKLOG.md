@@ -1051,23 +1051,23 @@ New-Item -ItemType HardLink -Path "$HOME\.claude\CLAUDE.md" -Target "$HOME\claud
 - ⚠️ **다음 할 일(수동)**: **Code.gs 재배포**(자동 아님). **성공기준: 캐시 없는 상태(시크릿창)에서 비번 입력 → 숫자 다 뜰 때까지 3~5초**(지금은 15~30초). 개발자도구 Network에 부팅 요청이 **getBootstrap + getSheetData 2건만** 보이면 새 경로로 도는 것. 9건 그대로면 재배포가 안 된 것(폴백 중).
 
 ## 2026-08-05 (68) / — 재배포 후 최종 검증: 잠금 유지 + 프론트 반영 + 워밍 정상
-- **재배포 직후 실측**(그동안 매번 깨지던 지점이라 선제 확인): `getAccounts` 토큰없음/9999 🔒차단, 1231만 데이터(792B). **재배포로 잠금 안 풀림** ✅
+- **재배포 직후 실측**(그동안 매번 깨지던 지점이라 선제 확인): `getAccounts` 토큰없음/9999 🔒차단, ••••만 데이터(792B). **재배포로 잠금 안 풀림** ✅
 - **GitHub Pages 프론트 반영 확인**: 공개 `portfolio.html`(298,814B)에 `gateCheck()` + '비밀번호 문제 아님' 문구 **둘 다 존재** → (65) 수정분이 실제 서비스에 떠 있음 ✅
 - **콜드→웜 확인**: 재배포 직후엔 4.7~32.6초(콜드스타트). 몇 번 친 뒤 **1.3 / 3.0 / 1.4초**로 안정 — 3039줄 주석의 "warm 1s대"와 일치. (66)의 토큰 첨부 덕에 keepWarm이 실제 경로를 계속 데울 수 있음 ✅
 - 🧪 **테스트 함정(또 하나)**: Git Bash에 **`rev` 명령이 없음**. 파이프에 쓰면 조용히 빈 문자열이 되어 판정이 전부 뒤집힘(잠긴 걸 "통과"로 오판할 뻔). 파싱은 `-o 파일 -w '%{http_code} %{time_total}'` 조합으로 할 것.
 - ⚠️ **미확인**: `markInputCells()` 실행 결과(시트 7월칸 노랑)는 셀 배경색이라 API/텍스트로 확인 불가 — 눈으로 볼 것.
 
 ## 2026-08-05 (67) / — APP_TOKEN 적용 완료 · 라이브 검증 통과 (이제 진짜 잠김)
-- 사용자가 스크립트 속성 `APP_TOKEN=1231` 추가. **curl 라이브 검증 7종 전부 설계대로**:
-  - 개인 액션 `getAccounts` — 토큰없음 🔒`unauthorized`(24B) / 틀린 9999 🔒`unauthorized` / **1231만 데이터(792B)**.
+- 사용자가 스크립트 속성 `APP_TOKEN=••••` 추가. **curl 라이브 검증 7종 전부 설계대로**:
+  - 개인 액션 `getAccounts` — 토큰없음 🔒`unauthorized`(24B) / 틀린 9999 🔒`unauthorized` / **••••만 데이터(792B)**.
   - 공개 액션 — `getEtfNotices`·`hitCounter` 토큰 없이 통과 ✅ (공개 분배 페이지 무사).
-  - `getExchangeRate` — 토큰없음 🔒차단 / 1231 통과. **(66)의 keepWarm 선제수정이 실제로 필요했음이 입증됨** (안 고쳤으면 5분마다 핑이 전부 막혀 콜드스타트 재발).
+  - `getExchangeRate` — 토큰없음 🔒차단 / •••• 통과. **(66)의 keepWarm 선제수정이 실제로 필요했음이 입증됨** (안 고쳤으면 5분마다 핑이 전부 막혀 콜드스타트 재발).
 - **CORS 확인(중요)**: 오답 경로도 **302·200 두 홉 모두 `Access-Control-Allow-Origin: *`**, 응답은 CORS 에러가 아니라 **정상 JSON 200 `{"error":"unauthorized"}`**. → (65)에서 만든 분기가 브라우저에서 의도대로 동작: **오답은 "비밀번호가 틀렸습니다", 연결장애만 "서버에 연결할 수 없습니다"**.
 - 🧪 **테스트 방법 함정 기록**: 리다이렉트 URL(`user_content_key`)은 **일회용**. `redirect_url`만 따로 떼어 두 번째 curl로 치면 **404 '현재 파일을 열 수 없습니다'** 가 나와 배포가 깨진 것처럼 보인다. 반드시 `curl -sSL`로 **한 번의 체인**에서 따라가야 함. (이번에 실제로 헛짚었다가 재측정으로 정정.)
 - ⚠️ **남은 것**: `Code.gs` 재배포 여부 미확인. **재배포 전이면 배포본 keepWarm엔 토큰이 없어 5분 핑이 전부 차단 → 첫 로딩 20~30초**로 느려짐(그리고 게이트에서 "서버에 연결할 수 없습니다"가 뜰 수 있음). markInputCells·setupInputMarkTrigger도 재배포 후에만 존재.
 
 ## 2026-08-05 (66) / — APP_TOKEN 실제 적용 준비: keepWarm 토큰 누락 선제 수정
-- **맥락**: (65)에서 "비번이 사실상 없다"를 확인 → 사용자가 `APP_TOKEN=1231` 적용 결정. 켜기 전에 **토큰 때문에 조용히 깨질 곳**을 전수 조사함(안 하면 4번째 사고).
+- **맥락**: (65)에서 "비번이 사실상 없다"를 확인 → 사용자가 `APP_TOKEN=••••` 적용 결정. 켜기 전에 **토큰 때문에 조용히 깨질 곳**을 전수 조사함(안 하면 4번째 사고).
 - **전수 조사 결과**:
   - ❌ **`keepWarm`(Code.gs:3045)** — `?action=getExchangeRate`를 **토큰 없이** 핑. `getExchangeRate`는 PUBLIC_ACTIONS가 아니라 토큰 켜는 순간 `_authOk`에서 즉시 차단 → 실제 경로가 안 데워져 **콜드스타트(20~30초) 재발**. 3039~3042줄 주석에 "빈 핑으론 안 데워져서 실제 액션을 친다"고 명시돼 있어 그 의도가 무력화됨. **→ 수정**: 스크립트 속성에서 토큰을 직접 읽어 붙임(소스에 비번 안 박음, 미설정이면 종전대로).
   - ✅ 공개 페이지 `dist_notice.html` — 호출 액션이 `getDistribution`·`getEtfNotices`·`hitCounter` 3개뿐, **전부 PUBLIC_ACTIONS**. 영향 없음.
@@ -1075,13 +1075,13 @@ New-Item -ItemType HardLink -Path "$HOME\.claude\CLAUDE.md" -Target "$HOME\claud
   - ✅ 프론트 `portfolio.html` — `api`/`apiPost`/`getAlerts`(1064)/`markAlertRead`(1106) **4곳 모두 token 전송 중**. 영향 없음.
   - ✅ 시간 트리거들(snapshot·refresh·checkDistNotices 등)은 함수 직접 호출이라 `doGet`을 안 거침. 영향 없음.
 - **검증**: `node --check` OK. `_EXEC_URL` 사용처 4곳 확인 — 1997·2062는 카톡 링크(액션 없음), 3044 선언, 3049가 수정된 핑. 웹앱 URL로 나가는 자기호출은 keepWarm 하나뿐임을 확인.
-- ⚠️ **다음 할 일(사용자 수동)**: ① Code.gs 재배포 ② **프로젝트 설정 → 스크립트 속성 `APP_TOKEN` = `1231`** 추가(재배포 불필요·즉시 적용) ③ 적용 확인은 curl 3종(토큰없음/1231/9999) → **없음·9999는 `unauthorized`, 1231만 데이터**여야 성공.
+- ⚠️ **다음 할 일(사용자 수동)**: ① Code.gs 재배포 ② **프로젝트 설정 → 스크립트 속성 `APP_TOKEN` = `••••`** 추가(재배포 불필요·즉시 적용) ③ 적용 확인은 curl 3종(토큰없음/••••/9999) → **없음·9999는 `unauthorized`, ••••만 데이터**여야 성공.
 
 ## 2026-08-05 (65) / — "비번이 자꾸 안 먹힘"(3회째) 진짜 원인 = 거짓말하는 에러 메시지
-- **증상**: 재배포할 때마다 진입 게이트에서 "비밀번호가 틀렸습니다". 벌써 3번째. 콘솔엔 CORS 에러(`No 'Access-Control-Allow-Origin'`, `net::ERR_FAILED`)에 `token=1231`은 정상 전송됨.
-- **라이브 실측(curl)**: ① `/exec`는 **302 + `Access-Control-Allow-Origin: *`** → googleusercontent 리다이렉트 → JSON 200. **배포·액세스 권한 정상**. ② `getAccounts`를 **토큰 없이 / 1231 / 틀린 9999** 세 가지로 호출 → **전부 792바이트 정상 데이터**.
+- **증상**: 재배포할 때마다 진입 게이트에서 "비밀번호가 틀렸습니다". 벌써 3번째. 콘솔엔 CORS 에러(`No 'Access-Control-Allow-Origin'`, `net::ERR_FAILED`)에 `token=••••`은 정상 전송됨.
+- **라이브 실측(curl)**: ① `/exec`는 **302 + `Access-Control-Allow-Origin: *`** → googleusercontent 리다이렉트 → JSON 200. **배포·액세스 권한 정상**. ② `getAccounts`를 **토큰 없이 / •••• / 틀린 9999** 세 가지로 호출 → **전부 792바이트 정상 데이터**.
 - **원인 2단**:
-  1. **백엔드는 비번을 검사한 적이 없음.** 스크립트 속성 `APP_TOKEN` 미설정 → `_authOk`의 `if (!secret) return true;`(하위호환 분기)로 **무조건 통과**. (474~476줄의 "다음 할 일: APP_TOKEN=1231 추가"가 계속 미이행 상태.)
+  1. **백엔드는 비번을 검사한 적이 없음.** 스크립트 속성 `APP_TOKEN` 미설정 → `_authOk`의 `if (!secret) return true;`(하위호환 분기)로 **무조건 통과**. (474~476줄의 "다음 할 일: APP_TOKEN=•••• 추가"가 계속 미이행 상태.)
   2. 그러니 그 빨간 문구는 비번 판정 결과가 아님. `submitGate`의 `catch`가 **CORS·콜드스타트·로그인페이지 등 모든 실패를 "비밀번호가 틀렸습니다"로 표시**. → **재배포 직후 엔드포인트가 흔들릴 때마다 "비번 오류"로 둔갑**. 재배포 3번 = 비번 문제 3번. 원인이 아니라 **오진 유도 메시지**가 범인.
 - **수정(portfolio.html)**: `submitGate` 분기 분리 + `gateCheck()` 신설.
   - 서버가 **명시적으로 `error:'unauthorized'`를 준 경우만** "비밀번호가 틀렸습니다".
@@ -1567,11 +1567,11 @@ New-Item -ItemType HardLink -Path "$HOME\.claude\CLAUDE.md" -Target "$HOME\claud
 - 대신 **데이터는 백엔드 토큰으로 보호**하도록 변경:
   - `Code.gs`: `_authOk(action, token)` 추가. Script 속성 `APP_TOKEN`과 일치해야 통과. `PUBLIC_ACTIONS`(getDistribution·getEtfNotices)는 토큰 없이 허용(공개 분배 페이지 프록시용). **속성 미설정 시 전부 허용(하위호환)** → 재배포 전 앱 안 끊김. doGet/doPost 양쪽에 가드.
   - `portfolio.html`: 하드코딩 비번 제거. 게이트가 입력값을 `APP_TOKEN`으로 삼아 `getAccounts` 호출로 검증. `api`/`apiPost`/getAlerts/markAlertRead 모두 `token` 파라미터 전송. 세션 저장키 `jjk_token`. 프리뷰로 통과·부팅·계좌7개 로드 검증.
-- ⚠️ **다음 할 일(사용자 수동)**: Apps Script 편집기 → 프로젝트 설정 → 스크립트 속성 `APP_TOKEN=1231` 추가 → Code.gs 붙여넣기 → **기존 배포 편집(새 버전)으로 재배포**(URL 유지). 이걸 해야 실제 강제됨. 그 전까지는 아무 비번이나 통과(하위호환).
+- ⚠️ **다음 할 일(사용자 수동)**: Apps Script 편집기 → 프로젝트 설정 → 스크립트 속성 `APP_TOKEN=••••` 추가 → Code.gs 붙여넣기 → **기존 배포 편집(새 버전)으로 재배포**(URL 유지). 이걸 해야 실제 강제됨. 그 전까지는 아무 비번이나 통과(하위호환).
 
 ## 2026-07-09 / — 보안(저장소 private화) + 진입 비밀번호 + ACE 표시 버그
 - **`jjk` 저장소를 private으로 전환** (GitHub API). public일 때 portfolio.html·Code.gs 소스가 통째로 노출됐고, 그 안의 개인 GAS API URL로 외부에서 `getAccounts`/`getHoldings` 직접 호출해 실명 계좌·보유내역이 그대로 뽑히는 것 실증됨. 공개 분배금 페이지는 `jjk-dist`(별도 저장소)에서 서빙되므로 영향 없음. 확인: jjk API 404, github.io/jjk-dist 200.
-- **portfolio.html 진입 비밀번호 잠금 추가**: body 최상단 #gate 오버레이 + 하단 스크립트 `APP_PASSWORD`(현재 '1231') / `submitGate` / sessionStorage `jjk_auth`. init()은 인증 후에만 호출. 프리뷰로 오답 차단·정답 통과·콘솔 무에러 검증 완료.
+- **portfolio.html 진입 비밀번호 잠금 추가**: body 최상단 #gate 오버레이 + 하단 스크립트 `APP_PASSWORD`(현재 '••••') / `submitGate` / sessionStorage `jjk_auth`. init()은 인증 후에만 호출. 프리뷰로 오답 차단·정답 통과·콘솔 무에러 검증 완료.
 - **ACE 분배금 안 뜨는 버그 수정**: renderDistGrid의 "묵은 자료 숨김" 필터가 기준일 月을 당월/익월로만 비교 → 7월에 ACE 최신(6월, cycle 태그 없음) 항목이 전부 걸러짐. 전월도 허용하도록 수정.
 - ⚠️ 한계: 비밀번호는 클라이언트 잠금일 뿐, 개인 API는 여전히 열려 있어 API 직접 호출은 차단 못 함. 다음 할 일(원하면): Code.gs doGet/doPost에 토큰 검사 추가 후 재배포.
 
