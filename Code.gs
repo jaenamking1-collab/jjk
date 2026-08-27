@@ -1243,6 +1243,49 @@ function ocrScheduleFromBase64Html(content) {
   } catch(e) { return {}; }
 }
 
+// ── 한국 증시 휴장일 · 영업일 계산 ──────────────────────────
+// 왜 여기 있나: KODEX·ACE는 공지에 기준일·지급일이 없을 때가 있어 **백엔드가 날짜를 만들어낸다.**
+// 그 계산이 주말만 걸렀다 → 기준일 8/14(금)의 '다음 영업일'을 8/17로 냈는데 그날은 광복절 대체공휴일이다.
+// 만들어낸 날짜가 그대로 달력에 찍히므로 공휴일 반영이 필수다(2026-08-27 사용자 지적).
+// ⚠️ `portfolio.html`·`dist_notice.html`의 HOLIDAYS와 **같은 표다. 한쪽을 고치면 반드시 다른 쪽도.**
+// ⚠️ 2027년까지만 있다. 그 뒤로는 조용히 '주말만 거르기'로 되돌아간다 — 매년 말에 다음 해를 채울 것.
+//    (설·추석·부처님오신날은 음력이라 추측으로 채우면 안 된다. 공공데이터포털 특일 정보를 보고 넣을 것.)
+const KR_HOLIDAYS = {
+  '2026-1-1':'신정',      '2026-2-16':'설날',    '2026-2-17':'설날',   '2026-2-18':'설날',
+  '2026-3-2':'삼일절(대체)', '2026-5-1':'근로자의날', '2026-5-5':'어린이날',
+  '2026-5-25':'부처님오신날(대체)', '2026-6-3':'지방선거일', '2026-6-6':'현충일',
+  '2026-7-17':'제헌절',   '2026-8-17':'광복절(대체)',
+  '2026-9-24':'추석',     '2026-9-25':'추석',    '2026-9-26':'추석',
+  '2026-10-5':'개천절(대체)', '2026-10-9':'한글날', '2026-12-25':'성탄절',
+  '2027-1-1':'신정',      '2027-2-6':'설날',     '2027-2-8':'설날',    '2027-2-9':'설날(대체)',
+  '2027-3-1':'삼일절',    '2027-5-5':'어린이날', '2027-5-13':'부처님오신날',
+  '2027-6-6':'현충일',    '2027-7-19':'제헌절(대체)', '2027-8-16':'광복절(대체)',
+  '2027-9-14':'추석',     '2027-9-15':'추석',    '2027-9-16':'추석',
+  '2027-10-4':'개천절(대체)', '2027-10-11':'한글날(대체)', '2027-12-25':'성탄절'
+};
+function _isOffDay(d) {
+  return d.getDay() === 0 || d.getDay() === 6
+      || !!KR_HOLIDAYS[d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate()];
+}
+// 그 달의 마지막 영업일
+function lastBizDay(year, mon) {
+  const d = new Date(year, mon, 0);
+  while (_isOffDay(d)) d.setDate(d.getDate() - 1);
+  return { m: d.getMonth() + 1, d: d.getDate() };
+}
+// 그 날의 다음 영업일(당일은 제외)
+function nextBizDay(year, mon, day) {
+  const d = new Date(year, mon - 1, day);
+  do { d.setDate(d.getDate() + 1); } while (_isOffDay(d));
+  return { m: d.getMonth() + 1, d: d.getDate() };
+}
+// 그 날이 영업일이면 그대로, 휴일이면 직전 영업일 (ACE 월중 '매월 15일' 규칙용)
+function onOrPrevBizDay(year, mon, day) {
+  const d = new Date(year, mon - 1, day);
+  while (_isOffDay(d)) d.setDate(d.getDate() - 1);
+  return { m: d.getMonth() + 1, d: d.getDate() };
+}
+
 function fetchDist_kodex() {
   try {
     // ── 1) 공지글 목록에서 월중/월말 최신 글 no 추출 ──
@@ -1307,18 +1350,7 @@ function fetchDist_kodex() {
     } catch(eApi) {}
 
     // ── 3) 공지글 본문 표 파싱 ──
-    // 그 달 마지막 영업일(주말 제외, 공휴일 미반영 근사)
-    const lastBizDay = (year, mon) => {
-      const d = new Date(year, mon, 0); // mon월 마지막 날
-      while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
-      return { m: d.getMonth() + 1, d: d.getDate() };
-    };
-    // 다음 영업일
-    const nextBizDay = (year, mon, day) => {
-      const d = new Date(year, mon - 1, day);
-      do { d.setDate(d.getDate() + 1); } while (d.getDay() === 0 || d.getDay() === 6);
-      return { m: d.getMonth() + 1, d: d.getDate() };
-    };
+    // 영업일 계산은 위 공용 lastBizDay·nextBizDay를 쓴다(주말 + 공휴일 제외).
     const curYear = new Date().getFullYear();
 
     const parseNoticeTable = (no, cycleLabel) => {
@@ -1574,9 +1606,7 @@ function fetchDist_ace() {
     const midE = parsed.find(p => p.day >= 10 && p.day <= 16);
     const endE = parsed.find(p => p.day >= 20);
 
-    // 영업일 계산 헬퍼
-    const lastBizDay = (year, mon) => { const d = new Date(year, mon, 0); while (d.getDay()===0||d.getDay()===6) d.setDate(d.getDate()-1); return { m:d.getMonth()+1, d:d.getDate() }; };
-    const nextBizDay = (year, mon, day) => { const d = new Date(year, mon-1, day); do { d.setDate(d.getDate()+1); } while (d.getDay()===0||d.getDay()===6); return { m:d.getMonth()+1, d:d.getDate() }; };
+    // 영업일 계산은 위 공용 lastBizDay·nextBizDay를 쓴다(주말 + 공휴일 제외).
     const curYear = new Date().getFullYear();
 
     const fetchAceBody = (id) => {
@@ -1611,9 +1641,7 @@ function fetchDist_ace() {
       } else {
         // ACE 월중: 본문 "매월 15일을 지급기준일" → 기준일=15일(휴일이면 직전 영업일), 지급일=다음 영업일
         const baseMon = refMonth || entry.mon;
-        let bd = new Date(curYear, baseMon - 1, 15);
-        while (bd.getDay() === 0 || bd.getDay() === 6) bd.setDate(bd.getDate() - 1); // 15일 휴일이면 직전 영업일
-        const base = { m: bd.getMonth() + 1, d: bd.getDate() };
+        const base = onOrPrevBizDay(curYear, baseMon, 15);   // 15일이 주말·공휴일이면 직전 영업일
         const pay = nextBizDay(curYear, base.m, base.d);
         calcSched['기준일'] = base.m + '월 ' + base.d + '일';
         calcSched['지급일'] = pay.m + '월 ' + pay.d + '일';
