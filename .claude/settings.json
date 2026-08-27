@@ -68,13 +68,13 @@
           },
           {
             "type": "command",
-            "command": "h=\"${USERPROFILE:-$HOME}\"; r=\"$h/claude-memory\"; [ -d \"$r/.git\" ] || git clone -q https://github.com/jaenamking1-collab/claude-memory.git \"$r\" >/dev/null 2>&1; [ -d \"$r/.git\" ] || exit 0; git -C \"$r\" config user.name \"jaenamking1-collab\"; git -C \"$r\" config user.email \"jaenamking1@gmail.com\"; n=0; for d in \"$h\"/.claude/projects/*/; do m=\"${d}memory\"; [ -f \"$m/.gitignore\" ] && continue; [ -d \"$m\" ] && mv \"$m\" \"${m}.bak.$(date +%s)\"; cmd //c mklink //J \"$(cygpath -w \"$m\")\" \"$(cygpath -w \"$r\")\" >/dev/null 2>&1 && n=$((n+1)); done; git -C \"$r\" pull -q --ff-only origin main >/dev/null 2>&1; if [ \"$n\" -gt 0 ]; then printf '{\"systemMessage\":\"🧠 이 PC의 기억 폴더 %s개를 공용 기억에 연결했습니다.\"}' \"$n\"; fi; exit 0",
+            "command": "h=\"${USERPROFILE:-$HOME}\"; r=\"$h/claude-memory\"; [ -d \"$r/.git\" ] || git clone -q https://github.com/jaenamking1-collab/claude-memory.git \"$r\" >/dev/null 2>&1; [ -d \"$r/.git\" ] || exit 0; git -C \"$r\" config user.name \"jaenamking1-collab\"; git -C \"$r\" config user.email \"jaenamking1@gmail.com\"; n=0; for d in \"$h\"/.claude/projects/*/; do m=\"${d}memory\"; [ -f \"$m/.gitignore\" ] && continue; [ -d \"$m\" ] && mv \"$m\" \"${m}.bak.$(date +%s)\"; cmd //c mklink //J \"$(cygpath -w \"$m\")\" \"$(cygpath -w \"$r\")\" >/dev/null 2>&1 && n=$((n+1)); done; git -C \"$r\" pull -q --rebase origin main >/dev/null 2>&1 || git -C \"$r\" rebase --abort >/dev/null 2>&1; if [ \"$n\" -gt 0 ]; then printf '{\"systemMessage\":\"🧠 이 PC의 기억 폴더 %s개를 공용 기억에 연결했습니다.\"}' \"$n\"; fi; exit 0",
             "timeout": 60,
             "statusMessage": "공용 기억 연결 중"
           },
           {
             "type": "command",
-            "command": "python \"${USERPROFILE:-$HOME}/claude-memory/hooks/index_transcripts.py\" brief 2>/dev/null; exit 0",
+            "command": "p=python; command -v python >/dev/null 2>&1 || p=python3; \"$p\" \"${USERPROFILE:-$HOME}/claude-memory/hooks/index_transcripts.py\" brief 2>/dev/null; exit 0",
             "timeout": 30,
             "statusMessage": "다른 PC 대화 기록 확인 중"
           }
@@ -86,19 +86,19 @@
         "hooks": [
           {
             "type": "command",
-            "command": "b=$(git rev-parse --abbrev-ref HEAD 2>/dev/null); if [ \"$b\" != \"main\" ]; then exit 0; fi; if [ -e .git/MERGE_HEAD ] || [ -d .git/rebase-merge ] || [ -d .git/rebase-apply ]; then exit 0; fi; if [ -n \"$(git status --porcelain)\" ]; then git add -A && git commit -m \"auto-sync $(date +%Y-%m-%d_%H:%M:%S)\" >/dev/null 2>&1; fi; git push origin main >/dev/null 2>&1; exit 0",
+            "command": "b=$(git rev-parse --abbrev-ref HEAD 2>/dev/null); if [ \"$b\" != \"main\" ]; then exit 0; fi; if [ -e .git/MERGE_HEAD ] || [ -d .git/rebase-merge ] || [ -d .git/rebase-apply ]; then exit 0; fi; if [ -n \"$(git status --porcelain)\" ]; then git add -A && git commit -m \"auto-sync $(date +%Y-%m-%d_%H:%M:%S)\" >/dev/null 2>&1; fi; git push -q origin main >/dev/null 2>&1 && exit 0; git pull --rebase -q origin main >/dev/null 2>&1 || git rebase --abort >/dev/null 2>&1; git push -q origin main >/dev/null 2>&1 && exit 0; n=$(git rev-list --count origin/main..HEAD 2>/dev/null); printf '{\"systemMessage\":\"⚠️ 푸시가 막혔습니다. 안 올라간 커밋 %s개가 이 기기에만 있습니다 — 다른 곳에서는 안 보입니다.\"}' \"$n\"; exit 0",
             "timeout": 45,
             "statusMessage": "커밋·푸시 동기화 중"
           },
           {
             "type": "command",
-            "command": "python \"${USERPROFILE:-$HOME}/claude-memory/hooks/index_transcripts.py\" save 2>/dev/null; exit 0",
+            "command": "p=python; command -v python >/dev/null 2>&1 || p=python3; \"$p\" \"${USERPROFILE:-$HOME}/claude-memory/hooks/index_transcripts.py\" save 2>/dev/null; exit 0",
             "timeout": 60,
             "statusMessage": "대화 기록 저장 중"
           },
           {
             "type": "command",
-            "command": "h=\"${USERPROFILE:-$HOME}\"; r=\"$h/claude-memory\"; [ -d \"$r/.git\" ] || exit 0; if [ -n \"$(git -C \"$r\" status --porcelain)\" ]; then git -C \"$r\" add -A && git -C \"$r\" commit -qm \"memory $(date +%Y-%m-%d_%H:%M:%S)\" >/dev/null 2>&1; fi; git -C \"$r\" push -q origin main >/dev/null 2>&1; exit 0",
+            "command": "h=\"${USERPROFILE:-$HOME}\"; r=\"$h/claude-memory\"; [ -d \"$r/.git\" ] || exit 0; if [ -n \"$(git -C \"$r\" status --porcelain)\" ]; then git -C \"$r\" add -A && git -C \"$r\" commit -qm \"memory $(date +%Y-%m-%d_%H:%M:%S)\" >/dev/null 2>&1; fi; git -C \"$r\" push -q origin main >/dev/null 2>&1 && exit 0; git -C \"$r\" pull --rebase -q origin main >/dev/null 2>&1 || git -C \"$r\" rebase --abort >/dev/null 2>&1; git -C \"$r\" push -q origin main >/dev/null 2>&1 && exit 0; n=$(git -C \"$r\" rev-list --count origin/main..HEAD 2>/dev/null); printf '{\"systemMessage\":\"⚠️ 푸시가 막혔습니다. 안 올라간 커밋 %s개가 이 기기에만 있습니다 — 대화 기록이 안 올라갑니다.\"}' \"$n\"; exit 0",
             "timeout": 45,
             "statusMessage": "기억 저장 중"
           }
@@ -110,7 +110,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${USERPROFILE:-$HOME}/claude-memory/hooks/index_transcripts.py\" save final 2>/dev/null; h=\"${USERPROFILE:-$HOME}\"; r=\"$h/claude-memory\"; [ -d \"$r/.git\" ] || exit 0; if [ -n \"$(git -C \"$r\" status --porcelain)\" ]; then git -C \"$r\" add -A && git -C \"$r\" commit -qm \"transcript $(date +%Y-%m-%d_%H:%M:%S)\" >/dev/null 2>&1; fi; git -C \"$r\" push -q origin main >/dev/null 2>&1; exit 0",
+            "command": "p=python; command -v python >/dev/null 2>&1 || p=python3; \"$p\" \"${USERPROFILE:-$HOME}/claude-memory/hooks/index_transcripts.py\" save final 2>/dev/null; h=\"${USERPROFILE:-$HOME}\"; r=\"$h/claude-memory\"; [ -d \"$r/.git\" ] || exit 0; if [ -n \"$(git -C \"$r\" status --porcelain)\" ]; then git -C \"$r\" add -A && git -C \"$r\" commit -qm \"transcript $(date +%Y-%m-%d_%H:%M:%S)\" >/dev/null 2>&1; fi; git -C \"$r\" push -q origin main >/dev/null 2>&1 && exit 0; git -C \"$r\" pull --rebase -q origin main >/dev/null 2>&1 || git -C \"$r\" rebase --abort >/dev/null 2>&1; git -C \"$r\" push -q origin main >/dev/null 2>&1 && exit 0; n=$(git -C \"$r\" rev-list --count origin/main..HEAD 2>/dev/null); printf '{\"systemMessage\":\"⚠️ 푸시가 막혔습니다. 안 올라간 커밋 %s개가 이 기기에만 있습니다 — 대화 기록이 안 올라갑니다.\"}' \"$n\"; exit 0",
             "timeout": 90,
             "statusMessage": "대화 기록 마무리 저장 중"
           }
