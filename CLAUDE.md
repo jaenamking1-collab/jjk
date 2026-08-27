@@ -24,13 +24,8 @@ There is **no build system, package manager, test suite, or lint config**. The f
 - **세션 시작 시**: ⚠️ **`git status`가 맨 처음이다.** 더러우면 **읽기도 pull도 하기 전에** 먼저 커밋·푸시한다 — 이전 세션이 커밋 없이 끝났다는 뜻이고, 그 작업은 이 PC에만 있다. 그 다음 `git pull`, 그 다음 `WORKLOG.md`를 읽어 맥락과 "다음 할 일"을 파악한다.
 - **다른 PC 대화 이어받기**: "집에서/학교에서 한 거 이어가봐"는 **다른 기기의 세션**을 뜻한다. `list_sessions`는 이 PC만 본다 — 그것만 보고 "없다"고 답하지 마라(2026-08-24 학교에서 그렇게 답했다가 지적받음). 먼저 `git fetch origin`으로 넘어온 커밋을 보고, `~/claude-memory/transcripts/INDEX.md`를 읽는다. 필요하면 `python ~/claude-memory/hooks/index_transcripts.py read <PC>/<파일> [검색어]`로 원문을 확인한다.
 - **지금 있는 PC에서 할 수 있는 것만 안내한다.** 다른 PC에서 해야 할 일은 **`WORKLOG.md`의 "다음 할 일"에만 남기고, 대화에서 시키지 마라.** 사용자는 지금 그 PC 앞에 없다 — 실행할 수 없는 명령을 받으면 할 일 목록이 아니라 잡음이다(2026-08-26 학교에서 집 PC 명령을 세 번 줬다가 지적받음). 다른 PC 차례가 되면 그 PC의 세션이 WORKLOG를 읽고 알아서 꺼낸다.
-- ⚠️ **원격(클라우드) 세션은 대화 기록이 자동 저장되지 않는다.** `SessionStart` 훅이 `claude-memory`를 clone하려 하지만, 원격 세션의 GitHub 접근은 `jjk` 하나로만 묶여 있어 **조용히 실패**한다(`>/dev/null`). 그대로 두면 그 대화는 어디에도 안 남아 다른 PC가 영영 못 본다(2026-08-27 실제로 그럴 뻔했다).
-  - **원격 세션에서 할 일**(에이전트가 알아서 한다, 사용자에게 시키지 마라): ① `add_repo`로 `jaenamking1-collab/claude-memory`를 붙이고 `/home/user/claude-memory`에 clone ② 세션 트랜스크립트(`/root/.claude/projects/-home-user-jjk/<세션>.jsonl`)를 저장:
-    ```
-    echo '{"transcript_path":"<그 jsonl 경로>"}' | CLAUDE_MEMORY_PC=cloud python3 /home/user/claude-memory/hooks/index_transcripts.py save final
-    ```
-    ③ `claude-memory`를 커밋·푸시(원격이 앞서 있으면 `pull --rebase`).
-  - `CLAUDE_MEMORY_PC=cloud`가 핵심이다 — 안 주면 컨테이너 호스트명(`vm`)으로 학교/집과 구분 안 되는 `pc<해시>` 폴더가 생긴다.
+- ⚠️ **원격(클라우드) 세션에서 할 일은 하나뿐이다: `add_repo`로 `jaenamking1-collab/claude-memory`를 붙이고 clone.** 원격 세션의 GitHub 접근은 `jjk` 하나로 묶여 있어 `SessionStart` 훅의 clone이 **조용히 실패**하기 때문이다(`>/dev/null`). 붙이기만 하면 **저장·푸시는 훅이 알아서 한다** — 손으로 `save`를 부르거나 `CLAUDE_MEMORY_PC`를 넘길 필요 없다(2026-08-28에 자동화, WORKLOG 128).
+  - 컨테이너는 `USERPROFILE`이 없다는 것으로 자동 판별해 `transcripts/cloud/`에 남는다. 두 PC(윈도우)는 각자 폴더를 쓴다.
   - **부작용**: 저장소를 하나 더 붙이면 그 세션이 앱 목록에서 `jjk` 아래가 아니라 **'기타'로 잡힌다.** 기록을 남기는 값이 더 크므로 감수한다.
   - 반대 방향(읽기)은 이미 자동이다 — 집·학교 PC는 `SessionStart` 훅의 `index_transcripts.py brief`가 다른 PC 대화 목록을 세션 맥락에 넣어준다. 사용자가 명령어를 칠 필요 없다.
 - **세션 종료 시**: `WORKLOG.md` 맨 위에 새 항목(날짜, 장소(직장/집/원격), 한 일, 다음 할 일)을 추가한다. 과거 항목은 수정하지 않는다.
