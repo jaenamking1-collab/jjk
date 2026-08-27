@@ -4143,6 +4143,11 @@ async function loadDistributions(force, silent) {
 
   if (bulk && bulk.sources) {
     _distData = DIST_SOURCES.map(s => ({ ...s, data: bulk.sources[s.id] || { items:[], stale:true } }));
+    // 오래된 캐시라도 서버가 마지막 파싱 결과를 실어 보내므로 **먼저 그린다**.
+    // 예전엔 아래 fillStale(최대 45초)을 기다린 뒤에야 그려서, 재파싱이 실패하면 그동안 화면이
+    // 통째로 백지였다(2026-08-27: 트리거가 멎어 캐시가 17시간 낡자 달력이 빈칸으로 나왔다).
+    renderMasterCalendar(_distData);
+    renderDistGrid(_distData);
     // 캐시가 비었거나 오래된 운용사만 개별 재요청 — 그때 서버가 스크랩해 캐시를 채운다.
     await fillStale(d => d.data.stale, 45000);
   } else {
