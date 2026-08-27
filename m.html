@@ -205,6 +205,12 @@ const open = {};                 // 펼쳐진 행 id
 //    환산분배율 projectAnnualDist 합계 / 투자금 × 100     portfolio.html:1315
 // =====================================================================
 function toKrw(v, cur) { return cur === 'USD' ? v * D.rate : v; }
+// 받은 분배금 → 원화. 저장된 '그때 환율'(dividends 시트 rate 칸)이 있으면 그걸 쓴다.
+// portfolio.html divKrwOf 와 같은 것. 앞으로 받을 예상(투영)에는 쓰지 않는다.
+function divKrwOf(amt, cur, rowRate) {
+  const a = parseFloat(amt) || 0;
+  return cur === 'USD' ? a * (parseFloat(rowRate) || D.rate) : a;
+}
 
 function calcHolding(h) {
   const qty = parseFloat(h.quantity) || 0;
@@ -257,12 +263,13 @@ function projectAnnualDist(holdings, dividends, year) {
 // 월별 투영. portfolio.html 대시보드(:2255~2278)와 같은 로직을 월 단위로 편 것.
 // 반환은 KRW 12칸. 여기 고치면 portfolio.html 대시보드도 같이 볼 것.
 function projectMonthly(holdings, dividends, year) {
-  const byH = {};
+  const byH = {}, divRate = {};
   (dividends || []).forEach(d => {
     const hid = d.holding_id, y = parseInt(d.year), m = parseInt(d.month);
     if (!hid || !y || !m) return;
     (byH[hid] = byH[hid] || {}); (byH[hid][y] = byH[hid][y] || {});
     byH[hid][y][m] = parseFloat(d.amount) || 0;
+    divRate[hid + '_' + y + '_' + m] = d.rate;      // 그때 환율(있으면). 확정 합계에만 쓴다.
   });
   const ALLM = [1,2,3,4,5,6,7,8,9,10,11,12];
   const proj = Array(12).fill(0), actual = Array(12).fill(0);
@@ -297,7 +304,7 @@ function projectMonthly(holdings, dividends, year) {
     // 확정(입력)은 지급월 제한 없이 실제 입력된 모든 월을 합산 → 앱 월합계와 일치
     Object.entries(thisYear).forEach(([mm, a]) => {
       const v = parseFloat(a) || 0;
-      if (v > 0) actual[parseInt(mm)-1] += toKrw(v, cur);
+      if (v > 0) actual[parseInt(mm)-1] += divKrwOf(v, cur, divRate[h.id + '_' + year + '_' + mm]);
     });
   });
   return { proj, actual, annual: proj.reduce((a,b)=>a+b,0) };
@@ -310,7 +317,7 @@ function calcAccount(a, projMap) {
   hs.forEach(h => { const c = calcHolding(h); invest += c.invest; value += c.value; proj += (projMap[h.id] || 0); });
   const ids = hs.map(h => h.id);
   const div = D.divs.filter(d => ids.includes(d.holding_id))
-                    .reduce((s,d) => s + toKrw(parseFloat(d.amount)||0, d.currency), 0);
+                    .reduce((s,d) => s + divKrwOf(d.amount, d.currency, d.rate), 0);
   return { acct:a, holdings:hs, invest, value, div, proj, pl: value - invest };
 }
 
@@ -473,10 +480,8 @@ function viewDivs() {
   const yOpts = [y-2,y-1,y,y+1].map(v => `<option value="${v}" ${v===y?'selected':''}>${v}년</option>`).join('');
   const mOpts = Array.from({length:12},(_,i)=>i+1).map(v => `<option value="${v}" ${v===m?'selected':''}>${v}월</option>`).join('');
 
-  const amountOf = h => {
-    const d = D.divsAll.find(x => x.holding_id === h.id && parseInt(x.year) === y && parseInt(x.month) === m);
-    return d ? (parseFloat(d.amount) || 0) : 0;
-  };
+  const rowOf = h => D.divsAll.find(x => x.holding_id === h.id && parseInt(x.year) === y && parseInt(x.month) === m);
+  const amountOf = h => { const d = rowOf(h); return d ? (parseFloat(d.amount) || 0) : 0; };
 
   let monthTotal = 0;
   const groups = D.accounts.map(a => {
@@ -486,7 +491,7 @@ function viewDivs() {
     const rows = hs.map(h => {
       const amt = amountOf(h);
       const usd = h.currency === 'USD';
-      sub += toKrw(amt, h.currency);
+      sub += divKrwOf(amt, h.currency, (rowOf(h) || {}).rate);
       const shown = amt > 0 ? (usd ? amt.toFixed(2) : Math.round(amt).toLocaleString()) : '';
       return `<div class="dv">
         <div class="t"><b style="font-size:13px">${esc(h.name || h.ticker)}</b>

@@ -1350,6 +1350,15 @@ function renderAccounts() {
   // 통계 채우기는 호출측에서(loadAccounts / moveAccount / paintFromCache) 명시적으로 수행
 }
 
+// 받은 분배금 → 원화. 저장된 '그때 환율'(dividends 시트 rate 칸)이 있으면 그걸 쓴다.
+// 없으면 지금 환율로 떨어진다(rate 칸이 생기기 전의 옛 기록). 지난 달 합계가 오늘 환율에
+// 따라 매일 달라지던 것을 막는 것이 목적이다.
+// ⚠️ '앞으로 받을 예상'(투영)에는 쓰지 않는다 — 그건 오늘 환율이 맞다.
+function divKrwOf(amt, cur, rowRate, er) {
+  const a = parseFloat(amt) || 0;
+  return cur === 'USD' ? a * (parseFloat(rowRate) || er) : a;
+}
+
 // 종목별 연간 분배금 투영 — 대시보드 loadDashboard와 동일 알고리즘.
 // 반환: { holding_id: 연 투영액 }  (금액은 저장된 그대로=KRW 취급, 대시보드와 동일)
 function projectAnnualDist(holdings, dividends, year) {
@@ -1435,7 +1444,7 @@ function renderAccountStats(allHoldings, allDivs, sheet, allDivsFull) {
     const er2 = state.exchangeRate || 1400;
     const div = acctDivs.reduce((s, d) => {
       const a = parseFloat(d.amount)||0;
-      return s + (d.currency === 'USD' ? a * er2 : a);
+      return s + divKrwOf(a, d.currency, d.rate, er2);
     }, 0);
     const acctMonths = new Set(acctDivs.filter(d => parseFloat(d.amount)>0).map(d => d.month));
     // 환산분배율 = 종목별 배당주기 투영 (대시보드 연 분배율과 동일 방식)
@@ -1735,7 +1744,7 @@ async function renderHoldingsTable(holdings) {
     let total = 0; const filledM = new Set();
     divs.forEach(d => {
       const a = parseFloat(d.amount)||0;
-      if (a>0) { total += (d.currency==='USD' ? a*er3 : a); filledM.add(d.month); }
+      if (a>0) { total += divKrwOf(a, d.currency, d.rate, er3); filledM.add(d.month); }
     });
     // 배당주기 기반 연간 회수 (filledM 개수로만 나누면 반기/분기 과대평가)
     const cycStr = (h.div_cycle||'').split('|')[0];
@@ -1990,7 +1999,7 @@ async function loadDividendGrid() {
       const divCur = div ? (div.currency || (isUsd ? 'USD' : 'KRW')) : (isUsd ? 'USD' : 'KRW');
       const amt = div ? parseFloat(div.amount) : 0;
       // 원화 환산: USD면 환율 곱함
-      const amtKrw = amt > 0 ? (divCur === 'USD' ? amt * er : amt) : 0;
+      const amtKrw = amt > 0 ? divKrwOf(amt, divCur, div && div.rate, er) : 0;
       if (amtKrw) { rowTotalKrw += amtKrw; monthTotalsKrw[m-1] += amtKrw; accMonthKrw[m-1] += amtKrw; }
       // 표시: USD종목은 달러, KRW는 원화
       const displayVal = amt ? (isUsd ? amt.toFixed(2) : Math.round(amt).toLocaleString()) : '';
@@ -2205,7 +2214,7 @@ async function loadDivRateGrid() {
       const div = divMap[`${h.id}_${m}`];
       const divCur = div ? (div.currency || (isUsd ? 'USD' : 'KRW')) : (isUsd ? 'USD' : 'KRW');
       const amt = div ? parseFloat(div.amount) : 0;
-      const amtKrw = amt > 0 ? (divCur === 'USD' ? amt * er : amt) : 0;
+      const amtKrw = amt > 0 ? divKrwOf(amt, divCur, div && div.rate, er) : 0;
       amtArr[m-1] = amt;
       if (amtKrw) { rowTotalKrw += amtKrw; monthTotalsKrw[m-1] += amtKrw; accMonthKrw[m-1] += amtKrw; }
       const cb = (costMap || {})[`${h.id}_${m}`];
@@ -2380,13 +2389,14 @@ async function loadDashboard() {
 
   // 분배금 집계 — 종목별 투영(입력=확정, 빈 지급월=평균 예상) + USD 환산
   const divKrw = (a, cur) => cur === 'USD' ? a * rate : a;   // USD 종목은 달러로 저장된다(그리드와 동일)
-  const byHolding = {};
+  const byHolding = {}, divRate = {};
   divs.forEach(d => {
     const hid = d.holding_id, y = parseInt(d.year), m = parseInt(d.month);
     if (!hid || !y || !m) return;
     (byHolding[hid] = byHolding[hid] || {});
     (byHolding[hid][y] = byHolding[hid][y] || {});
     byHolding[hid][y][m] = parseFloat(d.amount) || 0;
+    divRate[hid + '_' + y + '_' + m] = d.rate;      // 그때 환율(있으면). 확정 합계에만 쓴다.
   });
   const ALLM = [1,2,3,4,5,6,7,8,9,10,11,12];
   // 지급월 판정. 예전엔 '과거 전 연도 지급월의 union'이라, 지급월이 해마다 밀리는
@@ -2431,7 +2441,7 @@ async function loadDashboard() {
     // 확정(입력)은 payMonthsOf 제한 없이 실제 입력된 모든 월을 합산 → 앱 월합계와 일치
     Object.entries(thisYear).forEach(([mm, a]) => {
       const v = parseFloat(a) || 0;
-      if (v > 0) monthActual[parseInt(mm)-1] += divKrw(v, cur);
+      if (v > 0) monthActual[parseInt(mm)-1] += divKrwOf(v, cur, divRate[h.id + '_' + year + '_' + mm], rate);
     });
   });
   const annualProj = monthProj.reduce((a,b)=>a+b,0);
@@ -5662,7 +5672,7 @@ async function loadPensionPlan() {
     const accId = hAcc[d.holding_id]; if (accId === undefined) return;
     const amt = parseFloat(d.amount) || 0; if (!amt) return;
     const cur = d.currency || hCur[d.holding_id] || 'KRW';
-    const krw = cur === 'USD' ? amt * er : amt;
+    const krw = divKrwOf(amt, cur, d.rate, er);
     (perAcc[accId] = perAcc[accId] || Array(12).fill(0))[d.month-1] += krw;
   });
 
