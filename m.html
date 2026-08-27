@@ -239,6 +239,7 @@ function projectAnnualDist(holdings, dividends, year) {
   };
   const perH = {};
   (holdings || []).forEach(h => {
+    if ((parseFloat(h.quantity) || 0) <= 0) { perH[h.id] = 0; return; }   // 판 종목은 앞으로 안 나온다
     const thisYear = (byH[h.id] && byH[h.id][year]) || {};
     let vals = Object.values(thisYear).filter(v => v > 0);
     if (!vals.length) vals = Object.values(byH[h.id] || {}).flatMap(o => Object.values(o)).filter(v => v > 0);
@@ -267,6 +268,7 @@ function projectMonthly(holdings, dividends, year) {
   const proj = Array(12).fill(0), actual = Array(12).fill(0);
   (holdings || []).forEach(h => {
     const cur = h.currency;
+    const held = (parseFloat(h.quantity) || 0) > 0;
     const thisYear = (byH[h.id] && byH[h.id][year]) || {};
     let vals = Object.values(thisYear).filter(v => v > 0);
     if (!vals.length) vals = Object.values(byH[h.id] || {}).flatMap(o => Object.values(o)).filter(v => v > 0);
@@ -286,10 +288,16 @@ function projectMonthly(holdings, dividends, year) {
       const ms = [...new Set(merged)].sort((a,b)=>a-b);
       months = ms.length ? ms : (/분기/.test(cyc) ? [3,6,9,12] : /반기/.test(cyc) ? [6,12] : []);
     }
-    months.forEach(m => {
+    // 예상은 지금 보유 중인 종목만. 판 종목을 넣으면 그 종목의 과거 지급월·평균액이
+    // 앞으로도 들어오는 것처럼 잡혀 이번 달·연간 예상이 부푼다.
+    (held ? months : []).forEach(m => {
       const act = thisYear[m] || 0;
       proj[m-1] += toKrw(act > 0 ? act : perPay, cur);
-      if (act > 0) actual[m-1] += toKrw(act, cur);
+    });
+    // 확정(입력)은 지급월 제한 없이 실제 입력된 모든 월을 합산 → 앱 월합계와 일치
+    Object.entries(thisYear).forEach(([mm, a]) => {
+      const v = parseFloat(a) || 0;
+      if (v > 0) actual[parseInt(mm)-1] += toKrw(v, cur);
     });
   });
   return { proj, actual, annual: proj.reduce((a,b)=>a+b,0) };
