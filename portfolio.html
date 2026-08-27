@@ -4257,15 +4257,22 @@ function renderMasterCalendar(allData) {
   // 이번 회차(오늘이 20일 이하면 월중, 넘으면 월말) 판정 — '예정' 채우기에 쓴다.
   const curCycle = now.getDate() <= 20 ? '월중' : '월말';
   const roundBySource = {};   // 운용사명 → 이번 회차 일정을 이미 냈으면 그 sched
-  const roundTally = {};      // '락|기준|지급' 조합 → {n, sch}
+  const roundTally = {};      // '락|기준|지급'(정규화) → {n, sch}
+  // 예정에 쓰는 날짜는 이 셋뿐이다. 공시일은 운용사가 언제 낼지 우리가 알 수 없으므로 만들어내지 않는다.
+  const PLAN_KEYS = ['분배락일','기준일','지급일'];
+  const planSched = sch => { const o = {}; PLAN_KEYS.forEach(k => { if (sch[k]) o[k] = sch[k]; }); return o; };
   const addAll = (c, sch, it, uncertain) => {
     const cyc = cycleOf(sch, it);
     if (!uncertain && cyc === curCycle) {
       const b = parseDay(sch['기준일']);
       if (b && b.m === month) {
         roundBySource[c.name] = sch;
-        const k = ['분배락일','기준일','지급일'].map(x => sch[x] || '').join('|');
-        if (!roundTally[k]) roundTally[k] = { n: 0, sch: sch };
+        // ⚠️ 날짜 문자열을 그대로 비교하면 안 된다 — 운용사마다 표기가 다르다
+        // (KODEX·ACE·PLUS·RISE는 '8월 28일', TIGER는 '8/28'). 그대로 세면 같은 날인데 다른 키가 돼
+        // 최빈값이 2곳에 그쳐 과반(3곳) 문턱을 못 넘었다(2026-08-27 실제로 예정이 안 떴다).
+        // 공시일은 키에서 뺀다 — 운용사마다 하루씩 다르고(8/26 vs 8/27) 예정 판단에 필요 없다.
+        const k = PLAN_KEYS.map(x => { const q = parseDay(sch[x]); return q ? q.m + '/' + q.d : ''; }).join('|');
+        if (!roundTally[k]) roundTally[k] = { n: 0, sch: planSched(sch) };
         roundTally[k].n++;
       }
     }
@@ -4498,8 +4505,10 @@ function renderMasterCalendar(allData) {
     const tally = {};
     rowsData.forEach(r => {
       if (!r[slot].hasNotice || !r[slot].sched) return;
-      const k = schedKey(r[slot].sched);
-      if (!tally[k]) tally[k] = { n: 0, sched: r[slot].sched };
+      // ⚠️ 달력 쪽과 같은 이유로 parseDay 정규화가 필요하다 — TIGER 만 '8/28', 나머지는 '8월 28일'.
+      // 공시일은 키에서 빼고(운용사마다 8/26·8/27로 갈린다) 예정 sched 에도 안 넣는다.
+      const k = PLAN_KEYS.map(x => { const q = parseDay(r[slot].sched[x]); return q ? q.m + '/' + q.d : ''; }).join('|');
+      if (!tally[k]) tally[k] = { n: 0, sched: planSched(r[slot].sched) };
       tally[k].n++;
     });
     const best = Object.keys(tally).map(k => tally[k]).sort((a, b) => b.n - a.n)[0];
@@ -4545,8 +4554,9 @@ function renderMasterCalendar(allData) {
           const [bg, col] = CYC[label];
           const monLabel = selM + '월 ' + label; // 제목의 달과 항상 일치
           // 예정 칸은 '보유X' 대신 '예정' 배지 — 아직 공지가 없어 보유 여부를 따질 수 없다.
+          // 예정 칸은 '보유X' 대신 '(예정)' — 아직 공지가 없어 보유 여부를 따질 수 없다.
           const noHold = m.planned
-            ? ' <span style="color:#0891b2;font-size:9px;font-weight:700">예정</span>'
+            ? ' <span style="color:#0891b2;font-size:10px;font-weight:700">(예정)</span>'
             : ((m.hasNotice && !m.hasHolding) ? ' <span style="color:var(--text3);font-size:9px">보유X</span>' : '');
           const nameCell = i === 0
             ? `<td rowspan="${cycles.length}" style="padding:5px 8px;white-space:nowrap;vertical-align:middle"><span style="font-weight:700;color:${r.color}">${r.name}</span></td>`
