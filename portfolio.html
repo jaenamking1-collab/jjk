@@ -4246,11 +4246,26 @@ function renderMasterCalendar(allData) {
     if (!base) return '';
     return base.d <= 20 ? '월중' : '월말';
   };
-  const addAll = (c, sch, it) => {
+  // 이번 회차(오늘이 20일 이하면 월중, 넘으면 월말) 판정 — '예정' 채우기에 쓴다.
+  const curCycle = now.getDate() <= 20 ? '월중' : '월말';
+  const roundBySource = {};   // 운용사명 → 이번 회차 일정을 이미 냈으면 그 sched
+  const roundTally = {};      // '락|기준|지급' 조합 → {n, sch}
+  const addAll = (c, sch, it, uncertain) => {
     const cyc = cycleOf(sch, it);
+    if (!uncertain && cyc === curCycle) {
+      const b = parseDay(sch['기준일']);
+      if (b && b.m === month) {
+        roundBySource[c.name] = sch;
+        const k = ['분배락일','기준일','지급일'].map(x => sch[x] || '').join('|');
+        if (!roundTally[k]) roundTally[k] = { n: 0, sch: sch };
+        roundTally[k].n++;
+      }
+    }
     SCHED_CFG.forEach(({ key, color, label }) => {
-      const lbl = (key === '지급일' && cyc) ? `${cyc} 지급일` : label;
-      addMark(parseDay(sch[key]), c.name, c.color, lbl, color);
+      // '예정'은 라벨을 따로 준다 — 확정분과 섞이지 않고, addMark의 회사+라벨 중복제거에도 안 먹힌다
+      // (SOL처럼 지난달 월말 마크가 이미 있으면 같은 라벨이라 예정이 통째로 지워졌다).
+      const lbl = ((key === '지급일' && cyc) ? `${cyc} 지급일` : label) + (uncertain ? ' 예정' : '');
+      addMark(parseDay(sch[key]), c.name, c.color, lbl, color, uncertain);
     });
   };
 
@@ -4328,6 +4343,19 @@ function renderMasterCalendar(allData) {
       if (inRange(sch)) addAll(c, sch);
     }
   });
+
+  // ── 아직 공지를 안 낸 운용사: 나머지 운용사의 합의 일정으로 '예정' 표시 ──
+  // 6개사가 같은 날을 쓴다(2026-08-27 실측: KODEX·TIGER·ACE·PLUS·RISE 전부 분배락 8/28·기준 8/31·지급 9/2).
+  // SOL은 블로그에 늦게 올려서 그 달 월말이 통째로 비어 보이는데, 실제로는 거의 확실히 같은 날이다.
+  // ⚠️ 화면에서만 만든다 — 분배캐시에 쓰면 워치독·이력 병합이 **만들어낸 날짜를 실제 공시로** 취급한다.
+  // 과반(6곳 중 3곳 이상)이 같은 날일 때만 만든다. 회차 초반이라 아무도 안 냈으면 예정도 안 만든다.
+  const roundBest = Object.keys(roundTally).map(k => roundTally[k]).sort((a, b) => b.n - a.n)[0];
+  if (roundBest && roundBest.n >= 3) {
+    allData.forEach(c => {
+      if (!c.name || roundBySource[c.name]) return;
+      addAll(c, roundBest.sch, null, true);
+    });
+  }
 
   const startDow = new Date(year, month - 1, 1).getDay();
   const dim = new Date(year, month, 0).getDate();
