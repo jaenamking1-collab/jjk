@@ -1937,27 +1937,51 @@ function _solParsePost(logNo) {
   return { sched, items };
 }
 
+// 회차 판정: **본문에서 뽑은 기준일**의 '일'로 가른다(20일 이하 월중, 넘으면 월말).
+// ⚠️ 예전엔 제목의 '중순'·'②'로만 갈랐다. SOL이 표기를 한 번만 바꿔도 그 회차가 통째로 사라진다 —
+// 2026-08-27 실제 사고: 월말 공지가 블로그에 올라와 있는데 앱엔 월중 4건뿐이었다(제목에 '②'가 없었다).
+// 프론트 cycleOf와 같은 규칙이라 다른 운용사와 결과가 일관된다. 날짜를 못 뽑으면 제목 힌트로 폴백한다.
+// 지급일은 안 쓴다 — 월말 회차의 지급일은 다음 달 초라 '일'로 보면 월중으로 오분류된다.
+function _solCycle(sched, title) {
+  const m = String((sched && (sched['기준일'] || sched['분배락일'])) || '').match(/(\d{1,2})\s*일/);
+  if (m) return parseInt(m[1], 10) <= 20 ? '월중' : '월말';
+  if (/중순|①/.test(title)) return '월중';
+  if (/말|하순|②/.test(title)) return '월말';
+  return '';
+}
+
 // SOL은 홈페이지 대신 네이버 블로그에 분배금 공지를 올린다(홈페이지는 늦거나 누락).
-// 최신 월중(①)·월말(②) 공지 본문을 각각 파싱해 회차별 종목을 만든다.
+// 최신 분배금 글을 최신순으로 훑어 월중·월말 본문을 각각 파싱한다(제목 표기에 기대지 않는다).
 function fetchDist_sol() {
   try {
-    const notices = _solNotices().filter(n => n.logNo && /분배금\s*안내/.test(n.title));
-    const latest = f => notices.filter(f).sort((a,b) => b.date.localeCompare(a.date))[0];
-    const rounds = [
-      { cycle:'월중', n: latest(n => /중순/.test(n.title)) },
-      { cycle:'월말', n: latest(n => /②/.test(n.title) && !/중순/.test(n.title)) }
-    ];
+    const notices = _solNotices()
+      .filter(n => n.logNo && /분배금/.test(n.title) && !/이벤트/.test(n.title))
+      .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    const found = {};                          // '월중'|'월말' → {sched, items}
+    // 글마다 본문을 1회 fetch한다. 6개사 force 합계가 트리거 6분 한도에 가까우므로(WORKLOG 90: 실측 213초)
+    // 최신 4건까지만 보고, 두 회차가 다 차면 즉시 멈춘다. 보통 2건이면 끝난다.
+    for (let i = 0; i < notices.length && i < 4; i++) {
+      if (found['월중'] && found['월말']) break;
+      const p = _solParsePost(notices[i].logNo);
+      if (!p || !p.items.length) continue;
+      const cyc = _solCycle(p.sched, notices[i].title);
+      if (!cyc || found[cyc]) continue;        // 최신순이므로 같은 회차는 첫 글(=정정 공지가 이긴다)만 쓴다
+      found[cyc] = p;
+    }
+    // 한쪽이라도 못 채우면 실제 제목을 로그에 남긴다 — SOL 표기가 또 바뀌었을 때 이것만 보면 바로 안다.
+    if (!found['월중'] || !found['월말'])
+      console.log('SOL 회차 미확보 — 월중 ' + (found['월중'] ? 'O' : 'X') + ' / 월말 ' + (found['월말'] ? 'O' : 'X')
+        + ' | 최근 제목: ' + notices.slice(0, 4).map(n => n.title).join(' / '));
     const items = [];
     let schedule = {};
-    rounds.forEach(r => {
-      if (!r.n) return;
-      const p = _solParsePost(r.n.logNo);
-      if (!p || !p.items.length) return;
+    ['월중', '월말'].forEach(cyc => {
+      const p = found[cyc];
+      if (!p) return;
       p.items.forEach(it => items.push({
         name: it.name, ticker: SOL_TICKER[it.name] || '', amount: it.amount, rate: it.rate,
-        cycle: r.cycle, sched: p.sched
+        cycle: cyc, sched: p.sched
       }));
-      if (r.cycle === '월중' || !Object.keys(schedule).length) schedule = p.sched;
+      if (cyc === '월중' || !Object.keys(schedule).length) schedule = p.sched;
     });
     if (!items.length) return { items: [], error: 'SOL: 블로그 공지 파싱 0건' };
     return { success: true, items, schedule, title: 'SOL 월배당 분배금 (블로그 공지)', _source: 'blog' };
