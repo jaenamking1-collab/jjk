@@ -3740,9 +3740,11 @@ function _diagTriggers() {
   const byFn = {};
   ts.forEach(t => { const f = t.getHandlerFunction(); byFn[f] = (byFn[f] || 0) + 1; });
   Object.keys(byFn).sort().forEach(f => console.log('  ' + f + (byFn[f] > 1 ? '  ×' + byFn[f] : '')));
-  // 오래 도는 것으로 알려진 후보에 표시
-  ['refreshAllDistributions', 'checkDistNotices', 'snapshotPrices', 'keepWarm'].forEach(f => {
-    if (byFn[f]) console.log('  ⚠ ' + f + ' — 6개사 스크랩/자기호출 등으로 길게 도는 후보');
+  // 오래 도는 것으로 알려진 후보에 표시.
+  // keepWarm은 뺐다 — 실행 슬롯을 물던 건 자기 웹앱을 UrlFetchApp으로 호출하던 옛 버전이고(WORKLOG 85·86),
+  // 지금은 시트 핸들만 깨우는 한 줄이라 가볍다. 옛 경고를 남겨두면 멀쩡한 트리거를 범인으로 오해하게 된다.
+  ['refreshAllDistributions', 'checkDistNotices', 'snapshotPrices'].forEach(f => {
+    if (byFn[f]) console.log('  ⚠ ' + f + ' — 6개사 스크랩 등으로 길게 도는 후보');
   });
 }
 
