@@ -114,6 +114,7 @@ DEFAULT = {
     "text_op": 80,                       # 글자 불투명도 0~100 (80 = 지금 상태)
     "bg_color": "#2a2f3a",               # 바탕색 (PALETTE에서 고름)
     "coin_prem": {},                     # 코인별 국내가 ÷ 해외가 (거래소가 막힌 곳에서 쓴다)
+    "coin_usd": {},                      # 야후에 원화 페어가 없어 달러로 묻는 코인
 }
 
 SPARK = "https://query1.finance.yahoo.com/v7/finance/spark?range=1d&interval=1d&symbols="
@@ -121,6 +122,7 @@ NAVER = "https://polling.finance.naver.com/api/realtime/domestic/{}/{}"
 BITHUMB = "https://api.bithumb.com/public/ticker/{}_KRW"     # 종목별. ALL_KRW는 캐시를 타서 값이 멎는다
 UPBIT = "https://api.upbit.com/v1/ticker?markets="           # 빗썸이 막힐 때 대체
 UPCANDLE = "https://api.upbit.com/v1/candles/minutes/60?count=1&market={}&to={}"
+FX = "USDKRW=X"                          # 달러 페어만 있는 코인을 원화로 바꿀 때 쓰는 환율
 UA = {"User-Agent": "Mozilla/5.0", "Referer": "https://finance.naver.com/"}
 BG, FG, DIM, ACC, LINE = "#2a2f3a", "#f2f5fa", "#9aa5ba", "#7db3ff", "#4d576c"
 # 고를 수 있는 바탕색. 글자가 흰 계열이라 어두운 색만 넣는다.
@@ -145,6 +147,7 @@ midnight = {}                            # 코인 -> (날짜, 자정 시가) 하
 coin_prem = {}                           # 코인 -> 국내가 ÷ 해외가. 거래소가 막힌 동안 환산에 쓴다
 coin_base = {}                           # 코인 -> (날짜, 국내 자정 시가). 등락률 기준을 빗썸과 맞춘다
 coin_ext = [True]                        # 야후에 코인도 함께 물어볼지 (코인 탓에 실패하면 끈다)
+coin_usd = {}                            # 코인 -> 야후 달러 심볼. 원화 페어가 없는 코인(KAIA 등)
 prem_at = [0.0]                          # 환산비를 마지막으로 저장한 시각
 PREM_SAVE = 600                          # 환산비 저장 간격(초)
 INDEX = {"KOSPI": "KOSPI", "KOSDAQ": "KOSDAQ", "^KS11": "KOSPI", "^KQ11": "KOSDAQ"}
@@ -392,6 +395,7 @@ def save(cfg):
 cfg = load()
 pushed = list(cfg["tickers"])            # 마지막으로 올린 종목 목록
 coin_prem.update(cfg.get("coin_prem") or {})
+coin_usd.update(cfg.get("coin_usd") or {})
 BG = cfg.get("bg_color") or BG           # 저장해 둔 바탕색으로 시작
 rows = {}
 alerts = {}                              # 반짝일 종목 -> 색
@@ -593,7 +597,13 @@ def refresh():
 
         # 야후에는 코인도 같이 물어본다(요청은 그대로 한 번). 거래소가 살아 있을 땐 국내가와의
         # 비율을 재 두고, 막히면 그 비율로 해외 시세를 국내가로 환산해서 쓴다.
-        ext, ylist = {}, groups["yahoo"] + (groups["coin"] if coin_ext[0] else [])
+        # 야후에 원화 페어가 없는 코인(KAIA 등)은 달러 페어로 묻고 환율을 곱해 원화로 만든다.
+        ext, ylist = {}, list(groups["yahoo"])
+        if coin_ext[0]:
+            for k in groups["coin"]:
+                for sym in (coin_usd[k], FX) if k in coin_usd else (k,):
+                    if sym not in ylist:
+                        ylist.append(sym)
         if ylist:
             try:
                 ext = yahoo(ylist)
@@ -607,18 +617,39 @@ def refresh():
                     pass
         data.update({k: v for k, v in ext.items() if k not in groups["coin"]})
 
+        # 코인의 해외 시세를 원화 기준으로 모은다. 원화 페어가 없으면 달러 페어 x 환율.
+        far, fx = {}, ext.get(FX)
+        for k in groups["coin"]:
+            if k in ext:
+                far[k] = ext[k]
+            elif k in coin_usd and fx and ext.get(coin_usd[k]):
+                usd, diff, pct = ext[coin_usd[k]][:3]
+                # 등락률은 달러 기준 그대로 둔다 — 환율 변동이 안 섞인 코인 자체의 움직임이다.
+                won = usd * fx[0]
+                far[k] = (won, diff * fx[0], pct, 0 if won >= 100 else 2, None)
+            elif ext and coin_ext[0] and k not in coin_usd:
+                coin_usd[k] = k.split("-")[0] + "-USD"   # 원화 페어가 없다 -> 다음 조회부터 달러로
+
         blocked = time.time() - coin_ok[0] > 30      # 한두 번 걸러도 직전 값이 아직 쓸 만하다
+        conv, raw = [], []                           # 환산한 코인 / 그중 환산비가 없어 해외 원값인 것
         for k in groups["coin"]:
             if k in data:                            # 거래소에서 받았다 -> 해외와의 비율을 기억
-                if ext.get(k) and ext[k][0]:
-                    coin_prem[k] = data[k][0] / ext[k][0]
+                if far.get(k) and far[k][0]:
+                    coin_prem[k] = data[k][0] / far[k][0]
                     coin_base[k] = (kst_day(), data[k][0] - data[k][1])
-            elif ext.get(k) and blocked:
-                data[k] = convert(k, ext[k])
-                coin_src[0] = "해외 환산" if k in coin_prem else "해외평균(환산비 없음)"
-        if coin_prem and time.time() - prem_at[0] > PREM_SAVE:
+            elif far.get(k) and blocked:
+                data[k] = convert(k, far[k])
+                conv.append(k)
+                if k not in coin_prem:
+                    raw.append(k)
+        if conv:                                     # 일부만 원값일 수 있으므로 뭉뚱그리지 않는다
+            coin_src[0] = ("해외평균(환산비 없음)" if len(raw) == len(conv) else
+                           "해외 환산 · %s 원값" % "/".join(x.split("-")[0] for x in raw) if raw else
+                           "해외 환산")
+        if (coin_prem or coin_usd) and time.time() - prem_at[0] > PREM_SAVE:
             prem_at[0] = time.time()
             cfg["coin_prem"] = {k: round(v, 6) for k, v in coin_prem.items()}
+            cfg["coin_usd"] = dict(coin_usd)
             root.after(0, save, cfg)
 
         note = ("요청 과다 · 1분 대기" if wait else
