@@ -965,7 +965,18 @@ function getDistributionAll() {
         : new Date(String(sc.savedAt).replace(' ', 'T') + ':00+09:00');
       if (!isNaN(saved) && (Date.now() - saved.getTime()) < ttlMs) fresh = attachDistHistory(s, sc.payload, rows);
     }
-    sources[s] = fresh || { items: [], stale: true };
+    // 신선하지 않아도 **마지막 파싱 결과는 그대로 실어 보낸다**(stale 표시만 붙인다).
+    // 예전엔 items를 버리고 stale만 보냈다 → 트리거가 멎어 캐시가 낡으면 시트에 멀쩡한 데이터가
+    // 있는데도 화면이 통째로 백지였다(2026-08-27 실제 발생: 8/26치가 있는데 달력이 빈칸).
+    // 프론트는 stale인 곳만 개별 재요청하므로 동작은 그대로고, 재요청이 실패해도 옛 데이터는 남는다.
+    if (fresh) sources[s] = fresh;
+    else {
+      const last = (sc && sc.payload && (sc.payload.items || []).length)
+        ? attachDistHistory(s, sc.payload, rows)
+        : { items: [] };
+      last.stale = true;
+      sources[s] = last;
+    }
   });
   return { success: true, sources: sources };
 }
@@ -1113,6 +1124,10 @@ function refreshAllDistributions() {
   DIST_SOURCE_IDS.forEach(s => {
     try { getDistribution(s, true); } catch(e) { console.log(s, e); }
   });
+  // 파이프라인 생존 신호 — 파싱 결과와 무관하게 '돌았다'는 사실만 남긴다(distWatchdog가 이걸 본다).
+  // 분배캐시 savedAt·_파서메타는 생존 신호로 못 쓴다: 전자는 파싱이 0건이면 안 써지고(새 회차 공지가
+  // 아직 없는 매달 21~25일·1~7일이 그렇다), 후자는 공지창 밖(13~22일)엔 아예 안 돈다.
+  PropertiesService.getScriptProperties().setProperty('WD_LAST_REFRESH', new Date().toISOString());
 }
 // ===== OCR 공용 함수 (Google Cloud Vision) =====
 // 이미지 URL을 받아 OCR 텍스트 반환. 실패 시 '' 반환.
@@ -2279,6 +2294,9 @@ function flushCalPending() {
 const WD_QUEUE_STUCK_HOURS = 6;   // 대기열이 이 시간 넘게 안 비면 발송 사망으로 본다(발송창이 08~23시이므로 기회는 충분했다는 뜻)
 const WD_RESEND_DAYS       = 3;   // 같은 이상은 이 간격으로만 재발송(매일 같은 메일이 쌓이지 않게)
 const WD_WINDOW_GRACE_DAYS = 3;   // 공지창 시작 후 이 일수가 지나야 '지연'으로 판정(창 초반엔 아직 안 올라온 게 정상)
+// 선갱신(refreshAllDistributions)이 이 시간 넘게 안 돌면 트리거 정지로 본다.
+// 05시 1회 + 워치독 08:30이므로 정상이면 3.5시간, 한 번만 걸러도 27.5시간 → 26이면 1회 누락부터 잡힌다.
+const WD_PIPELINE_DEAD_HOURS = 26;
 
 function distWatchdog() {
   const props = PropertiesService.getScriptProperties();
@@ -2308,11 +2326,24 @@ function distWatchdog() {
     }
   }
 
-  // ③ 파서 0건·stale  ④ 공지 지연
+  // ③ 파이프라인 정지  ④ 파서 0건·공지 지연
   const day      = Number(Utilities.formatDate(now, 'Asia/Seoul', 'd'));
   const curMonth = Number(Utilities.formatDate(now, 'Asia/Seoul', 'M'));
   const winStart = day <= 20 ? 8 : 23;                    // 월중창 8일 시작 / 월말창 23일 시작
   const judgeDelay = _inNoticeWindow(day) && day >= winStart + WD_WINDOW_GRACE_DAYS;
+
+  // 파이프라인 생존은 '선갱신이 돌았는가'로 본다(refreshAllDistributions가 남기는 WD_LAST_REFRESH).
+  // ⚠️ 예전엔 getDistributionAll의 stale/0건으로 판정했는데 그건 **화면용 캐시 신선도(2시간 TTL)**다.
+  // 새 회차 공지가 아직 안 올라온 매달 21~25일·1~7일엔 6개사가 전부 stale + 0건이 되는 게 정상인데,
+  // 소스당 2건씩 올려 '[분배알림 이상] 12건' 오경보를 냈다(2026-08-24 실제 발생).
+  // 게다가 파서를 돌리지도 않고(캐시만 읽는다) '파서 점검 필요'라고 써서 엉뚱한 곳을 보게 만들었다.
+  const beat = props.getProperty('WD_LAST_REFRESH');
+  const beatH = beat ? (now.getTime() - new Date(beat).getTime()) / 3600000 : null;
+  const pipelineDead = beatH === null || beatH > WD_PIPELINE_DEAD_HOURS;
+  if (beatH === null) problems.push('선갱신 기록(WD_LAST_REFRESH) 없음 — 아직 한 번도 안 돌았다(방금 배포했다면 내일 05시 이후 확인)');
+  else if (pipelineDead)
+    problems.push('분배 선갱신이 ' + Math.floor(beatH) + '시간째 안 돌았다 — 트리거 정지 의심(편집기에서 수리() 실행)');
+
   let all = null;
   try { all = getDistributionAll(); } catch(e) { problems.push('getDistributionAll 실패: ' + e); }
   const sources = (all && all.sources) || {};
@@ -2320,13 +2351,15 @@ function distWatchdog() {
   DIST_SOURCE_IDS.forEach(s => {
     const r = sources[s];
     if (!r) { problems.push(s + ' 응답 없음'); return; }
-    if (r.stale) problems.push(s + ' 데이터가 stale(갱신 실패)');
     let fp;
     try { fp = _fingerprint(s, r); } catch(e) { problems.push(s + ' 지문 계산 실패: ' + e); return; }
-    if (!fp.hasItems) problems.push(s + ' 종목 0건 — 파서 점검 필요');
-    else if (judgeDelay && _pubMonth(fp.pubDate) !== curMonth)
+    // 0건·공시일 없음은 '공지가 올라왔어야 할 시점'(창 시작 + 유예일)에만 사고로 본다.
+    // 선갱신이 멎었으면 데이터가 낡은 게 당연하므로 운용사를 탓하지 않는다 — 원인 한 줄만 남긴다.
+    const judge = judgeDelay && !pipelineDead;
+    if (judge && !fp.hasItems) problems.push(s + ' 종목 0건 — 파서 점검 필요');
+    else if (judge && fp.hasItems && _pubMonth(fp.pubDate) !== curMonth)
       problems.push(s + ' 이번 달 공시일 없음(현재 ' + (fp.pubDate || '없음') + ') — 공지 지연 또는 파서 이상');
-    lines.push(s + ' ' + fp.itemCount + '건 / 공시일 ' + (fp.pubDate || '-'));
+    lines.push(s + ' ' + fp.itemCount + '건 / 공시일 ' + (fp.pubDate || '-') + (r.stale ? ' (캐시)' : ''));
   });
 
   // 월요일 하트비트 — 대기열을 거치지 않고 직접 보낸다(정상 신호가 분배 알림에 섞이지 않게).
