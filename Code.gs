@@ -3517,11 +3517,13 @@ function setupKakaoTrigger() {
 // 8/26 18:50을 끝으로 전부 멎었다 → 분배캐시·시세로그·수익로그·스크리너·카톡알림이 동시에 정지.
 // 위의 setup* 함수를 11번 눌러야 했던 걸 이 함수 1회 ▶실행으로 끝낸다. 재배포는 필요 없다
 // (트리거는 편집기 저장본으로 돈다). 목록에 없는 핸들러는 건드리지 않고 이름만 보고한다.
-// keepWarm은 일부러 뺐다 — 5분마다 도는데 실행 슬롯을 물어 앱을 멈추게 한 전과가 있다(WORKLOG 85·86).
 // snapshotPrices는 원래 설치 함수가 없어 트리거 UI에서 손으로 만든 것이었다 → 여기 포함시켰다(장 마감 후 16시).
+// keepWarm도 넣는다 — 실행 슬롯을 물던 건 자기 웹앱을 호출하던 옛 버전이고(WORKLOG 85·86),
+// 지금은 시트 핸들만 깨우는 한 줄이라 가볍다. 빼두면 5분마다 인증 에러만 내므로 같이 되살린다.
 const TRIGGER_PLAN = [
   ['checkDistNotices',       () => ScriptApp.newTrigger('checkDistNotices').timeBased().everyMinutes(30).create()],
   ['checkDeviationAlerts',   () => ScriptApp.newTrigger('checkDeviationAlerts').timeBased().everyMinutes(30).create()],
+  ['keepWarm',               () => ScriptApp.newTrigger('keepWarm').timeBased().everyMinutes(5).create()],
   ['refreshAllDistributions',() => ScriptApp.newTrigger('refreshAllDistributions').timeBased().atHour(5).nearMinute(0).everyDays(1).create()],
   ['clearOldYellowCells',    () => ScriptApp.newTrigger('clearOldYellowCells').timeBased().atHour(6).nearMinute(0).everyDays(1).create()],
   ['markInputCells',         () => ScriptApp.newTrigger('markInputCells').timeBased().atHour(6).nearMinute(0).everyDays(1).create()],
