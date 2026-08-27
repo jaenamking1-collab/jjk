@@ -3509,6 +3509,55 @@ function setupKakaoTrigger() {
   console.log('flushKakaoPending·flushCalPending 트리거(매일 8시) 설치 완료');
 }
 
+// ── 트리거 일괄 재설치 ────────────────────────────────
+// 왜: 시간 트리거는 '만들어진 시점의 인증'으로 돈다. 코드가 새 서비스를 쓰기 시작하면(워치독의
+// CalendarApp·MailApp 등) 옛 트리거는 'Authorization is required to perform that action.'으로 죽고,
+// **편집기에서 재인증만 해서는 안 살아난다 — 트리거를 다시 만들어야 한다.**
+// 2026-08-27 진단: 7/24부터 그 메일이 쌓이다가(8/5 refreshAllDistributions, 8/19 snapshotPrices)
+// 8/26 18:50을 끝으로 전부 멎었다 → 분배캐시·시세로그·수익로그·스크리너·카톡알림이 동시에 정지.
+// 위의 setup* 함수를 11번 눌러야 했던 걸 이 함수 1회 ▶실행으로 끝낸다. 재배포는 필요 없다
+// (트리거는 편집기 저장본으로 돈다). 목록에 없는 핸들러는 건드리지 않고 이름만 보고한다.
+// keepWarm은 일부러 뺐다 — 5분마다 도는데 실행 슬롯을 물어 앱을 멈추게 한 전과가 있다(WORKLOG 85·86).
+// snapshotPrices는 원래 설치 함수가 없어 트리거 UI에서 손으로 만든 것이었다 → 여기 포함시켰다(장 마감 후 16시).
+const TRIGGER_PLAN = [
+  ['checkDistNotices',       () => ScriptApp.newTrigger('checkDistNotices').timeBased().everyMinutes(30).create()],
+  ['checkDeviationAlerts',   () => ScriptApp.newTrigger('checkDeviationAlerts').timeBased().everyMinutes(30).create()],
+  ['refreshAllDistributions',() => ScriptApp.newTrigger('refreshAllDistributions').timeBased().atHour(5).nearMinute(0).everyDays(1).create()],
+  ['clearOldYellowCells',    () => ScriptApp.newTrigger('clearOldYellowCells').timeBased().atHour(6).nearMinute(0).everyDays(1).create()],
+  ['markInputCells',         () => ScriptApp.newTrigger('markInputCells').timeBased().atHour(6).nearMinute(0).everyDays(1).create()],
+  ['sendMaturityAlerts',     () => ScriptApp.newTrigger('sendMaturityAlerts').timeBased().atHour(8).everyDays(1).create()],
+  ['flushKakaoPending',      () => ScriptApp.newTrigger('flushKakaoPending').timeBased().atHour(8).nearMinute(10).everyDays(1).create()],
+  ['flushCalPending',        () => ScriptApp.newTrigger('flushCalPending').timeBased().atHour(8).nearMinute(10).everyDays(1).create()],
+  ['distWatchdog',           () => ScriptApp.newTrigger('distWatchdog').timeBased().atHour(8).nearMinute(30).everyDays(1).create()],
+  ['snapshotPortfolio',      () => [10, 13, 16].forEach(h => ScriptApp.newTrigger('snapshotPortfolio').timeBased().atHour(h).nearMinute(5).everyDays(1).create())],
+  ['snapshotPrices',         () => ScriptApp.newTrigger('snapshotPrices').timeBased().atHour(16).everyDays(1).create()],
+  ['compactPriceLog',        () => ScriptApp.newTrigger('compactPriceLog').timeBased().onWeekDay(ScriptApp.WeekDay.SUNDAY).atHour(4).create()]
+];
+function resetAllTriggers() {
+  const known = TRIGGER_PLAN.map(p => p[0]);
+  const before = ScriptApp.getProjectTriggers();
+  const others = {};
+  let removed = 0;
+  before.forEach(t => {
+    const f = t.getHandlerFunction();
+    if (known.indexOf(f) >= 0) { ScriptApp.deleteTrigger(t); removed++; }
+    else others[f] = (others[f] || 0) + 1;
+  });
+  console.log('옛 트리거 ' + removed + '개 삭제(전체 ' + before.length + '개 중)');
+  TRIGGER_PLAN.forEach(p => {
+    try { p[1](); console.log('  ✅ ' + p[0]); }
+    catch(e) { console.log('  ❌ ' + p[0] + ' — ' + e); }
+  });
+  const names = Object.keys(others);
+  if (names.length) {
+    console.log('⚠ 목록 밖 트리거는 그대로 뒀다(인증이 낡았을 수 있으니 확인할 것):');
+    names.forEach(f => console.log('  · ' + f + (others[f] > 1 ? ' ×' + others[f] : '')));
+  }
+  const after = ScriptApp.getProjectTriggers().length;
+  console.log('완료 — 현재 트리거 ' + after + '개');
+  return { removed: removed, total: after, untouched: others };
+}
+
 // 카카오 연동 점검: 스크립트 속성(KAKAO_REST_KEY·KAKAO_REFRESH_TOKEN) 설정 후 ▶실행 →
 // 나에게 테스트 카톡 1건 발송. 카톡이 오면 연동 완료.
 function testKakao() {
