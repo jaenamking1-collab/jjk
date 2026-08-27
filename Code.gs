@@ -319,10 +319,15 @@ function getDividends(year, account_id) {
   if (rows.length <= 1) return [];
   let data = rows.slice(1).filter(r => r[0]);
   if (year) data = data.filter(r => r[2].toString() === year.toString());
-  return data.map(r => ({ id: r[0], holding_id: r[1], year: r[2], month: r[3], amount: r[4], currency: r[5] }));
+  return data.map(r => ({ id: r[0], holding_id: r[1], year: r[2], month: r[3], amount: r[4], currency: r[5], rate: r[6] || '' }));
 }
 function saveDividend(data) {
   const sheet = getSheet('dividends');
+  if (sheet.getRange(1, 7).getValue() !== 'rate') sheet.getRange(1, 7).setValue('rate');
+  // USD 는 '받은 달'의 환율을 같이 남긴다. 안 남기면 과거 분배금이 볼 때마다 오늘 환율로
+  // 다시 계산돼 지난 달 합계가 매일 달라진다. 지난 달 것을 나중에 입력하는 일이 많아
+  // '오늘 환율'이 아니라 그 달 종가를 쓴다. 이미 값이 있으면 건드리지 않는다.
+  const rate = data.currency === 'USD' ? monthlyUsdKrw(data.year, data.month) : '';
   const rows = sheet.getDataRange().getValues();
   for (let i = 1; i < rows.length; i++) {
     if (rows[i][1].toString() === data.holding_id.toString() &&
@@ -330,11 +335,12 @@ function saveDividend(data) {
         rows[i][3].toString() === data.month.toString()) {
       sheet.getRange(i+1, 5).setValue(data.amount);
       sheet.getRange(i+1, 6).setValue(data.currency);
+      if (rate && !rows[i][6]) sheet.getRange(i+1, 7).setValue(rate);
       return { success: true, updated: true };
     }
   }
   const id = new Date().getTime().toString();
-  sheet.appendRow([id, data.holding_id, data.year, data.month, data.amount, data.currency]);
+  sheet.appendRow([id, data.holding_id, data.year, data.month, data.amount, data.currency, rate]);
   return { success: true, id };
 }
 function deleteDividend(id) { deleteRowById('dividends', id); return { success: true }; }
@@ -479,6 +485,32 @@ function installMaturityTrigger() {
 }
 
 // ── 환율 ──────────────────────────────────
+// 그 달의 USD/KRW 종가. 분배금은 '받은 달'의 환율로 기록해야 지난 달 합계가 안 흔들린다.
+// 이번 달은 아직 안 끝났으므로 지금 값이 나온다(그때 가서 확정된 값으로 덮지는 않는다 —
+// 받은 시점 환율이라는 뜻에서 그 편이 맞다). 실패하면 오늘 환율로 떨어진다.
+function monthlyUsdKrw(year, month) {
+  const key = 'usdkrw_' + year + '_' + month;
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get(key);
+  if (hit) return parseFloat(hit);
+  try {
+    const url = 'https://query1.finance.yahoo.com/v8/finance/chart/USDKRW=X?interval=1mo&range=5y';
+    const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } });
+    const r = JSON.parse(res.getContentText()).chart.result[0];
+    const ts = r.timestamp, close = r.indicators.quote[0].close;
+    for (let i = ts.length - 1; i >= 0; i--) {
+      if (close[i] == null) continue;
+      const d = new Date(ts[i] * 1000);
+      // 월봉 시각은 UTC 기준이라 KST 로 보면 전달 말일이 될 수 있다 → KST 로 환산해 판정한다.
+      const ym = Utilities.formatDate(d, 'Asia/Seoul', 'yyyy-M').split('-');
+      if (Number(ym[0]) === Number(year) && Number(ym[1]) === Number(month)) {
+        cache.put(key, String(close[i]), 21600);
+        return Math.round(close[i] * 100) / 100;
+      }
+    }
+  } catch(e) {}
+  return fetchExchangeRate();
+}
 function fetchExchangeRate() {
   const cache = CacheService.getScriptCache();
   const hit = cache.get('exchange_rate');
@@ -3886,4 +3918,28 @@ function _diagSendNow() {
   console.log(k || c ? '⇒ 최소 한 채널은 살아 있다. 실제로 카톡/캘린더에 왔는지 눈으로 확인할 것.'
                      : '⇒ 두 채널 다 죽었다. 위 예외 메시지가 원인이다.');
   return { kakao: k, calendar: c };
+}
+
+// ── 과거 USD 분배금에 '받은 달 환율' 채우기 (한 번만 돌리면 된다) ────────────
+// 지금까지 dividends 시트에는 금액과 통화만 있었다. 그래서 달러로 받은 분배금이
+// 볼 때마다 '오늘 환율'로 다시 계산돼, 지난 달 합계가 매일 달라졌다.
+// 이 함수가 7번째 열(rate)에 그 달의 USD/KRW 종가를 채운다. 이미 값이 있는 줄과
+// 원화 줄은 건드리지 않는다. 여러 번 돌려도 안전하다.
+function 분배환율채우기() {
+  const sheet = getSheet('dividends');
+  if (sheet.getRange(1, 7).getValue() !== 'rate') sheet.getRange(1, 7).setValue('rate');
+  const rows = sheet.getDataRange().getValues();
+  let filled = 0, already = 0, failed = 0;
+  for (let i = 1; i < rows.length; i++) {
+    if (!rows[i][0] || String(rows[i][5]).toUpperCase() !== 'USD') continue;
+    if (rows[i][6]) { already++; continue; }
+    const rate = monthlyUsdKrw(rows[i][2], rows[i][3]);
+    if (!rate) { failed++; continue; }
+    sheet.getRange(i+1, 7).setValue(rate);
+    filled++;
+  }
+  console.log('채움 ' + filled + '줄 / 이미 있던 것 ' + already + '줄 / 실패 ' + failed + '줄');
+  console.log(failed ? '⇒ 실패한 줄은 화면에서 여전히 오늘 환율로 계산된다. 다시 한 번 돌려볼 것.'
+                     : '⇒ 끝. 앱을 새로고침하면 지난 달 분배금이 더 이상 흔들리지 않는다.');
+  return { filled: filled, already: already, failed: failed };
 }
