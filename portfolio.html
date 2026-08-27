@@ -4136,7 +4136,11 @@ async function loadDistributions(force, silent) {
   // 빠른 경로: 6개사를 한 번에 받는다. 서버가 분배캐시 시트를 1회만 읽어서, 개별 호출 6번
   // (=시트 전체 읽기 12회)보다 훨씬 빠르다. force 재파싱은 스크랩이 필요하니 예전 경로를 쓴다.
   // 백엔드 재배포 전이면 getDistributionAll을 몰라 sources가 없으므로 자동으로 예전 경로로 간다.
-  const bulk = force ? null : await Promise.race([
+  // ⚠️ force여도 캐시를 **먼저** 받는다. 예전엔 force면 이 호출을 건너뛰고 곧장 6개사 실시간
+  // 스크랩으로 갔는데, Apps Script가 같은 계정 실행을 직렬화해 6개사 합계가 실측 213초다
+  // (WORKLOG 90). 그동안 달력이 통째로 '불러오는 중'에 멈춰 있었고, 90초 타임아웃이 난 운용사는
+  // 빈 값으로 덮여 **새로고침이 오히려 화면을 비웠다**(2026-08-27 사용자 보고).
+  const bulk = await Promise.race([
     api({ action:'getDistributionAll' }).catch(() => null),
     timeout(25000).catch(() => null)
   ]);
@@ -4148,8 +4152,9 @@ async function loadDistributions(force, silent) {
     // 통째로 백지였다(2026-08-27: 트리거가 멎어 캐시가 17시간 낡자 달력이 빈칸으로 나왔다).
     renderMasterCalendar(_distData);
     renderDistGrid(_distData);
-    // 캐시가 비었거나 오래된 운용사만 개별 재요청 — 그때 서버가 스크랩해 캐시를 채운다.
-    await fillStale(d => d.data.stale, 45000);
+    // force면 6개사 전부 실시간 재파싱, 아니면 캐시가 오래된 곳만.
+    // fillStale은 **빈 결과로는 덮지 않으므로** 재파싱이 실패해도 위에서 그린 캐시가 남는다.
+    await fillStale(force ? (() => true) : (d => d.data.stale), force ? 90000 : 45000);
   } else {
     const results = await Promise.allSettled(DIST_SOURCES.map(s => fetchOne(s, force ? 90000 : 25000)));
     _distData = results.map(r => r.value || {});
