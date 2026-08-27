@@ -6059,7 +6059,9 @@ async function submitGate() {
     // 연결 문제이므로 구분해서 안내한다 — 예전엔 둘 다 '비밀번호가 틀렸습니다'로 떠서 오래 헤맸음.
     if (r && r.error === 'unauthorized') {
       APP_TOKEN = '';
-      err.textContent = '비밀번호가 틀렸습니다';
+      err.textContent = r.locked
+        ? '비밀번호를 여러 번 틀려 5분간 잠겼습니다. 잠시 뒤 다시 시도하세요.'
+        : '비밀번호가 틀렸습니다';
       err.style.display = 'block';
       el.value = ''; el.focus();
       return;

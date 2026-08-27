@@ -6,14 +6,33 @@ const SHEET_ID = '1iNlOU1YBRyJ6redmVoLDE4q6VfnWqL22s32IQHdSKN8';
 // 속성이 비어 있으면(미설정) 전부 허용 → 재배포 전까지 기존 앱이 끊기지 않음(하위호환).
 // getDistribution·getEtfNotices는 공개 분배금 페이지(프록시)가 쓰므로 토큰 없이 허용.
 const PUBLIC_ACTIONS = ['getDistribution', 'getDistributionAll', 'getEtfNotices', 'getEtfNoticesAll', 'hitCounter'];
+// 오답 잠금: 공개 저장소의 지난 기록에 옛 비밀번호가 남아 있어, 값을 하나씩 넣어보는
+// 자동 시도를 막는다. 서로 다른 오답이 5개 쌓이면 5분간 개인 액션을 전부 막는다
+// (그동안은 맞는 비밀번호도 막힌다 — 맞았는지 알려주는 것 자체가 힌트라서).
+// 같은 오답의 반복은 세지 않는다: 앱이 낡은 토큰으로 여러 번 부르는 경우와 구분하기 위해서다.
+const AUTH_MAX_FAIL = 5;        // 봐주는 오답 개수
+const AUTH_LOCK_SEC = 300;      // 잠기는 시간
+const AUTH_WINDOW_SEC = 600;    // 오답을 세는 기간
 function _authOk(action, token) {
   if (PUBLIC_ACTIONS.indexOf(action) !== -1) return true;
   const secret = PropertiesService.getScriptProperties().getProperty('APP_TOKEN');
   if (!secret) return true;           // 미설정 시 허용(하위호환)
-  return token === secret;
+  const cache = CacheService.getScriptCache();
+  if (cache.get('authLock')) return false;
+  if (token === secret) { cache.removeAll(['authFail', 'authLastBad']); return true; }
+  const bad = String(token || '').slice(0, 64);
+  if (cache.get('authLastBad') === bad) return false;
+  cache.put('authLastBad', bad, AUTH_WINDOW_SEC);
+  const n = Number(cache.get('authFail') || 0) + 1;
+  if (n >= AUTH_MAX_FAIL) { cache.put('authLock', '1', AUTH_LOCK_SEC); cache.remove('authFail'); }
+  else cache.put('authFail', String(n), AUTH_WINDOW_SEC);
+  return false;
 }
 function _unauthorized() {
-  return ContentService.createTextOutput(JSON.stringify({ error: 'unauthorized' }))
+  const body = CacheService.getScriptCache().get('authLock')
+    ? { error: 'unauthorized', locked: true, wait: AUTH_LOCK_SEC }
+    : { error: 'unauthorized' };
+  return ContentService.createTextOutput(JSON.stringify(body))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
