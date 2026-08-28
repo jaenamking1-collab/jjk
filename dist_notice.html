@@ -57,6 +57,11 @@
   .tab-btn{flex:1; min-width:0; padding:9px 4px; border:1px solid var(--border); border-radius:9px; background:#fff; color:var(--text2); font-size:13px; font-weight:700; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
   .tab-btn.active{background:var(--accent); color:#fff; border-color:var(--accent);}
 
+  /* 화살표·오늘 버튼. 모바일 실측이 24x24(권장 44x44의 30% 면적)라 손가락으로 못 짚는다. */
+  .nav-btn{width:24px; height:24px; border:1px solid var(--border); border-radius:6px;
+    background:var(--bg2); color:var(--text); font-size:13px; font-weight:700; cursor:pointer; line-height:1;}
+  .nav-today{width:auto; padding:3px 8px; font-size:11px; line-height:1.4;}
+
   /* ── notice cards ── */
   #noticeGrid{display:flex; flex-direction:column; gap:8px;}
   .notice-card{background:var(--bg2); border:1px solid var(--border); border-radius:12px; padding:10px 14px; position:relative; overflow:hidden;}
@@ -113,7 +118,15 @@
     .panels{flex-direction:column; align-items:stretch; gap:8px;}
     .dist-grid{grid-template-columns:1fr;}
     .tabbar{display:flex; padding:6px 8px; gap:4px;}
-    .tab-btn{font-size:11px; padding:8px 2px;}
+    /* 탭·화살표를 손가락 크기로 — 실측 tab-btn 91x33, 화살표 24x24 였다 */
+    .tab-btn{font-size:11px; padding:14px 2px;}
+    .nav-btn{width:40px; height:40px; min-width:40px; flex:0 0 auto; font-size:15px;}
+    /* ★/✕ 는 141행짜리 표의 셀이라 44px까지 키우면 표가 두 배로 길어진다.
+       행 높이를 27→35px 로만 올려 손가락이 닿게 하고, 대신 키보드로도 누를 수 있게 했다. */
+    /* 셀에 인라인 padding 이 있어 !important 없이는 안 먹는다 */
+    #distGrid td[role="button"]{padding:9px 6px !important;}
+    .nav-today{width:auto; height:40px; padding:0 12px; font-size:12px;}
+    #hideToggle, #favToggle{padding:11px 12px !important;}
     /* 탭: active 섹션만 표시(모바일 전용). PC엔 이 규칙이 없어 전부 보임 */
     .p-notice, .p-cal, .p-sched, #sec-grid{display:none;}
     .p-notice.tab-active, .p-cal.tab-active, .p-sched.tab-active, #sec-grid.tab-active{display:block;}
@@ -168,17 +181,17 @@
     <div class="panel p-notice">
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
         <div class="p-title" id="noticeTitle" style="color:#16a34a;margin-bottom:0">📢 분배금 공지</div>
-        <button onclick="noticeShiftMonth(-1)" title="이전 달" style="width:24px;height:24px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;line-height:1">←</button>
-        <button onclick="noticeShiftMonth(1)" title="다음 달" style="width:24px;height:24px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;line-height:1">→</button>
+        <button onclick="noticeShiftMonth(-1)" title="이전 달" class="nav-btn">←</button>
+        <button onclick="noticeShiftMonth(1)" title="다음 달" class="nav-btn">→</button>
       </div>
       <div id="noticeGrid"><div class="notice-loading">불러오는 중...</div></div>
     </div>
     <div class="panel p-cal tab-active">
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
         <div class="p-title" style="color:#64748b;margin-bottom:0">📅 분배 일정 달력</div>
-        <button onclick="calShiftWeek(-1)" title="한 주 앞으로" style="width:24px;height:24px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;line-height:1">←</button>
-        <button onclick="calShiftWeek(1)" title="한 주 뒤로" style="width:24px;height:24px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;line-height:1">→</button>
-        <button onclick="calShiftWeek(0)" title="오늘 주로" style="height:24px;padding:0 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text2);font-size:11px;font-weight:600;cursor:pointer;line-height:1">오늘</button>
+        <button onclick="calShiftWeek(-1)" title="한 주 앞으로" class="nav-btn">←</button>
+        <button onclick="calShiftWeek(1)" title="한 주 뒤로" class="nav-btn">→</button>
+        <button onclick="calShiftWeek(0)" title="오늘 주로" class="nav-btn nav-today">오늘</button>
       </div>
       <div class="cal-scroll">
         <div id="distMasterCalendar"><div style="color:var(--text3);font-size:13px"><span class="spinner"></span>불러오는 중...</div></div>
@@ -187,8 +200,8 @@
     <div class="panel p-sched">
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
         <div class="p-title" id="schedTitle" style="color:#a855a8;margin-bottom:0">🏢 운용사별 일정</div>
-        <button onclick="schedShiftMonth(-1)" title="이전 달" style="width:24px;height:24px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;line-height:1">←</button>
-        <button onclick="schedShiftMonth(1)" title="다음 달" style="width:24px;height:24px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;line-height:1">→</button>
+        <button onclick="schedShiftMonth(-1)" title="이전 달" class="nav-btn">←</button>
+        <button onclick="schedShiftMonth(1)" title="다음 달" class="nav-btn">→</button>
       </div>
       <div class="sched-scroll"><div id="distScheduleList"></div></div>
       <div id="distNoticeBoard"></div>
@@ -197,8 +210,8 @@
   <div id="sec-grid" style="background:#fffbeb;border:1px solid #fef3c7;border-radius:12px;padding:16px;margin-top:14px">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
       <div id="gridTitle" style="font-size:15px;font-weight:700">📋 공지 종목 전체</div>
-      <button onclick="gridShiftMonth(-1)" title="이전 달" style="width:24px;height:24px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;line-height:1">←</button>
-      <button onclick="gridShiftMonth(1)" title="다음 달" style="width:24px;height:24px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;line-height:1">→</button>
+      <button onclick="gridShiftMonth(-1)" title="이전 달" class="nav-btn">←</button>
+      <button onclick="gridShiftMonth(1)" title="다음 달" class="nav-btn">→</button>
       <button id="hideToggle" onclick="toggleShowHidden()" title="표의 ✕를 누르면 그 종목이 목록에서 빠집니다 (이 브라우저에 저장됩니다)" style="margin-left:auto;padding:4px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:12px;font-weight:700;cursor:pointer;line-height:1.4;white-space:nowrap">🙈 숨김</button>
       <button id="favToggle" onclick="toggleFavOnly()" title="★ 표시한 종목만 보기 (이 브라우저에 저장됩니다)" style="padding:4px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:12px;font-weight:700;cursor:pointer;line-height:1.4;white-space:nowrap">☆ 관심만</button>
     </div>
@@ -990,14 +1003,14 @@ function renderDistGrid(allData){
           const on = _fav.has(it.ticker);
           const off = _hide.has(it.ticker);                 // 숨김 보기 모드에서만 화면에 남는다
           return `<tr style="${rowBg}${off ? 'opacity:.45;' : ''}">
-          <td onclick="toggleFav('${it.ticker || ''}')" title="관심 종목 담기/빼기" style="padding:5px 2px;text-align:center;cursor:pointer;user-select:none;font-size:13px;line-height:1;color:${on ? '#f59e0b' : 'var(--text3)'};border:1px solid var(--border)">${on ? '★' : '☆'}</td>
+          <td onclick="toggleFav('${it.ticker || ''}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleFav('${it.ticker || ''}')}" role="button" tabindex="0" aria-label="관심 종목 담기/빼기" title="관심 종목 담기/빼기" style="padding:5px 2px;text-align:center;cursor:pointer;user-select:none;font-size:13px;line-height:1;color:${on ? '#f59e0b' : 'var(--text3)'};border:1px solid var(--border)">${on ? '★' : '☆'}</td>
           <td style="padding:5px 6px;text-align:center;white-space:nowrap;border:1px solid var(--border)">${cyc ? `<span style="display:inline-block;white-space:nowrap;background:${cycColor}1a;color:${cycColor};font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px">${cyc}</span>` : '-'}</td>
           <td class="dg-code" style="padding:5px 8px;font-size:11px;font-family:var(--mono);border:1px solid var(--border)">${it.ticker || ''}</td>
           <td class="dg-name" style="padding:5px 8px;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:1px solid var(--border)" title="${esc(it.name)}">${esc(it.name)}</td>
           <td style="padding:5px 8px;font-size:12px;font-weight:600;text-align:right;font-family:var(--mono);border:1px solid var(--border)">${it.amount != null ? Number(it.amount).toLocaleString() : '-'}</td>
           <td style="padding:5px 8px;font-size:11px;font-weight:600;text-align:right;color:${c.color};border:1px solid var(--border)">${it.rate != null && it.rate > 0 ? Number(it.rate).toFixed(2) + '%' : '-'}</td>
           <td style="padding:5px 8px;font-size:11px;font-weight:600;text-align:right;border:1px solid var(--border)">${chgHtml(it, cyc)}</td>
-          <td onclick="toggleHide('${it.ticker || ''}')" title="${off ? '숨김 해제' : '이 종목 숨기기'}" style="padding:5px 2px;text-align:center;cursor:pointer;user-select:none;font-size:11px;line-height:1;color:${off ? '#f59e0b' : 'var(--text3)'};border:1px solid var(--border)">${off ? '↩' : '✕'}</td>
+          <td onclick="toggleHide('${it.ticker || ''}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleHide('${it.ticker || ''}')}" role="button" tabindex="0" aria-label="${off ? '숨김 해제' : '이 종목 숨기기'}" title="${off ? '숨김 해제' : '이 종목 숨기기'}" style="padding:5px 2px;text-align:center;cursor:pointer;user-select:none;font-size:11px;line-height:1;color:${off ? '#f59e0b' : 'var(--text3)'};border:1px solid var(--border)">${off ? '↩' : '✕'}</td>
         </tr>`}).join('')}</tbody>
       </table></div>`;
     } else if (d.error) {
