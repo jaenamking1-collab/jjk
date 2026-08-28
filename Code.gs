@@ -1739,6 +1739,41 @@ function fetchDist_ace() {
   }
 }
 
+// PLUS 공지 이미지 OCR 텍스트 → 종목 행. 종목코드 위치로 구간을 나눠 (금액, 분배율)을 뽑는다.
+// ⚠️ Vision 이 표를 늘 행 단위로 읽지는 않는다. 두 행을 한 덩어리로 묶어
+// '코드 코드 이름 이름 금액 분배율 금액 분배율' 순으로 내보내는 경우가 있다
+// (2026-08-26 월말 공지 실측: 4행 0210E0 이 통째로 빠지고, 5행 0203D0 에 4행 금액 147원이
+//  들어갔다 — 실제 63원). '코드 사이 구간에 값이 하나'라는 가정을 버리고, 구간에서 쌍을 전부
+// 뽑아 값을 못 받고 밀려 있던 코드부터 순서대로 채운다.
+function plusOcrItems(ocrText, cycle) {
+  const t = String(ocrText || '').replace(/\s+/g, ' ');
+  const codeRe = /\b([0-9]{6}|[0-9]{4}[A-Z][0-9])\b/g;
+  const codes = [];
+  let cm;
+  while ((cm = codeRe.exec(t))) codes.push({ code: cm[1], idx: cm.index, end: cm.index + cm[0].length });
+  const out = [];
+  let pending = [];   // 아직 값을 못 받은 코드(덩어리 앞쪽 행)
+  for (let i = 0; i < codes.length; i++) {
+    const seg = t.slice(codes[i].end, i + 1 < codes.length ? codes[i + 1].idx : codes[i].end + 80);
+    pending.push(codes[i]);
+    // PLUS 월말 공지 이미지는 분배율 칸에 % 기호가 없다(헤더에만) → % 를 선택적으로.
+    // 월중 이미지는 "1.27%"처럼 % 가 붙어 있어 그대로 매칭된다.
+    const pairs = [...seg.matchAll(/(\d+)\s+(\d+\.\d+)\s*%?/g)];
+    if (!pairs.length) continue;
+    const use = pending.slice(-pairs.length);   // 쌍보다 많이 밀려 있으면 가장 오래된 것은 버린다
+    // 종목명은 모두 'PLUS'로 시작한다 — 값 앞 구간을 이름 단위로 자른다.
+    const names = seg.slice(0, pairs[0].index).split(/(?=PLUS\s)/)
+      .map(x => x.replace(/[●•·.]/g, '').replace(/\s+/g, ' ').trim())
+      .filter(x => /^PLUS/.test(x));
+    use.forEach((c, j) => out.push({
+      name: names.length === use.length ? names[j] : '',
+      ticker: c.code, amount: Number(parseInt(pairs[j][1])), rate: parseFloat(pairs[j][2]), cycle
+    }));
+    pending = [];
+  }
+  return out;
+}
+
 function fetchDist_plus() {
   // PLUS 사이트는 정상인데도(curl 0.2초) Apps Script에서 간헐적으로 Timeout이 난다.
   // 목록·상세 어느 쪽이 죽어도 6월짜리 뉴스 폴백으로 밀리므로 둘 다 재시도한다.
@@ -1809,26 +1844,7 @@ function fetchDist_plus() {
           dbg += ' ocr[' + _ocrDbg + ']';
           if (ocrText) {
             usedOcr = true;
-            const t = ocrText.replace(/\s+/g, ' ');
-            // 종목코드 위치 기준으로 분할, 각 구간에서 금액+분배율
-            const codeRe = /\b([0-9]{6}|[0-9]{4}[A-Z][0-9])\b/g;
-            const codes = [];
-            let cm;
-            while ((cm = codeRe.exec(t))) codes.push({ code: cm[1], idx: cm.index, end: cm.index + cm[0].length });
-            for (let i = 0; i < codes.length; i++) {
-              const seg = t.slice(codes[i].end, i+1 < codes.length ? codes[i+1].idx : codes[i].end + 80);
-              // PLUS 월말 공지 이미지는 분배율 칸에 % 기호가 없다(헤더에만) → % 를 선택적으로.
-              // 월중 이미지는 "1.27%"처럼 % 가 붙어 있어 그대로 매칭된다.
-              const rateM = seg.match(/(\d+\.\d+)\s*%?/);
-              const rate = rateM ? parseFloat(rateM[1]) : null;
-              let amount = null;
-              const amtM = seg.match(/(\d+)\s+\d+\.\d+\s*%?/);
-              if (amtM) amount = parseInt(amtM[1]);
-              if (amount == null) continue;
-              // 종목명: 코드와 금액 사이 한글/영문 (기호 ●·. 제거)
-              let name = seg.slice(0, amtM ? seg.indexOf(amtM[0]) : seg.length).replace(/[●•·.]/g,'').replace(/\s+/g,' ').trim();
-              out.push({ name, ticker: codes[i].code, amount: Number(amount), rate, cycle: entry.cycle });
-            }
+            plusOcrItems(ocrText, entry.cycle).forEach(it => out.push(it));
             // 일정도 같은 OCR 텍스트에서 시도
             const ocrSched = parseScheduleFromOcr(ocrText);
             if (ocrSched['기준일'] || ocrSched['지급일']) {
