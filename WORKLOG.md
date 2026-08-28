@@ -8,6 +8,17 @@
 - **작업 시작**: 폴더 열기 → `git pull` → 이 파일 읽기 → Claude Code 작업
 - **작업 종료**: 맨 위에 새 항목 추가 → `git add .` → `git commit` → `git push`
 
+
+## 2026-08-28 (129) / 학교 — 공용 스킬 폴더 신설 + `i-have-adhd` 설치
+
+- 출처 https://github.com/ayghri/i-have-adhd (MIT). **`SKILL.md`만 가져왔다** — 훅·스크립트는 뺐다. 훅은 `~/.claude/.i-have-adhd-always` 플래그 파일이 있을 때만 도는 읽기 전용(실패해도 exit 0)이라 위험하진 않지만, 지금은 필요 없다.
+- `disable-model-invocation: true` 라 **`/i-have-adhd` 로 부를 때만** 켜진다. 저절로 끼어들지 않는다. 끄는 말은 "stop adhd mode".
+- **두 PC 공용 스킬 자리를 만들었다**: 본체는 `~/claude-memory/skills/`(비공개·동기화), 각 PC의 `~/.claude/skills/<이름>` 을 **정션**으로 건다. CLAUDE.md 때와 같은 방식이되 디렉터리라 하드링크가 아니라 정션이다(정션은 관리자 권한 불필요).
+
+**다음 할 일 (집 PC)**: `git pull` 후 아래 한 줄. 그 PC 세션이 알아서 하면 된다.
+```
+New-Item -ItemType Directory -Force "$HOME\.claude\skills"; New-Item -ItemType Junction -Path "$HOME\.claude\skills\i-have-adhd" -Target "$HOME\claude-memory\skills\i-have-adhd"
+```
 ---
 
 ## 2026-08-28 (128) / 집 — 🔥 **훅의 푸시가 조용히 막혀 있었다.** 대화 기록 10개가 컨테이너 안에만 남아 있었음
