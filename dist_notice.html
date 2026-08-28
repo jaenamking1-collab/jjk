@@ -69,7 +69,8 @@
   .dist-items{max-height:340px; overflow-y:auto;}
   #distGrid td.dg-name{max-width:160px;}  /* 종목명 열 폭: 데스크톱 기준(모바일은 아래 미디어쿼리에서 축소) */
   .notice-loading{font-size:12px; color:var(--text3); text-align:center; padding:16px 0;}
-  .notice-err{font-size:12px; color:var(--red); text-align:center; padding:16px 0;}
+  .notice-err{font-size:12px; color:#b91c1c; text-align:center; padding:16px 0;}
+  .notice-empty{font-size:12px; color:var(--text2); text-align:center; padding:16px 0;}
   .spinner{display:inline-block; width:16px; height:16px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .6s linear infinite; vertical-align:middle; margin-right:6px;}
   @keyframes spin{to{transform:rotate(360deg)}}
 
@@ -201,6 +202,9 @@ async function api(params){
   return res.json();
 }
 
+// 스크래핑해 온 URL은 속성 안에 그대로 넣지 않는다 — 따옴표 하나로 핸들러가 깨지고,
+// 공개 페이지라 그 이상도 된다. http(s)가 아니면 링크로 만들지 않는다(javascript: 차단).
+const safeUrl = u => /^https?:\/\//i.test(String(u||'')) ? encodeURI(u).replace(/["']/g, c => c === '"' ? '%22' : '%27') : '';
 const DIST_SOURCES = [
   { id:'kodex', name:'KODEX', label:'삼성자산운용',   color:'#2563eb' },
   { id:'tiger', name:'TIGER', label:'미래에셋자산운용', color:'#f59e0b' },
@@ -209,11 +213,13 @@ const DIST_SOURCES = [
   { id:'rise',  name:'RISE',  label:'KB자산운용',    color:'#dc2626' },
   { id:'sol',   name:'SOL',   label:'신한자산운용',   color:'#0891b2' }
 ];
+// text: 라벨 글자색. 배경은 color 의 10% 틴트라 같은 색 글자로는 대비가 2:1대로 떨어진다
+// (실측 분배락일 1.90:1). 색 코딩은 그대로 두고 글자만 700-shade 로 내려 4.5:1 을 넘긴다.
 const SCHED_CFG = [
-  { key:'공시일',  color:'#f59e0b', label:'분배금공시일', short:'공시일' },
-  { key:'분배락일', color:'#22c55e', label:'분배락일', short:'분배락일' },
-  { key:'기준일',  color:'#3b82f6', label:'분배금지급기준일', short:'기준일' },
-  { key:'지급일',  color:'#ef4444', label:'분배금지급일', short:'지급일' },
+  { key:'공시일',  color:'#f59e0b', text:'#92400e', label:'분배금공시일', short:'공시일' },
+  { key:'분배락일', color:'#22c55e', text:'#166534', label:'분배락일', short:'분배락일' },
+  { key:'기준일',  color:'#3b82f6', text:'#1d4ed8', label:'분배금지급기준일', short:'기준일' },
+  { key:'지급일',  color:'#ef4444', text:'#b91c1c', label:'분배금지급일', short:'지급일' },
 ];
 // 한국 공휴일(증시 휴장) — 근로자의날 포함. '대체'는 대체공휴일.
 // 제헌절은 2026년부터 공휴일로 재지정됨(2026-07-17). 달력은 평일만 그리므로 주말 공휴일은 표시되지 않는다.
@@ -366,13 +372,13 @@ function renderMasterCalendar(allData){
         roundTally[k].n++;
       }
     }
-    SCHED_CFG.forEach(({ key, color, label, short }) => {
+    SCHED_CFG.forEach(({ key, color, text, label, short }) => {
       // 예정도 **라벨은 확정분과 똑같이** 둔다 → 같은 줄에 `SOL?` 배지로만 붙는다.
       // 라벨에 '예정'을 붙였더니 한 칸에 '분배락일'과 '분배락일 예정' 두 줄이 생겨 달력이 지저분해졌다.
       // (addMark의 회사+라벨 중복제거는 **같은 날짜 칸 안에서만** 걸리므로 라벨을 나눌 이유가 없었다.)
       const lbl = (key === '지급일' && cyc) ? `${cyc} 지급일` : label;
       const sh = (key === '지급일' && cyc) ? `${cyc} 지급일` : short;
-      addMark(parseDay(sch[key]), c.name, c.color, lbl, color, sh, uncertain);
+      addMark(parseDay(sch[key]), c.name, c.color, lbl, color, text, sh, uncertain);
     });
   };
 
@@ -397,13 +403,13 @@ function renderMasterCalendar(allData){
   const nextMonth = month === 12 ? 1 : month + 1;
   const prevMonth = month === 1 ? 12 : month - 1;
   const marks = {};
-  const addMark = (p, source, sourceColor, label, labelColor, shortLabel, uncertain) => {
+  const addMark = (p, source, sourceColor, label, labelColor, labelText, shortLabel, uncertain) => {
     if (!p) return;
     if (p.m !== month && p.m !== nextMonth && p.m !== prevMonth) return;
     const k = `${p.m}-${p.d}`;
     if (!marks[k]) marks[k] = [];
     if (marks[k].some(x => x.source === source && x.label === label)) return;
-    marks[k].push({ source, sourceColor, label, labelColor, shortLabel: shortLabel || label, uncertain: !!uncertain });
+    marks[k].push({ source, sourceColor, label, labelColor, labelText: labelText || labelColor, shortLabel: shortLabel || label, uncertain: !!uncertain });
   };
   allData.forEach(c => {
     const repSched = (c.data && c.data.schedule) || {};
@@ -481,7 +487,7 @@ function renderMasterCalendar(allData){
     const dateColor = isToday ? '#2563eb' : (hol || dow === 0) ? '#dc2626' : dow === 6 ? '#2563eb' : 'var(--text)';
     const byLabel = {};
     ms.forEach(mk => {
-      if (!byLabel[mk.label]) byLabel[mk.label] = { labelColor: mk.labelColor, shortLabel: mk.shortLabel, sources: [] };
+      if (!byLabel[mk.label]) byLabel[mk.label] = { labelColor: mk.labelColor, labelText: mk.labelText, shortLabel: mk.shortLabel, sources: [] };
       byLabel[mk.label].sources.push({ name: mk.source, color: mk.sourceColor, uncertain: mk.uncertain });
     });
     const eventHtml = Object.keys(byLabel).map(label => {
@@ -496,7 +502,7 @@ function renderMasterCalendar(allData){
       }).join('');
       return `<div style="margin-top:4px">
         <div class="cal-icons">${icons}</div>
-        <div class="cal-evt" style="background:${g.labelColor}1a;color:${g.labelColor}"><span class="lbl-full">${label}</span><span class="lbl-short">${g.shortLabel || label}</span></div>
+        <div class="cal-evt" style="background:${g.labelColor}1a;color:${g.labelText || g.labelColor}"><span class="lbl-full">${label}</span><span class="lbl-short">${g.shortLabel || label}</span></div>
       </div>`;
     }).join('');
     return `<div class="cal-cell" style="${bg}${border}">
@@ -666,8 +672,8 @@ async function loadAllNotices(){
   const cached = (bulk && bulk.sources) || {};
   const results = await Promise.allSettled(NOTICE_SOURCES.map(s => {
     const hit = cached[s.id];
-    if (hit && !hit.stale) return Promise.resolve({ ...s, items: hit.items || [] });
-    return s.fetch().then(items => ({ ...s, items })).catch(() => ({ ...s, items: [] }));
+    if (hit && !hit.stale) return Promise.resolve({ ...s, items: hit.items || [], ok: true });
+    return s.fetch().then(items => ({ ...s, items, ok: true })).catch(() => ({ ...s, items: [], ok: false }));
   }));
   _noticeData = results.map(r => r.value || {});
   renderNotices();
@@ -691,7 +697,7 @@ function renderNotices(){
     const m = String(n.date || '').match(/\d{4}[.\-\/](\d{1,2})/);
     return m ? parseInt(m[1]) : 0;
   };
-  grid.innerHTML = _noticeData.map(({ id, name, label, items }) => {
+  grid.innerHTML = _noticeData.map(({ id, name, label, items, ok }) => {
     const all = (items || []).map(n => ({ ...n, norm: normalizeNoticeTitle(n.title, id) }))
       .filter(n => n.norm.cycle !== '제외');
     const inMonth = all.filter(n => monOf(n) === selM);
@@ -712,7 +718,7 @@ function renderNotices(){
     };
     const itemHtml = n => `
           <div class="notice-item">
-            <span class="notice-title" onclick="window.open('${n.url}','_blank')" title="${(n.title||'').replace(/"/g,'&quot;')}">${n.norm.label}${isNew(n) ? '<span class="new-badge">NEW</span>' : ''}</span>
+            <span class="notice-title" onclick="window.open('${safeUrl(n.url)}','_blank')" title="${(n.title||'').replace(/"/g,'&quot;')}">${n.norm.label}${isNew(n) ? '<span class="new-badge">NEW</span>' : ''}</span>
             <span class="notice-date">${n.date}</span>
           </div>`;
     const emptySlot = cyc => `
@@ -725,7 +731,10 @@ function renderNotices(){
           picks[1] ? itemHtml(picks[1]) : emptySlot('월말'),
           picks[2] ? itemHtml(picks[2]) : '',
           ...extra.map(itemHtml) ].join('')
-      : '<div class="notice-err">불러오기 실패</div>';
+      // 응답은 왔는데 이번 달 공지가 아직 없는 것과, 못 받아온 것은 다른 상태다.
+      // 예전엔 둘 다 '불러오기 실패'라 정상인데도 빨간 글씨가 떴다.
+      : (ok === false ? '<div class="notice-err">공지를 못 받았습니다</div>'
+                      : `<div class="notice-empty">${selM}월 공지 아직 없음</div>`);
     return `
       <div class="notice-card ${id}">
         <div class="notice-brand ${id}">● ${name} <span style="font-weight:400;color:var(--text3)">${label}</span></div>
@@ -773,7 +782,7 @@ function renderNoticeBoard() {
   const line = (badge, color, text, date, url, last) => `
     <div style="display:flex;align-items:center;gap:6px;min-width:0;padding:5px 8px${last ? '' : ';border-bottom:1px solid #64748b'}">
       <span style="flex-shrink:0;background:${color}1a;color:${color};font-size:9px;font-weight:800;padding:1px 5px;border-radius:3px">${badge}</span>
-      ${url ? `<a href="${url}" target="_blank" style="flex:1;min-width:0;font-size:11px;line-height:1.3;color:var(--text);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${text.replace(/"/g,'&quot;')}">${text}</a>`
+      ${safeUrl(url) ? `<a href="${safeUrl(url)}" target="_blank" rel="noopener noreferrer" style="flex:1;min-width:0;font-size:11px;line-height:1.3;color:var(--text);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${text.replace(/"/g,'&quot;')}">${text}</a>`
             : `<span style="flex:1;min-width:0;font-size:11px;line-height:1.3;color:var(--text3)">${text}</span>`}
       <span style="flex-shrink:0;font-family:var(--mono);font-size:10px;color:var(--text3)">${date}</span>
     </div>`;

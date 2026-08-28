@@ -4061,11 +4061,16 @@ const DIST_SOURCES = [
   { id:'sol',   name:'SOL',   label:'신한자산운용',   color:'#0891b2' }
 ];
 
+// text: 라벨 글자색. 배경이 color 의 10% 틴트라 같은 색 글자로는 대비가 2:1대까지 떨어진다.
+// 색 코딩은 그대로 두고 글자만 700-shade 로 내린다(공지 페이지와 같은 값).
+// 스크래핑해 온 URL은 속성 안에 그대로 넣지 않는다 — 따옴표 하나로 핸들러가 깨진다.
+// http(s) 가 아니면 링크로 만들지 않는다(javascript: 차단). 공지 페이지와 같은 함수다.
+const safeUrl = u => /^https?:\/\//i.test(String(u||'')) ? encodeURI(u).replace(/["']/g, c => c === '"' ? '%22' : '%27') : '';
 const SCHED_CFG = [
-  { key:'공시일',  color:'#f59e0b', label:'분배금공시일' },
-  { key:'분배락일', color:'#22c55e', label:'분배락일' },
-  { key:'기준일',  color:'#3b82f6', label:'분배금지급기준일' },
-  { key:'지급일',  color:'#ef4444', label:'분배금지급일' },
+  { key:'공시일',  color:'#f59e0b', text:'#92400e', label:'분배금공시일' },
+  { key:'분배락일', color:'#22c55e', text:'#166534', label:'분배락일' },
+  { key:'기준일',  color:'#3b82f6', text:'#1d4ed8', label:'분배금지급기준일' },
+  { key:'지급일',  color:'#ef4444', text:'#b91c1c', label:'분배금지급일' },
 ];
 // 한국 공휴일(증시 휴장) — 근로자의날 포함. '대체'는 대체공휴일.
 // 제헌절은 2026년부터 공휴일로 재지정됨(2026-07-17). 달력은 평일만 그리므로 주말 공휴일은 표시되지 않는다.
@@ -4286,12 +4291,12 @@ function renderMasterCalendar(allData) {
         roundTally[k].n++;
       }
     }
-    SCHED_CFG.forEach(({ key, color, label }) => {
+    SCHED_CFG.forEach(({ key, color, text, label }) => {
       // 예정도 **라벨은 확정분과 똑같이** 둔다 → 같은 줄에 `SOL?` 배지로만 붙는다.
       // 라벨에 '예정'을 붙였더니 한 칸에 '분배락일'과 '분배락일 예정' 두 줄이 생겨 달력이 지저분해졌다.
       // (addMark의 회사+라벨 중복제거는 **같은 날짜 칸 안에서만** 걸리므로 라벨을 나눌 이유가 없었다.)
       const lbl = (key === '지급일' && cyc) ? `${cyc} 지급일` : label;
-      addMark(parseDay(sch[key]), c.name, c.color, lbl, color, uncertain);
+      addMark(parseDay(sch[key]), c.name, c.color, lbl, color, text, uncertain);
     });
   };
 
@@ -4318,14 +4323,14 @@ function renderMasterCalendar(allData) {
   const nextMonth = month === 12 ? 1 : month + 1;
   const prevMonth = month === 1 ? 12 : month - 1;
   const marks = {};
-  const addMark = (p, source, sourceColor, label, labelColor, uncertain) => {
+  const addMark = (p, source, sourceColor, label, labelColor, labelText, uncertain) => {
     if (!p) return;
     if (p.m !== month && p.m !== nextMonth && p.m !== prevMonth) return;
     const k = `${p.m}-${p.d}`;
     if (!marks[k]) marks[k] = [];
     // 같은 회사+라벨 중복 방지
     if (marks[k].some(x => x.source === source && x.label === label)) return;
-    marks[k].push({ source, sourceColor, label, labelColor, uncertain: !!uncertain });
+    marks[k].push({ source, sourceColor, label, labelColor, labelText: labelText || labelColor, uncertain: !!uncertain });
   };
   allData.forEach(c => {
     const repSched = (c.data && c.data.schedule) || {};
@@ -4423,7 +4428,7 @@ function renderMasterCalendar(allData) {
     // 같은 라벨끼리 회사명 그룹핑
     const byLabel = {};
     ms.forEach(mk => {
-      if (!byLabel[mk.label]) byLabel[mk.label] = { labelColor: mk.labelColor, sources: [] };
+      if (!byLabel[mk.label]) byLabel[mk.label] = { labelColor: mk.labelColor, labelText: mk.labelText, sources: [] };
       byLabel[mk.label].sources.push({ name: mk.source, color: mk.sourceColor, uncertain: mk.uncertain });
     });
     const eventHtml = Object.keys(byLabel).map(label => {
@@ -4438,7 +4443,7 @@ function renderMasterCalendar(allData) {
       }).join('');
       return `<div style="margin-top:4px">
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px">${icons}</div>
-        <div style="margin-top:3px;background:${g.labelColor}1a;color:${g.labelColor};font-size:11px;font-weight:700;text-align:center;padding:2px 0;border-radius:4px">${label}</div>
+        <div style="margin-top:3px;background:${g.labelColor}1a;color:${g.labelText || g.labelColor};font-size:11px;font-weight:700;text-align:center;padding:2px 0;border-radius:4px">${label}</div>
       </div>`;
     }).join('');
     return `<div style="padding:5px;border-radius:6px;min-height:95px;display:flex;flex-direction:column;${bg}${border}">
@@ -4618,7 +4623,7 @@ function renderNoticeBoard() {
   const line = (badge, color, text, date, url, last) => `
     <div style="display:flex;align-items:center;gap:6px;min-width:0;padding:5px 8px${last ? '' : ';border-bottom:1px solid #64748b'}">
       <span style="flex-shrink:0;background:${color}1a;color:${color};font-size:9px;font-weight:800;padding:1px 5px;border-radius:3px">${badge}</span>
-      ${url ? `<a href="${url}" target="_blank" style="flex:1;min-width:0;font-size:11px;line-height:1.3;color:var(--text);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${text.replace(/"/g,'&quot;')}">${text}</a>`
+      ${safeUrl(url) ? `<a href="${safeUrl(url)}" target="_blank" rel="noopener noreferrer" style="flex:1;min-width:0;font-size:11px;line-height:1.3;color:var(--text);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${text.replace(/"/g,'&quot;')}">${text}</a>`
             : `<span style="flex:1;min-width:0;font-size:11px;line-height:1.3;color:var(--text3)">${text}</span>`}
       <span style="flex-shrink:0;font-family:var(--mono);font-size:10px;color:var(--text3)">${date}</span>
     </div>`;
@@ -5578,7 +5583,7 @@ function renderNotices() {
     };
     const itemHtml = n => `
           <div class="notice-item">
-            <span class="notice-title" onclick="window.open('${n.url}','_blank')" title="${(n.title||'').replace(/"/g,'&quot;')}">${n.norm.label}${isNew(n) ? '<span class="new-badge">NEW</span>' : ''}</span>
+            <span class="notice-title" onclick="window.open('${safeUrl(n.url)}','_blank')" title="${(n.title||'').replace(/"/g,'&quot;')}">${n.norm.label}${isNew(n) ? '<span class="new-badge">NEW</span>' : ''}</span>
             <span class="notice-date">${n.date}</span>
           </div>`;
     const emptySlot = cyc => `
