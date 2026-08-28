@@ -71,6 +71,10 @@
   .notice-loading{font-size:12px; color:var(--text3); text-align:center; padding:16px 0;}
   .notice-err{font-size:12px; color:#b91c1c; text-align:center; padding:16px 0;}
   .notice-empty{font-size:12px; color:var(--text2); text-align:center; padding:16px 0;}
+  /* 회차 상태 한 줄 — 달력 바로 위. 대비 6.9:1(#1e3a8a on #eff6ff) */
+  .cal-status{font-size:12px; line-height:1.5; color:#1e3a8a; background:#eff6ff;
+    border:1px solid #bfdbfe; border-radius:6px; padding:6px 10px; margin-bottom:8px;}
+  .cal-status b{font-weight:800;}
   .spinner{display:inline-block; width:16px; height:16px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .6s linear infinite; vertical-align:middle; margin-right:6px;}
   @keyframes spin{to{transform:rotate(360deg)}}
 
@@ -511,8 +515,46 @@ function renderMasterCalendar(allData){
     </div>`;
   };
 
+  // ── 회차 상태 한 줄 ──
+  // 달력을 보고 나면 사용자가 하는 질문은 하나다: "지금 사면 받나, 놓쳤나."
+  // 그 답이 지금까지 세 번째 패널의 상시 안내 문구에만 있었고 모바일 기본 탭에선 안 보였다.
+  // 새 데이터 소스는 없다 — 방금 만든 marks 와 prevBizDay 를 그대로 쓴다.
+  const _md = k => ({ m: +k.split('-')[0], d: +k.split('-')[1] });
+  const _dt = q => new Date(year, q.m - 1, q.d);
+  const _t0 = new Date(year, month - 1, today);
+  const _DOW = ['일','월','화','수','목','금','토'];
+  const _fmt = q => `${q.m}/${q.d}(${_DOW[_dt(q).getDay()]})`;
+  const _days = (a, b) => Math.round((b - a) / 86400000);
+  const _pick = (test, from, before) => Object.keys(marks)
+    .filter(k => marks[k].some(x => test(x.label)))
+    .map(_md).map(q => ({ q, dt: _dt(q) }))
+    .filter(x => (!from || x.dt >= from) && (!before || x.dt <= before))
+    .sort((a, b) => a.dt - b.dt)[0];
+  const _isRak = l => l === '분배락일';
+  const _isStd = l => l.indexOf('기준일') >= 0;
+  const _isPay = l => /지급일$/.test(l) && l.indexOf('기준') < 0;
+  const statusHtml = (() => {
+    const rakToday = _pick(_isRak, _t0, _t0);
+    const rakNext = _pick(_isRak, new Date(_t0.getTime() + 86400000));
+    const rak = rakToday || rakNext;
+    // 다음 회차 분배락이 아직 안 잡혔으면(회차 사이) 남은 지급 예정만 알린다 — 날짜를 만들어내지 않는다.
+    if (!rak) {
+      const pay = _pick(_isPay, _t0);
+      return pay ? `이번 회차 매수는 끝났습니다 · 지급 <b>${_fmt(pay.q)}</b> 예정 — 다음 회차 공지는 아직 없습니다`
+                 : '';
+    }
+    const cut = prevBizDay(rak.q.m, rak.q.d);                 // 매수 마감 = 분배락 직전 영업일
+    const std = _pick(_isStd, rak.dt), pay = _pick(_isPay, rak.dt);
+    const tail = `${std ? ` · 기준일 <b>${_fmt(std.q)}</b>` : ''}${pay ? ` · 지급 <b>${_fmt(pay.q)}</b>` : ''}`;
+    if (rakToday) return `<b>오늘 ${_fmt(rak.q)} 분배락일</b> — 이 회차 매수는 <b>${_fmt(cut)}</b>로 마감됐습니다${tail}`;
+    const dday = _days(_t0, _dt(cut));
+    if (dday < 0) return `이 회차 매수는 <b>${_fmt(cut)}</b>로 마감됐습니다 · 분배락 ${_fmt(rak.q)}${tail}`;
+    return `다음 매수 마감 <b>${_fmt(cut)}</b> ${dday === 0 ? '<b>오늘까지</b>' : `<b>D-${dday}</b>`} — 그날까지 사면 받습니다 · 분배락 ${_fmt(rak.q)}${tail}`;
+  })();
+
   const calHtml = `
     <div>
+      ${statusHtml ? `<div class="cal-status">${statusHtml}</div>` : ''}
       <div class="cal-companies">
         ${DIST_SOURCES.map(s => `<span class="cal-co"><span class="co-chip" style="background:${s.color}">${s.name.slice(0,3)}</span>${s.name}</span>`).join('')}
       </div>

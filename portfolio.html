@@ -4452,10 +4452,42 @@ function renderMasterCalendar(allData) {
     </div>`;
   };
 
+  // ── 회차 상태 한 줄 ── (공지 페이지 dist_notice.html 과 같은 로직·같은 문구. 한쪽 고치면 양쪽)
+  // 달력을 본 사용자의 질문은 하나다: "지금 사면 받나, 놓쳤나." 방금 만든 marks 와 prevBizDay 만 쓴다.
+  const _md = k => ({ m: +k.split('-')[0], d: +k.split('-')[1] });
+  const _dt = q => new Date(year, q.m - 1, q.d);
+  const _t0 = new Date(year, month - 1, today);
+  const _DOW = ['일','월','화','수','목','금','토'];
+  const _fmt = q => `${q.m}/${q.d}(${_DOW[_dt(q).getDay()]})`;
+  const _pick = (test, from, before) => Object.keys(marks)
+    .filter(k => marks[k].some(x => test(x.label)))
+    .map(_md).map(q => ({ q, dt: _dt(q) }))
+    .filter(x => (!from || x.dt >= from) && (!before || x.dt <= before))
+    .sort((a, b) => a.dt - b.dt)[0];
+  const _isRak = l => l === '분배락일';
+  const _isStd = l => l.indexOf('기준일') >= 0;
+  const _isPay = l => /지급일$/.test(l) && l.indexOf('기준') < 0;
+  const statusHtml = (() => {
+    const rakToday = _pick(_isRak, _t0, _t0);
+    const rak = rakToday || _pick(_isRak, new Date(_t0.getTime() + 86400000));
+    if (!rak) {
+      const pay = _pick(_isPay, _t0);
+      return pay ? `이번 회차 매수는 끝났습니다 · 지급 <b>${_fmt(pay.q)}</b> 예정 — 다음 회차 공지는 아직 없습니다` : '';
+    }
+    const cut = prevBizDay(rak.q.m, rak.q.d);                 // 매수 마감 = 분배락 직전 영업일
+    const std = _pick(_isStd, rak.dt), pay = _pick(_isPay, rak.dt);
+    const tail = `${std ? ` · 기준일 <b>${_fmt(std.q)}</b>` : ''}${pay ? ` · 지급 <b>${_fmt(pay.q)}</b>` : ''}`;
+    if (rakToday) return `<b>오늘 ${_fmt(rak.q)} 분배락일</b> — 이 회차 매수는 <b>${_fmt(cut)}</b>로 마감됐습니다${tail}`;
+    const dday = Math.round((_dt(cut) - _t0) / 86400000);
+    if (dday < 0) return `이 회차 매수는 <b>${_fmt(cut)}</b>로 마감됐습니다 · 분배락 ${_fmt(rak.q)}${tail}`;
+    return `다음 매수 마감 <b>${_fmt(cut)}</b> ${dday === 0 ? '<b>오늘까지</b>' : `<b>D-${dday}</b>`} — 그날까지 사면 받습니다 · 분배락 ${_fmt(rak.q)}${tail}`;
+  })();
+
   const colTmpl = 'repeat(5, 1fr)';
   const dowBg = '#4f46e5', dowColor = '#fff'; // 평일 통일 — 진한 남색 배경 + 흰 글자
   const calHtml = `
     <div>
+      ${statusHtml ? `<div style="font-size:12px;line-height:1.5;color:#1e3a8a;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:6px 10px;margin-bottom:8px">${statusHtml}</div>` : ''}
       <div style="display:grid;grid-template-columns:${colTmpl};gap:4px;width:100%">
         ${dowsShow.map(d => `<div style="text-align:center;font-size:13px;font-weight:700;padding:6px 0;color:${dowColor};background:${dowBg};border-radius:5px">${d}</div>`).join('')}
         ${cells.map(cellHtml).join('')}
