@@ -889,6 +889,24 @@ function renderDistGrid(allData){
     });
     // 그 달 공지는 있는데 걸러져 남은 게 없으면(전부 숨겼거나 관심 밖) 카드를 통째로 뺀다.
     if (monthItems.length && !items.length) return '';
+    // 전달 대비 증감(%) — 백엔드가 이미 붙여 보내는 hist(직전 회차) 항목에서
+    // 같은 종목·같은 주기의 지난달 분배금을 찾는다. 서버·배포는 손대지 않는다.
+    const prevM = selM === 1 ? 12 : selM - 1;
+    const prevAmt = new Map();
+    (d.items || []).forEach(it => {
+      if (!it.hist || it.amount == null) return;
+      const sch = (it.sched && Object.keys(it.sched).length) ? it.sched : (d.schedule || {});
+      if (monthOf(sch['기준일'] || sch['지급일']) !== prevM) return;
+      prevAmt.set((it.ticker || it.name) + '|' + cycleOf(it, d.schedule), Number(it.amount));
+    });
+    const chgHtml = (it, cyc) => {
+      const p = prevAmt.get((it.ticker || it.name) + '|' + cyc);
+      if (!p || it.amount == null) return '<span style="color:var(--text3)" title="전달 회차 데이터 없음">-</span>';
+      const pct = (Number(it.amount) - p) / p * 100;
+      const col = pct > 0 ? 'var(--green)' : pct < 0 ? 'var(--red)' : 'var(--text2)';
+      const mark = pct > 0 ? '▲' : pct < 0 ? '▼' : '';
+      return `<span style="color:${col}" title="전달 ${p.toLocaleString()}원">${mark}${Math.abs(pct).toFixed(1)}%</span>`;
+    };
     let body;
     if (items.length) {
       body = `<div class="dist-items"><table style="width:100%;border-collapse:collapse;font-size:12px">
@@ -899,6 +917,7 @@ function renderDistGrid(allData){
           <th style="padding:5px 8px;text-align:left;font-size:10px;color:var(--text3);border:1px solid var(--border)">종목명</th>
           <th style="padding:5px 8px;text-align:right;font-size:10px;color:var(--text3);border:1px solid var(--border)">분배금</th>
           <th style="padding:5px 8px;text-align:right;font-size:10px;color:var(--text3);border:1px solid var(--border)">분배율</th>
+          <th style="padding:5px 8px;text-align:right;font-size:10px;color:var(--text3);border:1px solid var(--border)">전달비</th>
           <th style="padding:5px 2px;text-align:center;font-size:10px;color:var(--text3);border:1px solid var(--border)" title="✕를 눌러 목록에서 숨깁니다">✕</th>
         </tr></thead>
         <tbody>${items.map(it => {
@@ -914,6 +933,7 @@ function renderDistGrid(allData){
           <td class="dg-name" style="padding:5px 8px;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:1px solid var(--border)" title="${esc(it.name)}">${esc(it.name)}</td>
           <td style="padding:5px 8px;font-size:12px;font-weight:600;text-align:right;font-family:var(--mono);border:1px solid var(--border)">${it.amount != null ? Number(it.amount).toLocaleString() : '-'}</td>
           <td style="padding:5px 8px;font-size:11px;font-weight:600;text-align:right;color:${c.color};border:1px solid var(--border)">${it.rate != null && it.rate > 0 ? Number(it.rate).toFixed(2) + '%' : '-'}</td>
+          <td style="padding:5px 8px;font-size:11px;font-weight:600;text-align:right;border:1px solid var(--border)">${chgHtml(it, cyc)}</td>
           <td onclick="toggleHide('${it.ticker || ''}')" title="${off ? '숨김 해제' : '이 종목 숨기기'}" style="padding:5px 2px;text-align:center;cursor:pointer;user-select:none;font-size:11px;line-height:1;color:${off ? '#f59e0b' : 'var(--text3)'};border:1px solid var(--border)">${off ? '↩' : '✕'}</td>
         </tr>`}).join('')}</tbody>
       </table></div>`;
