@@ -1028,6 +1028,9 @@ function getDistributionAll() {
       last.stale = true;
       sources[s] = last;
     }
+    // 이 운용사 데이터가 **언제 파싱된 것인지**. 화면이 '데이터 기준 시각'을 띄우는 데 쓴다.
+    // 덧붙이기만 하는 필드라 기존 응답 계약은 그대로다(모르는 화면은 그냥 무시한다).
+    if (sc && sc.savedAt) sources[s].savedAt = String(sc.savedAt);
   });
   return { success: true, sources: sources };
 }

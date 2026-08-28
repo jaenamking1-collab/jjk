@@ -165,6 +165,7 @@
   <div style="display:flex;align-items:baseline;gap:10px;min-width:0">
     <div class="logo">ETF 분배금 공지</div>
     <span id="visitCount" style="font-size:12px;color:#64748b;font-weight:600;white-space:nowrap"></span>
+    <span id="dataFresh" style="font-size:12px;color:#475569;font-weight:600;white-space:nowrap"></span>
   </div>
   <button class="refresh" onclick="pageRefresh()">🔄 새로고침</button>
 </header>
@@ -337,6 +338,7 @@ async function loadDistributions(force){
     // portfolio.html의 같은 함수와 쌍이다 — 한쪽을 고치면 반드시 다른 쪽도.
     renderMasterCalendar(_distData);
     renderDistGrid(_distData);
+    renderFreshness(_distData);
     // force면 6개사 전부 실시간 재파싱, 아니면 캐시가 오래된 곳만.
     // fillStale은 **빈 결과로는 덮지 않으므로** 재파싱이 실패해도 위에서 그린 캐시가 남는다.
     await fillStale(force ? (() => true) : (d => d.data.stale), force ? 90000 : 45000);
@@ -809,6 +811,23 @@ function renderNotices(){
       </div>`;
   }).join('');
   renderNoticeBoard();
+}
+
+// ── 데이터 기준 시각 ──
+// 서버는 운용사별로 stale 플래그와 savedAt(분배캐시에 쓰인 시각)을 보내는데, 지금까지 화면은
+// stale 을 재조회 판단에만 쓰고 사용자에겐 아무 말도 안 했다. 2026-08-27 에 트리거가 멎어
+// 캐시가 17시간 낡았을 때도 화면은 그냥 최신인 척했다.
+function renderFreshness(all){
+  const el = document.getElementById('dataFresh');
+  if (!el) return;
+  const has = (all || []).filter(c => c.data && (c.data.items || []).length);
+  if (!has.length) { el.textContent = ''; return; }
+  const stale = has.filter(c => c.data.stale).map(c => c.name);
+  const times = has.map(c => c.data.savedAt).filter(Boolean).sort();
+  const t = times.length ? String(times[times.length - 1]).slice(5, 16) : '';
+  el.textContent = `· 데이터 ${t}${t ? ' 기준' : ''}`
+    + (stale.length ? ` · ${stale.join('·')} 캐시` : ` · ${has.length}곳 최신`);
+  el.title = stale.length ? `${stale.join(', ')} 은(는) 마지막 파싱 결과입니다(재조회 실패 또는 대기)` : '';
 }
 
 // ── 공지 종목 전체 (하단 섹션) ──
