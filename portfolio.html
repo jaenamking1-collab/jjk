@@ -4090,7 +4090,16 @@ const HOLIDAYS = {
 
 let _distData = [];
 let _calWeekOffset = 0;   // 달력 주 단위 이동 (←/→ 버튼)
-let _schedMonthOffset = 0; // 운용사별 일정 표: 월 단위 이동 (0=이번 달)
+// ── 월 커서는 하나다 ── (공지 페이지 dist_notice.html 과 같은 동작)
+// 공지 패널과 일정 표가 각자 오프셋을 들고 있어 '일정만 9월, 공지는 8월' 상태가 정상 동작이었다.
+// 둘 다 '월' 단위로 같은 것을 가리키므로 하나로 묶는다(달력은 주 단위라 그대로).
+let _monthOffset = 0;
+function shiftMonth(dir) {
+  if (!_distData.length && !_noticeData) return;
+  _monthOffset = Math.max(-1, Math.min(1, _monthOffset + dir));
+  if (_distData.length) renderMasterCalendar(_distData);
+  if (_noticeData) renderNotices();
+}
 let _distGridMonthOffset = 0; // 내 보유 종목 분배 내역: 월 단위 이동 (0=이번 달)
 
 // 내 보유 종목 분배 내역의 달 이동. ±1(전월~익월)로 제한.
@@ -4108,11 +4117,7 @@ function calShiftWeek(dir) {
 }
 
 // 운용사별 일정 표의 달 이동. 공지 데이터가 전월~익월 정도만 있어 ±1로 제한.
-function schedShiftMonth(dir) {
-  if (!_distData.length) return;
-  _schedMonthOffset = Math.max(-1, Math.min(1, _schedMonthOffset + dir));
-  renderMasterCalendar(_distData);
-}
+function schedShiftMonth(dir) { shiftMonth(dir); }
 
 // silent=true: 스피너로 화면을 비우지 않고 백그라운드로 갱신(캐시 렌더 위에 '갱신 중' 배지만).
 async function loadDistributions(force, silent) {
@@ -4518,7 +4523,7 @@ function renderMasterCalendar(allData) {
 
   // ── 운용사별 일정: 표(A안) — 회사별 1행, 셀에 월중/월말 2줄 ──
   // ←/→ 버튼으로 고른 달(selM)의 일정만 표시. 행 귀속 월은 기준일(없으면 지급일)의 월.
-  const selM = ((month - 1 + _schedMonthOffset) % 12 + 12) % 12 + 1;
+  const selM = ((month - 1 + _monthOffset) % 12 + 12) % 12 + 1;
   const schedTitle = document.getElementById('schedTitle');
   if (schedTitle) schedTitle.textContent = `🏢 ${selM}월 운용사별 일정`;
   const rowsData = [];
@@ -5536,13 +5541,7 @@ function normalizeNoticeTitle(title, source) {
 }
 
 let _noticeData = null;    // 공지 원본 (월 이동 시 재사용)
-let _noticeMonthOffset = 0; // 분배금 공지 패널: 월 단위 이동 (0=이번 달)
-
-function noticeShiftMonth(dir) {
-  if (!_noticeData) return;
-  _noticeMonthOffset = Math.max(-1, Math.min(1, _noticeMonthOffset + dir));
-  renderNotices();
-}
+function noticeShiftMonth(dir) { shiftMonth(dir); }
 
 // 공지를 GAS 프록시로 받는 운용사 = 6개사 전부. 공개 페이지(dist_notice.html:230)와 같은 방식으로 통일했다.
 // 서버 벌크 캐시엔 이미 6개사가 다 들어 있는데 TIGER·PLUS만 브라우저가 운용사 사이트를 또 긁고 있었다.
@@ -5584,7 +5583,7 @@ function renderNotices() {
   const grid = document.getElementById('noticeGrid');
   if (!grid || !_noticeData) return;
   const now = new Date();
-  const selM = ((now.getMonth() + _noticeMonthOffset) % 12 + 12) % 12 + 1;
+  const selM = ((now.getMonth() + _monthOffset) % 12 + 12) % 12 + 1;
   const title = document.getElementById('noticeTitle');
   if (title) title.textContent = `📢 ${selM}월 분배금 공지`;
   // 공지의 귀속 월: 제목의 'N월'(norm.mon) 우선, 없으면 등록일의 월

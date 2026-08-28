@@ -2494,7 +2494,9 @@ function distWatchdog() {
     if (judge && !fp.hasItems) problems.push(s + ' 종목 0건 — 파서 점검 필요');
     else if (judge && fp.hasItems && _pubMonth(fp.pubDate) !== curMonth)
       problems.push(s + ' 이번 달 공시일 없음(현재 ' + (fp.pubDate || '없음') + ') — 공지 지연 또는 파서 이상');
-    lines.push(s + ' ' + fp.itemCount + '건 / 공시일 ' + (fp.pubDate || '-') + (r.stale ? ' (캐시)' : ''));
+    // itemCount 는 attachDistHistory 로 **직전 2회차가 병합된** 목록의 건수다(분배캐시 행은 이번 회차만).
+    // 그냥 '37건'으로 찍으면 이번 회차 종목 수로 읽힌다 — 실제로 그렇게 오해했다(2026-08-28).
+    lines.push(s + ' ' + fp.itemCount + '건(이력 포함) / 공시일 ' + (fp.pubDate || '-') + (r.stale ? ' (캐시)' : ''));
   });
 
   // 월요일 하트비트 — 대기열을 거치지 않고 직접 보낸다(정상 신호가 분배 알림에 섞이지 않게).
