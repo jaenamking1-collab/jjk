@@ -277,14 +277,19 @@ const NOTICE_SOURCES = DIST_SOURCES.map(s => ({
 
 let _distData = [];
 let _calWeekOffset = 0;   // 달력 주 단위 이동 (←/→ 버튼)
-let _schedMonthOffset = 0; // 운용사별 일정 표: 월 단위 이동 (0=이번 달)
-let _gridMonthOffset = 0;  // 공지 종목 전체 그리드: 월 단위 이동 (0=이번 달)
-
-function gridShiftMonth(dir){
-  if (!_distData.length) return;
-  _gridMonthOffset = Math.max(-1, Math.min(1, _gridMonthOffset + dir));
-  renderDistGrid(_distData);
+// ── 월 커서는 하나다 ──
+// 공지·일정·종목 세 패널이 각자 오프셋을 들고 있어서 '일정만 9월, 옆은 8월' 같은 상태가
+// 정상 동작이었고, 화면 어디에도 그 관계가 표시되지 않았다. 셋 다 '월' 단위로 같은 것을
+// 가리키므로 하나로 묶는다(달력만 주 단위라 그대로 둔다).
+let _monthOffset = 0;
+function shiftMonth(dir){
+  if (!_distData.length && !_noticeData) return;
+  _monthOffset = Math.max(-1, Math.min(1, _monthOffset + dir));
+  if (_distData.length) { renderMasterCalendar(_distData); renderDistGrid(_distData); }
+  if (_noticeData) renderNotices();
 }
+
+function gridShiftMonth(dir){ shiftMonth(dir); }
 
 // dir: -1 한 주 앞으로, +1 한 주 뒤로, 0 오늘 주로 리셋
 function calShiftWeek(dir){
@@ -294,11 +299,7 @@ function calShiftWeek(dir){
 }
 
 // 운용사별 일정 표의 달 이동. 공지 데이터가 전월~익월 정도만 있어 ±1로 제한.
-function schedShiftMonth(dir){
-  if (!_distData.length) return;
-  _schedMonthOffset = Math.max(-1, Math.min(1, _schedMonthOffset + dir));
-  renderMasterCalendar(_distData);
-}
+function schedShiftMonth(dir){ shiftMonth(dir); }
 
 async function loadDistributions(force){
   const cal = document.getElementById('distMasterCalendar');
@@ -597,7 +598,7 @@ function renderMasterCalendar(allData){
 
   // ── 운용사별 일정 표 (월중/월말 2줄) ──
   // ←/→ 버튼으로 고른 달(selM)의 일정만 표시. 행 귀속 월은 기준일(없으면 지급일)의 월.
-  const selM = ((month - 1 + _schedMonthOffset) % 12 + 12) % 12 + 1;
+  const selM = ((month - 1 + _monthOffset) % 12 + 12) % 12 + 1;
   const schedTitle = document.getElementById('schedTitle');
   if (schedTitle) schedTitle.textContent = `🏢 ${selM}월 운용사별 일정`;
   const rowsData = [];
@@ -711,13 +712,7 @@ function normalizeNoticeTitle(title, source){
 }
 
 let _noticeData = null;    // 공지 원본 (월 이동 시 재사용)
-let _noticeMonthOffset = 0; // 분배금 공지 패널: 월 단위 이동 (0=이번 달)
-
-function noticeShiftMonth(dir){
-  if (!_noticeData) return;
-  _noticeMonthOffset = Math.max(-1, Math.min(1, _noticeMonthOffset + dir));
-  renderNotices();
-}
+function noticeShiftMonth(dir){ shiftMonth(dir); }
 
 // 공지 스냅샷: 백엔드 응답이 평소 1.6초인데 5회에 1번꼴로 6~19초까지 튄다. 이 패널은 6개사가
 // 다 모여야 한 번에 그리므로 그동안 통째로 "불러오는 중…"에 멈춘다. 지난번 공지를 즉시 그려두고
@@ -760,7 +755,7 @@ function renderNotices(){
   const grid = document.getElementById('noticeGrid');
   if (!grid || !_noticeData) return;
   const now = new Date();
-  const selM = ((now.getMonth() + _noticeMonthOffset) % 12 + 12) % 12 + 1;
+  const selM = ((now.getMonth() + _monthOffset) % 12 + 12) % 12 + 1;
   const title = document.getElementById('noticeTitle');
   if (title) title.textContent = `📢 (${selM}월) 분배금 공지`;
   // 공지의 귀속 월: 제목의 'N월'(norm.mon) 우선, 없으면 등록일의 월
@@ -956,7 +951,7 @@ function renderDistGrid(allData){
   }
   const curMonth = new Date().getMonth() + 1;
   // ←/→ 로 고른 달만 표시(기준일 없으면 지급일의 월로 귀속)
-  const selM = ((curMonth - 1 + _gridMonthOffset) % 12 + 12) % 12 + 1;
+  const selM = ((curMonth - 1 + _monthOffset) % 12 + 12) % 12 + 1;
   const gridTitle = document.getElementById('gridTitle');
   if (gridTitle) gridTitle.textContent = `📋 ${selM}월 공지 종목 전체`;
   const monthOf = (s) => {
