@@ -42,6 +42,9 @@
   .p-cal{flex:0 1 792px; min-width:460px; max-width:792px; background:#f8fafc; border:1px solid #e2e8f0;}
   .p-sched{width:340px; flex-shrink:0; background:#fdf4ff; border:1px solid #f0e2f5;}
   .p-title{font-size:12px; font-weight:700; margin-bottom:8px;}
+  /* 데이터가 도착하며 빈 패널이 654px로 부풀어 아래 종목 섹션과 그 ←/→ 버튼을 밀어냈다
+     (CLS 0.161~0.236 실측). 로딩 중에도 자리를 잡아둔다. 세로로 쌓이는 모바일은 제외. */
+  @media (min-width:821px){ .p-notice, .p-cal, .p-sched{min-height:620px;} }
 
   /* 세 패널 합이 300+792+340+여백 = 1,504px 이라 그보다 좁은 화면(1280·1366·1440 — 흔한
      노트북 폭)에서 '일정'만 둘째 줄에 홀로 가운데 정렬로 떨어지고 달력 옆이 비었다.
@@ -124,7 +127,7 @@
     /* ★/✕ 는 141행짜리 표의 셀이라 44px까지 키우면 표가 두 배로 길어진다.
        행 높이를 27→35px 로만 올려 손가락이 닿게 하고, 대신 키보드로도 누를 수 있게 했다. */
     /* 셀에 인라인 padding 이 있어 !important 없이는 안 먹는다 */
-    #distGrid td[role="button"]{padding:9px 6px !important;}
+    #distGrid td[role="button"]{padding:9px 2px !important;}
     .nav-today{width:auto; height:40px; padding:0 12px; font-size:12px;}
     #hideToggle, #favToggle{padding:11px 12px !important;}
     /* 탭: active 섹션만 표시(모바일 전용). PC엔 이 규칙이 없어 전부 보임 */
@@ -216,7 +219,7 @@
       <button id="hideToggle" onclick="toggleShowHidden()" title="표의 ✕를 누르면 그 종목이 목록에서 빠집니다 (이 브라우저에 저장됩니다)" style="margin-left:auto;padding:4px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:12px;font-weight:700;cursor:pointer;line-height:1.4;white-space:nowrap">🙈 숨김</button>
       <button id="favToggle" onclick="toggleFavOnly()" title="★ 표시한 종목만 보기 (이 브라우저에 저장됩니다)" style="padding:4px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:12px;font-weight:700;cursor:pointer;line-height:1.4;white-space:nowrap">☆ 관심만</button>
     </div>
-    <div id="distGrid"><div style="color:var(--text3);font-size:13px"><span class="spinner"></span>불러오는 중...</div></div>
+    <div id="distGrid" style="min-height:560px"><div style="color:var(--text3);font-size:13px"><span class="spinner"></span>불러오는 중...</div></div>
   </div>
 </div>
 
