@@ -276,11 +276,13 @@ def bithumb(syms):
     """국내 코인 시세(빗썸). 야후는 해외 평균가라 국내 거래소와 차이가 큼.
     ⚠️ 등락률 기준은 거래소마다 다르다 — 빗썸 화면은 자정, 업비트 화면은 09시,
     '24시간 전 대비'는 또 다른 값이다(2026-08-21 XRP: 13.4 / 9.2 / 20.3%).
-    보고 있는 화면과 같아야 하므로 빗썸 전일대비(opening_price=자정 시가)를 쓴다."""
+    보고 있는 화면과 같아야 하므로 빗썸 '변동(당일)'과 같은 prev_closing_price(전일 종가)를
+    기준으로 쓴다. opening_price(자정 시가)는 한 틱 뒤라 미묘하게 어긋난다 — 2026-08-29
+    KAIA에서 0.21%p(-7.35 vs 화면 -7.14) 벌어졌고, 교환비율 줄에서 더 증폭됐다."""
     out, lag = {}, 0.0
     for s in syms:
         v = get(BITHUMB.format(s.split("-")[0]))["data"]
-        price, prev = float(v["closing_price"]), float(v["opening_price"])
+        price, prev = float(v["closing_price"]), float(v["prev_closing_price"])
         ts = float(v.get("date") or 0) / 1000.0   # 응답에 박힌 거래소 시각
         lag = max(lag, time.time() - ts if ts else 0.0)
         diff = price - prev
@@ -311,8 +313,8 @@ def kst_midnight_open(market):
 
 
 def upbit(syms):
-    """빗썸이 막혔을 때 쓰는 대체 소스. 업비트 화면 기준(09시)이 아니라 빗썸과 같은
-    자정 기준으로 등락률을 계산한다."""
+    """빗썸이 막혔을 때 쓰는 대체 소스. 업비트 화면 기준(09시)이 아니라 빗썸에 가깝게
+    자정 시가를 기준으로 계산한다(빗썸의 전일 종가와는 한 틱 차이)."""
     markets = ",".join("KRW-" + x.split("-")[0] for x in syms)
     out = {}
     for d in get(UPBIT + markets):
