@@ -25,7 +25,10 @@ if not defined PYW (
 if not defined PYW (
   echo   파이썬이 없어서 먼저 설치합니다. 1~3분 걸립니다...
   winget install -e --id Python.Python.3.12 --silent --accept-package-agreements --accept-source-agreements
+  rem 설치 위치는 계정용/전체용에 따라 갈린다. 한 곳만 보면 방금 깐 것을 못 찾는다.
   for /f "delims=" %%p in ('dir /b /s "%LOCALAPPDATA%\Programs\Python\pythonw.exe" 2^>nul') do if not defined PYW set "PYW=%%p"
+  for /d %%d in ("%ProgramFiles%\Python3*") do if not defined PYW if exist "%%d\pythonw.exe" set "PYW=%%d\pythonw.exe"
+  for /d %%d in ("C:\Python3*") do if not defined PYW if exist "%%d\pythonw.exe" set "PYW=%%d\pythonw.exe"
 )
 
 if not defined PYW (
