@@ -40,9 +40,14 @@ def self_update():
         try:
             new = urllib.request.urlopen(RAW, timeout=8).read()
             if len(new) > 10000 and b"tkinter" in new and new != before:
+                # 문법이 깨진 코드는 받아도 쓰지 않는다. 파이썬은 파일 전체를 컴파일한 뒤
+                # 실행하므로, 한 번 덮이면 이 갱신 코드조차 돌지 못해 영영 회복이 안 된다.
+                compile(new, me, "exec")
                 with open(me, "wb") as f:
                     f.write(new)
             update_note[0] = "최신"
+        except SyntaxError:
+            update_note[0] = "새 코드에 문제가 있어 그대로 둠"
         except Exception:
             update_note[0] = "확인 실패(인터넷)"    # 인터넷이 없으면 있던 걸로 그냥 돈다
     try:
