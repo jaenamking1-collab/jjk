@@ -1,21 +1,23 @@
 @echo off
-chcp 65001 >nul
+rem [ENCODING] Keep this file in CP949 (ANSI/Korean). Do NOT save as UTF-8.
+rem cmd.exe seeks by byte but counts characters, so multi-byte UTF-8 text
+rem desyncs the parser and chops later lines in half (2026-08-31).
 setlocal enabledelayedexpansion
-title ì‹¤ì‹œê°„ ì‹œì„¸ ìœ„ì ¯ ì„¤ì¹˜
+title ½Ç½Ã°£ ½Ã¼¼ À§Á¬ ¼³Ä¡
 
-rem ë‚¨ì—ê²Œ ì´ íŒŒì¼ í•˜ë‚˜ë§Œ ì£¼ë©´ ë˜ê²Œ ë§Œë“  ì„¤ì¹˜ê¸°.
-rem íŒŒì´ì¬ í™•ì¸/ì„¤ì¹˜ â†’ ìµœì‹  ticker.pyw ë‚´ë ¤ë°›ê¸° â†’ ë°”íƒ•í™”ë©´ ë°”ë¡œê°€ê¸° â†’ ì‹¤í–‰.
-rem ì„¤ì • íŒŒì¼ì€ ì•„ëž˜ DEST í´ë”ì—ë§Œ ìƒê¸°ë¯€ë¡œ, ë‚´ ë³´ìœ  ì¢…ëª©ì´ ë”¸ë ¤ ê°€ì§€ ì•ŠëŠ”ë‹¤.
+rem ³²¿¡°Ô ÀÌ ÆÄÀÏ ÇÏ³ª¸¸ ÁÖ¸é µÇ°Ô ¸¸µç ¼³Ä¡±â.
+rem ÆÄÀÌ½ã È®ÀÎ/¼³Ä¡ ¡æ ÃÖ½Å ticker.pyw ³»·Á¹Þ±â ¡æ ¹ÙÅÁÈ­¸é ¹Ù·Î°¡±â ¡æ ½ÇÇà.
+rem ¼³Á¤ ÆÄÀÏÀº ¾Æ·¡ DEST Æú´õ¿¡¸¸ »ý±â¹Ç·Î, ³» º¸À¯ Á¾¸ñÀÌ µþ·Á °¡Áö ¾Ê´Â´Ù.
 
 set "DEST=%LOCALAPPDATA%\ticker"
 set "SRC=https://raw.githubusercontent.com/jaenamking1-collab/jjk/main/tools/ticker.pyw"
 
 echo.
-echo   ì‹¤ì‹œê°„ ì‹œì„¸ ìœ„ì ¯ì„ ì„¤ì¹˜í•©ë‹ˆë‹¤.
-echo   ì„¤ì¹˜ ìœ„ì¹˜: %DEST%
+echo   ½Ç½Ã°£ ½Ã¼¼ À§Á¬À» ¼³Ä¡ÇÕ´Ï´Ù.
+echo   ¼³Ä¡ À§Ä¡: %DEST%
 echo.
 
-rem â”€â”€ íŒŒì´ì¬ ì°¾ê¸° â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+rem ¦¡¦¡ ÆÄÀÌ½ã Ã£±â ¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡
 set "PYW="
 for /f "delims=" %%p in ('where pythonw 2^>nul') do if not defined PYW set "PYW=%%p"
 if not defined PYW (
@@ -23,9 +25,9 @@ if not defined PYW (
 )
 
 if not defined PYW (
-  echo   íŒŒì´ì¬ì´ ì—†ì–´ì„œ ë¨¼ì € ì„¤ì¹˜í•©ë‹ˆë‹¤. 1~3ë¶„ ê±¸ë¦½ë‹ˆë‹¤...
+  echo   ÆÄÀÌ½ãÀÌ ¾ø¾î¼­ ¸ÕÀú ¼³Ä¡ÇÕ´Ï´Ù. 1~3ºÐ °É¸³´Ï´Ù...
   winget install -e --id Python.Python.3.12 --silent --accept-package-agreements --accept-source-agreements
-  rem ì„¤ì¹˜ ìœ„ì¹˜ëŠ” ê³„ì •ìš©/ì „ì²´ìš©ì— ë”°ë¼ ê°ˆë¦°ë‹¤. í•œ ê³³ë§Œ ë³´ë©´ ë°©ê¸ˆ ê¹ ê²ƒì„ ëª» ì°¾ëŠ”ë‹¤.
+  rem ¼³Ä¡ À§Ä¡´Â °èÁ¤¿ë/ÀüÃ¼¿ë¿¡ µû¶ó °¥¸°´Ù. ÇÑ °÷¸¸ º¸¸é ¹æ±Ý ±ñ °ÍÀ» ¸ø Ã£´Â´Ù.
   for /f "delims=" %%p in ('dir /b /s "%LOCALAPPDATA%\Programs\Python\pythonw.exe" 2^>nul') do if not defined PYW set "PYW=%%p"
   for /d %%d in ("%ProgramFiles%\Python3*") do if not defined PYW if exist "%%d\pythonw.exe" set "PYW=%%d\pythonw.exe"
   for /d %%d in ("C:\Python3*") do if not defined PYW if exist "%%d\pythonw.exe" set "PYW=%%d\pythonw.exe"
@@ -33,31 +35,31 @@ if not defined PYW (
 
 if not defined PYW (
   echo.
-  echo   ìžë™ ì„¤ì¹˜ê°€ ì•ˆ ëìŠµë‹ˆë‹¤. python.org íŽ˜ì´ì§€ë¥¼ ì—½ë‹ˆë‹¤.
-  echo   ì„¤ì¹˜ ì²« í™”ë©´ì˜ "Add python.exe to PATH"ë¥¼ ê¼­ ì²´í¬í•˜ì‹œê³ ,
-  echo   ì„¤ì¹˜ê°€ ëë‚˜ë©´ ì´ íŒŒì¼ì„ ë‹¤ì‹œ ì‹¤í–‰í•´ ì£¼ì„¸ìš”.
+  echo   ÀÚµ¿ ¼³Ä¡°¡ ¾È µÆ½À´Ï´Ù. python.org ÆäÀÌÁö¸¦ ¿±´Ï´Ù.
+  echo   ¼³Ä¡ Ã¹ È­¸éÀÇ "Add python.exe to PATH"¸¦ ²À Ã¼Å©ÇÏ½Ã°í,
+  echo   ¼³Ä¡°¡ ³¡³ª¸é ÀÌ ÆÄÀÏÀ» ´Ù½Ã ½ÇÇàÇØ ÁÖ¼¼¿ä.
   start "" https://www.python.org/downloads/
   pause
   exit /b 1
 )
 
-rem â”€â”€ í”„ë¡œê·¸ëž¨ ë‚´ë ¤ë°›ê¸° â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+rem ¦¡¦¡ ÇÁ·Î±×·¥ ³»·Á¹Þ±â ¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡
 if not exist "%DEST%" mkdir "%DEST%"
 curl -L -f -s -o "%DEST%\ticker.pyw" "%SRC%"
 if errorlevel 1 (
-  echo   ë‚´ë ¤ë°›ê¸°ì— ì‹¤íŒ¨í–ˆìŠµë‹ˆë‹¤. ì¸í„°ë„· ì—°ê²°ì„ í™•ì¸í•˜ê³  ë‹¤ì‹œ ì‹¤í–‰í•´ ì£¼ì„¸ìš”.
+  echo   ³»·Á¹Þ±â¿¡ ½ÇÆÐÇß½À´Ï´Ù. ÀÎÅÍ³Ý ¿¬°áÀ» È®ÀÎÇÏ°í ´Ù½Ã ½ÇÇàÇØ ÁÖ¼¼¿ä.
   pause
   exit /b 1
 )
 
-rem â”€â”€ ë°”íƒ•í™”ë©´ ë°”ë¡œê°€ê¸° (ì›ë“œë¼ì´ë¸Œë¡œ ì˜®ê²¨ì§„ ë°”íƒ•í™”ë©´ë„ ì°¾ëŠ”ë‹¤) â”€â”€
-powershell -NoProfile -Command "$d=[Environment]::GetFolderPath('Desktop'); $s=(New-Object -COM WScript.Shell).CreateShortcut($d+'\ì‹¤ì‹œê°„ ì‹œì„¸.lnk'); $s.TargetPath='%PYW%'; $s.Arguments='\"%DEST%\ticker.pyw\"'; $s.WorkingDirectory='%DEST%'; $s.Description='ì‹¤ì‹œê°„ ì‹œì„¸ ìœ„ì ¯'; $s.Save()"
+rem ¦¡¦¡ ¹ÙÅÁÈ­¸é ¹Ù·Î°¡±â (¿øµå¶óÀÌºê·Î ¿Å°ÜÁø ¹ÙÅÁÈ­¸éµµ Ã£´Â´Ù) ¦¡¦¡
+powershell -NoProfile -Command "$d=[Environment]::GetFolderPath('Desktop'); $s=(New-Object -COM WScript.Shell).CreateShortcut($d+'\½Ç½Ã°£ ½Ã¼¼.lnk'); $s.TargetPath='%PYW%'; $s.Arguments='\"%DEST%\ticker.pyw\"'; $s.WorkingDirectory='%DEST%'; $s.Description='½Ç½Ã°£ ½Ã¼¼ À§Á¬'; $s.Save()"
 
 start "" "%PYW%" "%DEST%\ticker.pyw"
 
 echo.
-echo   ì„¤ì¹˜ ì™„ë£Œ. ë°”íƒ•í™”ë©´ì— ã€Œì‹¤ì‹œê°„ ì‹œì„¸ã€ ë°”ë¡œê°€ê¸°ë¥¼ ë§Œë“¤ì—ˆìŠµë‹ˆë‹¤.
-echo   ì°½ ì˜¤ë¥¸ìª½ ìœ„ í†±ë‹ˆ(âš™)ë¥¼ ëˆŒëŸ¬ ë³´ê³  ì‹¶ì€ ì¢…ëª©ìœ¼ë¡œ ë°”ê¾¸ì„¸ìš”.
-echo   (êµ­ë‚´ ì¢…ëª©ì€ 6ìžë¦¬ ì½”ë“œ, ì˜ˆ: 069500 / í•´ì™¸ëŠ” í‹°ì»¤, ì˜ˆ: AAPL)
+echo   ¼³Ä¡ ¿Ï·á. ¹ÙÅÁÈ­¸é¿¡ ¡¸½Ç½Ã°£ ½Ã¼¼¡¹ ¹Ù·Î°¡±â¸¦ ¸¸µé¾ú½À´Ï´Ù.
+echo   Ã¢ ¿À¸¥ÂÊ À§ ¿À¸¥ÂÊ À§ Åé´Ï ´ÜÃß¸¦ ´­·¯ º¸°í ½ÍÀº Á¾¸ñÀ¸·Î ¹Ù²Ù¼¼¿ä.
+echo   (±¹³» Á¾¸ñÀº 6ÀÚ¸® ÄÚµå, ¿¹: 069500 / ÇØ¿Ü´Â Æ¼Ä¿, ¿¹: AAPL)
 echo.
 timeout /t 8 >nul
