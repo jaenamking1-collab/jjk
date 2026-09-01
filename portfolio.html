@@ -268,6 +268,10 @@ if (!/[?&]pc=1/.test(location.search) && window.innerWidth <= 768) {
   .chart-bars { display:flex; align-items:flex-end; gap:6px; height:160px; padding:0 4px; }
   .bar-wrap { flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; }
   .bar { width:100%; border-radius:6px 6px 0 0; background:linear-gradient(180deg,#8b5cf6,#3b82f6); opacity:.9; transition:all .3s; min-height:2px; }
+  /* 확정 막대 뒤에 겹치는 '아직 안 들어온 몫' 그림자 막대 */
+  .bar-stack { position:relative; width:100%; }
+  .bar-stack .bar { position:absolute; left:0; right:0; bottom:0; }
+  .bar-ghost { opacity:.18 !important; }
   .bar:hover { opacity:1; filter:saturate(1.2); }
   .bar-label { font-size:10px; color:var(--text3); }
   .bar-val { font-size:10px; color:var(--text2); font-family:var(--mono); writing-mode:vertical-rl; white-space:nowrap; }
@@ -2498,29 +2502,39 @@ async function loadDashboard() {
   // 지난 달은 확정(입력) 실측, 이번 달·미래는 예상(투영). 과거 연도 전부 확정, 미래 연도 전부 예상.
   const isConfirmed = i => year < nowY || (year === nowY && i < curMonth);
   const barVal = i => isConfirmed(i) ? monthActual[i] : monthProj[i];
-  const max = Math.max(...Array.from({length:12},(_,i)=>barVal(i)),1);
+  // 확정 달인데 아직 안 들어온 종목이 있으면 그 달 투영액을 뒤에 흐린 막대로 겹친다.
+  // (8월에 3종목만 입력돼 249만으로 보이면, 원래 예상 570만이 뒤에 남아 '덜 들어왔다'가 보인다)
+  const ghostVal = i => (isConfirmed(i) && monthProj[i] > barVal(i)) ? monthProj[i] : 0;
+  const max = Math.max(...monthProj, ...monthActual, 1);
   const mlabels=['1','2','3','4','5','6','7','8','9','10','11','12'];
   document.getElementById('monthChart').innerHTML = `<div class="chart-bars">
     ${mlabels.map((_,i)=>{
-      const t = barVal(i);
+      const t = barVal(i), g = ghostVal(i);
       const col = (i===curMonth&&year===nowY) ? 'var(--green)' : (isConfirmed(i) ? 'var(--accent)' : 'var(--accent2)');
       const op = isConfirmed(i) ? '1' : '0.4';
       // 툴팁: 이 달 금액이 뭘로 이뤄졌는지. 예상이 섞인 달은 '왜 이만큼인지'가 안 보인다.
       const who = (monthWho[i] || []).slice().sort((a,b)=>b.amt-a.amt);
       const est = who.filter(x=>x.est).reduce((a,b)=>a+b.amt,0);
       const tip = isConfirmed(i)
-        ? mlabels[i]+'월 확정 '+Math.round(t).toLocaleString()
+        ? (g ? [mlabels[i]+'월 확정 '+Math.round(t).toLocaleString(),
+                '  예상 '+Math.round(g).toLocaleString()+' · 아직 안 들어온 것 '+Math.round(est).toLocaleString(),
+                ''].concat(who.filter(x=>x.est).slice(0,8).map(x=>'· '+x.name+'  '+Math.round(x.amt).toLocaleString())).join(String.fromCharCode(10))
+             : mlabels[i]+'월 확정 '+Math.round(t).toLocaleString())
         : [mlabels[i]+'월 예상 '+Math.round(monthProj[i]).toLocaleString(),
            '  확정 입력 '+Math.round(monthProj[i]-est).toLocaleString()+' + 예상 '+Math.round(est).toLocaleString(),
            ''].concat(who.slice(0,8).map(x=>(x.est?'· ':'✔ ')+x.name+'  '+Math.round(x.amt).toLocaleString())).join(String.fromCharCode(10));
+      const hBar = Math.max((t/max)*120, 2), hGhost = g ? Math.max((g/max)*120, 2) : 0;
       return `<div class="bar-wrap" title="${tip.replace(/"/g,'')}">
-        <div style="font-size:10px;color:var(--text2);font-family:var(--mono);margin-bottom:4px">${t?Math.round(t/10000)+'만':''}</div>
-        <div class="bar" style="height:${Math.max((t/max)*120,2)}px;background:${col};opacity:${op}"></div>
+        <div style="font-size:10px;color:var(--text2);font-family:var(--mono);margin-bottom:4px">${t?Math.round(t/10000)+'만':''}${g?` <span style="color:var(--text3);opacity:.75">(${Math.round(g/10000)}만)</span>`:''}</div>
+        <div class="bar-stack" style="height:${Math.max(hBar,hGhost)}px">
+          ${g?`<div class="bar bar-ghost" style="height:${hGhost}px;background:${col}"></div>`:''}
+          <div class="bar" style="height:${hBar}px;background:${col};opacity:${op}"></div>
+        </div>
         <div class="bar-label">${mlabels[i]}월</div>
       </div>`;
     }).join('')}
   </div>
-  <div style="font-size:10px;color:var(--text3);margin-top:8px;display:flex;gap:12px"><span style="color:var(--accent)">■ 확정(입력)</span><span style="color:var(--accent2);opacity:.6">■ 예상(투영)</span></div>`;
+  <div style="font-size:10px;color:var(--text3);margin-top:8px;display:flex;gap:12px"><span style="color:var(--accent)">■ 확정(입력)</span><span style="color:var(--accent2);opacity:.6">■ 예상(투영)</span><span style="color:var(--accent);opacity:.35">■ 아직 안 들어온 몫</span></div>`;
 
   // ⑥ 탑5 / 하위5
   perHolding.sort((a,b)=>b.plPct-a.plPct);
