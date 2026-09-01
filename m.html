@@ -475,13 +475,33 @@ function viewStocks() {
     <div class="card">${rows || '<div class="empty">보유 종목 없음</div>'}</div>`;
 }
 
+// 선택한 연·월의 그 종목 분배금 행. viewDivs와 updateDivSums가 같이 쓴다.
+function divRowOf(h) {
+  return D.divsAll.find(x => x.holding_id === h.id
+                          && parseInt(x.year) === D.year && parseInt(x.month) === D.month);
+}
+function divAmountOf(h) { const d = divRowOf(h); return d ? (parseFloat(d.amount) || 0) : 0; }
+
+// 저장 뒤 render()로 전체를 다시 그리면, 방금 손가락으로 옮겨간 다음 칸까지 새 element로
+// 바뀌어 포커스와 키보드가 닫힌다 — 폰에서 "칸을 눌러도 입력이 안 된다"의 정체다.
+// 그래서 저장 뒤에는 다시 그리지 않고 합계 숫자만 제자리에서 고친다.
+function updateDivSums() {
+  let total = 0;
+  D.accounts.forEach(a => {
+    const sub = D.holdings.filter(h => h.account_id === a.id)
+      .reduce((s, h) => s + divKrwOf(divAmountOf(h), h.currency, (divRowOf(h) || {}).rate), 0);
+    total += sub;
+    const el = document.getElementById('dsub-' + a.id);
+    if (el) el.textContent = won(sub);
+  });
+  const t = document.getElementById('dtot');
+  if (t) t.textContent = won(total);
+}
+
 function viewDivs() {
   const y = D.year, m = D.month;
   const yOpts = [y-2,y-1,y,y+1].map(v => `<option value="${v}" ${v===y?'selected':''}>${v}년</option>`).join('');
   const mOpts = Array.from({length:12},(_,i)=>i+1).map(v => `<option value="${v}" ${v===m?'selected':''}>${v}월</option>`).join('');
-
-  const rowOf = h => D.divsAll.find(x => x.holding_id === h.id && parseInt(x.year) === y && parseInt(x.month) === m);
-  const amountOf = h => { const d = rowOf(h); return d ? (parseFloat(d.amount) || 0) : 0; };
 
   let monthTotal = 0;
   const groups = D.accounts.map(a => {
@@ -489,9 +509,9 @@ function viewDivs() {
     if (!hs.length) return '';
     let sub = 0;
     const rows = hs.map(h => {
-      const amt = amountOf(h);
+      const amt = divAmountOf(h);
       const usd = h.currency === 'USD';
-      sub += divKrwOf(amt, h.currency, (rowOf(h) || {}).rate);
+      sub += divKrwOf(amt, h.currency, (divRowOf(h) || {}).rate);
       const shown = amt > 0 ? (usd ? amt.toFixed(2) : Math.round(amt).toLocaleString()) : '';
       return `<div class="dv">
         <div class="t"><b style="font-size:13px">${esc(h.name || h.ticker)}</b>
@@ -503,7 +523,7 @@ function viewDivs() {
     monthTotal += sub;
     return `<div class="card">
       <div class="card-hd" style="background:#475569">${esc(a.name)}
-        <span style="float:right;font-family:var(--mono)">${won(sub)}</span></div>
+        <span id="dsub-${a.id}" style="float:right;font-family:var(--mono)">${won(sub)}</span></div>
       ${rows}</div>`;
   }).join('');
 
@@ -511,7 +531,7 @@ function viewDivs() {
     <div class="picker">
       <select onchange="D.year=parseInt(this.value);render()">${yOpts}</select>
       <select onchange="D.month=parseInt(this.value);render()">${mOpts}</select>
-      <span class="muted">${y}년 ${m}월 합계 <b class="num" style="color:var(--green)">${won(monthTotal)}</b></span>
+      <span class="muted">${y}년 ${m}월 합계 <b id="dtot" class="num" style="color:var(--green)">${won(monthTotal)}</b></span>
     </div>
     ${groups || '<div class="empty">계좌가 없습니다</div>'}
     <div class="muted" style="padding:4px 2px 0">숫자를 고치고 칸 밖을 누르면 저장됩니다. USD 종목은 달러로 입력하세요.</div>`;
@@ -760,7 +780,7 @@ async function saveDiv(input) {
     await apiPost({ action:'saveDividend', holding_id:hid, year:D.year, month:D.month,
                     amount, currency: usd ? 'USD' : 'KRW' });
   } catch (e) { alert('저장 실패 — 통신 오류입니다. 다시 시도하세요.'); }
-  render();
+  updateDivSums();          // render()를 부르면 다음 칸의 포커스가 날아간다 (updateDivSums 주석 참고)
 }
 
 async function editHolding(id) {

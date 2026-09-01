@@ -2010,7 +2010,7 @@ async function loadDividendGrid() {
       const monthRate = (invM > 0 && amtKrw > 0) ? (amtKrw / invM * 100).toFixed(2) : '';
       const dol = isUsd && amt ? `<span style="font-size:1em;color:#92400e;font-weight:700;margin-right:2px">$</span>` : '';
       // 노랑 = 채워야 하는데 비어 있는 칸. 두 가지로 판단한다.
-      //  ① 공지 지급일이 오늘 앞뒤 3일 안 (이번 회차)
+      //  ① 공지 지급일이 오늘 앞뒤 3일 안 (이번 회차) — 칠하는 칸은 기준일이 있는 달이다
       //  ② 이미 지나간 달인데 그 달에 보유 중이었고 월배당 종목이다 (놓친 회차 — 계속 노랑으로 남는다)
       const cbq = costMap && costMap[`${h.id}_${m}`];
       const heldThen = cbq ? (parseFloat(cbq.qty) || 0) > 0
@@ -4228,6 +4228,15 @@ function distDueMap(allData, holdings, days) {
       if (pay - now > 300 * 86400000) pay = new Date(Y - 1, p.m - 1, p.d);
       if (now - pay > 300 * 86400000) pay = new Date(Y + 1, p.m - 1, p.d);
       if (Math.abs(pay - now) > win) return;
+      // 칠할 칸은 '지급일이 있는 달'이 아니라 그 회차가 속한 달 = 기준일(배당락)이 있는 달이다.
+      // 월말형은 8월 말 기준일 → 9월 초 지급이라, 지급일로 칠하면 8월분이 9월 칸에 칠해졌다.
+      const b = distParseDay(sch['기준일'] || sch['분배락일']);
+      let cyc = pay;
+      if (b) {
+        cyc = new Date(pay.getFullYear(), b.m - 1, b.d);
+        if (cyc - pay > 60 * 86400000) cyc = new Date(pay.getFullYear() - 1, b.m - 1, b.d);  // 12월 기준 → 1월 지급
+      }
+      if (cyc.getFullYear() !== Y) return;      // 표는 올해치다
       const t = (it.ticker || '').toString().trim().toUpperCase();
       const n = distNormName(it.name);
       // 티커 → 이름 완전일치 → 포함관계 순. 앱은 '삼성 KODEX …', 공지는 'KODEX … ETF'라
@@ -4241,7 +4250,7 @@ function distDueMap(allData, holdings, days) {
           return hn.length >= 8 && (hn.indexOf(n) >= 0 || n.indexOf(hn) >= 0);
         });
       }
-      hs.forEach(h => { (out[h.id] = out[h.id] || new Set()).add(pay.getMonth() + 1); });
+      hs.forEach(h => { (out[h.id] = out[h.id] || new Set()).add(cyc.getMonth() + 1); });
     });
   });
   return out;
