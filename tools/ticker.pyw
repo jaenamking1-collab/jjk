@@ -127,6 +127,7 @@ NAVER = "https://polling.finance.naver.com/api/realtime/domestic/{}/{}"
 BITHUMB = "https://api.bithumb.com/public/ticker/{}_KRW"     # 종목별. ALL_KRW는 캐시를 타서 값이 멎는다
 UPBIT = "https://api.upbit.com/v1/ticker?markets="           # 빗썸이 막힐 때 대체
 UPCANDLE = "https://api.upbit.com/v1/candles/minutes/60?count=1&market={}&to={}"
+GECKO = "https://api.coingecko.com/api/v3/exchanges/bithumb/tickers?coin_ids={}"
 FX = "USDKRW=X"                          # 달러 페어만 있는 코인을 원화로 바꿀 때 쓰는 환율
 UA = {"User-Agent": "Mozilla/5.0", "Referer": "https://finance.naver.com/"}
 BG, FG, DIM, ACC, LINE = "#2a2f3a", "#f2f5fa", "#9aa5ba", "#7db3ff", "#4d576c"
@@ -143,6 +144,10 @@ RATIO = "/"                              # "XRP-KRW/KAIA-KRW" = 1 XRP가 몇 KAI
 ALERT = 5.0                              # 등락률 이 이상이면 반짝임
 COIN_SEC = 5                             # 코인 조회 간격(초). 주식과 같은 속도로 본다
 COIN_SLOW = 20                           # 거래소가 요청을 끊는 곳(학교망)에서는 이만큼 물러선다
+GECKO_SEC = 180                          # 코인게코 조회 간격(초). 무료 등급이라 자주 부르면 막힌다
+# 코인게코는 심볼이 아니라 자기네 id 로 묻는다. 여기 없는 코인은 환산비를 안 고칠 뿐 그대로 돈다.
+GECKO_ID = {"BTC": "bitcoin", "ETH": "ethereum", "XRP": "ripple", "KAIA": "kaia",
+            "SOL": "solana", "DOGE": "dogecoin"}
 coin_at = [0.0]                          # 마지막 조회 시각
 coin_ok = [0.0]                          # 마지막으로 거래소가 응답한 시각
 coin_gap = [COIN_SEC]                    # 지금 쓰는 간격 (실패하면 늘고, 되면 다시 줄인다)
@@ -153,6 +158,8 @@ coin_prem = {}                           # 코인 -> 국내가 ÷ 해외가. 거
 coin_base = {}                           # 코인 -> (날짜, 국내 자정 시가). 등락률 기준을 빗썸과 맞춘다
 coin_ext = [True]                        # 야후에 코인도 함께 물어볼지 (코인 탓에 실패하면 끈다)
 coin_usd = {}                            # 코인 -> 야후 달러 심볼. 원화 페어가 없는 코인(KAIA 등)
+gecko_at = [0.0]                         # 코인게코를 마지막으로 부른 시각
+gecko_key = [""]                         # 그때 물어본 코인 구성. 달라지면 잠금 없이 다시 묻는다
 prem_at = [0.0]                          # 환산비를 마지막으로 저장한 시각
 PREM_SAVE = 600                          # 환산비 저장 간격(초)
 INDEX = {"KOSPI": "KOSPI", "KOSDAQ": "KOSDAQ", "^KS11": "KOSPI", "^KQ11": "KOSDAQ"}
@@ -328,6 +335,22 @@ def upbit(syms):
         diff = price - prev
         out[d["market"].split("-")[1] + "-KRW"] = (
             price, diff, diff / prev * 100 if prev else 0.0, 0 if price >= 100 else 2, None)
+    return out
+
+
+def gecko(syms):
+    """거래소가 막힌 곳에서 쓰는 우회 경로. 코인게코가 중계하는 **빗썸** 원화 시세를 받는다.
+    `api.bithumb.com` 이 막혀도 코인게코는 열려 있는 망이 있다(2026-09-01 학교에서 확인).
+    화면을 그리는 데는 안 쓴다 — 무료 등급이라 5초 주기를 못 견딘다. 몇 분에 한 번 불러
+    김치프리미엄만 최신으로 맞추고, 시세 자체는 종전대로 야후로 5초마다 그린다."""
+    want = {s.split("-")[0]: s for s in syms if s.split("-")[0] in GECKO_ID}
+    if not want:
+        return {}
+    out = {}
+    for t in get(GECKO.format(",".join(GECKO_ID[b] for b in want)))["tickers"]:
+        k = want.get(t.get("base"))
+        if k and t.get("target") == "KRW" and t.get("last") and not t.get("is_stale"):
+            out[k] = float(t["last"])
     return out
 
 
@@ -638,6 +661,19 @@ def refresh():
                 coin_usd[k] = k.split("-")[0] + "-USD"   # 원화 페어가 없다 -> 다음 조회부터 달러로
 
         blocked = time.time() - coin_ok[0] > 30      # 한두 번 걸러도 직전 값이 아직 쓸 만하다
+        # 거래소가 막힌 곳에서는 코인게코가 중계하는 빗썸 시세로 김치프리미엄을 다시 잰다.
+        # 이게 없으면 집에서 마지막으로 잰 옛 비율로 하루 종일 환산한다(1~3% 어긋난다).
+        # 코인 구성이 달라지면 잠금을 무시하고 바로 다시 묻는다. 켜자마자 한 사이클은
+        # 원화 페어 없는 코인(KAIA)이 far 에 없어서 그 코인만 옛 비율로 남기 때문이다.
+        key = ",".join(sorted(far))
+        if blocked and far and (key != gecko_key[0] or time.time() - gecko_at[0] > GECKO_SEC):
+            gecko_at[0], gecko_key[0] = time.time(), key
+            try:
+                for k, won in gecko(groups["coin"]).items():
+                    if far.get(k) and far[k][0]:
+                        coin_prem[k] = won / far[k][0]
+            except Exception:
+                pass                                 # 막혔거나 요청이 잦으면 옛 비율로 계속 간다
         conv, raw = [], []                           # 환산한 코인 / 그중 환산비가 없어 해외 원값인 것
         for k in groups["coin"]:
             if k in data:                            # 거래소에서 받았다 -> 해외와의 비율을 기억
