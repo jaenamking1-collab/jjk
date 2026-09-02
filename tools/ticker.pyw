@@ -139,6 +139,9 @@ ROWLINE = "#353c4a"                      # 행 사이 얇은 선
 FIELD = "#1f242e"                        # 설정창 입력칸
 THEME = {}                               # 불투명도가 반영된 현재 색
 UP, DOWN = "#ff5c66", "#5aa8ff"          # 국내식: 상승 빨강, 하락 파랑
+# 진하기를 80 위로 올렸을 때의 도달점. 흰색으로 섞으면 빨강이 분홍, 파랑이 하늘색으로
+# 바래서 등락을 못 알아본다. 색은 흰색이 아니라 더 선명한 원색 쪽으로 가야 한다.
+FG_HI, UP_HI, DOWN_HI = "#ffffff", "#ff1f2e", "#1f90ff"
 SEP = "---"
 RATIO = "/"                              # "XRP-KRW/KAIA-KRW" = 1 XRP가 몇 KAIA인지
 ALERT = 5.0                              # 등락률 이 이상이면 반짝임
@@ -202,8 +205,9 @@ def mix(a, b, t):
 def theme():
     """80 = 지금 보이는 상태. 그 아래는 배경에 묻히고, 위로는 더 또렷해짐."""
     t = cfg["text_op"] / 100.0
-    for key, base in (("fg", FG), ("dim", DIM), ("up", UP), ("down", DOWN)):
-        THEME[key] = mix(BG, base, t / 0.8) if t <= 0.8 else mix(base, "#ffffff", (t - 0.8) * 2.5)
+    for key, base, hi in (("fg", FG, FG_HI), ("dim", DIM, FG_HI),
+                          ("up", UP, UP_HI), ("down", DOWN, DOWN_HI)):
+        THEME[key] = mix(BG, base, t / 0.8) if t <= 0.8 else mix(base, hi, (t - 0.8) * 2.5)
     if TRANSPARENT:
         root.attributes("-alpha", 1.0)                          # 글자 창은 항상 또렷하게
         back.configure(bg=BG)
