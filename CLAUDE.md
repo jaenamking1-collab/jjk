@@ -43,9 +43,14 @@ There is **no build system, package manager, test suite, or lint config**. The f
   - **배포 절차 (그대로 따라라)**:
     1. 임시 폴더에 `.clasp.json`만 복사해 `clasp pull` → 원격이 내 작업 전 로컬과 같은지 확인. (**저장소 안에서 `clasp pull` 금지** — 로컬 `Code.gs`가 옛 원격본으로 덮인다.)
     2. `clasp push --force` — **`--force` 없으면 매니페스트 확인 프롬프트에서 `Skipping push.`로 끝난다.** 비대화형이라 `echo y |` 파이프도 안 먹는다.
-    3. `clasp redeploy AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s -d "<note>"` — 라이브 배포에 새 버전을 물린다. **새 배포(`clasp deploy`) 금지 — URL이 새로 생긴다.**
+    3. `clasp deploy -i AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s -d "<note>"` — 라이브 배포에 새 버전을 물린다. **`-i`(기존 배포 ID) 없이 `clasp deploy` 만 치면 URL이 새로 생긴다 — 금지.** (clasp 2.4.2 엔 `redeploy` 명령이 없다.)
     4. 다시 `clasp pull`로 원격에 변경분이 들어갔는지 확인.
     공개 분배금공지 페이지가 같은 `/exec` URL을 쓴다. 기존 액션의 응답 계약을 바꾸는 배포라면 먼저 알린다(액션 추가처럼 덧붙이기만 하는 변경은 그냥 배포한다).
+  - ✅ **원격(클라우드) 세션에서도 배포된다** (2026-09-03 확인). 막힌 건 `script.google.com` **하나뿐**이고 clasp 가 실제로 쓰는 `script.googleapis.com`·`oauth2.googleapis.com`·`accounts.google.com` 은 열려 있다. "원격이라 배포 못 한다"고 말하지 마라 — 아래 순서로 하면 된다.
+    1. `npm i -g @google/clasp@2.4.2`
+    2. **로그인**: `clasp login` 의 로컬 콜백 서버는 컨테이너 안에 떠서 사용자 브라우저가 못 닿는다. 그래서 인증 URL을 직접 만들어 준다 — clasp 의 공개 client(`1072944905499-vm2v2i5dvn0a0d2o4ca36i1vge8cvbn0.apps.googleusercontent.com`, secret 은 `build/src/auth.js` 안에 있다)와 `redirect_uri=http://localhost:33353`, scope 는 `clasp login` 이 찍는 것 그대로. 사용자가 허용하면 `localhost:33353/?code=...` 로 넘어가 **연결 실패 페이지**가 뜨는데 정상이다. 주소창의 `code=` 를 받아 `oauth2.googleapis.com/token` 에 교환하고 `~/.clasprc.json` 을 `{token, oauth2ClientSettings, isLocalCreds:false}` 형태로 쓴다. `clasp login --status` 로 확인.
+    3. 그다음은 아래 '배포 절차' 그대로.
+    - ⚠️ **컨테이너는 세션마다 새로 만들어져 `~/.clasprc.json` 이 사라진다.** 원격에서 배포할 일이 있으면 그 세션에서 위 2번(사용자 클릭 1회, 30초)을 다시 해야 한다. **토큰은 저장소에 절대 남기지 않는다.**
   - **`clasp run-function` does not work** here — it needs the script deployed as an API executable. **Installing a trigger (`setupKeepWarm()`, `setupWatchdogTrigger()`, …) therefore still requires the owner to click `▶` in the editor.**
   - One-time per machine: `npm i -g @google/clasp`(에이전트가 함) + `clasp login`과 `script.google.com/home/usersettings`의 **Apps Script API** 토글(구글 계정 행위 — 소유자가 함). 자격증명은 `~/.clasprc.json`.
   - **`portfolio.html`·`m.html`·`dist_notice.html`은 배포 대상이 아니다.** 로컬 파일을 브라우저로 열고, `.claspignore`가 push에서 막는다. git push로 끝.
