@@ -741,11 +741,14 @@ function getEtfNotices(source) {
 // 6개사를 순차 스크랩하면 오히려 더 느리므로, stale인 곳만 프론트가 병렬로 개별 요청해 캐시를 채운다.
 function getEtfNoticesAll() {
   let hits = {};
-  try { hits = CacheService.getScriptCache().getAll(DIST_SOURCE_IDS.map(s => 'notices_v2_' + s)) || {}; } catch(e) {}
+  // ⚠️ 키는 getEtfNotices의 cacheKey와 반드시 같아야 한다. v3로 올렸을 때 여기를 안 고쳐
+  // 벌크가 6개사 전부 stale로 나갔다(= 프론트가 다시 운용사별 6번 요청 = 탭 진입 11초).
+  const key = s => 'notices_v3_' + s;
+  try { hits = CacheService.getScriptCache().getAll(DIST_SOURCE_IDS.map(key)) || {}; } catch(e) {}
   const sources = {};
   DIST_SOURCE_IDS.forEach(s => {
     let v = null;
-    if (hits['notices_v2_' + s]) { try { v = JSON.parse(hits['notices_v2_' + s]); } catch(e) {} }
+    if (hits[key(s)]) { try { v = JSON.parse(hits[key(s)]); } catch(e) {} }
     sources[s] = (v && (v.items || []).length) ? v : { items: [], stale: true };
   });
   return { success: true, sources: sources };
