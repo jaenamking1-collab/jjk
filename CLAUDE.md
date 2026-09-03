@@ -90,6 +90,18 @@ Writes (`apiPost`): `addAccount` / `updateAccount` / `deleteAccount`, `addHoldin
 - **Font sizing**: dividend-grid cells use `font-size:1em` so the "글자" range slider (`applyDivFont`) can scale the whole grid uniformly. Avoid hardcoding px font sizes inside the grid.
 - **CDN dependencies**: SheetJS (`xlsx.full.min.js`) and Pretendard font, both loaded from CDN in `<head>`.
 
+## ⛔ 사용자에게 시키기 전에 — 먼저 해보고 말해라
+
+**이 항목이 이 문서에서 제일 자주 어겨진 규칙이다.** 2026-09-03 하루에만 네 번 반복돼 사용자가 화를 냈다.
+
+- **"못 한다 / 해주세요"는 실제로 시도해 본 뒤에만 말한다.** 안 해보고 넘겨짚은 '못 함'은 전부 틀렸다:
+  - `script.google.com` 403 하나 보고 "구글이 막혀 배포 불가"라고 했다 → 실제로는 clasp 가 쓰는 `script.googleapis.com`·`oauth2.googleapis.com` 은 열려 있었고 **원격에서 배포가 됐다**(WORKLOG 141).
+  - `clasp` 가 없다고 "PC에서 하세요"라고 했다 → **설치하면 그만이다**(이 규칙은 위에도 이미 적혀 있었는데 또 어겼다).
+  - "PC에서 `git pull` 하세요"라고 했다 → **이 저장소가 곧 GitHub Pages**다. 푸시하면 자동 반영이고 사용자가 할 일은 없었다.
+- **순서**: ① 직접 해본다 → ② 막히면 *무엇이* 왜 막혔는지 명령·응답 코드로 확인한다 → ③ 그래도 사람만 할 수 있는 것(구글 계정 '허용' 클릭, 브라우저 로그인)만 부탁한다. ③에 해당하는지 스스로 증거를 못 대면 아직 ①이 안 끝난 것이다.
+- **사용자의 되물음("배포가 안 된다고?", "그거 왜 안 돼?")은 점검 지시다.** 그 자리에서 다시 확인하고 답한다 — 앞서 한 말을 반복하지 않는다.
+- 부탁을 할 때는 **왜 나는 못 하는지**(막힌 호스트, 없는 자격증명 등 구체적 근거)를 한 줄로 같이 준다. 근거를 못 쓰겠으면 부탁하지 마라.
+
 ## Working principles
 
 Adapted from the [Karpathy coding guidelines](https://x.com/karpathy/status/2015883857489522876) — they matter more than usual here because there is no test suite or type checker to catch mistakes, and the backend must be redeployed by hand. They bias toward caution over speed; for trivial edits, use judgment.
