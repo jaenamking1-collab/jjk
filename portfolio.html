@@ -4130,34 +4130,26 @@ function shiftMonth(dir) {
   if (_noticeData) renderNotices();
 }
 // ── 월 커서가 가리키는 '이번 회차'의 달 ──
-// 달이 바뀌었다고 바로 넘기면, 월말 회차는 지급이 다음 달 초라 **분배금이 실제로 들어온 날에
-// 뭐가 얼마나 들어왔는지 볼 화면이 이미 사라져 있다**(9/2 지급인데 9/1부터 8월 회차가 안 보였다).
-// 게다가 새 달 공지는 10~13일에나 나오므로 그때까진 이번 달 칸이 통째로 비어 있다.
-// → **이번 달 회차 공지가 들어오기 전까지는 지난달**을 가리킨다. 새 회차 공지가 들어오면
-//   자동으로 이번 달로 넘어가고, 아무리 늦어도 16일부터는 이번 달이다.
-//   지급일 당일과 그 다음 날은 새 회차 공지가 이미 떴더라도 지난달을 지킨다.
+// 규칙은 하나다: **지난달 월말 회차의 지급일 + 1일까지는 지난달**, 그 다음 날부터 이번 달.
+// 왜: 월말 회차는 지급이 다음 달 초라(8/31 기준 → 9/2 지급), 달이 바뀌자마자 넘기면
+// 분배금이 실제로 들어온 날 '뭐가 얼마나 들어왔는지' 볼 화면이 이미 사라져 있다.
+// 지급일은 6개사 중 **제일 늦은 날**을 쓴다(SOL 9/1, 나머지 9/2 → 9/2 기준 → 9/3까지 8월).
+// 공지 데이터에 그 회차가 없으면 그냥 이번 달(안전 폴백).
 // ←/→ 는 이 달 기준 ±1개월이라, 다음 달은 → 한 번이면 본다.
 function distCursorMonth() {
   const now = new Date(), curM = now.getMonth() + 1, prevM = curM === 1 ? 12 : curM - 1;
-  const today = now.getDate();
-  if (today > 15) return curM;                  // 반달이 지나면 무조건 이번 달
-  let hasCur = false, hasPrev = false, payDay = 0;
+  let payDay = 0;
   (_distData || []).forEach(c => {
     const rep = (c.data && c.data.schedule) || {};
     ((c.data && c.data.items) || []).forEach(it => {
       const sch = (it.sched && Object.keys(it.sched).length) ? it.sched : rep;
       const b = distParseDay(sch['기준일'] || sch['분배락일']);
-      if (!b) return;
-      if (b.m === curM) { hasCur = true; return; }
-      if (b.m !== prevM) return;
-      hasPrev = true;
-      const pay = distParseDay(sch['지급일']);            // 지난달 회차의 이번 달 지급일
-      if (pay && pay.m === curM && pay.d > payDay) payDay = pay.d;
+      const pay = distParseDay(sch['지급일']);
+      if (!b || !pay || b.m !== prevM || pay.m !== curM) return;   // 지난달 회차 + 이번 달 지급만
+      if (pay.d > payDay) payDay = pay.d;                          // 제일 늦게 주는 곳 기준
     });
   });
-  if (!hasPrev) return curM;
-  if (payDay && today <= payDay + 1) return prevM;   // 지급일 당일·다음날은 무조건 지난달
-  return hasCur ? curM : prevM;
+  return (payDay && now.getDate() <= payDay + 1) ? prevM : curM;
 }
 
 let _distGridMonthOffset = 0; // 내 보유 종목 분배 내역: 월 단위 이동 (0=이번 달)
