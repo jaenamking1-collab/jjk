@@ -11,6 +11,8 @@ rem 설정 파일은 아래 DEST 폴더에만 생기므로, 내 보유 종목이 딸려 가지 않는다.
 
 set "DEST=%LOCALAPPDATA%\ticker"
 set "SRC=https://raw.githubusercontent.com/jaenamking1-collab/jjk/main/tools/ticker.pyw"
+rem raw.githubusercontent.com 만 막는 망이 있다(학교). 같은 파일을 주는 중계 주소.
+set "SRC2=https://cdn.jsdelivr.net/gh/jaenamking1-collab/jjk@main/tools/ticker.pyw"
 
 echo.
 echo   실시간 시세 위젯을 설치합니다.
@@ -45,7 +47,11 @@ if not defined PYW (
 
 rem ── 프로그램 내려받기 ───────────────────────────────────
 if not exist "%DEST%" mkdir "%DEST%"
-curl -L -f -s -o "%DEST%\ticker.pyw" "%SRC%"
+curl -L -f -s -m 20 -o "%DEST%\ticker.pyw" "%SRC%"
+if errorlevel 1 (
+  echo   기본 주소가 막혀 있어 다른 주소로 받습니다...
+  curl -L -f -s -m 20 -o "%DEST%\ticker.pyw" "%SRC2%"
+)
 if errorlevel 1 (
   echo   내려받기에 실패했습니다. 인터넷 연결을 확인하고 다시 실행해 주세요.
   pause
