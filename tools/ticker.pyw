@@ -143,8 +143,6 @@ DEFAULT = {
     "collapsed": [],                     # 구분선 단위 그룹 접힘 상태
     "pos": None,                         # 직접 옮긴 위치 (없으면 우하단 자동)
     "bg_op": 85,                         # 바탕 불투명도 0~100 (0 = 완전 투명, 100 = 불투명)
-    "clear_bg": False,                   # 바탕만 투명(실험). 글자는 또렷하게 남는다
-    "clear_bg_trying": False,            # 켜고 뜨는 중 표시. 남아 있으면 지난번에 못 뜬 것
     "text_op": 80,                       # 글자 불투명도 0~100 (80 = 지금 상태)
     "bg_color": "#2a2f3a",               # 바탕색 (PALETTE에서 고름)
     "coin_prem": {},                     # 코인별 국내가 ÷ 해외가 (거래소가 막힌 곳에서 쓴다)
@@ -543,21 +541,10 @@ back.attributes("-topmost", cfg["topmost"])
 back.configure(bg=BG)
 back.withdraw()
 
-# 바탕만 투명하게(설정에서 켤 때만). 2026-08-25에 한 번 실패했다(글자 잔상·유령 창) —
-# 그래서 기본은 꺼짐이고, 켠 채로 못 뜨면 다음 실행에서 스스로 꺼진다.
-if cfg.get("clear_bg"):
-    if cfg.get("clear_bg_trying"):        # 지난번에 켜고 뜨다가 죽었다 -> 다시 시도하지 않는다
-        cfg["clear_bg"] = cfg["clear_bg_trying"] = False
-        save(cfg)
-    else:
-        cfg["clear_bg_trying"] = True     # 무사히 뜨면 아래 settle()이 지운다
-        save(cfg)
-        try:
-            root.attributes("-transparentcolor", KEY)
-            TRANSPARENT = True
-        except tk.TclError:               # 윈도우가 아니면 뚫기가 없다
-            cfg["clear_bg"] = cfg["clear_bg_trying"] = False
-            save(cfg)
+# ⛔ "바탕만 투명, 글자는 또렷하게"는 두 번 시도해서 두 번 실패했다(2026-08-24, 09-03).
+# 색상키(-transparentcolor)로 글자 창을 뚫는 방식인데, 첫 번째는 글자 잔상, 두 번째는
+# 바탕이 검은 사각형으로 따로 떠 버렸다. Tk의 -alpha는 창 전체에 걸리므로 창을 나누는
+# 것 말고는 길이 없고, 그 길이 이 환경에서 안 된다. 되살리지 말 것 — 구조만 남겨 둔다.
 
 
 def panel_bg():
@@ -599,15 +586,6 @@ def sync_back(_=None):
     finally:
         syncing[0] = False
 
-
-def redraw_text():
-    """뚫린 창은 글자를 지운 자리가 다시 합성되지 않아 잔상이 남는다(2026-08-24 실패 원인).
-    색상키를 다시 걸어 창 전체를 한 번 새로 합성시킨다."""
-    if TRANSPARENT:
-        try:
-            root.attributes("-transparentcolor", KEY)
-        except tk.TclError:
-            pass
 
 
 def build():
@@ -868,7 +846,6 @@ def refresh():
         for k in keys:
             if k in data or k not in last:    # 못 받아온 건 직전 값 그대로 둠
                 root.after(0, paint, k, data.get(k))
-        root.after(0, redraw_text)            # 뚫린 창의 글자 잔상 지우기
         root.after(0, schedule, wait or cfg["refresh_sec"])
 
         # 교환비율 줄의 30일 구간. **시세를 다 그린 뒤에** 받는다 — 응답이 큰 요청이라
@@ -931,19 +908,6 @@ def settings(_=None):
 
     slider("바탕 투명", "bg_op", 0)          # 0 = 완전 투명
 
-    def flip_clear():
-        cfg["clear_bg"] = not cfg.get("clear_bg")
-        cfg["clear_bg_trying"] = False       # 손으로 끄면 안전장치도 같이 푼다
-        save(cfg)
-        chk.config(text=("\u2611" if cfg["clear_bg"] else "\u2610")
-                   + " 바탕만 투명 (다시 켜야 적용 · 실험)")
-    chk = tk.Label(win, bg=BG, fg=DIM, font=("Malgun Gothic", 9), cursor="hand2",
-                   text=("\u2611" if cfg.get("clear_bg") else "\u2610")
-                        + " 바탕만 투명 (다시 켜야 적용 · 실험)")
-    chk.pack(anchor="w", padx=18, pady=(2, 0))
-    chk.bind("<Button-1>", lambda e: flip_clear())
-    tk.Label(win, text="글자는 그대로 두고 바탕만 비칩니다. 글자가 번지면 체크를 푸세요.",
-             bg=BG, fg=DIM, font=("Malgun Gothic", 8)).pack(anchor="w", padx=18)
     slider("글자 진하기", "text_op", 20)
 
     crow = tk.Frame(win, bg=BG)
@@ -1143,12 +1107,6 @@ def drop(_=None):
     place_panel()                         # 버튼도 따라오게
 
 
-# 바탕이 글자 창을 무조건 따라다니게 건다. 개별 함수마다 챙기면 한 군데를 빠뜨리는 순간
-# 둘이 갈라진다 — 창 자체의 이동·크기·숨김 사건에 걸어야 빠짐이 없다.
-root.bind("<Configure>", sync_back, add="+")
-root.bind("<Map>", sync_back, add="+")
-root.bind("<Unmap>", lambda e: back.withdraw(), add="+")
-
 grab = lambda e: drag.update(x=e.x_root - root.winfo_x(), y=e.y_root - root.winfo_y())
 root.bind("<Button-1>", grab)
 root.bind("<B1-Motion>", move)
@@ -1173,17 +1131,9 @@ back.bind("<Button-3>", lambda e: menu.tk_popup(e.x_root, e.y_root))
 for _ev in ("<Button-1>", "<ButtonRelease-1>", "<Button-3>"):
     back.bind(_ev, lambda e: sync_back(), add="+")
 
-def settle():
-    """10초를 버텼으면 정상 기동으로 본다. 이 표시가 남아 있으면 다음 실행에서 자동으로 꺼진다."""
-    if cfg.get("clear_bg_trying"):
-        cfg["clear_bg_trying"] = False
-        save(cfg)
-
-
 build()
 refresh()
 blink()
-root.after(10000, settle)
 if cfg["hidden"]:
     root.withdraw()
 tab_btn.config(text="◀" if cfg["hidden"] else "▶")
