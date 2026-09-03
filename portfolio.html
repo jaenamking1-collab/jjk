@@ -333,6 +333,7 @@ if (!/[?&]pc=1/.test(location.search) && window.innerWidth <= 768) {
   .new-badge { display:inline-block; margin-left:4px; padding:0 5px; height:14px; line-height:14px; border-radius:7px; background:#ef4444; color:#fff; font-size:9px; font-weight:800; vertical-align:1px; }
   .notice-loading { font-size:12px; color:var(--text3); text-align:center; padding:16px 0; }
   .notice-err { font-size:12px; color:var(--red); text-align:center; padding:16px 0; }
+  .notice-empty { font-size:12px; color:var(--text2); text-align:center; padding:16px 0; }
   /* 연금플랜 표 안 편집칸 — 평소엔 일반 셀처럼 보이고 hover/focus 때만 입력칸 표시 */
   .pp-plain { width:100%; padding:3px 4px; background:transparent; border:1px solid transparent; border-radius:6px; color:var(--text); font-size:12px; text-align:right; font-family:var(--mono); }
   .pp-plain:hover, .pp-plain:focus { background:var(--bg3); border-color:var(--border); outline:none; }
@@ -1660,7 +1661,18 @@ async function loadHoldings() {
   }
 
   document.getElementById('holdingsTable').innerHTML = '<div class="loading"><span class="spinner"></span>불러오는 중...</div>';
-  const data = await api({ action:'getHoldings', account_id: accountId === 'ALL' ? '' : accountId });
+  // api()는 90초 타임아웃 × 3회라, 백엔드가 느리거나 죽으면 최대 4분 반을 기다린 뒤 그냥 throw 한다.
+  // 예전엔 그 예외를 아무도 안 받아서 스피너가 영원히 도는 '무한 로딩'으로 보였다.
+  let data;
+  try {
+    data = await api({ action:'getHoldings', account_id: accountId === 'ALL' ? '' : accountId });
+  } catch (e) {
+    document.getElementById('holdingsTable').innerHTML =
+      '<div class="empty"><div class="empty-icon">⚠️</div>' +
+      '<p>종목을 불러오지 못했습니다<br><span style="font-size:12px;color:var(--text3)">서버가 응답하지 않거나 너무 느립니다. 분배금공지 탭을 방금 열었다면 그 요청이 끝나길 기다렸다가 다시 눌러 보세요.</span></p>' +
+      '<button class="btn btn-primary btn-sm" style="margin-top:10px" onclick="loadHoldings()">다시 시도</button></div>';
+    return;
+  }
   // 티커 앞 0 보정: GAS가 숫자형으로 저장된 경우 005380 → 5380 복구
   const KRW_TICKER_LEN = 6;
   (data || []).forEach(h => {
@@ -5625,8 +5637,8 @@ async function loadAllNotices() {
   const cached = (bulk && bulk.sources) || {};
   const results = await Promise.allSettled(NOTICE_SOURCES.map(s => {
     const hit = NOTICE_VIA_GAS.includes(s.id) ? cached[s.id] : null;
-    if (hit && !hit.stale) return Promise.resolve({ ...s, items: hit.items || [] });
-    return s.fetch().then(items => ({ ...s, items })).catch(() => ({ ...s, items: [] }));
+    if (hit && !hit.stale) return Promise.resolve({ ...s, items: hit.items || [], ok: true });
+    return s.fetch().then(items => ({ ...s, items, ok: true })).catch(() => ({ ...s, items: [], ok: false }));
   }));
   _noticeData = results.map(r => r.value || {});
   renderNotices();
@@ -5650,7 +5662,7 @@ function renderNotices() {
     const m = String(n.date || '').match(/\d{4}[.\-\/](\d{1,2})/);
     return m ? parseInt(m[1]) : 0;
   };
-  grid.innerHTML = _noticeData.map(({ id, name, label, items }) => {
+  grid.innerHTML = _noticeData.map(({ id, name, label, items, ok }) => {
     const all = (items || []).map(n => ({ ...n, norm: normalizeNoticeTitle(n.title, id) }))
       .filter(n => n.norm.cycle !== '제외');   // ACE 국고채 등 비정기 제거
     const inMonth = all.filter(n => monOf(n) === selM);
@@ -5690,7 +5702,10 @@ function renderNotices() {
           picks[2] ? itemHtml(picks[2]) : '',
           event ? itemHtml(event) : '',
           ...extra.map(itemHtml) ].join('')
-      : '<div class="notice-err">불러오기 실패</div>';
+      // 응답은 왔는데 이번 달 공지가 아직 없는 것과, 못 받아온 것은 다른 상태다(공지 페이지와 동일).
+      // 둘 다 '불러오기 실패'로 뭉뚱그리면 정상인데도 앱이 고장 난 것처럼 보인다.
+      : (ok === false ? '<div class="notice-err">공지를 못 받았습니다</div>'
+                      : `<div class="notice-empty">${selM}월 공지 아직 없음</div>`);
     return `
       <div class="notice-card ${id}">
         <div class="notice-brand ${id}">● ${name} <span style="font-weight:400;color:var(--text3)">${label}</span></div>
