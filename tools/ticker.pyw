@@ -116,11 +116,14 @@ DEFAULT = {
     "collapsed": [],                     # 구분선 단위 그룹 접힘 상태
     "pos": None,                         # 직접 옮긴 위치 (없으면 우하단 자동)
     "bg_op": 85,                         # 바탕 불투명도 0~100 (0 = 완전 투명, 100 = 불투명)
+    "clear_bg": False,                   # 바탕만 투명(실험). 글자는 또렷하게 남는다
+    "clear_bg_trying": False,            # 켜고 뜨는 중 표시. 남아 있으면 지난번에 못 뜬 것
     "text_op": 80,                       # 글자 불투명도 0~100 (80 = 지금 상태)
     "bg_color": "#2a2f3a",               # 바탕색 (PALETTE에서 고름)
     "coin_prem": {},                     # 코인별 국내가 ÷ 해외가 (거래소가 막힌 곳에서 쓴다)
     "coin_usd": {},                      # 야후에 원화 페어가 없어 달러로 묻는 코인
     "coin_mid": {},                      # 코인 -> (날짜, 한국시간 자정의 해외 시세)
+    "ratio_band": {},                    # 교환비율 -> (날짜, 30일 최저, 최고)
     "coin_base": {},                     # 코인 -> (날짜, 국내 기준가). 등락률 기준
 }
 
@@ -133,6 +136,7 @@ GECKO = "https://api.coingecko.com/api/v3/exchanges/bithumb/tickers?coin_ids={}"
 GECKO_NOW = "https://api.coingecko.com/api/v3/simple/price?vs_currencies=krw&ids={}"
 GECKO_MID = ("https://api.coingecko.com/api/v3/coins/{}/market_chart/range"
              "?vs_currency=krw&from={}&to={}")
+GECKO_HIST = "https://api.coingecko.com/api/v3/coins/{}/market_chart?vs_currency=krw&days={}"
 FX = "USDKRW=X"                          # 달러 페어만 있는 코인을 원화로 바꿀 때 쓰는 환율
 UA = {"User-Agent": "Mozilla/5.0", "Referer": "https://finance.naver.com/"}
 BG, FG, DIM, ACC, LINE = "#2a2f3a", "#f2f5fa", "#9aa5ba", "#7db3ff", "#4d576c"
@@ -168,7 +172,11 @@ coin_ext = [True]                        # 야후에 코인도 함께 물어볼�
 coin_usd = {}                            # 코인 -> 야후 달러 심볼. 원화 페어가 없는 코인(KAIA 등)
 gecko_at = [0.0]                         # 코인게코를 마지막으로 부른 시각
 gecko_key = [""]                         # 그때 물어본 코인 구성. 달라지면 잠금 없이 다시 묻는다
+syncing = [False]                        # sync_back 재진입 막이
 coin_mid = {}                            # 코인 -> (날짜, 그날 한국시간 자정의 해외 시세)
+RANGE_DAYS = 30                          # 교환비율 줄에 보여줄 최저~최고 구간(일)
+ratio_band = {}                          # "A/B" -> (날짜, 최저, 최고). 하루 한 번만 잰다
+band_pos = {}                            # "A/B" -> 지금이 그 구간의 몇 %
 prem_at = [0.0]                          # 환산비를 마지막으로 저장한 시각
 PREM_SAVE = 600                          # 환산비 저장 간격(초)
 INDEX = {"KOSPI": "KOSPI", "KOSDAQ": "KOSDAQ", "^KS11": "KOSPI", "^KQ11": "KOSDAQ"}
@@ -392,6 +400,25 @@ def gecko_now(syms):
     return {k: d[i]["krw"] for i, k in ids.items() if (d.get(i) or {}).get("krw")}
 
 
+def gecko_band(keys):
+    """교환비율 줄의 최근 30일 최저~최고. 하루 한 번이면 된다.
+    비율의 하루치 등락은 매일 기준이 리셋돼 갈아탈 때 쓸모가 없다. 정작 필요한 건
+    "지금 그 구간의 어디쯤인가"다 — 낮으면 A가 B보다 싼 편, 높으면 비싼 편."""
+    day = kst_day()
+    for k in keys:
+        if RATIO not in k or (ratio_band.get(k) or ("",))[0] == day:
+            continue
+        ids = [GECKO_ID.get(x.split("-")[0]) for x in k.split(RATIO, 1)]
+        if not all(ids):
+            continue
+        # 시각(시간 단위)으로 짝을 맞춘다. 인덱스로 맞추면 두 코인의 시작점이 다를 때 어긋난다.
+        a, b = ({int(t // 3600000): v for t, v in
+                 get(GECKO_HIST.format(i, RANGE_DAYS))["prices"]} for i in ids)
+        rs = [a[h] / b[h] for h in a.keys() & b.keys() if b[h]]
+        if len(rs) >= 5:
+            ratio_band[k] = (day, min(rs), max(rs))
+
+
 def yahoo(syms):
     """해외·코인·환율. 한 번의 요청으로 전 종목."""
     out = {}
@@ -465,6 +492,7 @@ pushed = list(cfg["tickers"])            # 마지막으로 올린 종목 목록
 coin_prem.update(cfg.get("coin_prem") or {})
 coin_usd.update(cfg.get("coin_usd") or {})
 coin_mid.update(cfg.get("coin_mid") or {})
+ratio_band.update({k: tuple(v) for k, v in (cfg.get("ratio_band") or {}).items()})
 coin_base.update({k: tuple(v) for k, v in (cfg.get("coin_base") or {}).items()})
 BG = cfg.get("bg_color") or BG           # 저장해 둔 바탕색으로 시작
 rows = {}
@@ -485,11 +513,23 @@ back = tk.Toplevel(root)
 back.overrideredirect(True)
 back.attributes("-topmost", cfg["topmost"])
 back.configure(bg=BG)
-# ⛔ 2026-08-25: 색상키 투명(-transparentcolor)은 이 환경에서 글자 잔상이 남아 화면이
-# 뭉개졌다(사용자 스크린샷 확인). 창 전체 투명도로 되돌린다 — 바탕을 흐리게 하면 글자도
-# 같이 흐려지지만, 적어도 읽을 수는 있다. 다시 시도하려면 아래 두 줄을 살리면 된다.
-#     root.attributes("-transparentcolor", KEY); TRANSPARENT = True
 back.withdraw()
+
+# 바탕만 투명하게(설정에서 켤 때만). 2026-08-25에 한 번 실패했다(글자 잔상·유령 창) —
+# 그래서 기본은 꺼짐이고, 켠 채로 못 뜨면 다음 실행에서 스스로 꺼진다.
+if cfg.get("clear_bg"):
+    if cfg.get("clear_bg_trying"):        # 지난번에 켜고 뜨다가 죽었다 -> 다시 시도하지 않는다
+        cfg["clear_bg"] = cfg["clear_bg_trying"] = False
+        save(cfg)
+    else:
+        cfg["clear_bg_trying"] = True     # 무사히 뜨면 아래 settle()이 지운다
+        save(cfg)
+        try:
+            root.attributes("-transparentcolor", KEY)
+            TRANSPARENT = True
+        except tk.TclError:               # 윈도우가 아니면 뚫기가 없다
+            cfg["clear_bg"] = cfg["clear_bg_trying"] = False
+            save(cfg)
 
 
 def panel_bg():
@@ -508,15 +548,38 @@ body = tk.Frame(root, bg=panel_bg())
 body.pack(fill="both", padx=6, pady=(0, 4))
 
 
-def sync_back():
-    """배경 창을 시세창과 같은 자리·같은 크기로 두고, 글자 창을 그 위로 올린다."""
-    if not TRANSPARENT:
-        return
-    root.update_idletasks()
-    w = root.winfo_width() or root.winfo_reqwidth()
-    h = root.winfo_height() or root.winfo_reqheight()
-    back.geometry("%dx%d+%d+%d" % (w, h, root.winfo_x(), root.winfo_y()))
-    root.lift(back)
+def sync_back(_=None):
+    """배경 창을 글자 창에 딱 붙인다 — 자리·크기·보임 여부까지 전부.
+    둘이 따로 놀면 한쪽 모니터에 바탕만, 다른 쪽에 글자만 남는다(2026-08-24에 겪음).
+    그래서 root의 <Configure>/<Map>/<Unmap>에 걸어 두고 어떤 경로로 움직이든 따라오게 한다."""
+    if not TRANSPARENT or syncing[0]:
+        return                           # <Configure>에 걸려 있어 재진입하면 무한히 돈다
+    syncing[0] = True
+    try:
+        root.update_idletasks()
+        if not root.winfo_ismapped():
+            back.withdraw()
+            return
+        w = root.winfo_width() or root.winfo_reqwidth()
+        h = root.winfo_height() or root.winfo_reqheight()
+        back.geometry("%dx%d+%d+%d" % (w, h, root.winfo_x(), root.winfo_y()))
+        if not back.winfo_ismapped():
+            back.deiconify()
+        root.lift(back)                  # 글자 창이 항상 바탕 위에
+    except tk.TclError:
+        pass                             # 창이 닫히는 중이면 그냥 넘어간다
+    finally:
+        syncing[0] = False
+
+
+def redraw_text():
+    """뚫린 창은 글자를 지운 자리가 다시 합성되지 않아 잔상이 남는다(2026-08-24 실패 원인).
+    색상키를 다시 걸어 창 전체를 한 번 새로 합성시킨다."""
+    if TRANSPARENT:
+        try:
+            root.attributes("-transparentcolor", KEY)
+        except tk.TclError:
+            pass
 
 
 def build():
@@ -604,8 +667,13 @@ def paint(sym, res):
         c.config(bg=panel_bg())
     text = fmt(price, dec)
     p.config(text=text, font=("Consolas", 7 if len(text) > 9 else 9))   # 자릿수 많으면 축소
-    c.config(text=f"{pct:+.2f}%",
-             fg=THEME["up"] if diff > 0 else THEME["down"] if diff < 0 else THEME["dim"])
+    if sym in band_pos:                  # 교환비율 줄: 하루치 등락 대신 30일 구간 위치
+        pos = band_pos[sym]              # 0 = 최근 30일 최저, 100 = 최고
+        c.config(text="\u2195%d%%" % round(pos),
+                 fg=THEME["up"] if pos >= 50 else THEME["down"])
+    else:
+        c.config(text=f"{pct:+.2f}%",
+                 fg=THEME["up"] if diff > 0 else THEME["down"] if diff < 0 else THEME["dim"])
 
 
 def blink(on=[False]):
@@ -747,6 +815,7 @@ def refresh():
             cfg["coin_prem"] = {k: round(v, 6) for k, v in coin_prem.items()}
             cfg["coin_usd"] = dict(coin_usd)
             cfg["coin_mid"] = {k: list(v) for k, v in coin_mid.items()}
+            cfg["ratio_band"] = {k: list(v) for k, v in ratio_band.items()}
             cfg["coin_base"] = {k: list(v) for k, v in coin_base.items()}
             root.after(0, save, cfg)
 
@@ -754,6 +823,12 @@ def refresh():
                 "코인: 빗썸 %d초 전 값" % coin_lag[0] if coin_src[0] == "빗썸" and coin_lag[0] > 15 else
                 "" if coin_src[0] in ("빗썸", "") else "코인: " + coin_src[0])
         root.after(0, status.config, {"text": note})
+        # 교환비율 줄의 30일 구간. 거래소가 살아 있든 막혔든 하루 한 번 받는다.
+        if any(RATIO in k and (ratio_band.get(k) or ("",))[0] != kst_day() for k in keys):
+            try:
+                gecko_band(keys)
+            except Exception:
+                pass                             # 못 받으면 종전대로 하루치 등락률을 보여준다
         for k in keys:                        # 교환비율 줄 계산 (1 A = 몇 B)
             if RATIO in k:
                 a, b = k.split(RATIO, 1)
@@ -765,9 +840,13 @@ def refresh():
                     gap = now - was
                     data[k] = (now, gap, gap / was * 100 if was else 0.0,
                                2 if now < 100 else 0, None)
+                    day, lo, hi = ratio_band.get(k) or ("", 0, 0)
+                    if day == kst_day() and hi > lo:
+                        band_pos[k] = min(100.0, max(0.0, (now - lo) / (hi - lo) * 100))
         for k in keys:
             if k in data or k not in last:    # 못 받아온 건 직전 값 그대로 둠
                 root.after(0, paint, k, data.get(k))
+        root.after(0, redraw_text)            # 뚫린 창의 글자 잔상 지우기
         root.after(0, schedule, wait or cfg["refresh_sec"])
 
     Thread(target=work, daemon=True).start()
@@ -817,6 +896,20 @@ def settings(_=None):
         return sc
 
     slider("바탕 투명", "bg_op", 0)          # 0 = 완전 투명
+
+    def flip_clear():
+        cfg["clear_bg"] = not cfg.get("clear_bg")
+        cfg["clear_bg_trying"] = False       # 손으로 끄면 안전장치도 같이 푼다
+        save(cfg)
+        chk.config(text=("\u2611" if cfg["clear_bg"] else "\u2610")
+                   + " 바탕만 투명 (다시 켜야 적용 · 실험)")
+    chk = tk.Label(win, bg=BG, fg=DIM, font=("Malgun Gothic", 9), cursor="hand2",
+                   text=("\u2611" if cfg.get("clear_bg") else "\u2610")
+                        + " 바탕만 투명 (다시 켜야 적용 · 실험)")
+    chk.pack(anchor="w", padx=18, pady=(2, 0))
+    chk.bind("<Button-1>", lambda e: flip_clear())
+    tk.Label(win, text="글자는 그대로 두고 바탕만 비칩니다. 글자가 번지면 체크를 푸세요.",
+             bg=BG, fg=DIM, font=("Malgun Gothic", 8)).pack(anchor="w", padx=18)
     slider("글자 진하기", "text_op", 20)
 
     crow = tk.Frame(win, bg=BG)
@@ -1016,6 +1109,12 @@ def drop(_=None):
     place_panel()                         # 버튼도 따라오게
 
 
+# 바탕이 글자 창을 무조건 따라다니게 건다. 개별 함수마다 챙기면 한 군데를 빠뜨리는 순간
+# 둘이 갈라진다 — 창 자체의 이동·크기·숨김 사건에 걸어야 빠짐이 없다.
+root.bind("<Configure>", sync_back, add="+")
+root.bind("<Map>", sync_back, add="+")
+root.bind("<Unmap>", lambda e: back.withdraw(), add="+")
+
 grab = lambda e: drag.update(x=e.x_root - root.winfo_x(), y=e.y_root - root.winfo_y())
 root.bind("<Button-1>", grab)
 root.bind("<B1-Motion>", move)
@@ -1040,9 +1139,17 @@ back.bind("<Button-3>", lambda e: menu.tk_popup(e.x_root, e.y_root))
 for _ev in ("<Button-1>", "<ButtonRelease-1>", "<Button-3>"):
     back.bind(_ev, lambda e: sync_back(), add="+")
 
+def settle():
+    """10초를 버텼으면 정상 기동으로 본다. 이 표시가 남아 있으면 다음 실행에서 자동으로 꺼진다."""
+    if cfg.get("clear_bg_trying"):
+        cfg["clear_bg_trying"] = False
+        save(cfg)
+
+
 build()
 refresh()
 blink()
+root.after(10000, settle)
 if cfg["hidden"]:
     root.withdraw()
 tab_btn.config(text="◀" if cfg["hidden"] else "▶")
