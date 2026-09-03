@@ -726,12 +726,16 @@ function renderMasterCalendar(allData){
 }
 
 // ── 공지 제목 → 통일 형식 ──
+// 회차 공지가 아니라 '사건' 공지 — 분배 주기 변경, 기준일 정정, 지급 중단, 상장폐지 등.
+// 월중/월말 슬롯에 안 들어가 예전엔 공지 패널 어디에도 안 나왔다(정작 회차가 통째로 바뀌는 건인데).
+const NOTICE_EVENT_RE = /변경|정정|중단|해지|청산|상장폐지|합병|분할|병합/;
 function normalizeNoticeTitle(title, source){
   if (!title) return { label: '공지', cycle: '기타', mon: 0 };
   const monM = title.match(/(\d{1,2})\s*월/);
   const mon = monM ? parseInt(monM[1]) : 0;
   if (source === 'ace') {
     if (/국고채|국채\s*3년/.test(title)) return { label: '비정기', cycle: '제외', mon };
+    if (NOTICE_EVENT_RE.test(title)) return { label: '⚠️ ' + title, cycle: '안내', mon };
     if (/데일리타겟|미국배당다우존스|시리즈/.test(title))
       return { label: (mon?mon+'월 ':'') + '월중배당', cycle: '월중', mon };
     return { label: (mon?mon+'월 ':'') + '월말배당', cycle: '월말', mon };
@@ -740,6 +744,7 @@ function normalizeNoticeTitle(title, source){
   if (/월말|말\s*분배|②|안내\s*②/.test(title)) { cycle = '월말'; label = (mon?mon+'월 ':'') + '월말배당'; }
   else if (/월중|중순|중간|①|안내\s*①/.test(title)) { cycle = '월중'; label = (mon?mon+'월 ':'') + '월중배당'; }
   else if (/특별|임시|추가|결산/.test(title)) { cycle = '특별'; label = (mon?mon+'월 ':'') + '특별배당'; }
+  else if (NOTICE_EVENT_RE.test(title)) { cycle = '안내'; label = '⚠️ ' + title; }
   else { cycle = '기타'; label = (mon?mon+'월 ':'') + '분배금 공지'; }
   return { label, cycle, mon };
 }
@@ -809,13 +814,17 @@ function renderNotices(){
     };
     // 월중/월말 슬롯은 공지가 없어도 자리를 비워둔다(카드 높이·순서 고정). 특별·기타는 있을 때만.
     const picks = [pickByCycle('월중'), pickByCycle('월말'), pickByCycle('특별')];
-    const extra = picks.every(p => !p) ? inMonth.slice(0, 1) : []; // 회차 분류 안 된 공지 폴백
+    const extra = picks.every(p => !p) ? inMonth.filter(n => n.norm.cycle !== '안내').slice(0, 1) : []; // 회차 분류 안 된 공지 폴백
     // 등록 7일 이내 공지엔 NEW 배지 — 월중 공시(10~13일)→기준일(15일) 흐름을 다 덮게
-    const isNew = n => {
+    const ageMs = n => {
       const m = String(n.date || '').match(/(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
-      if (!m) return false;
-      return (Date.now() - new Date(+m[1], +m[2] - 1, +m[3]).getTime()) < 7 * 86400000;
+      return m ? Date.now() - new Date(+m[1], +m[2] - 1, +m[3]).getTime() : Infinity;
     };
+    const isNew = n => ageMs(n) < 7 * 86400000;
+    // 사건 공지(주기 변경·정정 등)는 **달 필터와 무관하게** 최근 45일 중 최신 1건을 붙인다.
+    // 제목에 'N월'이 없거나 달이 넘어갔다고 사라지면 안 된다 — 회차가 통째로 바뀌는 공지다.
+    const event = all.filter(n => n.norm.cycle === '안내' && ageMs(n) < 45 * 86400000)
+                     .sort((a,b) => String(b.date||'').localeCompare(String(a.date||'')))[0];
     const itemHtml = n => `
           <div class="notice-item">
             <span class="notice-title" onclick="window.open('${safeUrl(n.url)}','_blank')" title="${(n.title||'').replace(/"/g,'&quot;')}">${n.norm.label}${isNew(n) ? '<span class="new-badge">NEW</span>' : ''}</span>
@@ -830,6 +839,7 @@ function renderNotices(){
       ? [ picks[0] ? itemHtml(picks[0]) : emptySlot('월중'),
           picks[1] ? itemHtml(picks[1]) : emptySlot('월말'),
           picks[2] ? itemHtml(picks[2]) : '',
+          event ? itemHtml(event) : '',
           ...extra.map(itemHtml) ].join('')
       // 응답은 왔는데 이번 달 공지가 아직 없는 것과, 못 받아온 것은 다른 상태다.
       // 예전엔 둘 다 '불러오기 실패'라 정상인데도 빨간 글씨가 떴다.

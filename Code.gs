@@ -665,9 +665,12 @@ function getEtfNotices(source) {
   // 5건이면 정기 월중·월말 공지만으로 두세 달치가 다 차서, 특별분배·정정 같은 비정기 건이
   // 목록 밖으로 밀려난다(분배탭 카드 하단 '특별 공지' 줄이 그걸 쓴다). 같은 요청 한 번에서
   // 더 파싱할 뿐이라 비용은 그대로다.
-  const NOTICE_MAX = 12;
+  const NOTICE_MAX = 20;
+  // '분배금'만 남기면 **'분배 지급주기 변경 안내'처럼 회차가 통째로 바뀌는 공지가 통째로 걸러진다.**
+  // 정작 제일 중요한 공지인데 앱 어디에도 안 나왔다 → '분배'로 넓힌다(분배금·분배주기·분배 지급 …).
+  const NOTICE_KEEP_RE = /분배/;
   const cache = CacheService.getScriptCache();
-  const cacheKey = 'notices_v2_' + source;   // v2: NOTICE_MAX 12건. 키를 올려 옛 5건 캐시를 즉시 버린다
+  const cacheKey = 'notices_v3_' + source;   // v3: 20건 + '분배' 필터. 키를 올려 옛 캐시를 즉시 버린다
   const cached = cache.get(cacheKey);
   if (cached) return JSON.parse(cached);
   try {
@@ -690,12 +693,12 @@ function getEtfNotices(source) {
         const idM = block.match(/href="(\/cust\/notice\/\d+)/);
         const titleM = block.match(/class="body01">([\s\S]*?)<\/p>/);
         const dateM = block.match(/class="body02">\s*([\d.]+)/);
-        if (idM && titleM && titleM[1].includes('분배금')) items.push({ title: titleM[1].replace(/<[^>]+>/g, '').trim(), date: dateM ? dateM[1].trim() : '', url: 'https://www.riseetf.co.kr' + idM[1] });
+        if (idM && titleM && NOTICE_KEEP_RE.test(titleM[1])) items.push({ title: titleM[1].replace(/<[^>]+>/g, '').trim(), date: dateM ? dateM[1].trim() : '', url: 'https://www.riseetf.co.kr' + idM[1] });
       });
     } else if (source === 'sol') {
       // SOL은 홈페이지가 아니라 네이버 블로그에 분배금 공지를 올린다(홈페이지는 늦거나 누락).
       // 그래서 목록도 블로그에서 받고, 클릭하면 블로그 글로 이동시킨다.
-      _solNotices().filter(n => /분배금/.test(n.title) && !/이벤트/.test(n.title)).slice(0, NOTICE_MAX).forEach(n => items.push({
+      _solNotices().filter(n => NOTICE_KEEP_RE.test(n.title) && !/이벤트/.test(n.title)).slice(0, NOTICE_MAX).forEach(n => items.push({
         title: n.title,
         date: String(n.date).slice(0, 10).replace(/-/g, '.'),
         url: n.logNo ? 'https://blog.naver.com/soletf/' + n.logNo : 'https://blog.naver.com/soletf'
@@ -705,11 +708,11 @@ function getEtfNotices(source) {
       const fd = 'firstIndex=0&listCnt=20&pageIndex=1&detailsKey=&q=';
       const html = UrlFetchApp.fetch('https://investments.miraeasset.com/tigeretf/ko/customer/notice/list.ajax', { method:'post', payload:fd, headers:{'Content-Type':'application/x-www-form-urlencoded','User-Agent':'Mozilla/5.0'}, muteHttpExceptions:true }).getContentText('UTF-8');
       html.split('<li').slice(1).forEach(b => {
-        if (items.length >= NOTICE_MAX || !b.includes('분배금')) return;
+        if (items.length >= NOTICE_MAX || !NOTICE_KEEP_RE.test(b)) return;
         const titleM = b.match(/class="txt"[^>]*>([\s\S]*?)<\//);
         if (!titleM) return;
         const title = titleM[1].replace(/<[^>]+>/g,'').replace(/\s+/g,' ').trim();
-        if (!title.includes('분배금')) return;
+        if (!NOTICE_KEEP_RE.test(title)) return;
         const keyM = b.match(/'(\d+)'/);
         const dateM = b.match(/class="item-date"[^>]*>([\s\S]*?)<\//);
         items.push({ title, date: dateM ? dateM[1].replace(/<[^>]+>/g,'').trim() : '', url: keyM ? 'https://investments.miraeasset.com/tigeretf/ko/customer/notice/view.do?detailsKey=' + keyM[1] : '#' });
@@ -720,7 +723,7 @@ function getEtfNotices(source) {
       let m;
       while ((m = re.exec(html)) && items.length < NOTICE_MAX) {
         const txt = m[2].replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
-        if (!txt.includes('분배금')) continue;
+        if (!NOTICE_KEEP_RE.test(txt)) continue;
         const date = (txt.match(/\d{4}\.\d{2}\.\d{2}/) || [''])[0];
         items.push({ title: txt.replace(date,'').trim(), date, url: 'https://www.plusetf.co.kr' + m[1] });
       }
