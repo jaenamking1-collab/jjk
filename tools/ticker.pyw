@@ -120,6 +120,8 @@ DEFAULT = {
     "bg_color": "#2a2f3a",               # 바탕색 (PALETTE에서 고름)
     "coin_prem": {},                     # 코인별 국내가 ÷ 해외가 (거래소가 막힌 곳에서 쓴다)
     "coin_usd": {},                      # 야후에 원화 페어가 없어 달러로 묻는 코인
+    "coin_mid": {},                      # 코인 -> (날짜, 한국시간 자정의 해외 시세)
+    "coin_base": {},                     # 코인 -> (날짜, 국내 기준가). 등락률 기준
 }
 
 SPARK = "https://query1.finance.yahoo.com/v7/finance/spark?range=1d&interval=1d&symbols="
@@ -128,6 +130,9 @@ BITHUMB = "https://api.bithumb.com/public/ticker/{}_KRW"     # 종목별. ALL_KR
 UPBIT = "https://api.upbit.com/v1/ticker?markets="           # 빗썸이 막힐 때 대체
 UPCANDLE = "https://api.upbit.com/v1/candles/minutes/60?count=1&market={}&to={}"
 GECKO = "https://api.coingecko.com/api/v3/exchanges/bithumb/tickers?coin_ids={}"
+GECKO_NOW = "https://api.coingecko.com/api/v3/simple/price?vs_currencies=krw&ids={}"
+GECKO_MID = ("https://api.coingecko.com/api/v3/coins/{}/market_chart/range"
+             "?vs_currency=krw&from={}&to={}")
 FX = "USDKRW=X"                          # 달러 페어만 있는 코인을 원화로 바꿀 때 쓰는 환율
 UA = {"User-Agent": "Mozilla/5.0", "Referer": "https://finance.naver.com/"}
 BG, FG, DIM, ACC, LINE = "#2a2f3a", "#f2f5fa", "#9aa5ba", "#7db3ff", "#4d576c"
@@ -163,6 +168,7 @@ coin_ext = [True]                        # 야후에 코인도 함께 물어볼�
 coin_usd = {}                            # 코인 -> 야후 달러 심볼. 원화 페어가 없는 코인(KAIA 등)
 gecko_at = [0.0]                         # 코인게코를 마지막으로 부른 시각
 gecko_key = [""]                         # 그때 물어본 코인 구성. 달라지면 잠금 없이 다시 묻는다
+coin_mid = {}                            # 코인 -> (날짜, 그날 한국시간 자정의 해외 시세)
 prem_at = [0.0]                          # 환산비를 마지막으로 저장한 시각
 PREM_SAVE = 600                          # 환산비 저장 간격(초)
 INDEX = {"KOSPI": "KOSPI", "KOSDAQ": "KOSDAQ", "^KS11": "KOSPI", "^KQ11": "KOSDAQ"}
@@ -358,6 +364,34 @@ def gecko(syms):
     return out
 
 
+def kst_midnight_ts():
+    """오늘 한국시간 자정의 유닉스 시각. 빗썸 '변동(당일)'의 기준점이다."""
+    now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
+    return int(now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+
+
+def gecko_mid(syms):
+    """오늘 한국시간 자정의 해외 시세(원화)를 받아 둔다. 하루 한 번이면 된다."""
+    day, t = kst_day(), kst_midnight_ts()
+    for k in syms:
+        b = k.split("-")[0]
+        if b not in GECKO_ID or (coin_mid.get(k) or ("",))[0] == day:
+            continue
+        pts = get(GECKO_MID.format(GECKO_ID[b], t, t + 3600))["prices"]
+        if pts:
+            coin_mid[k] = (day, pts[0][1])
+
+
+def gecko_now(syms):
+    """해외 시세 지금 값(원화). 자정 대비 비율을 **코인게코 안에서만** 내기 위한 짝이다 —
+    야후 값과 섞어 나누면 두 출처의 시세 차이가 등락률에 그대로 실린다."""
+    ids = {GECKO_ID[k.split("-")[0]]: k for k in syms if k.split("-")[0] in GECKO_ID}
+    if not ids:
+        return {}
+    d = get(GECKO_NOW.format(",".join(ids)))
+    return {k: d[i]["krw"] for i, k in ids.items() if (d.get(i) or {}).get("krw")}
+
+
 def yahoo(syms):
     """해외·코인·환율. 한 번의 요청으로 전 종목."""
     out = {}
@@ -430,6 +464,8 @@ cfg = load()
 pushed = list(cfg["tickers"])            # 마지막으로 올린 종목 목록
 coin_prem.update(cfg.get("coin_prem") or {})
 coin_usd.update(cfg.get("coin_usd") or {})
+coin_mid.update(cfg.get("coin_mid") or {})
+coin_base.update({k: tuple(v) for k, v in (cfg.get("coin_base") or {}).items()})
 BG = cfg.get("bg_color") or BG           # 저장해 둔 바탕색으로 시작
 rows = {}
 alerts = {}                              # 반짝일 종목 -> 색
@@ -673,9 +709,22 @@ def refresh():
         if blocked and far and (key != gecko_key[0] or time.time() - gecko_at[0] > GECKO_SEC):
             gecko_at[0], gecko_key[0] = time.time(), key
             try:
-                for k, won in gecko(groups["coin"]).items():
+                kr = gecko(groups["coin"])
+                for k, won in kr.items():
                     if far.get(k) and far[k][0]:
                         coin_prem[k] = won / far[k][0]
+                # 등락률 기준(빗썸 '변동(당일)' = 전일 종가 ≈ 한국시간 자정)도 여기서 맞춘다.
+                # 하루에 한 번만 정한다 — 기준가가 흔들리면 등락률이 같이 떨렁거린다.
+                # 거래소가 직접 준 값이 있으면 그게 정확하므로 건드리지 않는다(날짜로 구분).
+                if any((coin_mid.get(k) or ("",))[0] != kst_day() or
+                       (coin_base.get(k) or ("",))[0] != kst_day() for k in kr):
+                    gecko_mid(groups["coin"])
+                    gnow = gecko_now(groups["coin"])
+                    for k, won in kr.items():
+                        day, mid = coin_mid.get(k) or ("", 0)
+                        if day == kst_day() and mid and gnow.get(k) and \
+                                (coin_base.get(k) or ("",))[0] != kst_day():
+                            coin_base[k] = (day, won * mid / gnow[k])
             except Exception:
                 pass                                 # 막혔거나 요청이 잦으면 옛 비율로 계속 간다
         conv, raw = [], []                           # 환산한 코인 / 그중 환산비가 없어 해외 원값인 것
@@ -697,6 +746,8 @@ def refresh():
             prem_at[0] = time.time()
             cfg["coin_prem"] = {k: round(v, 6) for k, v in coin_prem.items()}
             cfg["coin_usd"] = dict(coin_usd)
+            cfg["coin_mid"] = {k: list(v) for k, v in coin_mid.items()}
+            cfg["coin_base"] = {k: list(v) for k, v in coin_base.items()}
             root.after(0, save, cfg)
 
         note = ("요청 과다 · 1분 대기" if wait else
