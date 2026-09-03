@@ -1669,8 +1669,11 @@ async function loadHoldings() {
   } catch (e) {
     document.getElementById('holdingsTable').innerHTML =
       '<div class="empty"><div class="empty-icon">⚠️</div>' +
-      '<p>종목을 불러오지 못했습니다<br><span style="font-size:12px;color:var(--text3)">서버가 응답하지 않거나 너무 느립니다. 분배금공지 탭을 방금 열었다면 그 요청이 끝나길 기다렸다가 다시 눌러 보세요.</span></p>' +
-      '<button class="btn btn-primary btn-sm" style="margin-top:10px" onclick="loadHoldings()">다시 시도</button></div>';
+      '<p>종목을 불러오지 못했습니다<br><span style="font-size:12px;color:var(--text3)">서버가 응답하지 않습니다. 백엔드 권한 승인이 풀렸거나(새 서비스가 추가되면 구글이 재승인을 요구한다) Apps Script가 느린 것입니다.</span></p>' +
+      '<div style="margin-top:10px;display:flex;gap:6px;justify-content:center">' +
+      '<button class="btn btn-primary btn-sm" onclick="loadHoldings()">다시 시도</button>' +
+      `<a class="btn btn-sm" href="${API}?action=getDistributionAll" target="_blank" rel="noopener noreferrer">백엔드 상태 확인</a>` +
+      '</div></div>';
     return;
   }
   // 티커 앞 0 보정: GAS가 숫자형으로 저장된 경우 005380 → 5380 복구
