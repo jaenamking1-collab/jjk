@@ -4114,6 +4114,28 @@ function shiftMonth(dir) {
   if (_distData.length) renderMasterCalendar(_distData);
   if (_noticeData) renderNotices();
 }
+// ── 월 커서가 가리키는 '이번 회차'의 달 ──
+// 달이 바뀌었다고 바로 넘기면, 월말 회차는 지급이 다음 달 초라 **아직 돈이 안 들어온
+// 지난달 회차가 화면에서 통째로 사라진다**(9/1에 8월 말 회차가 사라지던 것).
+// → 지난달 회차(기준일=지난달)의 이번 달 지급일 '다음 날'까지는 지난달을 가리키고,
+//   그 뒤에 이번 달로 넘어간다. ←/→ 로 옮기는 건 이 달을 기준으로 ±1개월.
+// 공지 데이터에 그 회차가 없으면(캐시가 이미 넘어갔으면) 그냥 이번 달이다.
+function distCursorMonth() {
+  const now = new Date(), curM = now.getMonth() + 1, prevM = curM === 1 ? 12 : curM - 1;
+  let payDay = 0;
+  (_distData || []).forEach(c => {
+    const rep = (c.data && c.data.schedule) || {};
+    ((c.data && c.data.items) || []).forEach(it => {
+      const sch = (it.sched && Object.keys(it.sched).length) ? it.sched : rep;
+      const b = distParseDay(sch['기준일'] || sch['분배락일']);
+      const pay = distParseDay(sch['지급일']);
+      if (!b || !pay || b.m !== prevM || pay.m !== curM) return;   // 지난달 회차 + 이번 달 지급만
+      if (pay.d > payDay) payDay = pay.d;
+    });
+  });
+  return (payDay && now.getDate() <= payDay + 1) ? prevM : curM;
+}
+
 let _distGridMonthOffset = 0; // 내 보유 종목 분배 내역: 월 단위 이동 (0=이번 달)
 
 // 내 보유 종목 분배 내역의 달 이동. ±1(전월~익월)로 제한.
@@ -4546,7 +4568,7 @@ function renderMasterCalendar(allData) {
 
   // ── 운용사별 일정: 표(A안) — 회사별 1행, 셀에 월중/월말 2줄 ──
   // ←/→ 버튼으로 고른 달(selM)의 일정만 표시. 행 귀속 월은 기준일(없으면 지급일)의 월.
-  const selM = ((month - 1 + _monthOffset) % 12 + 12) % 12 + 1;
+  const selM = ((distCursorMonth() - 1 + _monthOffset) % 12 + 12) % 12 + 1;
   const schedTitle = document.getElementById('schedTitle');
   if (schedTitle) schedTitle.textContent = `🏢 ${selM}월 운용사별 일정`;
   const rowsData = [];
@@ -4711,8 +4733,7 @@ function renderDistGrid(allData) {
   const grid = document.getElementById('distGrid');
   if (!grid) return;
   // ←/→ 로 고른 달(0=이번 달). 기준일 기준으로 그 달 회차만 표시.
-  const nowMonth = new Date().getMonth() + 1;
-  const curMonth = ((nowMonth - 1 + _distGridMonthOffset) % 12 + 12) % 12 + 1;
+  const curMonth = ((distCursorMonth() - 1 + _distGridMonthOffset) % 12 + 12) % 12 + 1;
   const gridTitle = document.getElementById('distGridTitle');
   if (gridTitle) gridTitle.textContent = `📋 ${curMonth}월 내 보유 종목 분배 내역`;
   // 기준일/지급일 문자열("7월 15일" 또는 "7/15")에서 '월'만 뽑는다.
@@ -5606,7 +5627,7 @@ function renderNotices() {
   const grid = document.getElementById('noticeGrid');
   if (!grid || !_noticeData) return;
   const now = new Date();
-  const selM = ((now.getMonth() + _monthOffset) % 12 + 12) % 12 + 1;
+  const selM = ((distCursorMonth() - 1 + _monthOffset) % 12 + 12) % 12 + 1;
   const title = document.getElementById('noticeTitle');
   if (title) title.textContent = `📢 ${selM}월 분배금 공지`;
   // 공지의 귀속 월: 제목의 'N월'(norm.mon) 우선, 없으면 등록일의 월
