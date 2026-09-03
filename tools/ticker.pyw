@@ -198,6 +198,7 @@ coin_base = {}                           # 코인 -> (날짜, 국내 자정 시�
 coin_ext = [True]                        # 야후에 코인도 함께 물어볼지 (코인 탓에 실패하면 끈다)
 coin_usd = {}                            # 코인 -> 야후 달러 심볼. 원화 페어가 없는 코인(KAIA 등)
 gecko_at = [0.0]                         # 코인게코를 마지막으로 부른 시각
+band_at = [0.0]                          # 30일 구간을 마지막으로 시도한 시각
 gecko_key = [""]                         # 그때 물어본 코인 구성. 달라지면 잠금 없이 다시 묻는다
 syncing = [False]                        # sync_back 재진입 막이
 coin_mid = {}                            # 코인 -> (날짜, 그날 한국시간 자정의 해외 시세)
@@ -850,12 +851,6 @@ def refresh():
                 "코인: 빗썸 %d초 전 값" % coin_lag[0] if coin_src[0] == "빗썸" and coin_lag[0] > 15 else
                 "" if coin_src[0] in ("빗썸", "") else "코인: " + coin_src[0])
         root.after(0, status.config, {"text": note})
-        # 교환비율 줄의 30일 구간. 거래소가 살아 있든 막혔든 하루 한 번 받는다.
-        if any(RATIO in k and (ratio_band.get(k) or ("",))[0] != kst_day() for k in keys):
-            try:
-                gecko_band(keys)
-            except Exception:
-                pass                             # 못 받으면 종전대로 하루치 등락률을 보여준다
         for k in keys:                        # 교환비율 줄 계산 (1 A = 몇 B)
             if RATIO in k:
                 a, b = k.split(RATIO, 1)
@@ -875,6 +870,18 @@ def refresh():
                 root.after(0, paint, k, data.get(k))
         root.after(0, redraw_text)            # 뚫린 창의 글자 잔상 지우기
         root.after(0, schedule, wait or cfg["refresh_sec"])
+
+        # 교환비율 줄의 30일 구간. **시세를 다 그린 뒤에** 받는다 — 응답이 큰 요청이라
+        # 앞에 두면 그만큼 화면이 늦게 채워진다. 실패해도 다음 사이클에 바로 다시 조르지
+        # 않는다(간격 제한). 안 그러면 5초마다 재시도하며 요청이 폭주한다.
+        if (time.time() - band_at[0] > GECKO_SEC
+                and any(RATIO in k and (ratio_band.get(k) or ("",))[0] != kst_day()
+                        for k in keys)):
+            band_at[0] = time.time()
+            try:
+                gecko_band(keys)
+            except Exception:
+                pass                          # 못 받으면 종전대로 하루치 등락률을 보여준다
 
     Thread(target=work, daemon=True).start()
 
