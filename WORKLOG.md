@@ -29,6 +29,21 @@
 
 ---
 
+## 2026-09-03 (141) / 원격(클라우드 세션) — 🎉 **원격에서 Apps Script 배포 성공 (@167)**. "원격은 배포 못 한다"가 틀렸다
+
+- 사용자가 "배포가 안 된다고?"라고 되물어 다시 확인했더니 **내가 틀렸다.** 막힌 건 `script.google.com` **하나뿐**이고, clasp 가 실제로 쓰는 호스트는 다 열려 있었다: `script.googleapis.com` ✅ · `oauth2.googleapis.com` ✅ · `accounts.google.com` ✅. 한 번 403 본 걸로 "구글 전체가 막혔다"고 넘겨짚었다.
+- **한 일**: `npm i -g @google/clasp@2.4.2` → 인증 URL을 직접 만들어 사용자에게 주고(허용 뒤 `localhost:33353/?code=…` 연결실패 페이지의 주소를 받음) `oauth2.googleapis.com/token` 에서 토큰 교환 → `~/.clasprc.json` 작성 → `clasp login --status` 로 `jaenamking1@gmail.com` 확인.
+  - `clasp login` 의 기본 로컬 콜백 서버는 **컨테이너 안**에 떠서 사용자 브라우저가 못 닿는다. 그래서 URL을 손으로 만든 것. `--no-localhost` 는 OOB 라 지금 구글이 막는다.
+  - **절차는 CLAUDE.md 에 박아뒀다** — 다음 원격 세션이 또 "못 한다"고 하지 않도록.
+  - ⚠️ **`clasp redeploy` 는 clasp 2.4.2 에 없다.** 올바른 명령은 `clasp deploy -i <배포ID> -d "<note>"`. CLAUDE.md 의 옛 표기도 고쳤다.
+- **배포 결과**: 절차대로 ① 임시 폴더 `clasp pull` → 원격이 내 작업 전 로컬과 **문자 단위 동일** 확인 ② `clasp push --force` ③ `clasp deploy -i AKfycbwJS1Fd-… ` → **버전 167**, URL 그대로 ④ 다시 `clasp pull` → 원격 = 지금 로컬 `Code.gs` 동일 확인.
+  - 들어간 내용: 139의 공지 필터 확장(`NOTICE_KEEP_RE = /분배/`, `NOTICE_MAX` 12→20, 캐시 키 `notices_v3_`). 이제 `분배 지급주기 변경 안내` 같은 제목도 서버가 안 버린다.
+- ⚠️ **컨테이너는 세션마다 새로 만들어져 `~/.clasprc.json` 이 사라진다.** 원격에서 배포할 일이 있는 세션마다 사용자 클릭 1회(30초)가 필요하다. **토큰은 저장소에 절대 안 남긴다**(공개 저장소).
+
+**다음 할 일**: ① (PC) Apps Script 편집기에서 `resetAllTriggers()` ▶ 1회 — 재승인 뒤 시간 트리거 복구 ② 9월 공지 뜬 뒤 종목관리에서 🗓️ 배당주기 공지동기화 ③ TIGER S&P500 종목 주기를 월중으로(종목관리 편집).
+
+---
+
 ## 2026-09-03 (140) / 원격(클라우드 세션) — 🔥 **학교망이 `raw.githubusercontent.com` 만 막고 있었다** + 「바탕만 투명」 최종 포기
 
 - 🔥 **설정창의 `확인 실패(인터넷)` 한 줄이 답이었다.** 위젯이 09-03 12:25 자 코드에서 멈춰 있었고, 그래서 30일 구간도 바탕만 투명도 배달되지 못했다. **"기능이 안 보인다"가 아니라 "코드가 안 왔다"** 였다.
