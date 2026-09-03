@@ -1,11 +1,35 @@
 # 바탕화면 실시간 시세 위젯. 드래그로 이동, 톱니로 설정.
 # 목록 한 줄에 하나: "심볼" 또는 "심볼=표시이름", "---" 는 구분선.
 # 국내(6자리 코드, KOSPI/KOSDAQ)는 네이버 실시간, 해외/코인/환율은 야후.
-import ctypes, ctypes.wintypes, datetime, json, os, re, shutil, subprocess, sys, time, tkinter as tk
+import base64, ctypes, ctypes.wintypes, datetime, json, os, re, shutil, subprocess, sys, time
+import tkinter as tk
 import urllib.error, urllib.parse, urllib.request
 from threading import Thread
 
-RAW = "https://raw.githubusercontent.com/jaenamking1-collab/jjk/main/tools/ticker.pyw"
+REPO = "jaenamking1-collab/jjk"
+FILE = "tools/ticker.pyw"
+RAW = "https://raw.githubusercontent.com/%s/main/%s" % (REPO, FILE)
+# ⚠️ raw.githubusercontent.com 만 통째로 막는 망이 있다(학교, 2026-09-03 실측: raw는 응답
+# 없음, github.com·jsdelivr은 200). 한 주소만 보면 그런 곳에서는 영영 갱신이 안 된다.
+# 앞에서부터 시도한다 — 앞쪽이 항상 최신이고, jsdelivr은 중계라 최대 반나절 늦을 수 있다.
+MIRRORS = ((RAW, "raw"),
+           ("https://api.github.com/repos/%s/contents/%s?ref=main" % (REPO, FILE), "api"),
+           ("https://cdn.jsdelivr.net/gh/%s@main/%s" % (REPO, FILE), "jsdelivr"))
+
+
+def fetch_code():
+    """새 코드를 받아온다. 먼저 성공한 주소의 것을 쓰고, 어디서 받았는지도 알려준다."""
+    for url, name in MIRRORS:
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "ticker-widget"})
+            body = urllib.request.urlopen(req, timeout=5).read()
+            if name == "api":                        # 깃허브 API는 base64로 싸서 준다
+                body = base64.b64decode(json.loads(body)["content"])
+            if len(body) > 10000 and b"tkinter" in body:
+                return body, name
+        except Exception:
+            continue                                 # 막힌 주소는 건너뛰고 다음 것으로
+    return None, None
 update_note = ["확인 안 함"]             # 설정창에 보여줄 마지막 갱신 결과
 
 
@@ -37,19 +61,22 @@ def self_update():
         ok = git(repo, "pull", "--ff-only", "--quiet") == 0
         update_note[0] = "최신" if ok else "확인 실패(작업 중이거나 오프라인)"
     else:
-        try:
-            new = urllib.request.urlopen(RAW, timeout=8).read()
-            if len(new) > 10000 and b"tkinter" in new and new != before:
-                # 문법이 깨진 코드는 받아도 쓰지 않는다. 파이썬은 파일 전체를 컴파일한 뒤
-                # 실행하므로, 한 번 덮이면 이 갱신 코드조차 돌지 못해 영영 회복이 안 된다.
-                compile(new, me, "exec")
-                with open(me, "wb") as f:
-                    f.write(new)
-            update_note[0] = "최신"
-        except SyntaxError:
-            update_note[0] = "새 코드에 문제가 있어 그대로 둠"
-        except Exception:
+        new, src = fetch_code()
+        if not new:
             update_note[0] = "확인 실패(인터넷)"    # 인터넷이 없으면 있던 걸로 그냥 돈다
+        else:
+            try:
+                if new != before:
+                    # 문법이 깨진 코드는 받아도 쓰지 않는다. 파이썬은 파일 전체를 컴파일한 뒤
+                    # 실행하므로, 한 번 덮이면 이 갱신 코드조차 돌지 못해 영영 회복이 안 된다.
+                    compile(new, me, "exec")
+                    with open(me, "wb") as f:
+                        f.write(new)
+                update_note[0] = "최신(%s)" % src   # 어느 주소로 받았는지도 보여준다
+            except SyntaxError:
+                update_note[0] = "새 코드에 문제가 있어 그대로 둠"
+            except Exception:
+                update_note[0] = "저장 실패"
     try:
         if open(me, "rb").read() != before:
             os.execv(sys.executable, [sys.executable, me])
