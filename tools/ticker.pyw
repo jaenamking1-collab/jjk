@@ -453,12 +453,21 @@ def yahoo(syms):
     out = {}
     for r in get(SPARK + urllib.parse.quote(",".join(syms)))["spark"]["result"]:
         m = r["response"][0]["meta"]
-        price = m["regularMarketPrice"]
-        prev = m.get("chartPreviousClose") or price
-        diff = price - prev
+        # 야후는 정규장 값과 함께 **장 전후를 포함한 값**(fullday…)도 같은 응답에 준다.
+        # 미국 종목은 한국 시간 대부분이 정규장 밖이라, 정규장 값만 쓰면 어제 종가를
+        # "지금 값"으로 보여주고 등락률도 어제 것이 된다 — 2026-09-04 PLTR: 위젯이
+        # 182.53 +7.71%(어제 움직임)를 띄우는 동안 증권사 화면은 180.63 -1.04%였다.
+        if m.get("fulldayPrice") and m.get("fulldayChangePercent") is not None:
+            price, diff = m["fulldayPrice"], m.get("fulldayChange") or 0.0
+            pct = m["fulldayChangePercent"]
+        else:
+            price = m["regularMarketPrice"]
+            prev = m.get("chartPreviousClose") or price
+            diff = price - prev
+            pct = diff / prev * 100 if prev else 0.0
         # 원화 표시 자산은 정수, 환율과 달러 종목은 소수 둘째 자리까지
         dec = 2 if r["symbol"].endswith("=X") or m.get("currency") != "KRW" else 0
-        out[r["symbol"]] = (price, diff, diff / prev * 100 if prev else 0.0, dec, None)
+        out[r["symbol"]] = (price, diff, pct, dec, None)
     return out
 
 
