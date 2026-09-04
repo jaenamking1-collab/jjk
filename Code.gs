@@ -670,7 +670,11 @@ function getEtfNotices(source) {
   // 정작 제일 중요한 공지인데 앱 어디에도 안 나왔다 → '분배'로 넓힌다(분배금·분배주기·분배 지급 …).
   const NOTICE_KEEP_RE = /분배/;
   const cache = CacheService.getScriptCache();
-  const cacheKey = 'notices_v3_' + source;   // v3: 20건 + '분배' 필터. 키를 올려 옛 캐시를 즉시 버린다
+  // ⚠️ **캐시 키를 올리지 마라.** 올리는 순간 6개사 캐시가 통째로 무효가 되고, 앱을 열 때마다
+  // 서버측 스크랩 4건(kodex·ace·rise·sol)이 새로 돌면서 Apps Script 실행 줄에 서서
+  // getBootstrap·getHoldings 까지 그 뒤에 밀린다 → **모든 메뉴가 빙빙 돈다**(WORKLOG 90·142).
+  // 필터를 넓혀도 캐시는 TTL(2~6시간)로 알아서 갈린다. 키는 그대로 둔다.
+  const cacheKey = 'notices_v2_' + source;
   const cached = cache.get(cacheKey);
   if (cached) return JSON.parse(cached);
   try {
