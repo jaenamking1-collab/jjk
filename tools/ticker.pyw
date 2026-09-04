@@ -198,6 +198,7 @@ coin_base = {}                           # 코인 -> (날짜, 국내 자정 시�
 coin_ext = [True]                        # 야후에 코인도 함께 물어볼지 (코인 탓에 실패하면 끈다)
 coin_usd = {}                            # 코인 -> 야후 달러 심볼. 원화 페어가 없는 코인(KAIA 등)
 gecko_at = [0.0]                         # 코인게코를 마지막으로 부른 시각
+gecko_ok = [0.0]                         # 코인게코가 빗썸 시세를 마지막으로 준 시각
 band_at = [0.0]                          # 30일 구간을 마지막으로 시도한 시각
 gecko_key = [""]                         # 그때 물어본 코인 구성. 달라지면 잠금 없이 다시 묻는다
 syncing = [False]                        # sync_back 재진입 막이
@@ -786,6 +787,8 @@ def refresh():
             gecko_at[0], gecko_key[0] = time.time(), key
             try:
                 kr = gecko(groups["coin"])
+                if kr:
+                    gecko_ok[0] = time.time()    # 화면값의 출처를 정확히 밝히기 위해 남긴다
                 for k, won in kr.items():
                     if far.get(k) and far[k][0]:
                         coin_prem[k] = won / far[k][0]
@@ -815,9 +818,14 @@ def refresh():
                 if k not in coin_prem:
                     raw.append(k)
         if conv:                                     # 일부만 원값일 수 있으므로 뭉뚱그리지 않는다
+            # 출처를 정확히 밝힌다. 코인게코가 빗썸 시세를 방금 줬으면 화면에 뜬 값은
+            # 사실상 빗썸 가격이다 — 그때 "거래소 막힘"이라고 쓰면 표시가 거짓말이 된다.
+            # 그 값이 낡았을 때만 "해외 환산"(야후 × 옛 비율)이 맞는 이름이다.
+            base = ("빗썸(코인게코)" if time.time() - gecko_ok[0] < GECKO_SEC * 2
+                    else "해외 환산")
             coin_src[0] = ("해외평균(환산비 없음)" if len(raw) == len(conv) else
-                           "해외 환산 · %s 원값" % "/".join(x.split("-")[0] for x in raw) if raw else
-                           "해외 환산")
+                           base + " · %s 원값" % "/".join(x.split("-")[0] for x in raw) if raw else
+                           base)
         if (coin_prem or coin_usd) and time.time() - prem_at[0] > PREM_SAVE:
             prem_at[0] = time.time()
             cfg["coin_prem"] = {k: round(v, 6) for k, v in coin_prem.items()}
