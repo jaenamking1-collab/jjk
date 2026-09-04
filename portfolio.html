@@ -4607,7 +4607,8 @@ function renderMasterCalendar(allData) {
       return match(heldItems, true) || match(items, false) || { sched: null, hasHolding: false, hasNotice: false };
     };
     const mid = pickCycle('월중'), end = pickCycle('월말');
-    if (!mid.hasNotice && !end.hasNotice) return;
+    // 공지가 없어도 행은 남긴다 — 표·칸의 틀이 사라지면 '아직 안 나온 것'인지 '고장난 것'인지
+    // 화면에서 구분이 안 된다(2026-09-04 지적). 날짜 칸만 '·'로 비운다.
     rowsData.push({ name: c.name, color: c.color, mid, end });
   });
 
@@ -4692,7 +4693,9 @@ function renderMasterCalendar(allData) {
 // 정기 월중·월말 회차는 위 표와 좌측 패널에 이미 있으니 빼고, **비정기 사건만** 최근 90일 최대 3건.
 // 제목 키워드로만 판정한다 — normalizeNoticeTitle의 cycle은 ACE 분기에서 특별 공지도 '월말'로 떨어진다.
 const NOTICE_COLOR = { kodex:'#2563eb', tiger:'#f97316', ace:'#059669', plus:'#7c3aed', rise:'#dc2626', sol:'#0891b2' };
-const DIST_ISSUE_RE = /특별|임시|추가분배|결산|상장폐지|해지|청산|합병|분할|병합|정정|변경|중단|투자유의|괴리/;
+// ⚠️ 이 집합은 NOTICE_EVENT_RE 의 **상위집합**이어야 한다. 그래야 왼쪽 카드에서 빠진 공지가
+// 반드시 여기 뜬다 — 둘이 어긋나면 '왼쪽에도 없고 오른쪽에도 없는' 공지가 생긴다(2026-09-04).
+const DIST_ISSUE_RE = /특별|임시|추가분배|결산|상장폐지|해지|청산|합병|분할|병합|정정|변경|중단|조정|전환|투자유의|괴리/;
 function distIssueNotices(items, now) {
   const t = now || Date.now();
   return (items || [])
@@ -5583,7 +5586,7 @@ const NOTICE_SOURCES = [
 // **왼쪽 운용사 카드에는 넣지 않는다** — 거기는 순수 분배 회차(월중/월말/특별)만 보는 자리다.
 // 이 분류는 사건 공지가 카드 슬롯이나 폴백으로 새어 들어오는 걸 막는 용도이고,
 // 실제 표시는 오른쪽 📌 공지사항(distIssueNotices)이 맡는다.
-const NOTICE_EVENT_RE = /변경|정정|중단|해지|청산|상장폐지|합병|분할|병합/;
+const NOTICE_EVENT_RE = /변경|정정|중단|해지|청산|상장폐지|합병|분할|병합|조정|전환|투자유의|괴리/;
 // 그중에서도 **회차 자체가 옮겨가는** 공지. 제목에 '월말/월중'이 들어 있어 아래 회차 판정에
 // 먼저 걸려 정기 공지로 오인된다(2026-09-02 TIGER 미국S&P500타겟데일리커버드콜 지급기준일
 // 월말→월중 15일). 단순 '(정정)'된 정기 공지는 '변경'이 없어 여기 안 걸리므로 회차 슬롯을 지킨다.
@@ -5592,11 +5595,13 @@ function normalizeNoticeTitle(title, source) {
   if (!title) return { label: '공지', cycle: '기타', mon: 0 };
   const monM = title.match(/(\d{1,2})\s*월/);
   const mon = monM ? parseInt(monM[1]) : 0;
+  // ⚠️ 회차 판정보다 **먼저** 본다. '…월중 분배 지급주기 변경 안내' 처럼 제목에 '월중'이 섞인
+  // 사건 공지가 회차로 분류돼 왼쪽 카드의 9월 월중 슬롯을 차지했다(2026-09-04 지적).
+  if (NOTICE_EVENT_RE.test(title)) return { label: '⚠️ ' + title, cycle: '안내', mon };
 
   // ACE 전용: 제목에 월중/월말 표기 없음 → 부제로 판별
   if (source === 'ace') {
     if (/국고채|국채\s*3년/.test(title)) return { label: '비정기', cycle: '제외', mon };
-    if (NOTICE_EVENT_RE.test(title)) return { label: '⚠️ ' + title, cycle: '안내', mon };
     if (/데일리타겟|미국배당다우존스|시리즈/.test(title))
       return { label: (mon?mon+'월 ':'') + '월중배당', cycle: '월중', mon };
     return { label: (mon?mon+'월 ':'') + '월말배당', cycle: '월말', mon };
@@ -5607,7 +5612,6 @@ function normalizeNoticeTitle(title, source) {
   else if (/월말|말\s*분배|②|안내\s*②/.test(title)) { cycle = '월말'; label = (mon?mon+'월 ':'') + '월말배당'; }
   else if (/월중|중순|중간|①|안내\s*①/.test(title)) { cycle = '월중'; label = (mon?mon+'월 ':'') + '월중배당'; }
   else if (/특별|임시|추가|결산/.test(title)) { cycle = '특별'; label = (mon?mon+'월 ':'') + '특별배당'; }
-  else if (NOTICE_EVENT_RE.test(title)) { cycle = '안내'; label = '⚠️ ' + title; }
   else { cycle = '기타'; label = (mon?mon+'월 ':'') + '분배금 공지'; }
   return { label, cycle, mon };
 }
