@@ -2148,8 +2148,9 @@ async function paintDueCells(holdings) {
   });
 }
 
-// 분배율 추이(읽기 전용): 월 금액 아래에 그달 분배율(%)과 전달 대비 증감(pp) 표시.
-// 증감 = 이번달% − 전달%(m-1). 빨강=상승, 파랑=하락. 전달 값 없거나 1월이면 증감 없음.
+// 분배율 추이(읽기 전용): 월 금액 아래에 **전달 대비 금액 증감**과 그달 분배율(%) 표시.
+// 증감 = 이번달 금액 − 전달 금액(m-1). 빨강=증가, 파랑=감소. 전달에 받은 게 없으면 표시 안 함.
+// %는 그 달만의 값이다(그달 분배금 ÷ 그달 원금) — 전달과 비교한 값이 아니다.
 async function loadDivRateGrid() {
   // divYear는 숨은 input이고 초기값이 빈 문자열이다. setupYearSelects()는 부팅 맨 끝에서야 채우므로
   // 그전에 탭을 열면 year=''로 나가고, 서버의 `if (year)`가 거짓이라 **전 연도**를 다 돌려준다.
@@ -2251,21 +2252,25 @@ async function loadDivRateGrid() {
       if (!amt) return `<td style="padding:0"></td>`;
       const dol = isUsd ? `<span style="color:#92400e;font-weight:700;margin-right:1px">$</span>` : '';
       const amtDisp = isUsd ? amt.toFixed(2) : Math.round(amt).toLocaleString();
-      let rateStr = '', deltaStr = '';
-      if (rate != null) {
-        rateStr = rate.toFixed(2) + '%';
-        const prev = m > 1 ? rateArr[m-2] : null;
-        if (prev != null) {
-          const d = rate - prev;
-          if (Math.abs(d) >= 0.005) {
-            const col = d > 0 ? '#dc2626' : '#2563eb';
-            deltaStr = `<span style="color:${col};font-weight:700">${d > 0 ? '+' : '−'}${Math.abs(d).toFixed(2)}</span>`;
-          }
+      const rateStr = rate != null ? rate.toFixed(2) + '%' : '';
+      // ± 는 **전달 대비 금액 차이**다(예전엔 분배율 pp 차이라 %인지 금액인지 화면에서 구분이 안 됐다).
+      // 통화는 그 종목 기준 — USD 종목은 달러, 나머지는 원. 전달에 받은 게 없으면 비교하지 않는다.
+      let deltaStr = '';
+      const prevAmt = m > 1 ? amtArr[m-2] : 0;
+      if (prevAmt > 0) {
+        const d = amt - prevAmt;
+        if (Math.abs(d) >= (isUsd ? 0.005 : 0.5)) {
+          const col = d > 0 ? '#dc2626' : '#2563eb';
+          const dd = isUsd ? Math.abs(d).toFixed(2) : Math.round(Math.abs(d)).toLocaleString();
+          deltaStr = `<span style="color:${col};font-weight:700">${d > 0 ? '+' : '−'}${dd}</span>`;
         }
       }
-      return `<td style="padding:1px 3px;text-align:right;white-space:nowrap;vertical-align:middle">
+      const tip = `${m}월 ${dol ? '$' : ''}${amtDisp}`
+        + (rate != null ? ` · 분배율 ${rateStr} (내 원금 대비)` : '')
+        + (prevAmt > 0 ? ` · 전달(${m-1}월) ${isUsd ? '$' + prevAmt.toFixed(2) : Math.round(prevAmt).toLocaleString()} 대비` : '');
+      return `<td style="padding:1px 3px;text-align:right;white-space:nowrap;vertical-align:middle" title="${tip}">
         <div style="color:#111827;font-weight:600;line-height:1.15">${dol}${amtDisp}</div>
-        <div style="line-height:1.15;font-size:0.82em">${deltaStr}<span style="color:#475569;margin-left:3px">${rateStr}</span></div>
+        <div style="line-height:1.15;font-size:0.82em">${deltaStr}<span style="color:#111827;margin-left:3px">${rateStr}</span></div>
       </td>`;
     }).join('');
 
@@ -2310,6 +2315,11 @@ async function loadDivRateGrid() {
   </tr>`;
 
   document.getElementById('dividendGrid').innerHTML = `
+    <div style="font-size:11px;color:var(--text2);margin-bottom:6px;line-height:1.5">
+      칸 <b>윗줄</b> = 그달 받은 분배금 ·
+      <b style="color:#dc2626">+</b>/<b style="color:#2563eb">−</b> = <b>전달 대비 금액</b> ·
+      <b>%</b> = 그달 분배율(그달 원금 대비, 전달과 무관)
+    </div>
     <div class="div-grid-wrap">
     <table class="div-grid">
       <thead><tr>
