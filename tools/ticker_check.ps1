@@ -12,8 +12,10 @@ $procs = @(Get-CimInstance Win32_Process |
            Where-Object { $_.CommandLine -match 'ticker\.pyw' })
 if ($procs.Count -eq 0) { "  (없음 - 위젯이 꺼져 있습니다)" }
 foreach ($p in $procs) {
-  $path = if ($p.CommandLine -match '([A-Za-z]:\\[^"]*)\\ticker\.pyw') { $Matches[1] } else { "?" }
-  $flag = if ($path -like "$dest*") { "OK" } else { "<-- 잘못된 위치" }
+  # 정규식으로 경로를 뽑지 않는다. 바로가기 없이 켜면 명령줄에 따옴표가 없어서
+  # 문자군이 공백을 넘어 앞쪽 pythonw.exe 경로까지 먹는다 — 멀쩡한 위치를
+  # "잘못된 위치"로 찍었다(2026-09-07). 목표 경로가 들어 있는지만 본다.
+  $flag = if ($p.CommandLine.Contains("$dest\ticker.pyw")) { "OK" } else { "<-- 잘못된 위치" }
   "  [{0}] {1}" -f $flag, $p.CommandLine
 }
 if ($procs.Count -gt 1) { "  !! 위젯이 " + $procs.Count + "개 떠 있습니다 - 옛 사본이 같이 도는 중" }
@@ -108,3 +110,7 @@ foreach ($k in $urls.Keys) {
 
 ""
 "점검 끝. 이 화면을 그대로 캡처해서 보여주면 됩니다."
+""
+"실행법: irm ... | iex 는 한글이 깨집니다(응답에 charset 이 없어 ANSI 로 읽습니다)."
+"        파일로 받아서 돌리세요:"
+"        iwr <주소> -OutFile $env:TEMP\tc.ps1 -UseBasicParsing; & $env:TEMP\tc.ps1"
