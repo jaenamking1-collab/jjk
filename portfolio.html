@@ -2239,8 +2239,11 @@ async function loadDivRateGrid() {
       if (amtKrw) { rowTotalKrw += amtKrw; monthTotalsKrw[m-1] += amtKrw; accMonthKrw[m-1] += amtKrw; }
       const cb = (costMap || {})[`${h.id}_${m}`];
       const invM = cb ? (cb.cur === 'USD' ? cb.cost * er : cb.cost) : investKrw;
-      // 그달 보유수량 — 주당 분배금(= 금액 ÷ 수량)의 분모. 이력이 없으면 지금 수량으로 폴백.
-      qtyArr[m-1] = (cb ? parseFloat(cb.qty) : parseFloat(h.quantity)) || 0;
+      // 그달 보유수량 — 주당 분배금(= 금액 ÷ 수량)의 분모.
+      // ⚠️ **이력이 없는 달은 주당을 계산하지 않는다.** 예전엔 지금 수량으로 폴백했는데,
+      // 그러면 그때 50주였던 종목을 150주로 나눠 과거 주당이 1/3로 줄고 '3배 증가'로 보인다
+      // (2026-09-07: ACE 미국반도체 배지가 ▲+176% 로 뜬 원인).
+      qtyArr[m-1] = cb ? (parseFloat(cb.qty) || 0) : 0;
       if (amtKrw && invM > 0) { invSum += invM; invN++; }
       rateArr[m-1] = (invM > 0 && amtKrw > 0) ? (amtKrw / invM * 100) : null;
     });
@@ -2283,9 +2286,15 @@ async function loadDivRateGrid() {
     // 한 달 증감(±)만으론 '점점 줄어드는지'가 안 보인다(2026-09-07 요청). 12개월 주당 금액을
     // 미니 그래프로 깔고, 최근 절반 평균 ÷ 그 앞 절반 평균을 배지로 붙인다(최대 3회차씩).
     // x는 '월'로 고정한다 — 값 있는 달만 촘촘히 그리면 쉬는 달이 사라져 추세가 왜곡된다.
+    _shMeta[h.id] = { name: h.name || h.ticker, isUsd };
     const shArr = months.map(m => (amtArr[m-1] > 0 && qtyArr[m-1] > 0) ? amtArr[m-1] / qtyArr[m-1] : null);
     const shPts = months.map(m => ({ m, v: shArr[m-1] })).filter(x => x.v != null);
     let trendHtml = '';
+    const paidMonths = months.filter(m => amtArr[m-1] > 0).length;
+    if (shPts.length < 2 && paidMonths >= 2) {
+      trendHtml = `<div style="font-size:0.72em;color:#94a3b8;line-height:1;margin-top:1px"
+        title="주당 분배금을 계산하려면 그달 보유수량이 필요합니다. 원금월별(거래내역) 이력이 없는 달은 빼고 계산합니다.">수량 이력 없음</div>`;
+    }
     if (shPts.length >= 2) {
       const W = 74, H = 16;
       const vs = shPts.map(x => x.v);
@@ -2293,8 +2302,10 @@ async function loadDivRateGrid() {
       const x0 = shPts[0].m, x1 = shPts[shPts.length-1].m, xs = (x1 - x0) || 1;
       const pt = q => [((q.m - x0) / xs * (W - 4) + 2).toFixed(1), (H - 2 - (q.v - lo) / span * (H - 4)).toFixed(1)];
       const n = Math.min(3, Math.floor(shPts.length / 2));
-      const avg = a => a.reduce((x, y) => x + y, 0) / a.length;
-      const recent = avg(vs.slice(-n)), prior = avg(vs.slice(-2 * n, -n));
+      // 평균은 한 달 튄 값에 통째로 끌려간다 → 중앙값으로 비교한다.
+      const med = a => { const b = [...a].sort((x, y) => x - y); const k = b.length >> 1;
+                         return b.length % 2 ? b[k] : (b[k-1] + b[k]) / 2; };
+      const recent = med(vs.slice(-n)), prior = med(vs.slice(-2 * n, -n));
       const pct = prior > 0 ? (recent / prior - 1) * 100 : 0;
       const col = pct > 1 ? '#dc2626' : pct < -1 ? '#2563eb' : '#64748b';
       const arrow = pct > 1 ? '▲' : pct < -1 ? '▼' : '–';
@@ -2321,7 +2332,8 @@ async function loadDivRateGrid() {
     const groupBorder = (isGroupStart && idx > 0) ? 'border-top:2px solid #334155;' : '';
     rows += `<tr style="background:${divRowBg};${groupBorder}${isUsdBorder ? 'border-top:2px solid #f59e0b88' : ''}">
       ${acctCell}
-      <td class="div-ticker-cell" title="${h.ticker}">
+      <td class="div-ticker-cell" title="${h.ticker}"
+          onmouseenter="showShTrend(this,'${h.id}')" onmouseleave="hideShTrend()">
         <span class="ticker" style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px;text-align:left;color:#111827;font-weight:500;line-height:1.1;font-size:1em">${h.currency === 'USD' ? (h.ticker || h.name) : (h.name || h.ticker)}</span>
         ${trendHtml}
       </td>
@@ -2372,6 +2384,106 @@ async function loadDivRateGrid() {
     </div>
   `;
   applyDivFont();
+}
+
+// ── 종목 롤오버: 주당 분배금 3년 그래프 ─────────────────────────
+// 표는 한 해만 보여줘서 '전반적으로 줄어드는지'가 1년 안에 갇힌다. 이름에 마우스를 올리면
+// 36개월치를 띄운다. 데이터는 **처음 올렸을 때 한 번만** 받아 캐시한다(Apps Script 는 실행을
+// 한 줄로 세우므로 매번 부르면 표가 멈춘다). 수량 이력이 없는 달은 주당을 못 구하니 건너뛴다.
+const _shMeta = {};
+let _shData = null, _shBox = null, _shTimer = null;
+
+async function _shLoad() {
+  if (_shData) return _shData;
+  const y = new Date().getFullYear(), years = [y-2, y-1, y];
+  // getDividends 는 year 를 안 주면 전 연도를 준다(loadDivRateGrid 주석 참고).
+  const [divs, ...costs] = await Promise.all([
+    api({ action: 'getDividends' }),
+    ...years.map(yy => api({ action: 'getCostBasis', year: yy }))
+  ]);
+  const byKey = {};
+  (divs || []).forEach(d => { byKey[`${d.holding_id}_${d.year}_${d.month}`] = d; });
+  const cost = {};
+  years.forEach((yy, i) => { cost[yy] = costs[i] || {}; });
+  _shData = { byKey, cost, years };
+  return _shData;
+}
+
+function _shSeries(d, hid) {
+  const out = [];
+  d.years.forEach(yy => {
+    for (let m = 1; m <= 12; m++) {
+      const row = d.byKey[`${hid}_${yy}_${m}`];
+      const amt = row ? (parseFloat(row.amount) || 0) : 0;
+      const cb = (d.cost[yy] || {})[`${hid}_${m}`];
+      const q = cb ? (parseFloat(cb.qty) || 0) : 0;
+      out.push({ yy, m, v: (amt > 0 && q > 0) ? amt / q : null, qty: q });
+    }
+  });
+  return out;
+}
+
+function hideShTrend() {
+  clearTimeout(_shTimer);
+  if (_shBox) _shBox.style.display = 'none';
+}
+
+function showShTrend(td, hid) {
+  clearTimeout(_shTimer);
+  _shTimer = setTimeout(async () => {
+    const meta = _shMeta[hid] || { name: '', isUsd: false };
+    if (!_shBox) {
+      _shBox = document.createElement('div');
+      _shBox.style.cssText = 'position:fixed;z-index:9999;background:#fff;border:1px solid #cbd5e1;'
+        + 'border-radius:8px;box-shadow:0 8px 24px #0003;padding:10px 12px;pointer-events:none;display:none';
+      document.body.appendChild(_shBox);
+    }
+    const r = td.getBoundingClientRect();
+    const W = 360, H = 120;
+    _shBox.innerHTML = `<div style="font-size:12px;color:var(--text3)">불러오는 중…</div>`;
+    _shBox.style.display = 'block';
+    _shBox.style.left = Math.min(r.right + 8, window.innerWidth - W - 24) + 'px';
+    _shBox.style.top = Math.max(8, Math.min(r.top, window.innerHeight - H - 70)) + 'px';
+
+    let d;
+    try { d = await _shLoad(); } catch (e) { _shBox.innerHTML = '<div style="font-size:12px;color:var(--red)">불러오지 못했습니다</div>'; return; }
+    if (_shBox.style.display === 'none') return;          // 그새 마우스가 빠졌다
+
+    const ser = _shSeries(d, hid);
+    const pts = ser.map((p, i) => ({ ...p, i })).filter(p => p.v != null);
+    const fmt = v => meta.isUsd ? '$' + v.toFixed(3) : Math.round(v).toLocaleString();
+    if (pts.length < 2) {
+      _shBox.innerHTML = `<div style="font-size:12px;font-weight:700;color:#111827;margin-bottom:4px">${meta.name}</div>`
+        + `<div style="font-size:12px;color:var(--text3)">주당 분배금을 그릴 데이터가 없습니다<br>`
+        + `<span style="font-size:11px">(그달 보유수량 이력이 있는 달만 씁니다)</span></div>`;
+      return;
+    }
+    const vs = pts.map(p => p.v);
+    const lo = Math.min(...vs), hi = Math.max(...vs), span = (hi - lo) || 1;
+    const PX = v => (v / 35 * (W - 30) + 24).toFixed(1);
+    const PY = v => (H - 18 - (v - lo) / span * (H - 34)).toFixed(1);
+    const path = pts.map((p, k) => (k ? 'L' : 'M') + PX(p.i) + ' ' + PY(p.v)).join(' ');
+    const first = vs[0], last = vs[vs.length - 1];
+    const chg = first > 0 ? (last / first - 1) * 100 : 0;
+    const col = chg > 1 ? '#dc2626' : chg < -1 ? '#2563eb' : '#64748b';
+    // 연도 경계선
+    const marks = d.years.map((yy, k) => k ? `<line x1="${PX(k*12)}" y1="4" x2="${PX(k*12)}" y2="${H-16}" stroke="#e2e8f0" stroke-width="1"/>` : '').join('')
+      + d.years.map((yy, k) => `<text x="${PX(k*12+6)}" y="${H-4}" font-size="9" fill="#94a3b8" text-anchor="middle">${yy}</text>`).join('');
+    _shBox.innerHTML = `
+      <div style="font-size:12px;font-weight:700;color:#111827;margin-bottom:2px">${meta.name}</div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:4px">1주당 분배금 · 최근 3년 (${pts.length}회차)</div>
+      <svg width="${W}" height="${H}">
+        ${marks}
+        <path d="${path}" fill="none" stroke="${col}" stroke-width="1.6" stroke-linejoin="round"/>
+        ${pts.map(p => `<circle cx="${PX(p.i)}" cy="${PY(p.v)}" r="1.7" fill="${col}"/>`).join('')}
+        <text x="2" y="12" font-size="9" fill="#94a3b8">${fmt(hi)}</text>
+        <text x="2" y="${H-20}" font-size="9" fill="#94a3b8">${fmt(lo)}</text>
+      </svg>
+      <div style="font-size:11px;color:var(--text2);margin-top:2px">
+        처음 <b>${fmt(first)}</b> → 최근 <b>${fmt(last)}</b>
+        <span style="color:${col};font-weight:700;margin-left:4px">${chg >= 0 ? '+' : '−'}${Math.abs(chg).toFixed(0)}%</span>
+      </div>`;
+  }, 180);
 }
 
 async function saveDividendCell(input) {
