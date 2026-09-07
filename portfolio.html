@@ -2148,8 +2148,8 @@ async function paintDueCells(holdings) {
   });
 }
 
-// 분배율 추이(읽기 전용): 월 금액 아래에 **전달 대비 금액 증감**과 그달 분배율(%) 표시.
-// 증감 = 이번달 금액 − 전달 금액(m-1). 빨강=증가, 파랑=감소. 전달에 받은 게 없으면 표시 안 함.
+// 분배율 추이(읽기 전용): 월 금액 아래에 **1주당 분배금의 전달 대비 증감**과 그달 분배율(%) 표시.
+// 증감 = 이번달 주당 − 전달 주당. 빨강=증가, 파랑=감소. 총액으로 비교하면 추가매수가 증가로 보인다.
 // %는 그 달만의 값이다(그달 분배금 ÷ 그달 원금) — 전달과 비교한 값이 아니다.
 async function loadDivRateGrid() {
   // divYear는 숨은 input이고 초기값이 빈 문자열이다. setupYearSelects()는 부팅 맨 끝에서야 채우므로
@@ -2226,7 +2226,7 @@ async function loadDivRateGrid() {
     const isUsd = h.currency === 'USD';
 
     // 월별 금액·분배율 선계산
-    const amtArr = Array(12).fill(0), rateArr = Array(12).fill(null);
+    const amtArr = Array(12).fill(0), rateArr = Array(12).fill(null), qtyArr = Array(12).fill(0);
     let rowTotalKrw = 0;
     // 분모는 달마다 다르다 — 그달 말 원금(거래내역 복원분)을 쓰고, 없는 달만 현재 원금으로 폴백
     let invSum = 0, invN = 0;
@@ -2239,6 +2239,8 @@ async function loadDivRateGrid() {
       if (amtKrw) { rowTotalKrw += amtKrw; monthTotalsKrw[m-1] += amtKrw; accMonthKrw[m-1] += amtKrw; }
       const cb = (costMap || {})[`${h.id}_${m}`];
       const invM = cb ? (cb.cur === 'USD' ? cb.cost * er : cb.cost) : investKrw;
+      // 그달 보유수량 — 주당 분배금(= 금액 ÷ 수량)의 분모. 이력이 없으면 지금 수량으로 폴백.
+      qtyArr[m-1] = (cb ? parseFloat(cb.qty) : parseFloat(h.quantity)) || 0;
       if (amtKrw && invM > 0) { invSum += invM; invN++; }
       rateArr[m-1] = (invM > 0 && amtKrw > 0) ? (amtKrw / invM * 100) : null;
     });
@@ -2253,21 +2255,24 @@ async function loadDivRateGrid() {
       const dol = isUsd ? `<span style="color:#92400e;font-weight:700;margin-right:1px">$</span>` : '';
       const amtDisp = isUsd ? amt.toFixed(2) : Math.round(amt).toLocaleString();
       const rateStr = rate != null ? rate.toFixed(2) + '%' : '';
-      // ± 는 **전달 대비 금액 차이**다(예전엔 분배율 pp 차이라 %인지 금액인지 화면에서 구분이 안 됐다).
-      // 통화는 그 종목 기준 — USD 종목은 달러, 나머지는 원. 전달에 받은 게 없으면 비교하지 않는다.
+      // ± 는 **1주당 분배금**의 전달 대비 차이다. 윗줄 금액(내가 받은 총액)으로 비교하면
+      // 그달에 추가매수만 해도 늘어나 'ETF가 더 줬다'와 구분이 안 된다(2026-09-07 지적).
+      // 주당 = 그달 금액 ÷ 그달 보유수량. 수량을 모르면 비교하지 않는다.
+      const perSh = (mm) => (amtArr[mm-1] > 0 && qtyArr[mm-1] > 0) ? amtArr[mm-1] / qtyArr[mm-1] : null;
+      const cur = perSh(m), prv = m > 1 ? perSh(m-1) : null;
+      const shFmt = v => isUsd ? '$' + v.toFixed(4).replace(/0+$/,'').replace(/\.$/,'') : Math.round(v).toLocaleString();
       let deltaStr = '';
-      const prevAmt = m > 1 ? amtArr[m-2] : 0;
-      if (prevAmt > 0) {
-        const d = amt - prevAmt;
-        if (Math.abs(d) >= (isUsd ? 0.005 : 0.5)) {
+      if (cur != null && prv != null) {
+        const d = cur - prv;
+        if (Math.abs(d) >= (isUsd ? 0.0005 : 0.5)) {
           const col = d > 0 ? '#dc2626' : '#2563eb';
-          const dd = isUsd ? Math.abs(d).toFixed(2) : Math.round(Math.abs(d)).toLocaleString();
-          deltaStr = `<span style="color:${col};font-weight:700">${d > 0 ? '+' : '−'}${dd}</span>`;
+          deltaStr = `<span style="color:${col};font-weight:700">${d > 0 ? '+' : '−'}${shFmt(Math.abs(d))}<span style="font-weight:500">/주</span></span>`;
         }
       }
-      const tip = `${m}월 ${dol ? '$' : ''}${amtDisp}`
+      const tip = `${m}월 받은 금액 ${dol ? '$' : ''}${amtDisp}`
+        + (cur != null ? ` · 주당 ${shFmt(cur)} (${Math.round(qtyArr[m-1]).toLocaleString()}주)` : '')
         + (rate != null ? ` · 분배율 ${rateStr} (내 원금 대비)` : '')
-        + (prevAmt > 0 ? ` · 전달(${m-1}월) ${isUsd ? '$' + prevAmt.toFixed(2) : Math.round(prevAmt).toLocaleString()} 대비` : '');
+        + (prv != null ? ` · 전달(${m-1}월) 주당 ${shFmt(prv)}` : '');
       return `<td style="padding:1px 3px;text-align:right;white-space:nowrap;vertical-align:middle" title="${tip}">
         <div style="color:#111827;font-weight:600;line-height:1.15">${dol}${amtDisp}</div>
         <div style="line-height:1.15;font-size:0.82em">${deltaStr}<span style="color:#111827;margin-left:3px">${rateStr}</span></div>
@@ -2317,7 +2322,7 @@ async function loadDivRateGrid() {
   document.getElementById('dividendGrid').innerHTML = `
     <div style="font-size:11px;color:var(--text2);margin-bottom:6px;line-height:1.5">
       칸 <b>윗줄</b> = 그달 받은 분배금 ·
-      <b style="color:#dc2626">+</b>/<b style="color:#2563eb">−</b> = <b>전달 대비 금액</b> ·
+      <b style="color:#dc2626">+</b>/<b style="color:#2563eb">−</b> = <b>1주당 분배금</b>의 전달 대비 증감 ·
       <b>%</b> = 그달 분배율(그달 원금 대비, 전달과 무관)
     </div>
     <div class="div-grid-wrap">
