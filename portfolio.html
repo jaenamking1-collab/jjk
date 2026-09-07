@@ -2279,6 +2279,36 @@ async function loadDivRateGrid() {
       </td>`;
     }).join('');
 
+    // ── 주당 분배금 추세 ──
+    // 한 달 증감(±)만으론 '점점 줄어드는지'가 안 보인다(2026-09-07 요청). 12개월 주당 금액을
+    // 미니 그래프로 깔고, 최근 절반 평균 ÷ 그 앞 절반 평균을 배지로 붙인다(최대 3회차씩).
+    // x는 '월'로 고정한다 — 값 있는 달만 촘촘히 그리면 쉬는 달이 사라져 추세가 왜곡된다.
+    const shArr = months.map(m => (amtArr[m-1] > 0 && qtyArr[m-1] > 0) ? amtArr[m-1] / qtyArr[m-1] : null);
+    const shPts = months.map(m => ({ m, v: shArr[m-1] })).filter(x => x.v != null);
+    let trendHtml = '';
+    if (shPts.length >= 2) {
+      const W = 74, H = 16;
+      const vs = shPts.map(x => x.v);
+      const lo = Math.min(...vs), hi = Math.max(...vs), span = (hi - lo) || 1;
+      const x0 = shPts[0].m, x1 = shPts[shPts.length-1].m, xs = (x1 - x0) || 1;
+      const pt = q => [((q.m - x0) / xs * (W - 4) + 2).toFixed(1), (H - 2 - (q.v - lo) / span * (H - 4)).toFixed(1)];
+      const n = Math.min(3, Math.floor(shPts.length / 2));
+      const avg = a => a.reduce((x, y) => x + y, 0) / a.length;
+      const recent = avg(vs.slice(-n)), prior = avg(vs.slice(-2 * n, -n));
+      const pct = prior > 0 ? (recent / prior - 1) * 100 : 0;
+      const col = pct > 1 ? '#dc2626' : pct < -1 ? '#2563eb' : '#64748b';
+      const arrow = pct > 1 ? '▲' : pct < -1 ? '▼' : '–';
+      const line = shPts.map((q, i) => (i ? 'L' : 'M') + pt(q).join(' ')).join(' ');
+      const last = pt(shPts[shPts.length - 1]);
+      const fmtA = v => isUsd ? '$' + v.toFixed(3) : Math.round(v).toLocaleString();
+      trendHtml = `<div style="display:flex;align-items:center;gap:4px;line-height:1;margin-top:1px" title="주당 분배금 추세 — 최근 ${n}회차 평균 ${fmtA(recent)} vs 그 앞 ${n}회차 평균 ${fmtA(prior)}">
+        <svg width="${W}" height="${H}" style="flex-shrink:0;overflow:visible">
+          <path d="${line}" fill="none" stroke="${col}" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>
+          <circle cx="${last[0]}" cy="${last[1]}" r="1.8" fill="${col}"/>
+        </svg>
+        <span style="color:${col};font-weight:700;font-size:0.78em;white-space:nowrap">${arrow}${pct >= 0 ? '+' : '−'}${Math.abs(pct).toFixed(0)}%</span>
+      </div>`;
+    }
     const realRate = (investAvgKrw > 0 && rowTotalKrw > 0) ? (rowTotalKrw / investAvgKrw * 100).toFixed(2) : '-';
     const filledMonths = months.filter(m => amtArr[m-1] > 0).length;
     const cycStr2 = (h.div_cycle||'').split('|')[0];
@@ -2293,6 +2323,7 @@ async function loadDivRateGrid() {
       ${acctCell}
       <td class="div-ticker-cell" title="${h.ticker}">
         <span class="ticker" style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px;text-align:left;color:#111827;font-weight:500;line-height:1.1;font-size:1em">${h.currency === 'USD' ? (h.ticker || h.name) : (h.name || h.ticker)}</span>
+        ${trendHtml}
       </td>
       ${cells}
       <td class="div-total" style="color:#111827;font-weight:600;font-size:1em;line-height:1.1">${rowTotalKrw ? Math.round(rowTotalKrw).toLocaleString() : '-'}</td>
@@ -2323,7 +2354,8 @@ async function loadDivRateGrid() {
     <div style="font-size:11px;color:var(--text2);margin-bottom:6px;line-height:1.5">
       칸 <b>윗줄</b> = 그달 받은 분배금 ·
       <b style="color:#dc2626">+</b>/<b style="color:#2563eb">−</b> = <b>1주당 분배금</b>의 전달 대비 증감 ·
-      <b>%</b> = 그달 분배율(그달 원금 대비, 전달과 무관)
+      <b>%</b> = 그달 분배율(그달 원금 대비, 전달과 무관) ·
+      종목 이름 아래 <b>꺾은선</b> = 주당 분배금 12개월 추세, 배지 = 최근 회차 평균의 증감
     </div>
     <div class="div-grid-wrap">
     <table class="div-grid">
