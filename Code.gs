@@ -50,6 +50,7 @@ function doGet(e) {
       case 'getCostBasis':    result = getCostBasis(e.parameter.year); break;
       case 'getAccountSummary': result = getAccountSummary(); break;
       case 'getAccountFlows': result = getAccountFlows(); break;
+      case 'getHoldingLog': result = getHoldingLog(); break;
       case 'getSavings':      result = getSavings(); break;
       case 'maturityAlertPreview': result = previewMaturityAlerts(); break;
       case 'getExchangeRate': result = { rate: fetchExchangeRate() }; break;
@@ -3334,8 +3335,68 @@ function testDistribution() {
   });
 }
 
+// ── 보유변동 ──────────────────────
+// 계좌 성적표를 스스로 굴러가게 하려고 남기는 기록. 앱은 '지금 보유'만 아는데,
+// 어제와 비교할 수 없으면 매수·매도가 있었는지조차 모른다. 그래서 수량·평단이 바뀐 종목만 한 줄씩 남긴다.
+//   매수금액 = 보유원금 증가분(이동평균법이라 정확) / 매도대금 = 그날 종가 × 줄어든 수량(추정)
+// 시트 [date, holding_id, account_id, ticker, name, quantity, avg_price, currency, kind].
+// 각 행은 '변동 후' 상태다 — 같은 holding_id의 직전 행과 비교하면 그날의 매매가 나온다.
+// kind: base(첫 실행 기준선) / new(새 종목) / buy / sell / edit(수량 같은데 평단만 바뀜) / gone(앱에서 삭제)
+// 하루 3번 불려도 변동이 없으면 아무것도 안 쓴다.
+function snapshotHoldingChanges() {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  let log = ss.getSheetByName('보유변동');
+  if (!log) {
+    log = ss.insertSheet('보유변동');
+    log.appendRow(['date','holding_id','account_id','ticker','name','quantity','avg_price','currency','kind']);
+  }
+  const today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
+  const rows = log.getDataRange().getValues();
+  const last = {};                                  // holding_id → 마지막으로 기록한 상태
+  for (let i = 1; i < rows.length; i++) {
+    if (!rows[i][1]) continue;
+    last[rows[i][1].toString()] = {
+      qty: parseFloat(rows[i][5]) || 0, avg: parseFloat(rows[i][6]) || 0,
+      acc: rows[i][2], ticker: rows[i][3], name: rows[i][4], cur: rows[i][7]
+    };
+  }
+  const seeding = rows.length <= 1;                 // 첫 실행이면 전 종목을 기준선으로 깔아둔다
+  const out = [], seen = {};
+  getHoldings().forEach(h => {
+    const id = h.id.toString();
+    seen[id] = true;
+    const qty = parseFloat(h.quantity) || 0, avg = parseFloat(h.avg_price) || 0;
+    const p = last[id];
+    if (p && p.qty === qty && p.avg === avg) return;
+    const kind = !p ? (seeding ? 'base' : 'new') : qty > p.qty ? 'buy' : qty < p.qty ? 'sell' : 'edit';
+    out.push([today, id, h.account_id, h.ticker, h.name, qty, avg, h.currency, kind]);
+  });
+  // 앱에서 지운 종목은 getHoldings에 안 나온다. 전량매도로 보고 수량 0을 남긴다.
+  Object.keys(last).forEach(id => {
+    const p = last[id];
+    if (seen[id] || !p.qty) return;
+    out.push([today, id, p.acc, p.ticker, p.name, 0, p.avg, p.cur, 'gone']);
+  });
+  if (out.length) log.getRange(log.getLastRow() + 1, 1, out.length, 9).setValues(out);
+}
+
+function getHoldingLog() {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const log = ss.getSheetByName('보유변동');
+  if (!log) return { success: true, items: [] };
+  const rows = log.getDataRange().getValues();
+  if (rows.length <= 1) return { success: true, items: [] };
+  return { success: true, items: rows.slice(1).filter(r => r[0] && r[1]).map(r => ({
+    date: r[0].toString(), holding_id: r[1].toString(), account_id: r[2].toString(),
+    ticker: _padTicker(r[3]), name: r[4], quantity: parseFloat(r[5]) || 0,
+    avg_price: parseFloat(r[6]) || 0, currency: r[7], kind: r[8]
+  })) };
+}
+
 // ── 수익로그 ──────────────────────────────
 function snapshotPortfolio() {
+  // 보유변동은 주말에도 남긴다(앱에서 수량을 고칠 수 있다). 실패해도 수익로그는 계속 찍혀야 한다.
+  try { snapshotHoldingChanges(); } catch (e) { console.log('보유변동 기록 실패: ' + e); }
   const day = new Date().getDay();
   if (day === 0 || day === 6) return;
   const ss = SpreadsheetApp.openById(SHEET_ID);
