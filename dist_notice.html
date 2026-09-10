@@ -337,9 +337,31 @@ function calShiftWeek(dir){
 // 운용사별 일정 표의 달 이동. 공지 데이터가 전월~익월 정도만 있어 ±1로 제한.
 function schedShiftMonth(dir){ shiftMonth(dir); }
 
+// 분배 일정 스냅샷. 공지 목록은 _NSNAP_KEY 로 이미 남기는데 **일정만 안 남겨서**, 백엔드가
+// 흔들리면 달력·일정표가 통째로 백지가 됐다(2026-09-11: 트리거 17시간 정지 동안 8월분까지 사라짐).
+// portfolio.html 의 _DIST_SNAP_KEY 와 쌍이다 — 한쪽을 고치면 반드시 다른 쪽도.
+const _DSNAP_KEY = 'jjk_dnsched_v1';
+function _distSnapGet(){ try { return JSON.parse(localStorage.getItem(_DSNAP_KEY)); } catch(e) { return null; } }
+function _distSnapSet(list){
+  try {
+    const o = {};
+    (list || []).forEach(c => { if (c && c.id && c.data && (c.data.items || []).length) o[c.id] = c.data; });
+    if (Object.keys(o).length) localStorage.setItem(_DSNAP_KEY, JSON.stringify(o));
+  } catch(e) {}
+}
+
 async function loadDistributions(force){
   const cal = document.getElementById('distMasterCalendar');
-  if (cal) cal.innerHTML = '<div style="color:var(--text3);font-size:13px"><span class="spinner"></span> 불러오는 중...</div>';
+  // 스냅샷이 있으면 '불러오는 중' 대신 지난 일정을 먼저 그린다 — 공개 페이지라 첫인상이 백지면 안 된다.
+  const snap = _distSnapGet();
+  if (!_distData.length && snap) {
+    _distData = DIST_SOURCES.map(s => ({ ...s, data: snap[s.id] ? { ...snap[s.id], offline: true } : { items: [] } }));
+    renderMasterCalendar(_distData);
+    renderDistGrid(_distData);
+    renderFreshness(_distData);
+  } else if (cal) {
+    cal.innerHTML = '<div style="color:var(--text3);font-size:13px"><span class="spinner"></span> 불러오는 중...</div>';
+  }
 
   const timeout = ms => new Promise((_,rej) => setTimeout(() => rej(new Error('timeout')), ms));
   // force 재파싱은 OCR(특히 KODEX) 때문에 25초를 넘길 수 있어 여유를 크게 준다
@@ -371,7 +393,14 @@ async function loadDistributions(force){
   ]);
 
   if (bulk && bulk.sources) {
-    _distData = DIST_SOURCES.map(s => ({ ...s, data: bulk.sources[s.id] || { items:[], stale:true } }));
+    // ⚠️ **빈 응답으로 덮지 않는다.** items 0건은 '일정이 없다'가 아니라 '못 받았다'는 뜻이다.
+    // 그대로 갈아끼우면 직전 값까지 지워져 달력이 백지가 된다(2026-09-11).
+    _distData = DIST_SOURCES.map((s, i) => {
+      const d = bulk.sources[s.id];
+      if (d && (d.items || []).length) return { ...s, data: d };
+      const prev = _distData[i] && (_distData[i].data.items || []).length ? _distData[i].data : (snap && snap[s.id]);
+      return { ...s, data: prev ? { ...prev, offline: true } : (d || { items:[], stale:true }) };
+    });
     // 오래된 캐시라도 서버가 마지막 파싱 결과를 실어 보내므로 **먼저 그린다**.
     // 예전엔 아래 fillStale(최대 45초)을 기다린 뒤에야 그려서, 재파싱이 실패하면 그동안 화면이
     // 통째로 백지였다(2026-08-27: 트리거가 멎어 캐시가 17시간 낡자 달력이 빈칸으로 나왔다).
@@ -384,13 +413,21 @@ async function loadDistributions(force){
     await fillStale(force ? (() => true) : (d => d.data.stale), force ? 90000 : 45000);
   } else {
     const results = await Promise.allSettled(DIST_SOURCES.map(s => fetchOne(s, force ? 90000 : 25000)));
-    _distData = results.map(r => r.value || {});
+    // 위 bulk 경로와 같은 이유로 빈 결과는 스냅샷으로 되살린다.
+    _distData = results.map((r, i) => {
+      const v = r.value;
+      if (v && (v.data.items || []).length) return v;
+      const prev = snap && snap[DIST_SOURCES[i].id];
+      return prev ? { ...DIST_SOURCES[i], data: { ...prev, offline: true } } : (v || { ...DIST_SOURCES[i], data:{ items:[] } });
+    });
     // 콜드 스크레이핑이 25초를 넘겨 에러로 빈 값이 온 운용사는 한 번 더(긴 타임아웃) 시도.
     // 첫 호출이 서버 캐시를 데워놨으면 즉시, 아직이면 여유 시간 안에 채워진다. 정상 로드엔 안 돈다.
     if (!force) await fillStale(d => d.data && d.data.error && !(d.data.items||[]).length, 45000);
   }
   renderMasterCalendar(_distData);
   renderDistGrid(_distData);
+  renderFreshness(_distData);
+  _distSnapSet(_distData);        // 다음에 서버가 죽어도 이 화면은 다시 그릴 수 있다
   loadAllNotices();
 }
 
@@ -862,9 +899,14 @@ function renderFreshness(all){
   const stale = has.filter(c => c.data.stale).map(c => c.name);
   const times = has.map(c => c.data.savedAt).filter(Boolean).sort();
   const t = times.length ? String(times[times.length - 1]).slice(5, 16) : '';
+  // offline = 서버에서 못 받아 브라우저 스냅샷으로 그린 것. stale(서버가 준 낡은 캐시)보다
+  // 한 단계 더 나쁜 상태라 먼저 말한다 — 조용히 옛 화면을 보여주는 게 제일 나쁘다.
+  const off = has.filter(c => c.data.offline).map(c => c.name);
   el.textContent = `· 데이터 ${t}${t ? ' 기준' : ''}`
-    + (stale.length ? ` · ${stale.join('·')} 캐시` : ` · ${has.length}곳 최신`);
-  el.title = stale.length ? `${stale.join(', ')} 은(는) 마지막 파싱 결과입니다(재조회 실패 또는 대기)` : '';
+    + (off.length ? ` · ⚠️ 서버 응답 없음(${off.join('·')})`
+       : stale.length ? ` · ${stale.join('·')} 캐시` : ` · ${has.length}곳 최신`);
+  el.title = off.length ? `${off.join(', ')} 은(는) 서버가 응답하지 않아 이 브라우저에 저장된 마지막 일정을 보여주고 있습니다`
+    : stale.length ? `${stale.join(', ')} 은(는) 마지막 파싱 결과입니다(재조회 실패 또는 대기)` : '';
 }
 
 // ── 공지 종목 전체 (하단 섹션) ──
