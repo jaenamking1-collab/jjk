@@ -1213,6 +1213,21 @@ const _SNAP_KEY = 'jjk_snap_v1';
 function _snapGet(){ try { return JSON.parse(localStorage.getItem(_SNAP_KEY)); } catch(e) { return null; } }
 function _snapSet(o){ try { localStorage.setItem(_SNAP_KEY, JSON.stringify(o)); } catch(e) {} }
 
+// 분배 일정 전용 스냅샷. 계좌 스냅샷(_SNAP_KEY)과 따로 두는 이유는 갱신 주기가 전혀 달라서다
+// — 계좌·분배금은 내가 입력할 때마다, 분배 일정은 회차(월중/월말)마다 바뀐다.
+// ⚠️ 이게 없어서 백엔드(Apps Script)가 흔들리면 달력이 **통째로 백지**가 됐다. 분배캐시 시트에
+// 데이터가 멀쩡히 있어도 화면이 그걸 못 붙잡았다(2026-09-11: 백엔드 17시간 정지 동안 달력·일정표가
+// 전부 빈칸, 8월분까지 사라짐). 마지막으로 성공한 응답을 여기 남겨 서버가 죽어도 화면은 남긴다.
+const _DIST_SNAP_KEY = 'jjk_dist_v1';
+function _distSnapGet(){ try { return JSON.parse(localStorage.getItem(_DIST_SNAP_KEY)); } catch(e) { return null; } }
+function _distSnapSet(list){
+  try {
+    const o = {};
+    (list || []).forEach(c => { if (c && c.id && c.data && (c.data.items || []).length) o[c.id] = c.data; });
+    if (Object.keys(o).length) localStorage.setItem(_DIST_SNAP_KEY, JSON.stringify(o));
+  } catch(e) {}   // 용량 초과(QuotaExceeded)면 그냥 저장을 포기한다 — 화면 동작에는 영향 없다.
+}
+
 // 상단 중앙 "갱신 중" 배지 (캐시 렌더 후 최신 데이터 받는 동안 표시)
 function showRefreshing(on){
   let b = document.getElementById('refreshBadge');
@@ -4338,7 +4353,16 @@ async function loadDistributions(force, silent) {
   if (!state.holdings || !state.holdings.length) {
     try { state.holdings = (await api({ action:'getHoldings' })) || []; } catch(e) {}
   }
-  if (silent) {
+  // 스냅샷이 있으면 '불러오는 중' 대신 지난 일정을 **먼저** 그린다. 서버가 느리거나 죽어 있어도
+  // 화면에 뭔가는 남아 있어야 한다 — 빈 달력은 '아직 공지 전'인지 '고장'인지 구분이 안 된다.
+  const snap = _distSnapGet();
+  if (!_distData.length && snap) {
+    _distData = DIST_SOURCES.map(s => ({ ...s, data: snap[s.id] ? { ...snap[s.id], offline: true } : { items: [] } }));
+    renderMasterCalendar(_distData);
+    renderDistGrid(_distData);
+    showDistOffline(_distData);
+  }
+  if (silent || _distData.length) {
     showRefreshing(true);
   } else {
     grid.innerHTML = '<div style="padding:16px;color:var(--text3)"><span class="spinner"></span> 불러오는 중...</div>';
@@ -4377,7 +4401,15 @@ async function loadDistributions(force, silent) {
   ]);
 
   if (bulk && bulk.sources) {
-    _distData = DIST_SOURCES.map(s => ({ ...s, data: bulk.sources[s.id] || { items:[], stale:true } }));
+    // ⚠️ **빈 응답으로 덮지 않는다.** 예전엔 서버가 보낸 걸 그대로 통째로 갈아끼웠다 → 백엔드가
+    // 흔들려 items가 0건으로 오면 달력·일정표가 전부 백지가 됐다(2026-09-11). 0건은 '일정이 없다'가
+    // 아니라 '못 받았다'이므로, 직전 값이나 스냅샷을 남기고 offline 표시만 붙인다.
+    _distData = DIST_SOURCES.map((s, i) => {
+      const d = bulk.sources[s.id];
+      if (d && (d.items || []).length) return { ...s, data: d };
+      const prev = _distData[i] && (_distData[i].data.items || []).length ? _distData[i].data : (snap && snap[s.id]);
+      return { ...s, data: prev ? { ...prev, offline: true } : (d || { items:[], stale:true }) };
+    });
     // 오래된 캐시라도 서버가 마지막 파싱 결과를 실어 보내므로 **먼저 그린다**.
     // 예전엔 아래 fillStale(최대 45초)을 기다린 뒤에야 그려서, 재파싱이 실패하면 그동안 화면이
     // 통째로 백지였다(2026-08-27: 트리거가 멎어 캐시가 17시간 낡자 달력이 빈칸으로 나왔다).
@@ -4388,14 +4420,41 @@ async function loadDistributions(force, silent) {
     await fillStale(force ? (() => true) : (d => d.data.stale), force ? 90000 : 45000);
   } else {
     const results = await Promise.allSettled(DIST_SOURCES.map(s => fetchOne(s, force ? 90000 : 25000)));
-    _distData = results.map(r => r.value || {});
+    // 위 bulk 경로와 같은 이유로 빈 결과는 스냅샷으로 되살린다.
+    _distData = results.map((r, i) => {
+      const v = r.value;
+      if (v && (v.data.items || []).length) return v;
+      const prev = snap && snap[DIST_SOURCES[i].id];
+      return prev ? { ...DIST_SOURCES[i], data: { ...prev, offline: true } } : (v || { ...DIST_SOURCES[i], data:{ items:[] } });
+    });
     // 콜드 스크레이핑이 25초를 넘겨 에러로 빈 값이 온 운용사는 한 번 더(긴 타임아웃) 시도.
     // 첫 호출이 서버 캐시를 데워놨으면 즉시, 아직이면 여유 시간 안에 채워진다. 정상 로드엔 안 돈다.
     if (!force) await fillStale(d => d.data && d.data.error && !(d.data.items||[]).length, 45000);
   }
   renderMasterCalendar(_distData);
   renderDistGrid(_distData);
-  if (silent) showRefreshing(false);
+  _distSnapSet(_distData);        // 다음에 서버가 죽어도 이 화면은 다시 그릴 수 있다
+  showDistOffline(_distData);
+  if (silent || _distData.length) showRefreshing(false);
+}
+
+// 서버에서 못 받아 스냅샷으로 그린 운용사가 있으면 달력 위에 한 줄로 알린다.
+// 조용히 옛 데이터를 보여주면 그게 더 나쁘다 — 언제 기준인지 반드시 같이 말한다.
+function showDistOffline(list) {
+  const cal = document.getElementById('distMasterCalendar');
+  if (!cal) return;
+  const off = (list || []).filter(c => c.data && c.data.offline && (c.data.items || []).length);
+  let b = document.getElementById('distOfflineBar');
+  if (!off.length) { if (b) b.remove(); return; }
+  if (!b) {
+    b = document.createElement('div');
+    b.id = 'distOfflineBar';
+    b.style.cssText = 'margin-bottom:8px;padding:6px 10px;border-radius:8px;background:#fef3c7;border:1px solid #fde68a;color:#92400e;font-size:11px;font-weight:600';
+    cal.parentNode.insertBefore(b, cal);
+  }
+  const at = off.map(c => c.data.savedAt).filter(Boolean).sort().pop();
+  b.textContent = `⚠️ 서버 응답 없음 — ${off.map(c => c.name).join('·')}는 마지막으로 받은 일정입니다`
+    + (at ? ` (${at} 기준)` : '');
 }
 
 // 공지 날짜 문자열 → {m, d}. 달력과 '입력 필요' 표시가 같은 파서를 써야 결과가 안 갈린다.
