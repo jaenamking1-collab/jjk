@@ -1,0 +1,69 @@
+# 백엔드(Apps Script)가 살아있는지 바깥에서 확인한다. 판정 로직은 .github/scripts/check_backend.py.
+# 감시자를 Apps Script 밖에 둔 이유는 그 스크립트 맨 위 주석 참조(감시자가 같이 죽었다).
+name: backend-health
+
+on:
+  schedule:
+    - cron: '30 0 * * *'    # 매일 09:30 KST — 공지창엔 09:00부터 30분 트리거가 도니 이미 갱신됐어야 한다
+  workflow_dispatch:        # 손으로도 돌릴 수 있게
+
+permissions:
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 분배 데이터가 언제 갱신됐는지 본다
+        id: age
+        run: python3 .github/scripts/check_backend.py
+
+      - name: 낡았으면 이슈를 열고 정상이면 닫는다
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STATUS: ${{ steps.age.outputs.status }}
+          DETAIL: ${{ steps.age.outputs.detail }}
+          # ⛔ scriptId 는 적지 않는다 — jjk 는 공개 저장소이고 이슈는 영구히 남는다.
+          # 프로젝트 목록에서 '포트폴리오관리'를 고르면 되므로 링크 편의보다 안전을 택한다.
+          EDITOR_URL: https://script.google.com/home
+        run: |
+          set -euo pipefail
+          TITLE='🚨 백엔드 정지 감지 (분배 데이터가 갱신되지 않음)'
+          OPEN=$(gh issue list --state open --search "$TITLE in:title" --json number --jq '.[0].number // empty')
+          echo "판정: $STATUS — $DETAIL"
+
+          if [ "$STATUS" = "ok" ]; then
+            if [ -n "$OPEN" ]; then
+              gh issue close "$OPEN" --comment "✅ 정상으로 돌아왔습니다. $DETAIL"
+              echo "이슈 #$OPEN 닫음"
+            fi
+            exit 0
+          fi
+
+          # 이미 열린 이슈가 있으면 새로 만들지 않는다 — 매일 같은 이슈가 쌓이면 알림이 소음이 된다.
+          if [ -n "$OPEN" ]; then
+            echo "이슈 #$OPEN 이 이미 열려 있음 — 새로 만들지 않음"
+            exit 0
+          fi
+
+          # 이슈에는 시각 정보만 적는다 — jjk 는 공개 저장소이므로 비밀값을 절대 넣지 않는다.
+          gh issue create --title "$TITLE" --body "**${DETAIL}**
+
+          분배 데이터가 멈췄습니다. 새 공지가 들어오지 않는 상태입니다.
+
+          ## 복구 방법
+
+          [Apps Script 편집기](${EDITOR_URL})에서 **포트폴리오관리** 프로젝트를 열고, 함수 드롭다운에서 \`resetAllTriggers\` 를 골라
+          **▶ 실행**하세요. 권한 승인 창이 뜨면 승인합니다. 로그에 \`✅\` 13줄이 찍히면 복구된 것입니다.
+
+          ## 왜 이런 일이 생기나
+
+          \`clasp push\` 로 스코프가 바뀌면 기존 트리거가 전부
+          \`Authorization is required to perform that action.\` 으로 죽습니다. 트리거 목록에는 그대로
+          보이고 재인증만으로는 안 살아나서, 다시 만들어야 합니다.
+          자세한 내용은 \`WORKLOG.md\` 149번 항목과 \`CLAUDE.md\` 배포 절차 5단계를 보세요.
+
+          <sub>backend-health 워크플로가 자동으로 만든 이슈입니다. 정상으로 돌아오면 자동으로 닫힙니다.</sub>"
+          echo "이슈 생성됨"
