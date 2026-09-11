@@ -1,0 +1,30 @@
+# 백엔드 응답을 **원격 세션에서** 직접 확인하는 통로.
+# 왜 필요한가: 클라우드 컨테이너는 script.google.com 으로 나가는 길이 조직 정책으로 막혀 있어
+# (curl 000, WebFetch 거부) 배포가 실제로 먹었는지 눈으로 볼 수가 없었다. 그때마다 사용자에게
+# "주소 열어보세요"를 부탁했는데, Actions 러너는 그 제약이 없으므로 여기서 대신 친다.
+# 공개 액션만 대상으로 한다(토큰을 워크플로에 넣지 않는다 — jjk 는 공개 저장소다).
+name: probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: '칠 액션 이름 (공개 액션만)'
+        required: true
+        default: 'getPricesCsv'
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: /exec 호출
+        env:
+          ACT: ${{ inputs.action }}
+        run: |
+          set -euo pipefail
+          BASE='https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec'
+          echo "=== action=$ACT ==="
+          code=$(curl -sL -o /tmp/r.txt -w '%{http_code}' --max-time 120 "$BASE?action=$ACT")
+          echo "HTTP $code · $(wc -c < /tmp/r.txt) bytes"
+          echo '--- 앞 40줄 ---'
+          head -40 /tmp/r.txt
