@@ -65,7 +65,7 @@ function doGet(e) {
       // ⚠️ 유일하게 JSON 이 아닌 응답이다. 아래 공통 처리가 JSON.stringify 로 감싸버리면
       // IMPORTDATA 가 못 읽으므로 **여기서 바로 반환한다.**
       case 'getPricesCsv':
-        return ContentService.createTextOutput(getPricesCsv())
+        return ContentService.createTextOutput(getPricesCsv(e.parameter.tickers))
                              .setMimeType(ContentService.MimeType.CSV);
       case 'getStockHistory': result = getStockHistory(e.parameter.ticker, e.parameter.currency, e.parameter.days); break;
       case 'getEtfNotices':   result = getEtfNotices(e.parameter.source); break;
@@ -2643,14 +2643,30 @@ function getLivePrices() {
 // 그러면 ticker,price 두 열이 내려오고, 현재가 칸은 그 범위를 VLOOKUP 하면 된다:
 //   =IFERROR(VLOOKUP(B6, $AZ$1:$BA, 2, FALSE), "")
 //
-// ⚠️ 보유 종목(holdings)만 내려간다 — getLivePrices 가 그렇게 만들어져 있다.
-// 시트에만 있고 앱에 없는 종목은 안 나오므로, 그런 게 생기면 앱에 먼저 등록해야 한다.
-function getPricesCsv() {
+// tickers 파라미터(콤마 구분)를 주면 **앱 보유목록에 없는 종목도** 채워 준다.
+// 왜: getLivePrices 는 holdings 만 돈다. 시트에는 앱에 등록 안 한 종목이 섞여 있어
+// (2026-09-11: 329200 TIGER 리츠부동산인프라) 그 칸만 빈 채로 남았다.
+// 시트에서: ...&tickers=" & TEXTJOIN(",",1,주식상황!$B$5:$B$70)
+// 보유 종목은 여전히 getLivePrices 한 번으로 끝내고, **모자란 것만** 개별 조회한다
+// (getStockPrice 는 6시간 캐시가 있어 부담이 작다).
+function getPricesCsv(tickers) {
   const p = (getLivePrices() || {}).prices || {};
   const rows = ['ticker,price'];
+  const seen = {};
   Object.keys(p).forEach(t => {
     const c = p[t] && p[t].current;
-    if (c) rows.push(t + ',' + c);
+    if (!c) return;
+    rows.push(t + ',' + c);
+    seen[t.toUpperCase()] = true;
+  });
+  String(tickers || '').split(',').forEach(raw => {
+    const t = raw.trim().toUpperCase();
+    if (!t || seen[t]) return;
+    seen[t] = true;                                  // 시트에 중복 나열돼도 한 번만 조회
+    try {
+      const r = getStockPrice(t, /^[A-Z.]+$/.test(t) ? 'USD' : 'KRW');
+      if (r && r.success && r.current) rows.push(t + ',' + r.current);
+    } catch(e) {}
   });
   return rows.join('\n');
 }
