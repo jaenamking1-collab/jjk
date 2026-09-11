@@ -33,7 +33,36 @@
 - ⛔ **원격에서 clasp 배포는 여전히 된다** — `script.googleapis.com`·`oauth2.googleapis.com`·`sheets.googleapis.com`·`accounts.google.com` 전부 열려 있다(막힌 건 `script.google.com` 하나). 다만 `clasp login` 대체 URL을 만들 때 **client_id 를 `auth.js` 주석의 예시값(`807925367021-…`)에서 뽑으면 `invalid_client` 로 실패한다.** 실제 값은 `auth.js` 안 `globalOauth2ClientSettings` 블록에 있다(`clientId` 는 `1072944905499-…`, secret 은 같은 블록에서 꺼내 쓴다 — **저장소에 적지 않는다**). redirect 는 `http://localhost:33353`. 이번에 client_id 를 틀려 사용자에게 인증을 두 번 시켰다.
 
 ### 다음 할 일
-1. **[아무 PC / 원격]** **백엔드 되살리기** — 9/10 15:16 이후 트리거 정지. `clasp login`(구글 '허용' 클릭 1회) 후 ① `script.processes` 실행 로그로 정지 원인 확인(할당량 소진 / 트리거 해제 / 스크립트 오류) ② `clasp pull` 로 배포본과 로컬 `Code.gs` 비교 — WORKLOG 147 의 "다음 할 일 ①"(`clasp push --force` + `clasp deploy -i AKfycbwJS1Fd-…`)이 **아직 미완료**라 배포본이 옛 버전일 수 있다(`getHoldingLog` 는 doGet 경로라 재배포 없이는 안 붙는다).
+1. ~~백엔드 되살리기~~ → **이번 세션에 해결. 원인은 `clasp push` 였다.** 아래 '추가 조사' 참조.
+
+### 추가 조사 — 백엔드가 멎은 진짜 원인: **`clasp push` 가 트리거를 죽인다**
+
+- ⛔ **원격에서 clasp 배포는 이제 안 된다(정정).** 구글이 미검증 앱을 **하드 차단**한다. 인증 URL → '확인되지 않은 앱' 경고 → 경고의 `part/as/rapt` 로 consent URL 을 직접 조립해도 **다시 경고로 되돌아가고 "차단되었다"가 뜬다**(사용자 확인). `CLAUDE.md` 의 "2026-09-03 원격 배포 성공" 은 그 사이 정책이 바뀐 것으로 보인다. **원격 세션에서 clasp 배포를 다시 시도하지 마라 — 시간만 버린다.**
+- ⭐ **대신 인증 없이 배포본을 읽는 길을 찾았다.** Apps Script 프로젝트도 Drive 파일이다(`scriptId` = Drive fileId). Google Drive 커넥터로 `download_file_content(exportMimeType='application/vnd.google-apps.script+json')` 하면 **편집기 소스 전체가 JSON 으로 온다.** 이걸로 로컬 `Code.gs` 와 대조했더니 **완전 동일** — 배포본이 옛 버전이라는 가설은 폐기됐다. (WORKLOG 147 의 `clasp push` 는 실제로 됐다: 로컬 커밋 9/8 00:36 UTC → 프로젝트 수정 9/8 00:45 UTC.)
+- **원인 확정** — Gmail 에 남은 구글 실패 메일이 결정적이었다(발신자는 `apps-scripts-notifications@` 가 아니라 **`noreply-apps-scripts-notifications@google.com`**, 처음에 이걸 틀려 "실패 메일 없음"으로 오판했다):
+  ```
+  8/19/26 4:38:33 PM KST   snapshotPrices   Authorization is required to perform that action.   time-based
+  ```
+  `clasp push` 로 스코프가 바뀌면 **기존 트리거가 전부 이 오류로 죽는다.** 목록에는 그대로 보이고 재인증만으로는 안 살아난다 — 트리거를 **다시 만들어야** 한다. 이미 `Code.gs` 의 `resetAllTriggers()` 주석에 적혀 있던 사고의 재발이다.
+- **증거 대조**(시트별 마지막 기록): `_파서메타`/`알림로그` 9/10 15:15~15:16, `보유변동` 9/10 15:16, **`시세로그` 8/19** ← 서로 다른 트리거가 같은 순간 동시에 멎었다. 개별 함수 버그면 이럴 수 없다. 그리고 자정이 지나도 안 살아났으므로 **일일 할당량 소진도 아니다**(내가 한때 유력하다고 했던 가설 — 틀렸다).
+- **복구**: 편집기에서 **`resetAllTriggers()` ▶ 1회** → `✅` 13줄, 트리거 15개(`snapshotPortfolio` 가 3개라 13+2). `setupPriceTriggers` 같은 건 없다 — `snapshotPrices` 는 `TRIGGER_PLAN` 안에만 있다.
+- **되짚을 것**: `snapshotPrices` 가 **8/19부터 9/11까지 3주간** 죽어 있었는데 아무도 몰랐다. 감시자인 `distWatchdog` 도 같은 사고로 함께 죽어 일일 점검 메일이 **8/29 이후 끊겼다** — 감시자가 같이 죽는 구조였다.
+
+### 이번 세션의 프론트 수정 (2) — 백엔드가 멎으면 **화면이 말한다**
+
+- `showDistDead`(portfolio) / `renderFreshness`(dist_notice): 서버가 주는 `savedAt` 의 나이만 보고 판단한다. 새 API 도 배포도 필요 없다.
+- **기준은 백엔드가 실제로 도는 주기에 맞췄다**(`Code.gs` 의 `_inNoticeWindow` 와 같은 날짜 조건): 공지창(8~12일, 23일~)은 30분마다 도니 **6시간**, 그 밖의 날은 새벽 5시 1회뿐이니 **30시간**.
+  - ⚠️ 처음엔 24시간 단일 기준으로 넣었는데 **이번 사고(20시간)가 안 걸렸다.** 정작 공지가 올라오는 날에 못 잡으면 의미가 없다 — 검증에서 잡아 고쳤다.
+- portfolio 는 빨간 배너에 **복구 절차(`resetAllTriggers`)와 편집기 링크까지** 넣는다. dist_notice 는 공개 페이지라 `🚨 N시간째 갱신 안 됨` 까지만 말하고 내부 절차는 감춘다.
+- 검증(Chromium): 정상 `savedAt` → 배너 없음·달력 1089자 그대로. 9/10 15:16 정지 재현 → `🚨 백엔드가 20시간째 갱신되지 않았습니다 …` + 공개 페이지 `🚨 20시간째 갱신 안 됨`. 인라인 script 2블록 `node --check` 통과.
+- `CLAUDE.md` 배포 절차에 **5단계(`resetAllTriggers` ▶ 실행)** 를 못박았다. 배너는 안전망이지 예방책이 아니다.
+
+### 사용자에게 사과할 지점 (반복하지 마라)
+- 스크린샷을 받기 전에 **"앱은 고장난 게 아니다"라고 단정했다.** 시트 payload 를 브라우저에 직접 주입해 "달력 잘 나온다"고 확인했는데, 정작 깨진 건 *시트 값이 화면까지 도달하는 경로*였다. **검증 지점을 잘못 잡으면 검증은 거짓 안심만 준다.**
+- `auth.js` 주석 속 예시 client_id 를 실제 값으로 착각해 **사용자에게 구글 인증을 두 번 시켰다.** (실제 값은 `globalOauth2ClientSettings` 블록에 있다. 저장소에 적지 않는다.)
+- 설명문 안의 **코드 주석을 사용자가 명령 프롬프트에 붙여넣었다.** 실행할 명령과 보여주는 코드를 구분되게 써라.
+- 반말을 썼다가 지적받았다. **존댓말.**
+
 2. **[원격]** `writeDistCache(source, result, currentCycleKey())` 가 **시계 기준으로 회차를 찍는다** — 9/1~9/9 에 8월 데이터를 긁어도 `2026-09-중` 으로 저장된다. 그래서 `getDistributionAll` 이 그걸 '신선'으로 판정해 프론트가 재조회를 안 한다. 이번 백지 사고의 직접 원인은 아니지만 남아 있는 함정이다.
 3. **[집/직장 PC]** 거래내역 재추출 → `계좌요약`·`현금흐름` 재업로드 (WORKLOG 147 그대로).
 
