@@ -16,6 +16,7 @@ snapshotPrices 가 8/19부터 3주간 죽어 있는 걸 아무도 몰랐다(WORK
 import datetime
 import json
 import os
+import re
 import sys
 import urllib.request
 
@@ -31,6 +32,32 @@ def limit_hours(day):
     그 밖의 날은 refreshAllDistributions 가 새벽 5시 1회뿐이라 30시간까지는 정상이다.
     """
     return 6 if ((8 <= day <= 12) or day >= 23) else 30
+
+
+def parse_saved_at(v):
+    """savedAt 을 datetime 으로. **두 형식이 다 온다.**
+
+    writeDistCache 는 'yyyy-MM-dd HH:mm' 문자열로 쓰지만, 구글 시트가 그걸 날짜로 자동 인식해
+    Date 셀로 바꿔버린다. 그래서 다시 읽으면 Date 객체이고 getDistributionAll 의 String() 을 거쳐
+    'Fri Sep 11 2026 11:59:00 GMT+0900 (Korean Standard Time)' 로 나온다.
+    어느 쪽이 오는지는 그 행이 언제 쓰였는지에 달렸으므로 둘 다 받는다.
+    """
+    s = str(v or '').strip()
+    if not s:
+        return None
+    try:
+        return datetime.datetime.strptime(s[:16], '%Y-%m-%d %H:%M').replace(tzinfo=KST)
+    except ValueError:
+        pass
+    # 'Fri Sep 11 2026 11:59:00 GMT+0900 ...' — 뒤의 괄호 설명은 버리고 오프셋까지만 읽는다.
+    m = re.match(r'^\w{3} (\w{3}) (\d{1,2}) (\d{4}) (\d{2}):(\d{2}):(\d{2}) GMT([+-]\d{4})', s)
+    if not m:
+        return None
+    mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].index(m.group(1)) + 1
+    off = m.group(7)
+    tz = datetime.timezone(datetime.timedelta(hours=int(off[:3]), minutes=int(off[0] + off[3:])))
+    return datetime.datetime(int(m.group(3)), mon, int(m.group(2)),
+                             int(m.group(4)), int(m.group(5)), int(m.group(6)), tzinfo=tz)
 
 
 def fetch_saved_ats():
@@ -54,12 +81,12 @@ def main():
         out['status'] = 'unreachable'
         out['detail'] = '백엔드에 접속할 수 없습니다 — %s' % str(e)[:200].replace('\n', ' ')
     else:
-        if not times:
+        saved = max(filter(None, (parse_saved_at(t) for t in times)), default=None)
+        if not saved:
             out['status'] = 'nodata'
-            out['detail'] = '응답은 왔지만 savedAt 이 하나도 없습니다'
+            out['detail'] = '응답은 왔지만 읽을 수 있는 savedAt 이 없습니다 (원본 %r)' % (times[-1:] or '')
         else:
-            last = times[-1]
-            saved = datetime.datetime.strptime(last, '%Y-%m-%d %H:%M').replace(tzinfo=KST)
+            last = saved.strftime('%Y-%m-%d %H:%M')
             hours = int((now - saved).total_seconds() // 3600)
             out['status'] = 'stale' if hours >= limit else 'ok'
             out['hours'] = hours
