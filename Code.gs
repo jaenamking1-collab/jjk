@@ -5,7 +5,11 @@ const SHEET_ID = '1iNlOU1YBRyJ6redmVoLDE4q6VfnWqL22s32IQHdSKN8';
 // 올바른 token 파라미터가 있어야 통과한다(개인 계좌·보유·분배 데이터 보호).
 // 속성이 비어 있으면(미설정) 전부 허용 → 재배포 전까지 기존 앱이 끊기지 않음(하위호환).
 // getDistribution·getEtfNotices는 공개 분배금 페이지(프록시)가 쓰므로 토큰 없이 허용.
-const PUBLIC_ACTIONS = ['getDistribution', 'getDistributionAll', 'getEtfNotices', 'getEtfNoticesAll', 'hitCounter'];
+// getPricesCsv 는 외부 '주식상황' 시트가 IMPORTDATA 로 부른다. 시트 수식에 토큰을 박으면
+// 그 시트가 공유되는 순간 토큰이 새고, 그러면 계좌·보유·분배금 **쓰기까지** 열린다.
+// 여기로 나가는 건 보유 티커와 공개 시세뿐이고 수량·금액·계좌는 안 나가므로 공개가 더 안전하다
+// (2026-09-11 소유자 확인).
+const PUBLIC_ACTIONS = ['getDistribution', 'getDistributionAll', 'getEtfNotices', 'getEtfNoticesAll', 'hitCounter', 'getPricesCsv'];
 // 오답 잠금: 공개 저장소의 지난 기록에 옛 비밀번호가 남아 있어, 값을 하나씩 넣어보는
 // 자동 시도를 막는다. 서로 다른 오답이 5개 쌓이면 5분간 개인 액션을 전부 막는다
 // (그동안은 맞는 비밀번호도 막힌다 — 맞았는지 알려주는 것 자체가 힌트라서).
@@ -58,6 +62,11 @@ function doGet(e) {
       case 'getStockList':    result = getStockList(); break;
       case 'getStockPrice':   result = getStockPrice(e.parameter.ticker, e.parameter.currency); break;
       case 'getLivePrices':   result = getLivePrices(); break;
+      // ⚠️ 유일하게 JSON 이 아닌 응답이다. 아래 공통 처리가 JSON.stringify 로 감싸버리면
+      // IMPORTDATA 가 못 읽으므로 **여기서 바로 반환한다.**
+      case 'getPricesCsv':
+        return ContentService.createTextOutput(getPricesCsv())
+                             .setMimeType(ContentService.MimeType.CSV);
       case 'getStockHistory': result = getStockHistory(e.parameter.ticker, e.parameter.currency, e.parameter.days); break;
       case 'getEtfNotices':   result = getEtfNotices(e.parameter.source); break;
       case 'getEtfNoticesAll': result = getEtfNoticesAll(); break;
@@ -2614,6 +2623,36 @@ function getLivePrices() {
   const out = { success: true, prices: prices };
   if (Object.keys(prices).length) { try { cache.put('liveprices_v1', JSON.stringify(out), 60); } catch(e) {} }
   return out;
+}
+
+// ── 외부 '주식상황' 시트용 현재가 CSV ──
+// 왜 필요한가: 그 시트는 종목마다 `IMPORTXML(finance.naver.com/item/sise.naver…, "/html/body/div[3]/…")`
+// 로 **HTML 을 절대경로 XPath 로 긁고 있었다.** 2026-09-11 에 61개 한국 종목이 전부 #N/A 가 됐다
+// (미국 종목은 GOOGLEFINANCE 라 멀쩡했다). 확인해 보니 네이버가 'Npay 증권'으로 개편되면서
+// `//title` 조차 종목명 없이 'Npay 증권'만 온다 — 페이지가 JS 렌더링으로 바뀐 것이라
+// **XPath 를 어떻게 고쳐도 IMPORTXML 로는 값을 못 가져온다.**
+//
+// 앱은 같은 값을 JSON API 로 이미 안정적으로 받고 있다(getLivePrices → polling.finance.naver.com).
+// 그걸 CSV 로 내보내 시트가 재사용하게 한다:
+//   · HTML 구조 변경에 안 깨진다
+//   · 한국 종목을 콤마로 묶어 **API 1회** 호출(IMPORTXML 61개 → IMPORTDATA 1개)
+//   · getLivePrices 의 60초 캐시를 그대로 탄다
+//
+// 시트 사용법(현재가 열 대신 어디든 한 칸):
+//   =IMPORTDATA("<웹앱 /exec>?action=getPricesCsv")
+// 그러면 ticker,price 두 열이 내려오고, 현재가 칸은 그 범위를 VLOOKUP 하면 된다:
+//   =IFERROR(VLOOKUP(B6, $AZ$1:$BA, 2, FALSE), "")
+//
+// ⚠️ 보유 종목(holdings)만 내려간다 — getLivePrices 가 그렇게 만들어져 있다.
+// 시트에만 있고 앱에 없는 종목은 안 나오므로, 그런 게 생기면 앱에 먼저 등록해야 한다.
+function getPricesCsv() {
+  const p = (getLivePrices() || {}).prices || {};
+  const rows = ['ticker,price'];
+  Object.keys(p).forEach(t => {
+    const c = p[t] && p[t].current;
+    if (c) rows.push(t + ',' + c);
+  });
+  return rows.join('\n');
 }
 
 function getSheetData(force) {
