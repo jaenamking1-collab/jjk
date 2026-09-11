@@ -4473,11 +4473,26 @@ function distStaleLimitH() {
   const d = new Date().getDate();
   return ((d >= 8 && d <= 12) || d >= 23) ? 6 : 30;
 }
+// savedAt 은 **두 형식이 다 온다.** writeDistCache 는 'yyyy-MM-dd HH:mm' 문자열로 쓰지만,
+// 구글 시트가 그걸 날짜로 자동 인식해 Date 셀로 바꾼다 → 다시 읽으면 Date 객체이고
+// getDistributionAll 의 String() 을 거쳐 'Fri Sep 11 2026 11:59:00 GMT+0900 (...)' 로 나온다.
+// ⚠️ 처음엔 앞 형식만 파싱했다. 그러면 실제 응답에서 항상 NaN → 0시간이 되어 **경고가 영영 안 뜬다**
+// (GitHub Actions 로 실제 API를 쳐보고서야 잡혔다 — 가짜 값으로만 검증하면 이걸 못 본다).
+function distParseSavedAt(v) {
+  const s = String(v || '').trim();
+  if (!s) return null;
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(s)) {
+    const t = new Date(s.slice(0, 10) + 'T' + s.slice(11, 16) + ':00+09:00');
+    return isNaN(t) ? null : t;
+  }
+  const t = new Date(s);              // JS Date 의 toString 형식은 Date 가 그대로 읽는다
+  return isNaN(t) ? null : t;
+}
 function distStaleHours(list) {
-  const times = (list || []).map(c => c.data && c.data.savedAt).filter(Boolean).sort();
-  if (!times.length) return 0;
-  const t = new Date(String(times[times.length - 1]).replace(' ', 'T') + ':00+09:00');
-  return isNaN(t) ? 0 : Math.floor((Date.now() - t.getTime()) / 3600000);
+  const ts = (list || []).map(c => distParseSavedAt(c.data && c.data.savedAt)).filter(Boolean);
+  if (!ts.length) return 0;
+  const last = Math.max.apply(null, ts.map(t => t.getTime()));
+  return Math.floor((Date.now() - last) / 3600000);
 }
 function showDistDead(list) {
   const cal = document.getElementById('distMasterCalendar');

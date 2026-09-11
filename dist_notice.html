@@ -897,8 +897,22 @@ function renderFreshness(all){
   const has = (all || []).filter(c => c.data && (c.data.items || []).length);
   if (!has.length) { el.textContent = ''; return; }
   const stale = has.filter(c => c.data.stale).map(c => c.name);
-  const times = has.map(c => c.data.savedAt).filter(Boolean).sort();
-  const t = times.length ? String(times[times.length - 1]).slice(5, 16) : '';
+  // savedAt 은 두 형식이 다 온다 — 'yyyy-MM-dd HH:mm' 과, 시트가 Date 셀로 바꿔버린 뒤의
+  // 'Fri Sep 11 2026 11:59:00 GMT+0900 (...)'. 뒤 형식을 slice(5,16) 하면 'Sep 11 2026 11:5'
+  // 같은 쓰레기가 표시되고 나이 계산도 NaN 이 된다(2026-09-11 실제 응답으로 확인).
+  const times = has.map(c => {
+    const s = String(c.data.savedAt || '').trim();
+    if (!s) return null;
+    const d = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(s)
+      ? new Date(s.slice(0, 10) + 'T' + s.slice(11, 16) + ':00+09:00')
+      : new Date(s);
+    return isNaN(d) ? null : d;
+  }).filter(Boolean).sort((a, b) => a - b);
+  const pad = n => String(n).padStart(2, '0');
+  const t = times.length
+    ? `${pad(times[times.length - 1].getMonth() + 1)}-${pad(times[times.length - 1].getDate())} `
+      + `${pad(times[times.length - 1].getHours())}:${pad(times[times.length - 1].getMinutes())}`
+    : '';
   // offline = 서버에서 못 받아 브라우저 스냅샷으로 그린 것. stale(서버가 준 낡은 캐시)보다
   // 한 단계 더 나쁜 상태라 먼저 말한다 — 조용히 옛 화면을 보여주는 게 제일 나쁘다.
   const off = has.filter(c => c.data.offline).map(c => c.name);
