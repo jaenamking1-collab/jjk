@@ -45,6 +45,18 @@ There is **no build system, package manager, test suite, or lint config**. The f
     2. `clasp push --force` — **`--force` 없으면 매니페스트 확인 프롬프트에서 `Skipping push.`로 끝난다.** 비대화형이라 `echo y |` 파이프도 안 먹는다.
     3. `clasp deploy -i AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s -d "<note>"` — 라이브 배포에 새 버전을 물린다. **`-i`(기존 배포 ID) 없이 `clasp deploy` 만 치면 URL이 새로 생긴다 — 금지.** (clasp 2.4.2 엔 `redeploy` 명령이 없다.)
     4. 다시 `clasp pull`로 원격에 변경분이 들어갔는지 확인.
+    5. ⛔ **소유자에게 편집기에서 `resetAllTriggers()` ▶ 실행을 부탁한다 — 배포의 일부다, 빼먹지 마라.**
+       `clasp push`로 스코프가 바뀌면 **기존 트리거가 전부 `Authorization is required to perform that
+       action.`으로 죽는다.** 트리거 목록에는 그대로 보이고 실패 메일도 한 번 오고 마니, **아무도
+       모르는 채로 몇 주가 흐른다.** 재인증만으로는 안 살아나고 트리거를 다시 만들어야 한다.
+       이건 이미 세 번 일어났다: 7/24~8/26 전면 정지(WORKLOG 128 부근), `snapshotPrices` **8/19→9/11
+       3주 정지**, 그리고 9/8 배포 → **9/10 15:16 전면 정지**(WORKLOG 149). 매번 사용자가 "왜 안
+       보이냐"고 물어서 발견됐다. 이 한 줄을 빼먹으면 그게 또 반복된다.
+       - 트리거 설치는 `clasp run-function`으로 안 된다(API executable 배포가 필요). **그래서 이것만은
+         사람이 눌러야 한다** — 이 부탁에는 정당한 근거가 있다.
+       - 화면에는 이제 감지 장치가 있다(`showDistDead`/`renderFreshness`): 데이터가 공지창엔 6시간,
+         그 밖의 날엔 30시간 넘게 안 바뀌면 분배금공지 탭에 🚨 배너가 뜬다. **그래도 배포 직후에
+         눌러라** — 배너는 안전망이지 예방책이 아니다.
     공개 분배금공지 페이지가 같은 `/exec` URL을 쓴다. 기존 액션의 응답 계약을 바꾸는 배포라면 먼저 알린다(액션 추가처럼 덧붙이기만 하는 변경은 그냥 배포한다).
   - ✅ **원격(클라우드) 세션에서도 배포된다** (2026-09-03 확인). 막힌 건 `script.google.com` **하나뿐**이고 clasp 가 실제로 쓰는 `script.googleapis.com`·`oauth2.googleapis.com`·`accounts.google.com` 은 열려 있다. "원격이라 배포 못 한다"고 말하지 마라 — 아래 순서로 하면 된다.
     1. `npm i -g @google/clasp@2.4.2`
