@@ -21,14 +21,22 @@ def get(url, timeout=40):
         return r.getcode(), r.geturl(), r.read()
 
 
-def main():
-    code, _, body = get(EXEC + '?action=getEtfNoticesAll', timeout=180)
-    data = json.loads(body.decode('utf-8', 'replace'))
-    sources = data.get('sources') or data
-    print('운용사 %d곳' % len(sources))
+SOURCES = ['kodex', 'tiger', 'ace', 'plus', 'rise', 'sol']
 
-    for sid in sorted(sources):
-        d = sources[sid] or {}
+
+def main():
+    # ⚠️ getEtfNoticesAll 은 **캐시만** 읽는다(비어 있으면 stale:true 로 빈 배열). 링크를 보려면
+    # 운용사별 getEtfNotices 를 불러 실제로 긁어오게 해야 한다(2026-09-12에 이걸로 헛돌았다).
+    for sid in SOURCES:
+        try:
+            _, _, body = get(EXEC + '?action=getEtfNotices&source=' + sid, timeout=180)
+            d = json.loads(body.decode('utf-8', 'replace'))
+        except Exception as e:
+            print('\n=== %s === ⛔ 목록 자체를 못 받음: %s' % (sid, e))
+            continue
+        if d.get('error'):
+            print('\n=== %s === ⛔ 백엔드 오류: %s' % (sid, d['error']))
+            continue
         items = (d.get('items') or [])[:3]   # 최근 3건이면 충분하다
         print('\n=== %s (%d건 중 %d건 확인) ===' % (sid, len(d.get('items') or []), len(items)))
         for it in items:
