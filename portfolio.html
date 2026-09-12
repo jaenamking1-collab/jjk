@@ -1179,12 +1179,18 @@ let APP_TOKEN = sessionStorage.getItem('jjk_token') || '';  // 진입 비밀번�
 // 전부 읽는다)이 느린 구간에 20초를 넘기면 정상 작동 중인 요청을 세 번 연달아 끊어 게이트가
 // '서버에 연결할 수 없습니다'로 떨어졌다(2026-08-06, 로그인 불가로 실제 발생). 20초는 상태 좋은
 // 구간의 측정치였고 가장 무거운 액션에 쓸 값이 아니었다. 잘 돌고 있는 요청은 절대 끊지 않는다.
+// 시도마다 기다리는 시간을 다르게 준다. 왜: /exec 은 가끔 응답을 배달하지 못하고 **오래 매달린
+// 끝에 404** 를 낸다(2026-09-12 실측: 같은 getBootstrap 이 113.2s·46.3s 404 → 재시도 3.4s 200).
+// 성공은 3~5초, 실패는 30초 이상으로 깨끗이 갈리므로 첫 시도를 오래 기다릴 이유가 없다.
+// 예전엔 세 번 다 90초를 줘서 죽은 요청 하나에 2분을 버렸다 — "로딩이 너무 느리다"의 정체.
+// 마지막 시도만 길게 남긴다(오래 안 쓰다 열 때의 진짜 콜드스타트는 17~57초가 걸린 적이 있다).
 const API_TIMEOUT = 90000;
+const API_ATTEMPT_MS = [15000, 30000, API_TIMEOUT];
 async function api(params) {
   const url = API + '?' + new URLSearchParams({ ...params, token: APP_TOKEN });
-  const limit = API_TIMEOUT;
   let last;
   for (let attempt = 0; attempt < 3; attempt++) {
+    const limit = API_ATTEMPT_MS[attempt];
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), limit);
     try {

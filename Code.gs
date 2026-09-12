@@ -214,12 +214,15 @@ function doPost(e) {
 // (실측: 시트 액션 4건 병렬 12.6초 / 순차 14.5초 — 병렬 이득 없음. 시트 안 쓰는 액션은 병렬 잘 됨).
 // 여기서 한 실행 안에 필요한 탭을 모두 읽어 한 번에 돌려준다. getSheetData는 다른
 // 스프레드시트라 경합이 없으므로 프론트가 이 호출과 동시에 따로 친다(9왕복 → 2왕복).
+// ⚠️ 응답을 키우지 마라. /exec 은 응답이 크면 배달에 실패해 **오래 매달린 끝에 404** 를 낸다
+// (2026-09-12 실측: 160KB 응답이 3번 중 2번 113.2s·46.3s 404, 성공할 땐 3.4s).
+// 그래서 예전에 같이 보내던 dividends(=divsAll 중 올해치)를 뺐다 — divsAll 안에 이미 들어 있고
+// 올해치만 거르는 건 프론트가 한다(portfolio.html applyBootstrap). 48KB 가 그냥 중복이었다.
 function getBootstrap(year) {
   const divsAll = getDividends();
   return {
     accounts:  getAccounts(),
     holdings:  getHoldings(),
-    dividends: year ? divsAll.filter(d => d.year.toString() === year.toString()) : divsAll,
     divsAll:   divsAll,
     stockList: getStockList(),
     rate:      fetchExchangeRate(),
