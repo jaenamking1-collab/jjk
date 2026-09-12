@@ -26,5 +26,7 @@ jobs:
           echo "=== action=$ACT ==="
           code=$(curl -sL -o /tmp/r.txt -w '%{http_code}' --max-time 120 "$BASE?action=$ACT")
           echo "HTTP $code · $(wc -c < /tmp/r.txt) bytes"
-          echo '--- 앞 40줄 ---'
-          head -40 /tmp/r.txt
+          echo "--- 전체 $(wc -l < /tmp/r.txt)줄 ---"
+          # ⚠️ head -40 으로 자르면 마지막 줄이 잘려 '없다'고 오판한다(2026-09-12 실제로 겪음).
+          # 응답은 보통 수백 바이트라 통째로 찍고, 폭주에 대비해 상한만 둔다.
+          head -c 20000 /tmp/r.txt
