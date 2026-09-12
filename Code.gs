@@ -2353,12 +2353,17 @@ function checkAndLogAlerts() {
       if (prev.source && prev.source !== fp.source) {
         _addAlert(logSheet, label, '구조변경', `${label} 데이터 출처 변경: ${prev.source} → ${fp.source} — 파서 수정 필요`, '중요');
       }
-      // ⚠️ oncePerDay: ACE 는 같은 페이지를 OCR/텍스트로 오가며 읽어(2026-09-12 40분 만에 왕복)
-      // 이 두 알림이 하루에도 여러 번 찍혔다. 하루 한 번이면 충분하다.
-      if (prev.isOcr && !fp.isOcr) {
+      // ⚠️ **같은 공지(공시일 동일)에서의 OCR↔텍스트 전환은 구조 변경이 아니다.**
+      // ocrScheduleFromNotice 는 실패를 통째로 삼키므로(catch(e){} → {}), Vision 이 잠깐 안 되면
+      // isOcr 이 false 로 떨어졌다가 다음 회차에 true 로 돌아온다. 그때마다 '페이지에 직접 작성
+      // 시작' 같은 **사실이 아닌** 알림이 나갔다(2026-09-12 ACE 09:57 ↔ 10:37 왕복, 공시일은 둘 다
+      // 9월 11일로 동일). oncePerDay 로는 못 막는다 — 두 방향의 메시지가 서로 달라 각자 1건씩 찍힌다.
+      // → 진짜 전환은 **새 공지와 함께** 온다. 공시일이 바뀐 경우에만 알린다.
+      const newNotice = fp.pubDate && fp.pubDate !== (prev.pubDate || '');
+      if (newNotice && prev.isOcr && !fp.isOcr) {
         _addAlert(logSheet, label, '구조변경', `${label} 이미지→텍스트 전환됨 — 페이지에 직접 작성 시작, 파서 점검 권장`, '중요', true);
       }
-      if (!prev.isOcr && fp.isOcr) {
+      if (newNotice && !prev.isOcr && fp.isOcr) {
         _addAlert(logSheet, label, '구조변경', `${label} 텍스트→이미지 전환됨 — OCR로 처리 중`, '정보', true);
       }
       // 3) 신규 공지 — **공시일이 바뀔 때만.** 이게 카톡이 나가는 유일한 '공지' 알림이다.
