@@ -4147,3 +4147,68 @@ function 분배환율채우기() {
                      : '⇒ 끝. 앱을 새로고침하면 지난 달 분배금이 더 이상 흔들리지 않는다.');
   return { filled: filled, already: already, failed: failed };
 }
+
+// ── 수익로그 오염 구간 진단 (편집기에서 ▶실행. 아무것도 바꾸지 않고 출력만 한다) ──
+// 왜: 2026-09-12 에 대시보드 자산 그래프가 마지막에 수직 상승했다. 원인은 snapshotPortfolio 가
+// 시세를 못 구하면 **평단가로 대체**하던 것(`priceMap[...] || avg`)이었다. '주식상황' 시트의
+// 현재가가 네이버 개편으로 #N/A 였던 기간 동안 평가금액이 '원금'으로 기록됐다.
+// (은경 미래에셋 ISA 실측: 그래프 6,799만 vs 실제 6,104만 — 평단가가 현재가보다 높아 부풀었다.)
+// 폴백 자체는 고쳤지만 **이미 기록된 과거 값은 그대로 남아 있다.** 어느 날짜부터 오염인지
+// 이 함수로 찾은 뒤 rebuild 범위를 정한다.
+//
+// 판정: 그 날 기록값이 '평단가 × 현재수량'(=원금)과 거의 같으면 오염 의심.
+// ⚠️ 원금은 **현재** 평단가·수량으로 계산하므로, 과거에 수량이 달랐다면 오차가 있다.
+//    정확한 경계보다 '대략 언제부터인지'를 보는 용도다.
+function _diagPortfolioLog() {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const log = ss.getSheetByName('수익로그');
+  if (!log) { console.log('수익로그 시트가 없다'); return; }
+
+  const er = fetchExchangeRate() || 1450;
+  const cost = {};                                   // 계좌명 → 원금(평단가 기준)
+  const holdings = getHoldings();
+  getAccounts().forEach(a => {
+    let v = 0;
+    holdings.filter(h => h.account_id === a.id).forEach(h => {
+      const q = parseFloat(h.quantity) || 0, p = parseFloat(h.avg_price) || 0;
+      v += String(h.currency).toUpperCase() === 'USD' ? p * q * er : p * q;
+    });
+    if (v > 0) cost[a.name] = v;
+  });
+
+  const rows = log.getDataRange().getValues();
+  const byDate = {};                                 // 'yyyy-MM-dd' → {계좌명: 값}
+  for (let i = 1; i < rows.length; i++) {
+    const d = rows[i][0], n = rows[i][1], v = parseFloat(rows[i][2]) || 0;
+    if (!d || !n || !v) continue;
+    const key = (d instanceof Date)
+      ? Utilities.formatDate(d, 'Asia/Seoul', 'yyyy-MM-dd')
+      : String(d).slice(0, 10);
+    if (!byDate[key]) byDate[key] = {};
+    byDate[key][n] = v;                              // 같은 날 여러 슬롯이면 마지막(=확정) 값
+  }
+
+  const dates = Object.keys(byDate).sort();
+  console.log('수익로그 ' + dates.length + '일치 (' + dates[0] + ' ~ ' + dates[dates.length - 1] + ')');
+  console.log('환율 ' + er + ' 기준 · 최근 30일만 표시');
+  console.log('─'.repeat(78));
+  console.log('날짜        계좌                기록값       원금(평단)    차이%   판정');
+
+  let firstBad = '';
+  dates.slice(-30).forEach(d => {
+    Object.keys(byDate[d]).sort().forEach(n => {
+      const rec = byDate[d][n], c = cost[n];
+      if (!c) return;
+      const diff = (rec - c) / c * 100;
+      const bad = Math.abs(diff) < 0.5;              // 원금과 0.5% 이내 = 평단가로 기록된 것
+      if (bad && !firstBad) firstBad = d;
+      console.log(d + '  ' + (n + '                    ').slice(0, 20)
+        + ('            ' + Math.round(rec).toLocaleString()).slice(-12)
+        + ('            ' + Math.round(c).toLocaleString()).slice(-13)
+        + ('      ' + diff.toFixed(2)).slice(-8) + '%  ' + (bad ? '⚠ 원금과 같음(오염)' : ''));
+    });
+  });
+  console.log('─'.repeat(78));
+  console.log(firstBad ? '⇒ 오염 의심 시작: ' + firstBad : '⇒ 최근 30일에 오염 의심 구간 없음');
+  return { first: firstBad, days: dates.length, last: dates[dates.length - 1] };
+}
