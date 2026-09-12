@@ -4194,13 +4194,24 @@ function _diagPortfolioLog() {
   console.log('─'.repeat(78));
   console.log('날짜        계좌                기록값       원금(평단)    차이%   판정');
 
+  // ⚠️ 한 계좌만 원금 근처인 날은 오염이 아니다 — 실제 평가금액이 원금을 지나갈 수 있다.
+  // 시세를 못 받은 날은 **모든 계좌가 동시에** 원금이 되므로, 과반(전체의 절반 이상)일 때만 오염으로 본다.
+  // (2026-09-12 1차 진단이 8/03 을 시작으로 잡았는데 실제 오염은 9/11 하루뿐이었다.)
+  const badDays = {};
+  dates.forEach(d => {
+    const names = Object.keys(byDate[d]).filter(n => cost[n]);
+    if (!names.length) return;
+    const hit = names.filter(n => Math.abs((byDate[d][n] - cost[n]) / cost[n] * 100) < 0.5).length;
+    if (hit >= Math.max(2, Math.ceil(names.length / 2))) badDays[d] = hit + '/' + names.length;
+  });
+
   let firstBad = '';
   dates.slice(-30).forEach(d => {
     Object.keys(byDate[d]).sort().forEach(n => {
       const rec = byDate[d][n], c = cost[n];
       if (!c) return;
       const diff = (rec - c) / c * 100;
-      const bad = Math.abs(diff) < 0.5;              // 원금과 0.5% 이내 = 평단가로 기록된 것
+      const bad = !!badDays[d] && Math.abs(diff) < 0.5;
       if (bad && !firstBad) firstBad = d;
       console.log(d + '  ' + (n + '                    ').slice(0, 20)
         + ('            ' + Math.round(rec).toLocaleString()).slice(-12)
@@ -4209,6 +4220,113 @@ function _diagPortfolioLog() {
     });
   });
   console.log('─'.repeat(78));
-  console.log(firstBad ? '⇒ 오염 의심 시작: ' + firstBad : '⇒ 최근 30일에 오염 의심 구간 없음');
-  return { first: firstBad, days: dates.length, last: dates[dates.length - 1] };
+  const bd = Object.keys(badDays).sort();
+  console.log(bd.length
+    ? '⇒ 오염된 날 ' + bd.length + '일: ' + bd.map(d => d + '(' + badDays[d] + '계좌)').join(', ')
+    : '⇒ 오염된 날 없음');
+  return { badDays: bd, days: dates.length, last: dates[dates.length - 1] };
+}
+
+// ── 특정 날짜 종가 조회 (복구용) ──
+// 국내는 네이버 일별시세 JSON, 해외는 야후 chart. 둘 다 이미 getStockHistory 가 쓰는 엔드포인트다.
+// 못 구하면 0 을 돌려준다 — 호출부가 '건너뜀'으로 처리해야지 다른 값으로 때우면 안 된다.
+function _closeOnDate(ticker, currency, dateStr) {
+  const ymd = String(dateStr).replace(/-/g, '');
+  try {
+    if (String(currency).toUpperCase() !== 'USD') {
+      const t = padTicker(ticker, 'KRW');
+      const text = UrlFetchApp.fetch(
+        'https://fchart.stock.naver.com/siseJson.naver?symbol=' + t + '&requestType=1&count=40&timeframe=day',
+        { muteHttpExceptions: true }).getContentText();
+      // 행 형식: ["20260911", 시가, 고가, 저가, 종가, 거래량, 외국인소진율]
+      const m = text.match(new RegExp('\\["' + ymd + '"\\s*,\\s*\\d+\\s*,\\s*\\d+\\s*,\\s*\\d+\\s*,\\s*(\\d+)'));
+      return m ? parseFloat(m[1]) : 0;
+    }
+    const res = UrlFetchApp.fetch(
+      'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(ticker) + '?interval=1d&range=3mo',
+      { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } });
+    const r = ((JSON.parse(res.getContentText()) || {}).chart || {}).result;
+    if (!r || !r[0]) return 0;
+    const ts = r[0].timestamp || [];
+    const cl = (((r[0].indicators || {}).quote || [])[0] || {}).close || [];
+    for (let i = ts.length - 1; i >= 0; i--) {
+      const d = Utilities.formatDate(new Date(ts[i] * 1000), 'America/New_York', 'yyyyMMdd');
+      if (d === ymd && cl[i]) return parseFloat(cl[i]);
+    }
+  } catch(e) { console.log('_closeOnDate ' + ticker + ' ' + e); }
+  return 0;
+}
+
+// ── 수익로그 특정 날짜 복구 (편집기에서 ▶실행) ──
+// 2026-09-12 사고: '주식상황' 시트 현재가가 #N/A 이던 동안 snapshotPortfolio 가 시세 대신 **평단가**로
+// 평가금액을 기록했다(`priceMap[...] || avg`). 그 결과 그날 값이 '원금'이 되어 대시보드 그래프가
+// 이튿날 수직 상승한 것처럼 보였다. 폴백은 고쳤지만 이미 기록된 값은 남아 있다.
+//
+// 이 함수는 그날의 **실제 종가**를 네이버·야후에서 받아 계좌별 평가금액을 다시 계산하고
+// 수익로그의 해당 날짜 행을 교체한다.
+//
+// 환율도 **그날 값**을 쓴다. fetchExchangeRate 가 쓰는 야후 `USDKRW=X` 의 같은 날 종가를
+// 그대로 받으므로 평소 계산과 소스가 일치한다(못 구하면 오늘 환율로 떨어지고 로그에 남긴다).
+// ⚠️ 남은 한계 하나: 수량은 **지금** 보유수량을 쓴다. 그날 이후 매매가 있었다면 어긋난다.
+//   종가를 하나라도 못 구한 계좌는 **건너뛴다** — 또 평단가로 때우면 같은 사고가 반복된다.
+//
+// 사용법: 편집기에서 아래 DATE 를 고치고 ▶실행. 되돌리려면 시트 버전기록을 쓴다.
+function rebuildPortfolioLogDay() {
+  const DATE = '2026-09-11';               // ← 복구할 날짜
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const log = ss.getSheetByName('수익로그');
+  if (!log) { console.log('수익로그 없음'); return; }
+
+  const holdings = getHoldings();
+  const accounts = getAccounts();
+  // 그날 환율. fetchExchangeRate 와 같은 소스(야후 USDKRW=X)의 해당일 종가를 쓴다.
+  const erDay = _closeOnDate('USDKRW=X', 'USD', DATE);
+  const er = erDay || fetchExchangeRate() || 1450;
+  console.log('환율: ' + er + (erDay ? ' (' + DATE + ' 종가)' : ' ⚠ 그날 환율을 못 구해 오늘 값으로 대체'));
+
+  // 필요한 티커의 그날 종가를 한 번씩만 받는다.
+  const need = {};
+  holdings.forEach(h => {
+    const t = (h.ticker || '').toString().trim().toUpperCase();
+    if (t) need[t] = String(h.currency || 'KRW').toUpperCase();
+  });
+  const close = {};
+  Object.keys(need).forEach(t => { close[t] = _closeOnDate(t, need[t], DATE); });
+  const missTickers = Object.keys(close).filter(t => !close[t]);
+  console.log(DATE + ' 종가 조회: ' + (Object.keys(close).length - missTickers.length)
+    + '/' + Object.keys(close).length + '건'
+    + (missTickers.length ? ' · 실패: ' + missTickers.join(',') : ''));
+
+  const out = [];
+  accounts.forEach(acc => {
+    const h = holdings.filter(x => x.account_id === acc.id);
+    if (!h.length) return;
+    let value = 0, missing = 0;
+    h.forEach(x => {
+      const t = (x.ticker || '').toString().trim().toUpperCase();
+      const q = parseFloat(x.quantity) || 0;
+      const c = close[t] || 0;
+      if (!c || !q) { if (!c) missing++; return; }
+      value += String(x.currency).toUpperCase() === 'USD' ? c * q * er : c * q;
+    });
+    if (missing) { console.log('  건너뜀: ' + acc.name + ' (종가 없는 종목 ' + missing + '개)'); return; }
+    if (value > 0) out.push([DATE, acc.name, Math.round(value), 16]);
+  });
+
+  if (!out.length) { console.log('복구할 값이 없다 — 아무것도 바꾸지 않았다.'); return; }
+
+  // 그 날짜의 기존 행을 지우고 새로 넣는다(아래에서 위로 지워야 인덱스가 안 밀린다).
+  const rows = log.getDataRange().getValues();
+  let removed = 0;
+  for (let i = rows.length - 1; i >= 1; i--) {
+    const d = rows[i][0];
+    const key = (d instanceof Date) ? Utilities.formatDate(d, 'Asia/Seoul', 'yyyy-MM-dd') : String(d).slice(0, 10);
+    if (key === DATE) { log.deleteRow(i + 1); removed++; }
+  }
+  log.getRange(log.getLastRow() + 1, 1, out.length, 4).setValues(out);
+
+  console.log('기존 ' + removed + '행 삭제 → 새로 ' + out.length + '행 기록');
+  out.forEach(r => console.log('  ' + r[1] + '  ' + Math.round(r[2]).toLocaleString()));
+  console.log('⇒ 끝. 앱 대시보드를 새로고침하면 그래프의 수직 상승이 사라진다.');
+  return { date: DATE, written: out.length, removed: removed, missTickers: missTickers };
 }
