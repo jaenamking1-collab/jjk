@@ -31,10 +31,14 @@ jobs:
                     "$@" --data-urlencode "token=$TOKEN" "$BASE")
             printf '%-22s %6.2fs  HTTP %s  %s bytes\n' "$label" ${out% *} ${out#* } "$(wc -c < /tmp/l.json)"
           }
-          echo "=== 1회차 (콜드스타트 포함 가능) ==="
-          hit "getBootstrap"  --data-urlencode "action=getBootstrap" --data-urlencode "year=$(date +%Y)"
-          hit "getLivePrices" --data-urlencode "action=getLivePrices"
-          echo "=== 2회차 (확실히 웜) ==="
-          hit "getBootstrap"  --data-urlencode "action=getBootstrap" --data-urlencode "year=$(date +%Y)"
-          hit "getLivePrices" --data-urlencode "action=getLivePrices"
-          hit "getDistributionAll" --data-urlencode "action=getDistributionAll"
+          echo "=== getBootstrap 을 3회 — 1회차만 느린지(콜드) 매번 느린지 가른다 ==="
+          for n in 1 2 3; do
+            hit "getBootstrap #$n" --data-urlencode "action=getBootstrap" --data-urlencode "year=$(date +%Y)"
+          done
+          echo "=== getBootstrap 을 이루는 조각별 (어느 시트가 무거운지) ==="
+          hit "getAccounts"     --data-urlencode "action=getAccounts"
+          hit "getHoldings"     --data-urlencode "action=getHoldings"
+          hit "getDividends(전체)" --data-urlencode "action=getDividends"
+          hit "getStockList"    --data-urlencode "action=getStockList"
+          hit "getAlerts"       --data-urlencode "action=getAlerts"
+          hit "getExchangeRate" --data-urlencode "action=getExchangeRate"
