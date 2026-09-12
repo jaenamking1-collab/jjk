@@ -1,0 +1,40 @@
+# 앱이 느릴 때 **어디가** 느린지 재는 자.
+#
+# 왜 필요한가: "로딩이 느리다"는 원인이 셋이다 — ①Apps Script 콜드스타트 ②getBootstrap 자체가
+# 오래 돎 ③시세 조회(getLivePrices)가 외부 사이트를 기다림. 브라우저에서만 보면 셋이 구분되지
+# 않아 매번 추측으로 고쳤다(2026-09-12). 액션별로 왕복 시간을 찍어 두면 한 번에 갈린다.
+#
+# 읽는 법: 첫 줄(warm-up)이 유독 길면 ①콜드스타트. getBootstrap 이 길면 ②시트 읽기.
+#          getLivePrices 가 길면 ③외부 시세. 전부 2~4초면 서버는 정상이고 원인은 프론트다.
+#
+# ⚠️ 컨테이너에서는 script.google.com 이 막혀 있어 직접 못 잰다. 그래서 GitHub 러너로 잰다.
+name: latency
+
+on:
+  workflow_dispatch:
+
+jobs:
+  latency:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 액션별 왕복 시간 측정
+        env:
+          TOKEN: ${{ secrets.APP_TOKEN }}
+        run: |
+          set -euo pipefail
+          BASE='https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec'
+          # ⚠️ 토큰이 로그에 안 찍히도록 -G --data-urlencode 로 붙인다.
+          hit() {
+            local label="$1"; shift
+            local out
+            out=$(curl -sL -o /tmp/l.json -w '%{time_total} %{http_code}' --max-time 340 -G \
+                    "$@" --data-urlencode "token=$TOKEN" "$BASE")
+            printf '%-22s %6.2fs  HTTP %s  %s bytes\n' "$label" ${out% *} ${out#* } "$(wc -c < /tmp/l.json)"
+          }
+          echo "=== 1회차 (콜드스타트 포함 가능) ==="
+          hit "getBootstrap"  --data-urlencode "action=getBootstrap" --data-urlencode "year=$(date +%Y)"
+          hit "getLivePrices" --data-urlencode "action=getLivePrices"
+          echo "=== 2회차 (확실히 웜) ==="
+          hit "getBootstrap"  --data-urlencode "action=getBootstrap" --data-urlencode "year=$(date +%Y)"
+          hit "getLivePrices" --data-urlencode "action=getLivePrices"
+          hit "getDistributionAll" --data-urlencode "action=getDistributionAll"
