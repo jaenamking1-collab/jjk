@@ -9,9 +9,13 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: '칠 액션 이름 (공개 액션만)'
-        required: true
+        description: '칠 액션 이름 (공개 액션만). url 을 주면 무시된다.'
+        required: false
         default: 'getPricesCsv'
+      url:
+        description: '임의 URL 을 직접 칠 때. 외부 API 응답 형식을 확인하는 용도.'
+        required: false
+        default: ''
 
 jobs:
   probe:
@@ -19,12 +23,15 @@ jobs:
     steps:
       - name: /exec 호출
         env:
-          ACT: ${{ inputs.action }}
+          ACT: ${{ github.event.inputs.action }}
+          URL: ${{ github.event.inputs.url }}
         run: |
           set -euo pipefail
           BASE='https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec'
-          echo "=== action=$ACT ==="
-          code=$(curl -sL -o /tmp/r.txt -w '%{http_code}' --max-time 120 "$BASE?action=$ACT")
+          # url 을 주면 그걸 치고, 아니면 웹앱의 공개 액션을 친다.
+          TARGET="${URL:-$BASE?action=$ACT}"
+          echo "=== $TARGET ==="
+          code=$(curl -sL -o /tmp/r.txt -w '%{http_code}' --max-time 120 -A 'Mozilla/5.0' "$TARGET")
           echo "HTTP $code · $(wc -c < /tmp/r.txt) bytes"
           echo "--- 전체 $(wc -l < /tmp/r.txt)줄 ---"
           # ⚠️ head -40 으로 자르면 마지막 줄이 잘려 '없다'고 오판한다(2026-09-12 실제로 겪음).
