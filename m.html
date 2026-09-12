@@ -163,7 +163,11 @@
 //  같은 백엔드·같은 액션을 쓴다 → Apps Script 재배포 불필요.
 // =====================================================================
 const API = 'https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec';
-const API_TIMEOUT = 90000;      // portfolio.html과 동일. 무거운 getBootstrap을 끊지 않기 위한 값
+// portfolio.html 과 동일하게 맞춘다. /exec 은 가끔 응답을 배달 못 하고 **오래 매달린 끝에 404** 를
+// 내는데(2026-09-12 실측: getBootstrap 113.2s·46.3s 404 → 재시도 3.4s 200), 세 번 다 90초를 주면
+// 죽은 요청 하나에 2분을 버린다. 성공은 3~5초라 첫 시도를 오래 기다릴 이유가 없다.
+const API_TIMEOUT = 90000;
+const API_ATTEMPT_MS = [15000, 30000, API_TIMEOUT];
 let APP_TOKEN = '';
 
 async function api(params) {
@@ -171,7 +175,7 @@ async function api(params) {
   let last;
   for (let i = 0; i < 3; i++) {
     const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(), API_TIMEOUT);
+    const timer = setTimeout(() => ac.abort(), API_ATTEMPT_MS[i]);
     try {
       const res = await fetch(url, { redirect:'follow', signal: ac.signal });
       if (!res.ok) throw new Error('HTTP ' + res.status);
