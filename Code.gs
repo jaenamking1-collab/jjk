@@ -3486,13 +3486,23 @@ function snapshotPortfolio() {
   accounts.forEach(acc => {
     const h = allHoldings.filter(x => x.account_id === acc.id);
     if (!h.length) return;
-    let value = 0;
+    // ⚠️ 예전엔 시세를 못 구하면 **평단가로 대체**했다(`priceMap[...] || avg`). 그러면 그 회차 스냅샷이
+    // '평가이익 0'인 원금으로 기록되고, 나중에 시세가 돌아오면 차트가 **하루 만에 +5~10% 수직 상승**한
+    // 것처럼 보인다(2026-09-12 사용자 보고 — '주식상황' 현재가가 네이버 개편으로 #N/A 였던 기간).
+    // 게다가 남은 값이 진짜였는지 대체값이었는지 나중에 구분할 방법이 없다.
+    // → **시세를 못 구한 종목이 하나라도 있으면 그 계좌는 이번 회차를 통째로 건너뛴다.**
+    // 차트가 잠깐 끊기는 편이 거짓 값이 영구히 남는 것보다 낫다.
+    let value = 0, missing = 0;
     h.forEach(x => {
       const qty = parseFloat(x.quantity) || 0;
-      const avg = parseFloat(x.avg_price) || 0;
-      const cur = priceMap[(x.ticker||'').toString().toUpperCase()] || avg;
+      const cur = priceMap[(x.ticker||'').toString().toUpperCase()] || 0;
+      if (!cur || !qty) { if (!cur) missing++; return; }
       value += x.currency === 'USD' ? cur * qty * er : cur * qty;
     });
+    if (missing) {
+      console.log('수익로그 건너뜀: ' + acc.name + ' — 시세 없는 종목 ' + missing + '개');
+      return;
+    }
     if (value > 0) out.push([today, acc.name, Math.round(value), slot]);
   });
   if (out.length) log.getRange(log.getLastRow() + 1, 1, out.length, 4).setValues(out);
