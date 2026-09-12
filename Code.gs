@@ -40,6 +40,52 @@ function _unauthorized() {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+// ── 유지보수 함수 실행 (runMaint) ─────────────────────────────
+// 왜: 진단·복구 함수는 편집기에서 ▶ 눌러야만 돌아서, 매번 소유자에게 부탁하고 로그를
+// 복사해 붙여넣어 달라고 해야 했다. 웹앱은 이미 소유자 권한으로 도니 여기서 부르면 된다.
+//
+// 안전장치 세 개:
+//   1) PUBLIC_ACTIONS 에 **넣지 않는다** → APP_TOKEN 이 있어야 통과한다.
+//   2) 아래 화이트리스트에 적힌 함수만 부른다. 이름을 파라미터로 받아 아무거나 부르면
+//      토큰이 새는 순간 시트를 통째로 지우는 코드까지 돌 수 있다.
+//   3) 쓰기를 하는 함수는 dry 기본값을 두지 않는다 — 대신 여기 목록에서 골라 담는다.
+// ⚠️ resetAllTriggers 는 여기서 도는지 **확인되지 않았다.** 트리거 설치는 스코프 재승인이
+//    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
+const MAINT_ALLOW = [
+  '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert',
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers'
+];
+
+function runMaint(name, arg) {
+  if (MAINT_ALLOW.indexOf(name) === -1) {
+    return { success: false, error: '허용되지 않은 함수: ' + name, allowed: MAINT_ALLOW };
+  }
+  const fn = globalThis[name];
+  if (typeof fn !== 'function') return { success: false, error: '함수를 찾을 수 없음: ' + name };
+
+  // console.log 를 가로채 실행 로그를 응답에 실어 보낸다. Cloud Logging 에도 그대로 남긴다.
+  const lines = [];
+  const orig = console.log;
+  try {
+    console.log = function() {
+      lines.push(Array.prototype.slice.call(arguments).join(' '));
+      orig.apply(console, arguments);
+    };
+  } catch (e) { /* console 을 못 바꾸면 로그 없이 실행만 한다 */ }
+
+  const t0 = Date.now();
+  let out = null, err = null;
+  try { out = fn(arg); } catch (e) { err = String((e && e.stack) || e); }
+  try { console.log = orig; } catch (e) {}
+
+  return {
+    success: !err, error: err, ran: name, arg: arg || null,
+    ms: Date.now() - t0,
+    result: out === undefined ? null : out,
+    log: lines
+  };
+}
+
 function doGet(e) {
   if (!e || !e.parameter) return ContentService.createTextOutput('ok');
   const action = e.parameter.action;
@@ -98,6 +144,8 @@ function doGet(e) {
       case 'getAlerts':       result = getAlerts(e.parameter.limit ? parseInt(e.parameter.limit) : 30); break;
       case 'checkAlerts':     result = checkAndLogAlerts(); break;
       case 'markAlertRead':   result = markAlertRead(parseInt(e.parameter.row)); break;
+      // 유지보수 함수 실행. 토큰 필요(PUBLIC_ACTIONS 에 없다) + 화이트리스트만.
+      case 'runMaint':        result = runMaint(e.parameter.fn, e.parameter.arg); break;
       default: result = { error: 'Unknown action' };
     }
   } catch(err) {
@@ -4291,8 +4339,8 @@ function _closeOnDate(ticker, currency, dateStr) {
 //   종가를 하나라도 못 구한 계좌는 **건너뛴다** — 또 평단가로 때우면 같은 사고가 반복된다.
 //
 // 사용법: 편집기에서 아래 DATE 를 고치고 ▶실행. 되돌리려면 시트 버전기록을 쓴다.
-function rebuildPortfolioLogDay() {
-  const DATE = '2026-09-11';               // ← 복구할 날짜
+function rebuildPortfolioLogDay(dateArg) {
+  const DATE = dateArg || '2026-09-11';    // ← 복구할 날짜(runMaint 로 부를 땐 arg 로 넘긴다)
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const log = ss.getSheetByName('수익로그');
   if (!log) { console.log('수익로그 없음'); return; }
@@ -4346,12 +4394,16 @@ function rebuildPortfolioLogDay() {
   if (!out.length) { console.log('복구할 값이 없다 — 아무것도 바꾸지 않았다.'); return; }
 
   // 그 날짜의 기존 행을 지우고 새로 넣는다(아래에서 위로 지워야 인덱스가 안 밀린다).
+  // ⚠️ **다시 쓸 계좌의 행만** 지운다. 예전엔 그날 행을 전부 지워서, 종가를 못 구해
+  // 건너뛴 계좌는 기록이 통째로 사라졌다(2026-09-12: 14행 삭제 → 4행 기록).
+  const keep = {};
+  out.forEach(r => { keep[r[1]] = 1; });
   const rows = log.getDataRange().getValues();
   let removed = 0;
   for (let i = rows.length - 1; i >= 1; i--) {
     const d = rows[i][0];
     const key = (d instanceof Date) ? Utilities.formatDate(d, 'Asia/Seoul', 'yyyy-MM-dd') : String(d).slice(0, 10);
-    if (key === DATE) { log.deleteRow(i + 1); removed++; }
+    if (key === DATE && keep[rows[i][1]]) { log.deleteRow(i + 1); removed++; }
   }
   log.getRange(log.getLastRow() + 1, 1, out.length, 4).setValues(out);
 
