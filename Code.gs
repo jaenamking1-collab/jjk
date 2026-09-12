@@ -3603,11 +3603,15 @@ function snapshotPortfolio() {
     // 게다가 남은 값이 진짜였는지 대체값이었는지 나중에 구분할 방법이 없다.
     // → **시세를 못 구한 종목이 하나라도 있으면 그 계좌는 이번 회차를 통째로 건너뛴다.**
     // 차트가 잠깐 끊기는 편이 거짓 값이 영구히 남는 것보다 낫다.
+    // ⚠️ **수량 0 은 시세를 따지지 않는다.** 이미 판 잔여 행(티커가 비어 있기도 하다)까지
+    // missing 으로 세는 바람에, 그런 행이 있는 계좌 3개가 매 회차 통째로 건너뛰어졌다
+    // (2026-09-12 runMaint 로 종목명을 찍어 보고 발견). 평가액에 1원도 기여하지 않는 행이다.
     let value = 0, missing = 0;
     h.forEach(x => {
       const qty = parseFloat(x.quantity) || 0;
-      const cur = priceMap[(x.ticker||'').toString().toUpperCase()] || 0;
-      if (!cur || !qty) { if (!cur) missing++; return; }
+      if (!qty) return;
+      const cur = priceMap[(x.ticker||'').toString().trim().toUpperCase()] || 0;
+      if (!cur) { missing++; return; }
       value += x.currency === 'USD' ? cur * qty * er : cur * qty;
     });
     if (missing) {
@@ -4406,9 +4410,11 @@ function rebuildPortfolioLogDay(dateArg) {
     h.forEach(x => {
       const t = (x.ticker || '').toString().trim().toUpperCase();
       const q = parseFloat(x.quantity) || 0;
+      // 수량 0 을 **먼저** 걸러낸다. 시세를 먼저 보면 이미 판 잔여 행(티커가 빈 경우가 많다)이
+      // missing 으로 잡혀 계좌 전체가 건너뛰어진다(2026-09-12).
+      if (!q) { zeroQty.push(t || '(티커없음)/' + (x.name || '')); return; }
       const c = close[t] || 0;
       if (!c) { missing.push(t || '(티커없음)/' + (x.name || '')); return; }
-      if (!q) { zeroQty.push(t); return; }
       value += String(x.currency).toUpperCase() === 'USD' ? c * q * er : c * q;
     });
     if (zeroQty.length) console.log('  수량 0 제외: ' + acc.name + ' — ' + zeroQty.join(', '));
