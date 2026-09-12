@@ -1,0 +1,17 @@
+# 공지 링크가 실제로 그 공지로 가는지 **눌러서** 확인한다.
+#
+# 왜: 사용자가 "달력 공지 링크 눌러도 잘못된 사이트 나옴"이라고 했는데, 컨테이너에서는
+# 운용사 사이트가 전부 막혀(curl 000) 눈으로 확인할 방법이 없었다. 러너는 뚫려 있다.
+# getEtfNoticesAll 은 공개 액션이라 토큰이 필요 없다.
+name: linkcheck
+
+on:
+  workflow_dispatch:
+
+jobs:
+  linkcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 공지 링크 전부 눌러보기
+        run: python3 .github/scripts/linkcheck.py
