@@ -52,7 +52,7 @@ function _unauthorized() {
 // ⚠️ resetAllTriggers 는 여기서 도는지 **확인되지 않았다.** 트리거 설치는 스코프 재승인이
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
-  '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert',
+  '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
   '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers'
 ];
 
@@ -1379,22 +1379,43 @@ function ocrScheduleFromNotice(html, baseUrl) {
 }
 
 // base64 이미지(또는 data URI) 직접 OCR → 일정. ACE처럼 본문에 base64가 박힌 경우.
+// ACE 는 일정 이미지를 본문에 base64로 박아 보낸다(첨부 URL이 아니다).
+// ⚠️ 예전엔 캐시도 진단도 없어서, Vision 이 한 번 실패하면 일정이 **계산 근사값**으로 조용히
+// 떨어지고(주석대로 월중 지급일은 T+3인 경우가 많아 근사가 틀린다) 다음 회차엔 다시 OCR 이 되면서
+// isOcr 이 오갔다. 그 왕복이 '이미지→텍스트 전환됨' 같은 **사실이 아닌** 알림을 낳았다
+// (2026-09-12 ACE 09:57 ↔ 10:37). 그래서 ocrImageText 와 똑같이 ①캐시 ②_ocrDbg 를 둔다.
 function ocrScheduleFromBase64Html(content) {
+  _ocrDbg = '';
   try {
     const key = PropertiesService.getScriptProperties().getProperty('VISION_API_KEY');
-    if (!key) return {};
+    if (!key) { _ocrDbg = 'no VISION_API_KEY'; return {}; }
     const m = content.match(/data:image\/(?:png|jpeg|jpg);base64,([A-Za-z0-9+/=]+)/);
-    if (!m) return {};
-    const payload = { requests: [{ image: { content: m[1] }, features: [{ type: 'DOCUMENT_TEXT_DETECTION' }] }] };
-    const res = UrlFetchApp.fetch('https://vision.googleapis.com/v1/images:annotate?key=' + key, {
-      method: 'post', contentType: 'application/json', payload: JSON.stringify(payload), muteHttpExceptions: true
-    });
-    const json = JSON.parse(res.getContentText('UTF-8'));
-    if (json.error) return {};
-    const text = json.responses && json.responses[0] && json.responses[0].fullTextAnnotation ? json.responses[0].fullTextAnnotation.text : '';
+    if (!m) { _ocrDbg = 'no base64 image'; return {}; }
+    // 같은 이미지는 재OCR하지 않는다. 트리거가 하루 여러 번 도는데 매번 Vision 을 부르면
+    // 할당량을 태우고, 그 실패가 곧 일정 오염으로 이어진다.
+    const oc = CacheService.getScriptCache();
+    const ock = 'ocrb64_' + Utilities.base64EncodeWebSafe(
+      Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, m[1]));
+    let text = oc.get(ock);
+    if (text !== null) {
+      _ocrDbg = 'cache hit len=' + text.length;
+    } else {
+      const payload = { requests: [{ image: { content: m[1] }, features: [{ type: 'DOCUMENT_TEXT_DETECTION' }] }] };
+      const res = UrlFetchApp.fetch('https://vision.googleapis.com/v1/images:annotate?key=' + key, {
+        method: 'post', contentType: 'application/json', payload: JSON.stringify(payload), muteHttpExceptions: true
+      });
+      const json = JSON.parse(res.getContentText('UTF-8'));
+      if (json.error) { _ocrDbg = 'vision err ' + JSON.stringify(json.error).slice(0, 180); return {}; }
+      const r0 = json.responses && json.responses[0];
+      if (r0 && r0.error) { _ocrDbg = 'vision resp err ' + JSON.stringify(r0.error).slice(0, 180); return {}; }
+      text = r0 && r0.fullTextAnnotation ? r0.fullTextAnnotation.text : '';
+      _ocrDbg = 'ok textLen=' + text.length;
+      if (text) oc.put(ock, text, 21600); // 6시간(CacheService 최대 TTL)
+    }
     if (text && /(지급기준일|분배락|지급일)/.test(text)) return parseScheduleFromOcr(text);
+    _ocrDbg += ' · 일정 키워드 없음';
     return {};
-  } catch(e) { return {}; }
+  } catch(e) { _ocrDbg = 'ocr exception ' + e; return {}; }
 }
 
 // ── 한국 증시 휴장일 · 영업일 계산 ──────────────────────────
@@ -4138,6 +4159,28 @@ function _diagDeviation() {
 // 분배 공지 알림 진단: "공지 떴는데 알림이 안 왔다" 확인용. ▶실행(아무것도 안 바꾸고 상태만 출력).
 // 알림이 안 오는 경로는 네 갈래뿐이라, 아래 출력이 그중 어디서 끊겼는지 한 번에 가른다.
 //   ① 트리거 없음  ② 창/시간 가드에 막힘  ③ 감지됐는데 대기열에 갇힘(발송 실패)  ④ 이미 소비됨(메타가 최신)
+// OCR 이 왜 됐다 안 됐다 하는지 본다. _ocrDbg 는 예전부터 실패 사유를 적고 있었는데
+// 아무도 읽지 않아 버려졌다(2026-09-12). arg 로 운용사를 넘긴다(기본 ace).
+// ⚠️ force=true 라 실제로 스크랩한다 — 자주 부르지 마라.
+function _diagOcr(source) {
+  const s = String(source || 'ace').toLowerCase();
+  const key = PropertiesService.getScriptProperties().getProperty('VISION_API_KEY');
+  console.log('VISION_API_KEY: ' + (key ? '있음(길이 ' + key.length + ')' : '❌ 없음 — OCR 전부 실패한다'));
+  _ocrDbg = '';
+  const r = getDistribution(s, true);
+  console.log('OCR 진단(_ocrDbg): ' + (_ocrDbg || '(비어 있음 — OCR 경로를 안 탔다)'));
+  const items = (r && r.items) || [];
+  console.log(s + ' 항목 ' + items.length + '건 · 파서 ' + ((r && r._source) || '?')
+              + ' · 오류=' + ((r && r.error) || '없음'));
+  items.slice(0, 3).forEach(it => {
+    const sc = it.sched || {};
+    console.log('  ' + (it.ticker || '?') + ' ' + (it.name || '') + ' | 회차=' + (it.cycle || '?')
+                + ' | 공시일=' + (sc['공시일'] || '-') + ' 기준일=' + (sc['기준일'] || '-')
+                + ' 지급일=' + (sc['지급일'] || '-') + (sc['_ocr'] ? '  [OCR 실측]' : '  ⚠ 계산 근사값'));
+  });
+  return { source: s, ocrDbg: _ocrDbg, hasKey: !!key, itemCount: items.length };
+}
+
 function _diagDistAlert() {
   const now = new Date();
   const day  = Number(Utilities.formatDate(now, 'Asia/Seoul', 'd'));
