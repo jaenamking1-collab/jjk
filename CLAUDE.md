@@ -45,18 +45,21 @@ There is **no build system, package manager, test suite, or lint config**. The f
     2. `clasp push --force` — **`--force` 없으면 매니페스트 확인 프롬프트에서 `Skipping push.`로 끝난다.** 비대화형이라 `echo y |` 파이프도 안 먹는다.
     3. `clasp deploy -i AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s -d "<note>"` — 라이브 배포에 새 버전을 물린다. **`-i`(기존 배포 ID) 없이 `clasp deploy` 만 치면 URL이 새로 생긴다 — 금지.** (clasp 2.4.2 엔 `redeploy` 명령이 없다.)
     4. 다시 `clasp pull`로 원격에 변경분이 들어갔는지 확인.
-    5. ⛔ **소유자에게 편집기에서 `resetAllTriggers()` ▶ 실행을 부탁한다 — 배포의 일부다, 빼먹지 마라.**
+    5. ⛔ **배포 직후 `resetAllTriggers` 를 반드시 돌린다 — 배포의 일부다, 빼먹지 마라.**
        `clasp push`로 스코프가 바뀌면 **기존 트리거가 전부 `Authorization is required to perform that
        action.`으로 죽는다.** 트리거 목록에는 그대로 보이고 실패 메일도 한 번 오고 마니, **아무도
        모르는 채로 몇 주가 흐른다.** 재인증만으로는 안 살아나고 트리거를 다시 만들어야 한다.
        이건 이미 세 번 일어났다: 7/24~8/26 전면 정지(WORKLOG 128 부근), `snapshotPrices` **8/19→9/11
        3주 정지**, 그리고 9/8 배포 → **9/10 15:16 전면 정지**(WORKLOG 149). 매번 사용자가 "왜 안
        보이냐"고 물어서 발견됐다. 이 한 줄을 빼먹으면 그게 또 반복된다.
-       - 트리거 설치는 `clasp run-function`으로 안 된다(API executable 배포가 필요). **그래서 이것만은
-         사람이 눌러야 한다** — 이 부탁에는 정당한 근거가 있다.
-       - 화면에는 이제 감지 장치가 있다(`showDistDead`/`renderFreshness`): 데이터가 공지창엔 6시간,
-         그 밖의 날엔 30시간 넘게 안 바뀌면 분배금공지 탭에 🚨 배너가 뜬다. **그래도 배포 직후에
-         눌러라** — 배너는 안전망이지 예방책이 아니다.
+       - ✅ **내가 돌린다. 사용자에게 ▶ 를 부탁하지 마라** (2026-09-12 확인). `maint` 워크플로로
+         `fn=resetAllTriggers` 를 돌리면 된다 — 웹앱은 소유자 권한으로 돌기 때문에 트리거 설치가
+         **된다**(13개 함수 전부 ✅, 트리거 15개 재설치를 로그로 확인). `clasp run-function` 이
+         안 되는 것과는 별개 통로다. 이 문서에 오래 적혀 있던 "이것만은 사람이 눌러야 한다"는
+         **틀린 기록이었다** — 웹앱 통로를 안 만들어 봤을 뿐이다.
+       - 화면에는 감지 장치도 있다(`showDistDead`/`renderFreshness`): 데이터가 공지창엔 6시간,
+         그 밖의 날엔 30시간 넘게 안 바뀌면 분배금공지 탭에 🚨 배너가 뜬다. 배너는 안전망이지
+         예방책이 아니다 — 배포 직후에 `maint` 를 돌려라.
     공개 분배금공지 페이지가 같은 `/exec` URL을 쓴다. 기존 액션의 응답 계약을 바꾸는 배포라면 먼저 알린다(액션 추가처럼 덧붙이기만 하는 변경은 그냥 배포한다).
   - ✅ **원격(클라우드) 세션에서도 배포된다** (2026-09-03 확인). 막힌 건 `script.google.com` **하나뿐**이고 clasp 가 실제로 쓰는 `script.googleapis.com`·`oauth2.googleapis.com`·`accounts.google.com` 은 열려 있다. "원격이라 배포 못 한다"고 말하지 마라 — 아래 순서로 하면 된다.
     1. `npm i -g @google/clasp@2.4.2`
@@ -66,7 +69,7 @@ There is **no build system, package manager, test suite, or lint config**. The f
   - **`clasp run-function` does not work** here — it needs the script deployed as an API executable. **Installing a trigger (`setupKeepWarm()`, `setupWatchdogTrigger()`, …) therefore still requires the owner to click `▶` in the editor.**
   - ✅ **진단·복구 함수는 `runMaint` 로 내가 직접 돌린다 — 소유자에게 ▶ 를 부탁하지 마라** (2026-09-12). `Code.gs` 의 `runMaint(fn, arg)` 가 `MAINT_ALLOW` 화이트리스트 함수를 실행하고 `console.log` 를 가로채 **로그까지 응답에 실어 준다.** `APP_TOKEN` 이 필요하다(`PUBLIC_ACTIONS` 아님). 실행 통로는 `.github/workflows/maint.yml`(`APP_TOKEN` Secret) — `actions_run_trigger` 로 `maint.yml` 을 `fn`/`arg` 와 함께 돌리고 로그를 읽는다.
     - 함수를 새로 만들면 **`MAINT_ALLOW` 에 이름을 추가**해야 부를 수 있다.
-    - ⚠️ **트리거 설치(`resetAllTriggers` 등)는 여전히 사람이 ▶ 를 눌러야 할 수 있다** — 스코프가 바뀌면 웹앱 자체도 재승인이 필요하다. `MAINT_ALLOW` 에 넣어는 뒀으니 **먼저 `maint` 로 시도해 보고**, 실패할 때만 부탁한다.
+    - ✅ **`resetAllTriggers` 도 여기서 돈다**(2026-09-12 확인). 배포 직후 `maint` 로 돌려라 — 위 '배포 절차' 5단계.
   - One-time per machine: `npm i -g @google/clasp`(에이전트가 함) + `clasp login`과 `script.google.com/home/usersettings`의 **Apps Script API** 토글(구글 계정 행위 — 소유자가 함). 자격증명은 `~/.clasprc.json`.
   - **`portfolio.html`·`m.html`·`dist_notice.html`은 배포 대상이 아니다.** 로컬 파일을 브라우저로 열고, `.claspignore`가 push에서 막는다. git push로 끝.
 - The Apps Script reads/writes two spreadsheets by ID: the app's own DB sheet (`SHEET_ID`, tabs `accounts`/`holdings`/`dividends`/`config`/`stocks` + logs/caches) and an external "주식상황"/"분배금" sheet (hardcoded ID in `getSheetData`/`getDivSheetData`) that the sync features diff against.
