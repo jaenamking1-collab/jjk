@@ -7,6 +7,15 @@ name: linkcheck
 
 on:
   workflow_dispatch:
+    inputs:
+      urls:
+        description: '쉼표로 구분한 URL 목록. 주면 공지 대신 이것만 확인한다(링크 형태 비교용).'
+        required: false
+        default: ''
+      referer:
+        description: 'Referer 헤더. 딥링크가 Referer 검사로 막히는지 가를 때 쓴다.'
+        required: false
+        default: ''
 
 jobs:
   linkcheck:
@@ -14,4 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: 공지 링크 전부 눌러보기
+        env:
+          URLS: ${{ github.event.inputs.urls }}
+          REFERER: ${{ github.event.inputs.referer }}
         run: python3 .github/scripts/linkcheck.py
