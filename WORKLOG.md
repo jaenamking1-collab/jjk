@@ -45,6 +45,19 @@ getStockList 1.83s/3.3KB getAlerts 1.92s/5.8KB      getExchangeRate 1.04s/16B
 - `_getOrCreateSheet` 가 `_ss` 캐시를 쓰도록 수정 — `ALERT_SHEET_ID` 가 `SHEET_ID` 와 **같은 값인데** 캐시를 안 타서 실행마다 같은 시트를 한 번 더 열었다(수백ms~초). `getBootstrap` 은 `getAlerts` 때문에 매번 물었다.
 - 둘 다 **부수적**이다. 느림의 핵심은 위의 타임아웃이고 그건 이미 반영됐다. 다음 배포 때 같이 나가면 된다.
 
+### ✅ 배포하고 다시 재서 확인했다 (버전 180)
+```
+              배포 전                배포 후
+#1     113.18s  HTTP 404   →     4.88s  HTTP 200
+#2      46.34s  HTTP 404   →     4.40s  HTTP 200
+#3       3.42s  HTTP 200   →     3.02s  HTTP 200
+크기   160,283 B           →   112,516 B
+```
+- 중복 48KB 가 정확히 빠졌고(160,283 → 112,516), **그 크기에서는 배달 실패가 한 번도 안 났다.**
+- 워크플로 전체 소요도 **9분 → 25초**.
+- 원격 세션에서 배포함: clasp 로그인(사용자 클릭 1회) → `clasp push --force` → `clasp deploy -i AKfycbw…` (버전 180) → `clasp pull` 대조 → `maint` 로 `resetAllTriggers`(13개 함수 전부 ✅, 트리거 15개 재설치).
+- ⚠️ 크기만이 원인은 아니다 — 같은 회차에 `getDistributionAll`(115KB)은 2.5초에 성공했다. 그래서 프론트의 시도별 타임아웃(15/30/90s)은 그대로 둔다. 그게 안전망이다.
+
 ### 다음 할 일
 - 며칠 써 보고 여전히 느리면 `latency` 워크플로를 다시 돌려 숫자로 비교한다(추측 금지).
 - 배포할 일이 생기면 위 `Code.gs` 2건이 같이 나간다. 배포 직후 `maint` 로 `resetAllTriggers` 를 반드시 돌린다.
