@@ -64,25 +64,50 @@ function runMaint(name, arg) {
   if (typeof fn !== 'function') return { success: false, error: '함수를 찾을 수 없음: ' + name };
 
   // console.log 를 가로채 실행 로그를 응답에 실어 보낸다. Cloud Logging 에도 그대로 남긴다.
+  // ⚠️ Apps Script 의 console.log 는 **단순 대입으로 안 바뀐다.** 비엄격 모드라 예외도 안 나서
+  // 조용히 실패하고 로그가 빈 채로 '성공'이 찍힌다(2026-09-12 첫 시도가 정확히 그랬다).
+  // 그래서 ①대입 ②defineProperty ③console 객체 통째 교체 순으로 시도하고, **탐침 한 줄로 검증**한다.
   const lines = [];
   const orig = console.log;
-  try {
-    console.log = function() {
-      lines.push(Array.prototype.slice.call(arguments).join(' '));
-      orig.apply(console, arguments);
-    };
-  } catch (e) { /* console 을 못 바꾸면 로그 없이 실행만 한다 */ }
+  const wrap = function() {
+    lines.push(Array.prototype.slice.call(arguments).join(' '));
+    try { orig.apply(console, arguments); } catch (e) {}
+  };
+  let restore = null;
+  try { console.log = wrap; if (console.log === wrap) restore = function() { console.log = orig; }; } catch (e) {}
+  if (!restore) {
+    try {
+      Object.defineProperty(console, 'log', { value: wrap, writable: true, configurable: true });
+      if (console.log === wrap) restore = function() {
+        Object.defineProperty(console, 'log', { value: orig, writable: true, configurable: true });
+      };
+    } catch (e) {}
+  }
+  if (!restore) {
+    try {
+      const realConsole = console;
+      globalThis.console = { log: wrap, info: wrap, warn: wrap, error: wrap };
+      if (console.log === wrap) restore = function() { globalThis.console = realConsole; };
+    } catch (e) {}
+  }
+  // 탐침: 실제로 lines 에 들어가는지 확인한다. 안 들어가면 로그가 빈 이유를 응답에 적어 보낸다.
+  const before = lines.length;
+  try { console.log('[runMaint] 로그 가로채기 확인'); } catch (e) {}
+  const captured = lines.length > before;
+  lines.length = 0;
 
   const t0 = Date.now();
   let out = null, err = null;
   try { out = fn(arg); } catch (e) { err = String((e && e.stack) || e); }
-  try { console.log = orig; } catch (e) {}
+  if (restore) { try { restore(); } catch (e) {} }
 
   return {
     success: !err, error: err, ran: name, arg: arg || null,
     ms: Date.now() - t0,
+    captured: captured,
     result: out === undefined ? null : out,
-    log: lines
+    log: captured ? lines
+                  : ['⚠ console.log 을 가로채지 못했다 — 로그는 Apps Script 실행 기록(Cloud Logging)에만 있다.']
   };
 }
 
