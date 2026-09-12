@@ -4316,20 +4316,30 @@ function rebuildPortfolioLogDay() {
   console.log(DATE + ' 종가 조회: ' + (Object.keys(close).length - missTickers.length)
     + '/' + Object.keys(close).length + '건'
     + (missTickers.length ? ' · 실패: ' + missTickers.join(',') : ''));
+  // holdings 티커와 close 키가 어긋나면 위 '44/44 성공'과 아래 '종가 없음'이 동시에 나온다.
+  const holdTickers = {};
+  holdings.forEach(h => { holdTickers[(h.ticker || '').toString().trim().toUpperCase()] = 1; });
+  const orphan = Object.keys(holdTickers).filter(t => !(t in close));
+  if (orphan.length) console.log('⚠ close 에 없는 holdings 티커: ' + orphan.join(', '));
 
   const out = [];
   accounts.forEach(acc => {
     const h = holdings.filter(x => x.account_id === acc.id);
     if (!h.length) return;
-    let value = 0, missing = 0;
+    // ⚠️ 어떤 티커가 빠졌는지 반드시 찍는다. 예전엔 개수만 찍어서 '종가 44/44건 성공'인데
+    // '종가 없는 종목 7개'가 동시에 나오는 모순을 추적할 수 없었다(2026-09-12).
+    let value = 0;
+    const missing = [], zeroQty = [];
     h.forEach(x => {
       const t = (x.ticker || '').toString().trim().toUpperCase();
       const q = parseFloat(x.quantity) || 0;
       const c = close[t] || 0;
-      if (!c || !q) { if (!c) missing++; return; }
+      if (!c) { missing.push(t || '(티커없음)/' + (x.name || '')); return; }
+      if (!q) { zeroQty.push(t); return; }
       value += String(x.currency).toUpperCase() === 'USD' ? c * q * er : c * q;
     });
-    if (missing) { console.log('  건너뜀: ' + acc.name + ' (종가 없는 종목 ' + missing + '개)'); return; }
+    if (zeroQty.length) console.log('  수량 0 제외: ' + acc.name + ' — ' + zeroQty.join(', '));
+    if (missing.length) { console.log('  건너뜀: ' + acc.name + ' — 종가 없음: ' + missing.join(', ')); return; }
     if (value > 0) out.push([DATE, acc.name, Math.round(value), 16]);
   });
 
