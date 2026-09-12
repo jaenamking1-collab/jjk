@@ -11,9 +11,10 @@ if (!/[?&]pc=1/.test(location.search) && window.innerWidth <= 768) {
   location.replace('m.html' + location.hash);
 }
 </script>
-<link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/npm/pretendard/dist/web/static/pretendard.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- SheetJS(약 900KB)는 엑셀 탭에서만 쓴다. head 에서 동기 로드하면 그동안 첫 화면이
+     통째로 멈춘다 → defer. 순서는 지켜지고 DOMContentLoaded 전에 실행되므로 탭 진입 시엔 준비돼 있다. -->
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root {
     --bg: #f4f7ff;
@@ -1303,9 +1304,14 @@ function applyBootstrap(b, sheet) {
   state.stockList = b.stockList || [];
   _alertsCache = (b.alerts && b.alerts.alerts) || [];
   renderAlerts();
-  renderAccountStats(b.holdings || [], b.dividends || [], sheet, b.divsAll || []);
+  // 올해치는 divsAll 을 걸러 만든다. 서버가 dividends 로 같은 행을 한 번 더 보내면
+  // 응답이 그만큼 커지고, 큰 응답일수록 /exec 이 404('배달 실패')로 죽는다(2026-09-12 실측 32.6초).
+  // 서버가 아직 옛 버전이면 b.dividends 가 오므로 그대로 쓴다 — 배포 순서에 안 깨진다.
+  const divsAll  = b.divsAll || [];
+  const divsYear = b.dividends || divsAll.filter(d => String(d.year) === String(state.currentYear));
+  renderAccountStats(b.holdings || [], divsYear, sheet, divsAll);
   _snapSet({ exchangeRate: state.exchangeRate, accounts: state.accounts,
-             holdings: b.holdings || [], divs: b.dividends || [], sheet: sheet || { items: [] }, divsFull: b.divsAll || [] });
+             holdings: b.holdings || [], divs: divsYear, sheet: sheet || { items: [] }, divsFull: divsAll });
 }
 
 async function loadExchangeRate() {

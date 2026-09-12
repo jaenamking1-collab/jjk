@@ -2203,7 +2203,11 @@ function fetchDist_sol() {
 const ALERT_SHEET_ID = '1iNlOU1YBRyJ6redmVoLDE4q6VfnWqL22s32IQHdSKN8';
 
 function _getOrCreateSheet(name, headers) {
-  const ss = SpreadsheetApp.openById(ALERT_SHEET_ID);
+  // ⚠️ openById 를 여기서 또 부르면 안 된다. ALERT_SHEET_ID 는 SHEET_ID 와 **같은 시트**인데
+  // getSheet 의 _ss 캐시를 안 타서, 실행마다 같은 시트를 한 번 더 여는 값(수백ms~초)을 그대로 냈다.
+  // getBootstrap 은 getAlerts 때문에 매번 이 비용을 물었다(2026-09-12 로딩 지연 조사).
+  if (!_ss) _ss = SpreadsheetApp.openById(ALERT_SHEET_ID);
+  const ss = _ss;
   let sh = ss.getSheetByName(name);
   if (!sh) {
     sh = ss.insertSheet(name);
