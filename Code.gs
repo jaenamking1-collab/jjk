@@ -2340,7 +2340,7 @@ function checkAndLogAlerts() {
   // 직전 메타 로드
   const metaRows = metaSheet.getLastRow() > 1 ? metaSheet.getRange(2,1,metaSheet.getLastRow()-1,8).getValues() : [];
   const prevMeta = {};
-  metaRows.forEach(r => { prevMeta[r[0]] = { source:r[1], isOcr:r[2]===true||r[2]==='TRUE'||r[2]===true, itemCount:r[3], cycles:r[4], pubDate:_normPubDate(r[5]), contentHash:String(r[7]||'') }; });
+  metaRows.forEach(r => { prevMeta[r[0]] = { source:r[1], isOcr:r[2]===true||r[2]==='TRUE'||r[2]===true, itemCount:r[3], cycles:r[4], pubDate:_normPubDate(r[5]), updated:r[6], contentHash:String(r[7]||'') }; });
 
   const SRC_LABEL = { kodex:'KODEX', tiger:'TIGER', ace:'ACE', rise:'RISE', plus:'PLUS', sol:'SOL' };
   const newMeta = [];
@@ -2388,7 +2388,10 @@ function checkAndLogAlerts() {
         _addAlert(logSheet, label, '구조변경', `${label} 텍스트→이미지 전환됨 — OCR로 처리 중`, '정보', true);
       }
       // 3) 신규 공지 — **공시일이 바뀔 때만.** 이게 카톡이 나가는 유일한 '공지' 알림이다.
-      if (fp.pubDate && fp.pubDate !== (prev.pubDate || '')) {
+      // ⚠️ `prev.pubDate` 가 비어 있으면 **직전 파싱이 실패한 것**이지 새 공지가 아니다.
+      // (운용사 첫 등장은 메타 행 자체가 없어 위 `if (prev)` 에서 걸러진다. 즉 빈 prev 는 실패뿐이다.)
+      // 이걸 안 걸러서 '빈값 → 9월 10일' 이 신규로 잡히고 지난 공지 카톡이 또 나갔다(2026-09-12).
+      if (fp.pubDate && prev.pubDate && fp.pubDate !== prev.pubDate) {
         _addAlert(logSheet, label, '신규공지', `${label} 새 분배금 공지: 공시일 ${fp.pubDate} (${fp.cycles})`, '정보');
         kakaoMsgs.push(`${label}: 공시일 ${fp.pubDate} (${fp.cycles})`);
       }
@@ -2401,7 +2404,17 @@ function checkAndLogAlerts() {
         _addAlert(logSheet, label, '공지변경', `${label} 공지내용 변경 — 공시일 ${fp.pubDate} (${fp.cycles}) 내용이 수정됐습니다`, '정보', true);
       }
     }
-    newMeta.push([source, fp.source, fp.isOcr, fp.itemCount, fp.cycles, fp.pubDate, Utilities.formatDate(new Date(),'Asia/Seoul','yyyy-MM-dd HH:mm'), fp.contentHash]);
+    // ⛔ **실패한 파싱으로 메타를 덮지 않는다.** 공시일을 못 읽었는데 그대로 저장하면, 다음 회차에
+    // 정상 파싱되는 순간 '빈값 → 9월 10일' 이 되어 **이미 지난 공지가 새 공지로 둔갑하고 카톡까지
+    // 나간다.** 사용자가 "왜 이전 메세지가 계속 오냐"고 한 게 이것이다(2026-09-12: PLUS 메타가
+    // 14:58 에 빈 공시일로 덮였는데, 강제 파싱하면 9월 10일이 멀쩡히 나왔다).
+    // 파싱이 실패한 회차는 **직전 값을 그대로 유지**한다 — 모르는 것보다 낫다.
+    if (!fp.pubDate && prev && prev.pubDate) {
+      newMeta.push([source, prev.source, prev.isOcr, prev.itemCount, prev.cycles, prev.pubDate, prev.updated, prev.contentHash]);
+      console.log(label + ' 파싱 실패(공시일 빈값) — 메타를 덮지 않고 직전 값 유지: ' + prev.pubDate);
+    } else {
+      newMeta.push([source, fp.source, fp.isOcr, fp.itemCount, fp.cycles, fp.pubDate, Utilities.formatDate(new Date(),'Asia/Seoul','yyyy-MM-dd HH:mm'), fp.contentHash]);
+    }
   });
 
   // ⚠️ 순서가 중요하다. 예전엔 메타를 여기서 먼저 덮어쓰고 그 뒤에 알림을 보냈다. 그러면 발송이
