@@ -24,7 +24,41 @@ def get(url, timeout=40):
 SOURCES = ['kodex', 'tiger', 'ace', 'plus', 'rise', 'sol']
 
 
+def check(url, title='', referer=''):
+    """URL 하나를 열어 상태·최종주소·제목을 찍는다."""
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': UA})
+        if referer:
+            req.add_header('Referer', referer)
+        with urllib.request.urlopen(req, timeout=40) as r:
+            c, final, page = r.getcode(), r.geturl(), r.read()
+        m = re.search(rb'<title[^>]*>(.*?)</title>', page, re.S | re.I)
+        ptitle = (m.group(1).decode('utf-8', 'replace').strip()[:60] if m else '(title 없음)')
+        moved = ' ⚠ 리다이렉트됨' if final.rstrip('/') != url.rstrip('/') else ''
+        print('  %s%s HTTP %s  %s' % ('  ⛔' if c != 200 else '', moved, c, title))
+        print('      요청: %s%s' % (url, ('   (Referer 붙임)' if referer else '')))
+        if moved:
+            print('      최종: %s' % final)
+        print('      페이지 제목: %s' % ptitle)
+    except Exception as e:
+        print('  ⛔ 실패 %s  ← %s' % (e, title))
+        print('      요청: %s%s' % (url, ('   (Referer 붙임)' if referer else '')))
+
+
 def main():
+    # URLS 가 주어지면 그것만 본다 — 링크 형태 후보를 비교할 때 쓴다(TIGER 403 추적용).
+    # REFERER 를 주면 함께 보낸다(딥링크가 Referer 검사로 막히는지 가른다).
+    import os
+    urls = [u.strip() for u in os.environ.get('URLS', '').split(',') if u.strip()]
+    if urls:
+        ref = os.environ.get('REFERER', '')
+        print('=== 지정 URL %d개 ===' % len(urls))
+        for u in urls:
+            check(u)
+            if ref:
+                check(u, '(같은 URL, Referer 붙여서)', referer=ref)
+        return
+
     # ⚠️ getEtfNoticesAll 은 **캐시만** 읽는다(비어 있으면 stale:true 로 빈 배열). 링크를 보려면
     # 운용사별 getEtfNotices 를 불러 실제로 긁어오게 해야 한다(2026-09-12에 이걸로 헛돌았다).
     for sid in SOURCES:
