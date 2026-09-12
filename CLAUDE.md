@@ -64,6 +64,9 @@ There is **no build system, package manager, test suite, or lint config**. The f
     3. 그다음은 아래 '배포 절차' 그대로.
     - ⚠️ **컨테이너는 세션마다 새로 만들어져 `~/.clasprc.json` 이 사라진다.** 원격에서 배포할 일이 있으면 그 세션에서 위 2번(사용자 클릭 1회, 30초)을 다시 해야 한다. **토큰은 저장소에 절대 남기지 않는다.**
   - **`clasp run-function` does not work** here — it needs the script deployed as an API executable. **Installing a trigger (`setupKeepWarm()`, `setupWatchdogTrigger()`, …) therefore still requires the owner to click `▶` in the editor.**
+  - ✅ **진단·복구 함수는 `runMaint` 로 내가 직접 돌린다 — 소유자에게 ▶ 를 부탁하지 마라** (2026-09-12). `Code.gs` 의 `runMaint(fn, arg)` 가 `MAINT_ALLOW` 화이트리스트 함수를 실행하고 `console.log` 를 가로채 **로그까지 응답에 실어 준다.** `APP_TOKEN` 이 필요하다(`PUBLIC_ACTIONS` 아님). 실행 통로는 `.github/workflows/maint.yml`(`APP_TOKEN` Secret) — `actions_run_trigger` 로 `maint.yml` 을 `fn`/`arg` 와 함께 돌리고 로그를 읽는다.
+    - 함수를 새로 만들면 **`MAINT_ALLOW` 에 이름을 추가**해야 부를 수 있다.
+    - ⚠️ **트리거 설치(`resetAllTriggers` 등)는 여전히 사람이 ▶ 를 눌러야 할 수 있다** — 스코프가 바뀌면 웹앱 자체도 재승인이 필요하다. `MAINT_ALLOW` 에 넣어는 뒀으니 **먼저 `maint` 로 시도해 보고**, 실패할 때만 부탁한다.
   - One-time per machine: `npm i -g @google/clasp`(에이전트가 함) + `clasp login`과 `script.google.com/home/usersettings`의 **Apps Script API** 토글(구글 계정 행위 — 소유자가 함). 자격증명은 `~/.clasprc.json`.
   - **`portfolio.html`·`m.html`·`dist_notice.html`은 배포 대상이 아니다.** 로컬 파일을 브라우저로 열고, `.claspignore`가 push에서 막는다. git push로 끝.
 - The Apps Script reads/writes two spreadsheets by ID: the app's own DB sheet (`SHEET_ID`, tabs `accounts`/`holdings`/`dividends`/`config`/`stocks` + logs/caches) and an external "주식상황"/"분배금" sheet (hardcoded ID in `getSheetData`/`getDivSheetData`) that the sync features diff against.
