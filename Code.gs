@@ -2393,7 +2393,19 @@ function checkAndLogAlerts() {
       // 이걸 안 걸러서 '빈값 → 9월 10일' 이 신규로 잡히고 지난 공지 카톡이 또 나갔다(2026-09-12).
       if (fp.pubDate && prev.pubDate && fp.pubDate !== prev.pubDate) {
         _addAlert(logSheet, label, '신규공지', `${label} 새 분배금 공지: 공시일 ${fp.pubDate} (${fp.cycles})`, '정보');
-        kakaoMsgs.push(`${label}: 공시일 ${fp.pubDate} (${fp.cycles})`);
+        // 알림에 **실제 공지 내용**을 담는다. 예전엔 '공시일 9월 10일' 한 줄뿐이라, 알림을 봐도
+        // 뭐가 얼마나 언제 들어오는지 알 수 없어 결국 앱을 열어야 했다(2026-09-12 사용자 지적).
+        // 회차가 섞이지 않게 이번 회차 항목만 센다(fp.itemCount 는 직전 회차까지 병합된 수다).
+        const cycItems = ((result && result.items) || []).filter(it => it.cycle === fp.cycles);
+        const sc = (cycItems[0] && cycItems[0].sched) || (result && result.schedule) || {};
+        const detail = [
+          cycItems.length ? cycItems.length + '종목' : '',
+          sc['기준일'] ? '기준일 ' + sc['기준일'] : '',
+          sc['지급일'] ? '지급일 ' + sc['지급일'] : ''
+        ].filter(Boolean).join(' · ');
+        kakaoMsgs.push(`${label} ${fp.cycles} (공시 ${fp.pubDate})`
+          + (detail ? '\n  ' + detail : '')
+          + (ISSUER_NOTICE_URL[source] ? '\n  공지 원문: ' + ISSUER_NOTICE_URL[source] : ''));
       }
       // 4) 공지내용 변경 — 공시일은 그대로인데 내용(종목·금액·지급일)만 달라졌다.
       // 운용사가 이미 올린 공지를 블로그·홈페이지에서 수정한 경우다.
@@ -2484,6 +2496,25 @@ const _KAKAO_SEND_TO   = 23;  // 발송 허용 끝 시각(미포함) → 23~08�
 // (ReferenceError → 대기열에 7건 적재된 채 방치). 당시 WORKLOG에 'grep으로 확인'이라 적었지만 확인한 것은
 // 사용처의 존재였고 선언의 생존이 아니었다. 참조를 지울 땐 선언이 여전히 필요한지 같이 볼 것.
 const _EXEC_URL = 'https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec';
+
+// ⛔ **알림에 _EXEC_URL 을 넣지 마라.** 그건 백엔드 API 주소다 — 사람이 브라우저로 열면 JSON 이나
+// 오류 페이지가 뜬다. 2026-09-12 사용자 지적("이거 링크 왜 주냐고 공지내용도 아니고 사이트도 아니고").
+// 사람이 볼 주소는 아래 둘이다(2026-09-12 둘 다 HTTP 200 확인):
+//   · 분배금공지 공개 페이지 "ETF 분배금 공지" — 비밀번호 없이 열린다. 분배 알림은 여기로 보낸다.
+//   · 폰 앱 "포트폴리오 · 폰" — 계좌까지 보려면 이쪽.
+const _NOTICE_PAGE_URL = 'https://jaenamking1-collab.github.io/jjk-dist/';
+const _PHONE_APP_URL   = 'https://jaenamking1-collab.github.io/jjk/m.html';
+// 운용사 공지 '목록' 페이지. 상세 URL은 회차마다 달라 여기 못 박으므로 목록으로 보낸다.
+// (ace·rise·sol 은 러너에서 200 확인. kodex 는 러너를 봇으로 막아 500 이 났지만 백엔드는 같은
+//  주소를 정상으로 읽으니 브라우저에서도 열린다. plus 는 DNS 가 간헐적으로 안 잡힌다 — 사이트 문제.)
+const ISSUER_NOTICE_URL = {
+  kodex: 'https://www.samsungfund.com/etf/lounge/notice.do?category=DIVIDEND',
+  tiger: 'https://investments.miraeasset.com/tigeretf/ko/customer/notice/list.do',
+  ace:   'https://www.aceetf.co.kr/cs/notice',
+  plus:  'https://www.plusetf.co.kr/customer/notice/list',
+  rise:  'https://www.riseetf.co.kr/cust/notice',
+  sol:   'https://blog.naver.com/soletf'
+};
 
 // 리프레시 토큰으로 액세스 토큰 발급. 회전된 리프레시 토큰이 오면 저장.
 function _kakaoAccessToken() {
@@ -2584,9 +2615,15 @@ function flushCalPending() {
   try {
     const start = new Date();
     const end = new Date(start.getTime() + 10 * 60 * 1000); // 10분짜리
-    const desc = queue.join('\n') + '\n\n앱 확인: ' + _EXEC_URL;
+    // ⛔ 여기에 _EXEC_URL(백엔드 API 주소)을 넣지 마라 — 열면 JSON 이나 오류가 뜬다.
+    // 사람이 열 주소만 준다: 분배금공지 페이지(비번 없음) + 폰 앱.
+    const desc = queue.join('\n')
+      + '\n\n분배금공지 페이지: ' + _NOTICE_PAGE_URL
+      + '\n폰 앱: ' + _PHONE_APP_URL;
+    // 제목에도 운용사를 넣어, 알림만 보고도 어디 공지인지 알게 한다.
+    const who = queue.map(s => String(s).split(' ')[0]).filter((v, i, a) => v && a.indexOf(v) === i).join('·');
     const ev = CalendarApp.getDefaultCalendar()
-      .createEvent('📢 새 분배 공지 — 앱 확인', start, end, { description: desc });
+      .createEvent('📢 ' + (who ? who + ' ' : '') + '분배금 공지', start, end, { description: desc });
     ev.addPopupReminder(0); // 시작(=지금) 시각에 팝업 알림
     props.deleteProperty('CAL_PENDING');
     return true;
@@ -2702,7 +2739,7 @@ function distWatchdog() {
         + (heartbeat ? '\n\n주간 정상신호(카톡): ' + heartbeat : '')
         + '\n\n확인 방법: Apps Script 편집기에서 _diagDistAlert() 로 상태를 보고,'
         + ' _diagSendNow() 로 실제 발송을 시험하세요.'
-        + (execOk ? '\n앱: ' + _EXEC_URL : '');
+        + '\n앱: ' + _NOTICE_PAGE_URL + '  /  ' + _PHONE_APP_URL;
       try {
         MailApp.sendEmail(Session.getEffectiveUser().getEmail(),
           '[분배알림 이상] ' + problems.length + '건 — ' + Utilities.formatDate(now, 'Asia/Seoul', 'MM-dd HH:mm'), body);
