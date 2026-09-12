@@ -1,0 +1,75 @@
+# Apps Script 배포를 **에이전트가** 실행하는 통로.
+#
+# 왜 필요한가: 클라우드(원격) 세션의 컨테이너는 매번 새로 만들어져 ~/.clasprc.json 이 사라진다.
+# 다시 만들려면 OAuth 를 타야 하는데 구글이 clasp 를 '확인되지 않은 앱'으로 **하드 차단**한다
+# (2026-09-11 확인: 인증 URL → 경고 → 우회 URL 조립해도 다시 경고 → "차단되었다").
+# Drive 커넥터 우회도 안 된다(create_file 은 새 파일만, update_file 은 제목·폴더만).
+# 그래서 배포할 때마다 사용자에게 명령을 대신 쳐 달라고 부탁해야 했다.
+#
+# Actions 러너에는 그 제약이 없다. 토큰만 Secret 으로 주면 여기서 배포한다.
+#
+# 준비(한 번만): 사용자 PC 의 %USERPROFILE%\.clasprc.json 내용을 통째로
+#   저장소 Settings → Secrets and variables → Actions → New repository secret
+#   이름을 CLASPRC_JSON 으로 저장.
+#
+# ⚠️ 그 파일에는 구글 계정의 Apps Script·Drive 접근 토큰이 들어 있다. Secret 은 암호화되고
+#    로그에서 마스킹되지만, 유출되면 Apps Script 프로젝트를 건드릴 수 있다.
+#    폐기: 구글 계정 → 보안 → 서드파티 액세스 → clasp 권한 해제.
+#    ⛔ 토큰 값을 저장소 파일·일지·커밋 메시지에 절대 적지 마라(jjk 는 공개 저장소다).
+name: deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      note:
+        description: '배포 설명 (clasp deploy -d 에 들어간다)'
+        required: false
+        default: 'deployed from Actions'
+      push_only:
+        description: 'true 면 편집기에만 올리고 재배포는 건너뛴다'
+        required: false
+        default: 'false'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 토큰 복원
+        env:
+          CLASPRC: ${{ secrets.CLASPRC_JSON }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLASPRC:-}" ]; then
+            echo "::error::CLASPRC_JSON Secret 이 없습니다. 이 파일 맨 위 주석의 '준비' 항목을 보세요."
+            exit 1
+          fi
+          printf '%s' "$CLASPRC" > ~/.clasprc.json
+          # 내용은 절대 출력하지 않는다. 크기만 찍어 복원 여부를 확인한다.
+          echo "토큰 복원됨 ($(wc -c < ~/.clasprc.json) bytes)"
+
+      - name: clasp 설치
+        run: npm i -g @google/clasp@2.4.2
+
+      # .claspignore 가 Code.gs 와 appsscript.json 만 통과시킨다.
+      # okx_nft_alert.gs·public_dist_proxy.gs·stock_sheet.gs 는 **별개 프로젝트**라 올라가면 안 된다.
+      - name: 올라갈 파일 확인
+        run: clasp status
+
+      - name: clasp push
+        run: clasp push --force
+
+      - name: clasp deploy
+        if: ${{ github.event.inputs.push_only != 'true' }}
+        env:
+          NOTE: ${{ github.event.inputs.note }}
+        run: |
+          # ⚠️ -i (기존 배포 ID) 없이 deploy 하면 URL 이 새로 생긴다 — 반드시 붙인다.
+          clasp deploy -i AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s -d "$NOTE"
+
+      - name: 트리거 재설치 안내
+        run: |
+          echo "::warning::clasp push 는 스코프가 바뀌면 기존 트리거를 'Authorization is required' 로 죽인다."
+          echo "::warning::편집기에서 resetAllTriggers 를 ▶ 실행해야 한다 — 트리거 설치는 API executable 배포가"
+          echo "::warning::필요해 clasp 로 안 되므로, 이것만은 사람이 눌러야 한다."
