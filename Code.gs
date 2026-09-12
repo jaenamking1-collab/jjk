@@ -638,8 +638,12 @@ function getStockHistory(ticker, currency, days) {
   if (cached) return JSON.parse(cached);
   try {
     if (currency === 'KRW') {
-      const text = UrlFetchApp.fetch('https://fchart.stock.naver.com/siseJson.naver?symbol=' + ticker + '&requestType=1&count=' + days + '&timeframe=day', { muteHttpExceptions: true }).getContentText();
-      const prices = (text.match(/\[([^\]]+)\]/g) || []).slice(1).map(m => parseFloat(m.replace(/[[\]]/g,'').split(',')[4]) || 0).filter(p => p > 0);
+      // ⚠️ 네이버 fchart(siseJson)를 쓰다가 2026-09-12 에 야후로 옮겼다. 네이버가 'Npay 증권'으로
+      // 개편되면서 그 엔드포인트가 **헤더 행만 주고 데이터를 안 준다**(실측 70 bytes).
+      // 이 함수가 조용히 빈 배열을 돌려주고 있었다 — _closeOnDate 와 같은 소스를 쓰도록 통일했다.
+      const range = days <= 5 ? '5d' : days <= 30 ? '1mo' : days <= 90 ? '3mo' : '1y';
+      const prices = _yahooDaily(_yahooSymbol(ticker, 'KRW'), range, 'Asia/Seoul')
+        .slice(-days).map(r => r.close).filter(p => p > 0);
       const result = { success: true, prices };
       cache.put(cacheKey, JSON.stringify(result), 21600);
       return result;
@@ -4230,30 +4234,46 @@ function _diagPortfolioLog() {
 // ── 특정 날짜 종가 조회 (복구용) ──
 // 국내는 네이버 일별시세 JSON, 해외는 야후 chart. 둘 다 이미 getStockHistory 가 쓰는 엔드포인트다.
 // 못 구하면 0 을 돌려준다 — 호출부가 '건너뜀'으로 처리해야지 다른 값으로 때우면 안 된다.
-function _closeOnDate(ticker, currency, dateStr) {
-  const ymd = String(dateStr).replace(/-/g, '');
+// 티커 → 야후 심볼. 국내는 '{6자리}.KS'.
+// ⚠️ 코스닥(.KQ)은 쓰지 않는다 — 보유 종목이 전부 코스피다(2026-09-12 소유자 확인).
+// 'USDKRW=X' 처럼 '=' 가 든 건 야후 심볼 그대로다.
+function _yahooSymbol(ticker, currency) {
+  const t = String(ticker);
+  if (String(currency).toUpperCase() === 'USD' || t.indexOf('=') >= 0) return t;
+  return padTicker(t, 'KRW') + '.KS';
+}
+
+// 야후 chart 에서 일별 종가를 [{ymd:'20260911', close:3935}, …] 로. 최신이 뒤.
+// ⚠️ 예전엔 국내를 네이버 fchart(siseJson)로 받았는데, 네이버가 'Npay 증권'으로 개편되면서
+// **헤더 행만 주고 데이터를 안 준다**(2026-09-12 실측: 70 bytes, `[['날짜','시가',…]]` 뿐).
+// 그래서 국내·해외 모두 야후로 통일했다. 야후는 한국 종목을 '.KS' 로 정상 제공한다
+// (실측: 330590.KS → currency KRW, LOTTE REIT, 일별 종가 정상).
+function _yahooDaily(symbol, range, tz) {
   try {
-    if (String(currency).toUpperCase() !== 'USD') {
-      const t = padTicker(ticker, 'KRW');
-      const text = UrlFetchApp.fetch(
-        'https://fchart.stock.naver.com/siseJson.naver?symbol=' + t + '&requestType=1&count=40&timeframe=day',
-        { muteHttpExceptions: true }).getContentText();
-      // 행 형식: ["20260911", 시가, 고가, 저가, 종가, 거래량, 외국인소진율]
-      const m = text.match(new RegExp('\\["' + ymd + '"\\s*,\\s*\\d+\\s*,\\s*\\d+\\s*,\\s*\\d+\\s*,\\s*(\\d+)'));
-      return m ? parseFloat(m[1]) : 0;
-    }
     const res = UrlFetchApp.fetch(
-      'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(ticker) + '?interval=1d&range=3mo',
+      'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(symbol)
+      + '?interval=1d&range=' + (range || '3mo'),
       { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } });
     const r = ((JSON.parse(res.getContentText()) || {}).chart || {}).result;
-    if (!r || !r[0]) return 0;
+    if (!r || !r[0]) return [];
     const ts = r[0].timestamp || [];
     const cl = (((r[0].indicators || {}).quote || [])[0] || {}).close || [];
-    for (let i = ts.length - 1; i >= 0; i--) {
-      const d = Utilities.formatDate(new Date(ts[i] * 1000), 'America/New_York', 'yyyyMMdd');
-      if (d === ymd && cl[i]) return parseFloat(cl[i]);
+    const out = [];
+    for (let i = 0; i < ts.length; i++) {
+      if (cl[i] == null) continue;
+      out.push({ ymd: Utilities.formatDate(new Date(ts[i] * 1000), tz || 'Asia/Seoul', 'yyyyMMdd'),
+                 close: parseFloat(cl[i]) });
     }
-  } catch(e) { console.log('_closeOnDate ' + ticker + ' ' + e); }
+    return out;
+  } catch(e) { console.log('_yahooDaily ' + symbol + ' ' + e); return []; }
+}
+
+function _closeOnDate(ticker, currency, dateStr) {
+  const ymd = String(dateStr).replace(/-/g, '');
+  const isUsd = String(currency).toUpperCase() === 'USD';
+  const rows = _yahooDaily(_yahooSymbol(ticker, currency), '3mo',
+                           isUsd ? 'America/New_York' : 'Asia/Seoul');
+  for (let i = rows.length - 1; i >= 0; i--) if (rows[i].ymd === ymd) return rows[i].close;
   return 0;
 }
 
