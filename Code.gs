@@ -2175,21 +2175,40 @@ function _fingerprint(source, result) {
   });
   let pubDate = '', best = 0;
   Object.keys(cnt).forEach(g => { if (cnt[g] > best) { best = cnt[g]; pubDate = g; } }); // 최빈 공시일
+  // 이번 회차 내용의 지문. 운용사가 **이미 올린 공지를 수정**했는지 보려고 쓴다.
+  // 종목명+금액+지급일만 본다 — 파서가 OCR/텍스트를 오가며 흔들리는 부분(항목 순서, 공백,
+  // 회차 미상 건수)은 빼야 '수정'이 아닌데 수정으로 잡히지 않는다.
+  const sig = items.filter(it => it.cycle === curCycle && !it.hist)
+    .map(it => [(it.ticker || it.name || ''), (it.amount == null ? '' : it.amount),
+                ((it.sched || {})['지급일'] || '')].join('|'))
+    .sort().join(';');
+  let contentHash = '';
+  try {
+    contentHash = Utilities.base64Encode(
+      Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, sig)).slice(0, 12);
+  } catch(e) {}
+
   return {
     source: (result && result._source) || (source === 'sol' ? 'api' : 'page'),
     isOcr: !!(result && (result._usedOcr || (sched && sched._ocr))),
     itemCount: items.length,
     cycles: pubDate ? curCycle : '',
     pubDate: _normPubDate(pubDate),
+    contentHash: contentHash,
     hasItems: items.length > 0,
     error: (result && result.error) || ''
   };
 }
 
 // 알림 1건 추가 (중복 방지: 같은 운용사+종류+메시지가 최근 있으면 skip)
-function _addAlert(sheet, source, kind, message, level) {
+// oncePerDay=true 면 **메시지가 달라도** 같은 날 같은 운용사·같은 종류면 막는다.
+// 왜: 파싱경고 메시지엔 건수가 들어간다(`ACE 회차 미상 4건`). OCR 결과가 실행마다 흔들리면
+// 4건→3건→5건으로 문구가 바뀌어 '완전 일치' 중복 체크를 매번 빠져나갔고, 30분마다 같은 성격의
+// 카톡이 왔다(2026-09-12 사용자 보고: "이전 메세지가 계속 오는거야").
+function _addAlert(sheet, source, kind, message, level, oncePerDay) {
   const now = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm');
-  // 최근 50행 내 동일 알림 중복 체크
+  const today = now.slice(0, 10);
+  // 최근 50행 내 중복 체크
   const last = sheet.getLastRow();
   if (last > 1) {
     const start = Math.max(2, last - 49);
@@ -2197,7 +2216,9 @@ function _addAlert(sheet, source, kind, message, level) {
     // "확인 처리한 알림은 다시 알릴 수 있다"는 의도가 작동하지 않았다(항상 true로 통과).
     const rows = sheet.getRange(start, 1, last - start + 1, 6).getValues();
     for (const r of rows) {
-      if (r[1] === source && r[2] === kind && r[3] === message && r[5] !== '확인') return false; // 이미 있음
+      if (r[1] !== source || r[2] !== kind || r[5] === '확인') continue;
+      if (r[3] === message) return false;                                   // 완전히 같은 알림
+      if (oncePerDay && String(r[0] || '').slice(0, 10) === today) return false;  // 오늘 같은 종류를 이미 냈다
     }
   }
   sheet.appendRow([now, source, kind, message, level || '정보', '신규']);
@@ -2207,12 +2228,14 @@ function _addAlert(sheet, source, kind, message, level) {
 // 6개 운용사 파싱 후 알림 감지·생성 (getDistribution 호출하며 비교)
 function checkAndLogAlerts() {
   const logSheet = _getOrCreateSheet('알림로그', ['시각','운용사','종류','메시지','중요도','상태']);
-  const metaSheet = _getOrCreateSheet('_파서메타', ['운용사','source','isOcr','itemCount','cycles','pubDate','updated']);
+  const metaSheet = _getOrCreateSheet('_파서메타', ['운용사','source','isOcr','itemCount','cycles','pubDate','updated','contentHash']);
+  // 기존 7열 시트에 contentHash 열을 보강한다(헤더는 시트를 새로 만들 때만 써지므로).
+  if (metaSheet.getRange(1, 8).getValue() !== 'contentHash') metaSheet.getRange(1, 8).setValue('contentHash');
 
   // 직전 메타 로드
-  const metaRows = metaSheet.getLastRow() > 1 ? metaSheet.getRange(2,1,metaSheet.getLastRow()-1,7).getValues() : [];
+  const metaRows = metaSheet.getLastRow() > 1 ? metaSheet.getRange(2,1,metaSheet.getLastRow()-1,8).getValues() : [];
   const prevMeta = {};
-  metaRows.forEach(r => { prevMeta[r[0]] = { source:r[1], isOcr:r[2]===true||r[2]==='TRUE'||r[2]===true, itemCount:r[3], cycles:r[4], pubDate:_normPubDate(r[5]) }; });
+  metaRows.forEach(r => { prevMeta[r[0]] = { source:r[1], isOcr:r[2]===true||r[2]==='TRUE'||r[2]===true, itemCount:r[3], cycles:r[4], pubDate:_normPubDate(r[5]), contentHash:String(r[7]||'') }; });
 
   const SRC_LABEL = { kodex:'KODEX', tiger:'TIGER', ace:'ACE', rise:'RISE', plus:'PLUS', sol:'SOL' };
   const newMeta = [];
@@ -2234,10 +2257,11 @@ function checkAndLogAlerts() {
       if (result.fallback && _addAlert(logSheet, label, '파싱경고', `${label} 자사 파서 실패 — 뉴스사이트로 우회 중, 파서 점검 권장`, '경고'))
         kakaoMsgs.push(`⚠️ ${label} 자사 파서 실패(뉴스 우회)`);
       // 월중/월말 어디에도 분류 안 된 항목 → 달력·일정표에서 누락됨.
+      // ⚠️ oncePerDay: 건수가 4→3→5 로 흔들려도 하루 한 번만 알린다.
       const noCyc = (result.items || []).filter(it => !it.cycle || it.cycle === '?').length;
-      if (noCyc && _addAlert(logSheet, label, '파싱경고', `${label} 회차 미상 ${noCyc}건 — 월중/월말 분류 안 됨, 달력 누락 가능`, '경고'))
+      if (noCyc && _addAlert(logSheet, label, '파싱경고', `${label} 회차 미상 ${noCyc}건 — 월중/월말 분류 안 됨, 달력 누락 가능`, '경고', true))
         kakaoMsgs.push(`⚠️ ${label} 회차 미상 ${noCyc}건`);
-      if (fp.isOcr) _addAlert(logSheet, label, '파싱경고', `${label} 이미지 OCR로 처리됨 — 정확도 확인 권장`, '정보');
+      if (fp.isOcr) _addAlert(logSheet, label, '파싱경고', `${label} 이미지 OCR로 처리됨 — 정확도 확인 권장`, '정보', true);
     }
 
     if (prev) {
@@ -2245,19 +2269,29 @@ function checkAndLogAlerts() {
       if (prev.source && prev.source !== fp.source) {
         _addAlert(logSheet, label, '구조변경', `${label} 데이터 출처 변경: ${prev.source} → ${fp.source} — 파서 수정 필요`, '중요');
       }
+      // ⚠️ oncePerDay: ACE 는 같은 페이지를 OCR/텍스트로 오가며 읽어(2026-09-12 40분 만에 왕복)
+      // 이 두 알림이 하루에도 여러 번 찍혔다. 하루 한 번이면 충분하다.
       if (prev.isOcr && !fp.isOcr) {
-        _addAlert(logSheet, label, '구조변경', `${label} 이미지→텍스트 전환됨 — 페이지에 직접 작성 시작, 파서 점검 권장`, '중요');
+        _addAlert(logSheet, label, '구조변경', `${label} 이미지→텍스트 전환됨 — 페이지에 직접 작성 시작, 파서 점검 권장`, '중요', true);
       }
       if (!prev.isOcr && fp.isOcr) {
-        _addAlert(logSheet, label, '구조변경', `${label} 텍스트→이미지 전환됨 — OCR로 처리 중`, '정보');
+        _addAlert(logSheet, label, '구조변경', `${label} 텍스트→이미지 전환됨 — OCR로 처리 중`, '정보', true);
       }
-      // 3) 신규 공지 (현재 회차 공시일이 직전과 다름 — 빈값→값 전환도 발송)
+      // 3) 신규 공지 — **공시일이 바뀔 때만.** 이게 카톡이 나가는 유일한 '공지' 알림이다.
       if (fp.pubDate && fp.pubDate !== (prev.pubDate || '')) {
         _addAlert(logSheet, label, '신규공지', `${label} 새 분배금 공지: 공시일 ${fp.pubDate} (${fp.cycles})`, '정보');
         kakaoMsgs.push(`${label}: 공시일 ${fp.pubDate} (${fp.cycles})`);
       }
+      // 4) 공지내용 변경 — 공시일은 그대로인데 내용(종목·금액·지급일)만 달라졌다.
+      // 운용사가 이미 올린 공지를 블로그·홈페이지에서 수정한 경우다.
+      // **새 공지가 아니므로 카톡을 보내지 않는다**(사용자 요청 2026-09-12: "이미 올라왔는데 굳이
+      // 여러번 할 필요 없어"). 대신 분배금공지 탭의 공지사항에 뜨도록 알림로그에만 남긴다.
+      else if (fp.pubDate && fp.pubDate === prev.pubDate
+               && fp.contentHash && prev.contentHash && fp.contentHash !== prev.contentHash) {
+        _addAlert(logSheet, label, '공지변경', `${label} 공지내용 변경 — 공시일 ${fp.pubDate} (${fp.cycles}) 내용이 수정됐습니다`, '정보', true);
+      }
     }
-    newMeta.push([source, fp.source, fp.isOcr, fp.itemCount, fp.cycles, fp.pubDate, Utilities.formatDate(new Date(),'Asia/Seoul','yyyy-MM-dd HH:mm')]);
+    newMeta.push([source, fp.source, fp.isOcr, fp.itemCount, fp.cycles, fp.pubDate, Utilities.formatDate(new Date(),'Asia/Seoul','yyyy-MM-dd HH:mm'), fp.contentHash]);
   });
 
   // ⚠️ 순서가 중요하다. 예전엔 메타를 여기서 먼저 덮어쓰고 그 뒤에 알림을 보냈다. 그러면 발송이
@@ -2277,8 +2311,8 @@ function checkAndLogAlerts() {
 
   // 메타 갱신 (전체 덮어쓰기)
   if (accepted) {
-    if (metaSheet.getLastRow() > 1) metaSheet.getRange(2,1,metaSheet.getLastRow()-1,7).clearContent();
-    if (newMeta.length) metaSheet.getRange(2,1,newMeta.length,7).setValues(newMeta);
+    if (metaSheet.getLastRow() > 1) metaSheet.getRange(2,1,metaSheet.getLastRow()-1,8).clearContent();
+    if (newMeta.length) metaSheet.getRange(2,1,newMeta.length,8).setValues(newMeta);
   }
 
   return { checked: 6, notified: kakaoMsgs.length, accepted: accepted,
