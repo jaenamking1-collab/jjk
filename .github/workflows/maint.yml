@@ -1,0 +1,74 @@
+# 편집기에서만 돌던 **유지보수 함수를 에이전트가 실행**하는 통로.
+#
+# 왜 필요한가: _diagPortfolioLog·rebuildPortfolioLogDay 같은 진단·복구 함수는 Apps Script
+# 편집기에서 ▶ 를 눌러야만 돌았다. 그래서 매번 소유자에게 "이 함수 실행하고 로그 붙여넣어
+# 주세요"를 부탁했고, 한 번 고치는 데 왕복이 서너 번씩 걸렸다(2026-09-12).
+# 웹앱(/exec)은 이미 소유자 권한으로 도니, Code.gs 의 runMaint 액션을 치면 끝이다.
+#
+# 안전: runMaint 는 PUBLIC_ACTIONS 가 아니라 **APP_TOKEN 이 있어야** 통과하고,
+#       Code.gs 의 MAINT_ALLOW 화이트리스트에 적힌 함수만 실행한다.
+#
+# 준비(한 번만): Apps Script 스크립트 속성의 APP_TOKEN 값을
+#   저장소 Settings → Secrets and variables → Actions → New repository secret
+#   이름을 APP_TOKEN 으로 저장. ⛔ 값은 저장소 파일·일지·커밋 메시지에 절대 적지 않는다.
+name: maint
+
+on:
+  workflow_dispatch:
+    inputs:
+      fn:
+        description: '실행할 함수 (MAINT_ALLOW 에 있는 것만)'
+        required: true
+        default: '_diagPortfolioLog'
+      arg:
+        description: '함수에 넘길 인자 (rebuildPortfolioLogDay 면 날짜 yyyy-MM-dd)'
+        required: false
+        default: ''
+
+jobs:
+  maint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: runMaint 호출
+        env:
+          FN: ${{ github.event.inputs.fn }}
+          ARG: ${{ github.event.inputs.arg }}
+          TOKEN: ${{ secrets.APP_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TOKEN:-}" ]; then
+            echo "::error::APP_TOKEN Secret 이 없습니다. 이 파일 맨 위 주석의 '준비' 항목을 보세요."
+            exit 1
+          fi
+          BASE='https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec'
+          echo "=== runMaint fn=$FN arg=${ARG:-(없음)} ==="
+          # ⚠️ 토큰이 로그에 찍히지 않도록 -G --data-urlencode 로 붙인다(URL 을 echo 하지 않는다).
+          code=$(curl -sL -o /tmp/r.json -w '%{http_code}' --max-time 340 -G \
+                   --data-urlencode "action=runMaint" \
+                   --data-urlencode "fn=$FN" \
+                   --data-urlencode "arg=$ARG" \
+                   --data-urlencode "token=$TOKEN" \
+                   "$BASE")
+          echo "HTTP $code · $(wc -c < /tmp/r.json) bytes"
+          # log 배열을 한 줄씩 풀어 찍는다. JSON 이 아니면(HTML 오류 페이지 등) 그대로 보여준다.
+          python3 - <<'PY'
+          import json, sys
+          raw = open('/tmp/r.json', encoding='utf-8', errors='replace').read()
+          try:
+              d = json.loads(raw)
+          except Exception:
+              print('--- JSON 이 아님 (앞 4000자) ---')
+              print(raw[:4000]); sys.exit(1)
+          if d.get('error') == 'unauthorized':
+              print('::error::토큰 거부됨. APP_TOKEN Secret 값이 스크립트 속성과 같은지 확인하세요.')
+              print(json.dumps(d, ensure_ascii=False)); sys.exit(1)
+          print('실행:', d.get('ran'), '· 성공:', d.get('success'), '·', d.get('ms'), 'ms')
+          for line in d.get('log') or []:
+              print(' |', line)
+          if d.get('error'):
+              print('--- 오류 ---'); print(d['error'])
+          if d.get('result') is not None:
+              print('--- 반환값 ---')
+              print(json.dumps(d['result'], ensure_ascii=False, indent=2)[:8000])
+          sys.exit(0 if d.get('success') else 1)
+          PY
