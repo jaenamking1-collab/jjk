@@ -66,7 +66,7 @@ There is **no build system, package manager, test suite, or lint config**. The f
     2. **로그인**: `clasp login` 의 로컬 콜백 서버는 컨테이너 안에 떠서 사용자 브라우저가 못 닿는다. 그래서 인증 URL을 직접 만들어 준다 — clasp 의 공개 client(`1072944905499-vm2v2i5dvn0a0d2o4ca36i1vge8cvbn0.apps.googleusercontent.com`, secret 은 `build/src/auth.js` 안에 있다)와 `redirect_uri=http://localhost:33353`, scope 는 `clasp login` 이 찍는 것 그대로. 사용자가 허용하면 `localhost:33353/?code=...` 로 넘어가 **연결 실패 페이지**가 뜨는데 정상이다. 주소창의 `code=` 를 받아 `oauth2.googleapis.com/token` 에 교환하고 `~/.clasprc.json` 을 `{token, oauth2ClientSettings, isLocalCreds:false}` 형태로 쓴다. `clasp login --status` 로 확인.
     3. 그다음은 아래 '배포 절차' 그대로.
     - ⚠️ **컨테이너는 세션마다 새로 만들어져 `~/.clasprc.json` 이 사라진다.** 원격에서 배포할 일이 있으면 그 세션에서 위 2번(사용자 클릭 1회, 30초)을 다시 해야 한다. **토큰은 저장소에 절대 남기지 않는다.**
-  - **`clasp run-function` does not work** here — it needs the script deployed as an API executable. **Installing a trigger (`setupKeepWarm()`, `setupWatchdogTrigger()`, …) therefore still requires the owner to click `▶` in the editor.**
+  - **`clasp run-function` does not work** here — it needs the script deployed as an API executable. 하지만 **그게 "사람이 눌러야 한다"는 뜻은 아니다**: 웹앱(`/exec`)은 소유자 권한으로 도니 아래 `runMaint` 로 실행한다. `MAINT_ALLOW` 에 이름만 추가하면 트리거 설치 함수(`setupKeepWarm` 등)도 마찬가지다.
   - ✅ **진단·복구 함수는 `runMaint` 로 내가 직접 돌린다 — 소유자에게 ▶ 를 부탁하지 마라** (2026-09-12). `Code.gs` 의 `runMaint(fn, arg)` 가 `MAINT_ALLOW` 화이트리스트 함수를 실행하고 `console.log` 를 가로채 **로그까지 응답에 실어 준다.** `APP_TOKEN` 이 필요하다(`PUBLIC_ACTIONS` 아님). 실행 통로는 `.github/workflows/maint.yml`(`APP_TOKEN` Secret) — `actions_run_trigger` 로 `maint.yml` 을 `fn`/`arg` 와 함께 돌리고 로그를 읽는다.
     - 함수를 새로 만들면 **`MAINT_ALLOW` 에 이름을 추가**해야 부를 수 있다.
     - ✅ **`resetAllTriggers` 도 여기서 돈다**(2026-09-12 확인). 배포 직후 `maint` 로 돌려라 — 위 '배포 절차' 5단계.
