@@ -835,9 +835,12 @@ function getEtfNotices(source) {
 // 6개사를 순차 스크랩하면 오히려 더 느리므로, stale인 곳만 프론트가 병렬로 개별 요청해 캐시를 채운다.
 function getEtfNoticesAll() {
   let hits = {};
-  // ⚠️ 키는 getEtfNotices의 cacheKey와 반드시 같아야 한다. v3로 올렸을 때 여기를 안 고쳐
-  // 벌크가 6개사 전부 stale로 나갔다(= 프론트가 다시 운용사별 6번 요청 = 탭 진입 11초).
-  const key = s => 'notices_v3_' + s;
+  // ⚠️ 키는 getEtfNotices의 cacheKey와 반드시 같아야 한다. **두 번 어긋났다.**
+  // ① v3로 올렸을 때 여기를 안 고쳤고, ② 그 뒤 getEtfNotices만 v2로 되돌리고 여기는 v3로 남아
+  // 2026-09-14까지 그대로였다. 어긋나면 벌크가 6개사 전부 stale로 나가고(= 프론트가 운용사별로
+  // 6번 실시간 스크랩) 그때그때 느린 곳이 타임아웃 나 **열 때마다 다른 운용사가 빠진다.**
+  // PC와 폰이 서로 다른 화면을 보여준 것이 이 증상이었다.
+  const key = s => 'notices_v2_' + s;
   try { hits = CacheService.getScriptCache().getAll(DIST_SOURCE_IDS.map(key)) || {}; } catch(e) {}
   const sources = {};
   DIST_SOURCE_IDS.forEach(s => {
