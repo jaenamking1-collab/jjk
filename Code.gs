@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices'
 ];
 
 function runMaint(name, arg) {
@@ -870,6 +870,23 @@ function _noticeFallback(source, err) {
   const last = _readLastNotices(source);
   if (last) return { success: true, items: last.items, fallback: true, savedAt: last.savedAt, error: err };
   return { success: false, items: [], error: err };
+}
+// 저장소를 지금 채운다(runMaint 전용). 스크립트캐시가 살아 있는 동안엔 스크랩이 안 돌아
+// _saveLastNotices 가 안 불린다 — 배포 직후엔 보호막이 비어 있다는 뜻이라 한 번 태워 둔다.
+// arg 로 운용사 하나만 지정할 수 있다(6곳을 한 실행에 돌리면 느린 곳 때문에 오래 걸릴 때).
+function seedLastNotices(only) {
+  const cache = CacheService.getScriptCache();
+  const list = only ? [only] : DIST_SOURCE_IDS;
+  const out = {};
+  list.forEach(s => {
+    cache.remove('notices_v2_' + s);
+    const r = getEtfNotices(s);
+    out[s] = { count: (r.items || []).length, fallback: !!r.fallback, error: r.error || '' };
+    console.log(' | ' + s + ': ' + out[s].count + '건' + (r.fallback ? ' (마지막 성공분으로 응답)' : '') + (r.error ? ' ⛔ ' + r.error : ' ✅'));
+  });
+  const p = PropertiesService.getScriptProperties().getProperties();
+  console.log(' | 저장된 곳: ' + DIST_SOURCE_IDS.filter(s => p['lastN_' + s]).join(', '));
+  return out;
 }
 
 // 6개사 공지를 한 실행에서 반환 — 스크립트캐시에 있는 것만 담고, 없는 곳은 stale:true로 표시만 한다.
