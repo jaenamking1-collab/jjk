@@ -42,14 +42,28 @@ jobs:
           fi
           BASE='https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec'
           echo "=== runMaint fn=$FN arg=${ARG:-(없음)} ==="
+          # ⚠️ /exec 는 script.googleusercontent.com 으로 302된 뒤 응답을 돌려주는데 이 배달 구간이
+          # 간헐적으로 깨진다 — 오래 끌다 404 로 죽고, 서버 실행 기록에는 '완료됨'으로 남는다
+          # (WORKLOG 153). 앱의 api() 는 이미 재시도하는데 이 통로는 안 해서 진단이 반반 확률로
+          # 헛돌았다(2026-09-14). 200 이 올 때까지 최대 3번 친다.
+          # ⚠️ 재시도는 **MAINT_ALLOW 함수가 전부 여러 번 돌려도 같은 결과**라서 안전하다
+          #   (_diag* 는 읽기 전용, rebuildPortfolioLogDay 는 그날 행을 지우고 다시 쓰고,
+          #    resetAllTriggers 는 지우고 다시 만든다). 그렇지 않은 함수를 넣는다면 여기를 손봐라.
           # ⚠️ 토큰이 로그에 찍히지 않도록 -G --data-urlencode 로 붙인다(URL 을 echo 하지 않는다).
-          code=$(curl -sL -o /tmp/r.json -w '%{http_code}' --max-time 340 -G \
-                   --data-urlencode "action=runMaint" \
-                   --data-urlencode "fn=$FN" \
-                   --data-urlencode "arg=$ARG" \
-                   --data-urlencode "token=$TOKEN" \
-                   "$BASE")
-          echo "HTTP $code · $(wc -c < /tmp/r.json) bytes"
+          code=000
+          for try in 1 2 3; do
+            code=$(curl -sL -o /tmp/r.json -w '%{http_code}' --max-time 340 -G \
+                     --data-urlencode "action=runMaint" \
+                     --data-urlencode "fn=$FN" \
+                     --data-urlencode "arg=$ARG" \
+                     --data-urlencode "token=$TOKEN" \
+                     "$BASE") || true
+            echo "시도 $try → HTTP $code · $(wc -c < /tmp/r.json) bytes"
+            # ⚠️ `[ .. ] && ..` 로 쓰면 조건이 거짓일 때 목록이 비정상 종료로 잡혀 set -e 가
+            # 스크립트를 죽인다. if 로 쓴다.
+            if [ "$code" = "200" ]; then break; fi
+            if [ "$try" != "3" ]; then sleep $((try * 5)); fi
+          done
           # log 배열을 한 줄씩 풀어 찍는다. JSON 이 아니면(HTML 오류 페이지 등) 그대로 보여준다.
           python3 - <<'PY'
           import json, sys
