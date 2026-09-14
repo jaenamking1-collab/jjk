@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink'
 ];
 
 function runMaint(name, arg) {
@@ -2653,7 +2653,11 @@ function sendKakaoMemo(text) {
   const template = {
     object_type: 'text',
     text: String(text).slice(0, 200),
-    link: { web_url: _EXEC_URL, mobile_web_url: _EXEC_URL }
+    // ⛔ 여기에 _EXEC_URL(백엔드 API 주소)을 넣지 마라. 눌러도 JSON·오류 페이지만 나온다 —
+    // 2026-09-12 에 사용자가 "링크 눌러도 잘못된 사이트 나옴"이라고 지적한 게 이것이다.
+    // 그때 못 바꾼 이유는 카카오가 **개발자 콘솔에 등록된 도메인만** 허용하기 때문이었는데,
+    // 2026-09-14 에 공개 페이지 도메인을 등록해 풀렸다(앱 > 제품 링크 관리 > 웹 도메인).
+    link: { web_url: _NOTICE_PAGE_URL, mobile_web_url: _NOTICE_PAGE_URL }
   };
   const res = UrlFetchApp.fetch('https://kapi.kakao.com/v2/api/talk/memo/default/send', {
     method: 'post',
@@ -2664,6 +2668,14 @@ function sendKakaoMemo(text) {
   const ok = res.getResponseCode() === 200;
   if (!ok) console.log('카카오 발송 실패', res.getResponseCode(), res.getContentText());
   return ok;
+}
+
+// 카톡 버튼 링크가 실제로 나가는지 확인용(runMaint 전용). 카카오는 등록 안 된 도메인이면
+// 발송 자체를 거부하므로, 성공(200)이면 도메인 등록이 됐다는 증거가 된다. '나에게 보내기'다.
+function _testKakaoLink() {
+  const ok = sendKakaoMemo('[테스트] 분배금공지 페이지 링크 확인 — 아래 버튼이 새 주소로 열리면 정상입니다. ' + _NOTICE_PAGE_URL);
+  console.log(' | 발송 ' + (ok ? '성공 ✅' : '실패 ⛔') + ' · 링크 ' + _NOTICE_PAGE_URL);
+  return { sent: ok, link: _NOTICE_PAGE_URL };
 }
 
 // 지금이 발송 허용 시간대(08~23시)인지
