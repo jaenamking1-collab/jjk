@@ -14,7 +14,7 @@
 ## 프로그램이 사는 곳 (2026-09-14 확인)
 | 프로그램 | 저장소 / 파일 |
 |---|---|
-| 분배금공지 | `jjk` 의 `dist_notice.html` → https://jjk.distributionjn.workers.dev/ |
+| 분배금공지 | `jjk` 의 `dist_notice.html` → https://jjk.distributionjn.workers.dev/dist_notice |
 | 시세위젯 | `jjk` 의 `tools/ticker.pyw` (파이썬 tkinter, 자기 갱신) |
 | 포스트잇 메모 위젯 | **별도 저장소 `jaenamking1-collab/school-memo`** (Electron, NSIS 설치본, 자동 업데이트) |
 | 컴시간 경민이 | **저장소 목록에 없다** — 로컬 작업이거나 아직 저장소가 없다 |
@@ -36,7 +36,7 @@
 - **주 1편**이면 충분하다. 몰아 쓰고 끊기는 것보다 낫다.
 - **이미지는 직접 캡처해서 올린다.** 글자만 긴 글은 네이버에서 잘 안 뜬다.
 - **다른 데서 퍼온 문장을 붙여넣지 않는다.** 유사문서로 걸리면 그 글은 검색에서 사라진다.
-- 각 글 끝에 **공개 페이지 링크 한 줄**: https://jjk.distributionjn.workers.dev/
+- 각 글 끝에 **공개 페이지 링크 한 줄**: https://jjk.distributionjn.workers.dev/dist_notice
 
 ## 다음 할 일
 - [ ] 사용자: 네이버 블로그 개설 + 카테고리 `만든 것들` / `월배당 ETF` 두 개
