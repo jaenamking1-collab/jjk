@@ -874,12 +874,26 @@ function _noticeFallback(source, err) {
 // 저장소를 지금 채운다(runMaint 전용). 스크립트캐시가 살아 있는 동안엔 스크랩이 안 돌아
 // _saveLastNotices 가 안 불린다 — 배포 직후엔 보호막이 비어 있다는 뜻이라 한 번 태워 둔다.
 // arg 로 운용사 하나만 지정할 수 있다(6곳을 한 실행에 돌리면 느린 곳 때문에 오래 걸릴 때).
+// ⛔ **캐시를 먼저 지우지 마라.** 처음엔 `cache.remove()` 후 재스크랩으로 짰는데, 상류가 죽어
+// 있던 PLUS 에서 **살아 있던 캐시까지 날려 아무것도 없는 상태로 만들었다**(2026-09-14 실제로
+// 겪음). 캐시에 값이 있으면 그대로 저장소에 옮기고, **비어 있을 때만** 새로 긁는다.
 function seedLastNotices(only) {
   const cache = CacheService.getScriptCache();
   const list = only ? [only] : DIST_SOURCE_IDS;
   const out = {};
   list.forEach(s => {
-    cache.remove('notices_v2_' + s);
+    const hit = cache.get('notices_v2_' + s);
+    if (hit) {
+      try {
+        const v = JSON.parse(hit);
+        if ((v.items || []).length) {
+          _saveLastNotices(s, v.items);
+          out[s] = { count: v.items.length, fromCache: true, error: '' };
+          console.log(' | ' + s + ': ' + v.items.length + '건 ✅ (캐시에서 저장)');
+          return;
+        }
+      } catch(e) {}
+    }
     const r = getEtfNotices(s);
     out[s] = { count: (r.items || []).length, fallback: !!r.fallback, error: r.error || '' };
     console.log(' | ' + s + ': ' + out[s].count + '건' + (r.fallback ? ' (마지막 성공분으로 응답)' : '') + (r.error ? ' ⛔ ' + r.error : ' ✅'));
