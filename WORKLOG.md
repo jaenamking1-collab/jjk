@@ -12,6 +12,26 @@
 - **작업 종료**: 맨 위에 새 항목 추가 → `git add .` → `git commit` → `git push`
 
 
+## 2026-09-14 (156) / 원격 — **URL 계정명 문제 해결: 공개 공지 페이지가 Cloudflare 로 갔다**
+
+**한 일**: 155에서 "결정 대기"로 올려둔 URL 건이 사용자 결정으로 끝났다. 공개 분배금공지 페이지의 새 주소는 **`https://jjk.distributionjn.workers.dev`** 다. 계정명이 안 들어간다.
+
+- **경로는 Cloudflare Pages 가 아니라 Workers 였다.** Cloudflare 가 Pages 를 Workers 로 합치는 중이라 새 계정 대시보드에는 Pages 항목이 아예 안 뜬다. 대시보드가 `npx wrangler deploy` 를 배포 명령으로 넣어주므로 **저장소에 wrangler 설정이 있어야 한다** — 없으면 첫 배포가 그 자리에서 죽는다.
+- 넣은 파일 셋(전부 GitHub Pages 는 무시하므로 **기존 주소들은 그대로 산다**):
+  - `wrangler.toml` — `name`, `compatibility_date`, `[assets] directory = "./"`, `workers_dev = true`
+  - `.assetsignore` — **`dist_notice.html` 하나만 올라간다.** `portfolio.html`·`m.html`·`*.md`·`*.gs`·`docs`·`tools` 전부 제외
+  - `_redirects` — `/ → /dist_notice`. 주소만 쳐도 공지가 뜬다
+- ⭐ **하위도메인은 계정 단위다.** Worker 안의 '도메인' 탭에는 바꾸는 곳이 없다 — `Workers 및 Pages` 개요로 **나가야** `변경` 이 있다(`dash.cloudflare.com/?to=/:account/workers/subdomain`). `jaenamking1` → `distributionjn`.
+- ⭐ **바꾼 직후 몇 분간 `SSL handshake failure` 가 난다.** DNS 는 이미 잡히는데 인증서가 아직이다. 이때 옛 주소는 `Name or service not known` 으로 죽어 있으니, **둘을 같이 보면 "변경은 됐고 인증서만 기다리면 된다"고 판정할 수 있다.** 06:03 에 정상화됐다.
+- **검증은 전부 `linkcheck` 러너로 했다** — 컨테이너에서는 `*.workers.dev` 가 egress 프록시에 막힌다(`000`). 최종: `/` 200(→`/dist_notice`, 제목 `ETF 분배금 공지`) · `/dist_notice` 200 · `/portfolio`·`/portfolio.html`·`/m.html`·`/WORKLOG.md` 전부 404.
+
+**⚠️ 처음에 대상을 잘못 잡았다.** 사용자가 `portfolio.html` 주소를 물어 시작했기 때문에 개인 앱 기준으로 배포를 다 짜놓았고, 끝나갈 무렵 "공지페이지를 하라는건데"라고 정정받았다. **155에 적힌 그 할 일 자체가 공개 페이지 건이었는데도** 눈앞의 질문만 보고 대상을 확인하지 않았다. 주소를 바꾸는 일은 되돌리기 번거로우니 **어느 페이지인지 먼저 못박고 시작할 것.**
+
+### 다음 할 일
+- **`github.io/jjk-dist/` 를 계속 쓸지 정한다.** 새 주소로 완전히 옮기면 `dist_notice.html` → `jjk-dist/index.html` **손수 미러가 통째로 없어진다**(이미 자동화했지만 저장소가 하나 줄어든다). 옮기기로 하면 `Code.gs` 의 `_NOTICE_PAGE_URL` 과 카카오 개발자 콘솔 도메인을 새 주소로 바꿔야 한다.
+- **포트폴리오 앱 주소는 아직 그대로다**(`jaenamking1-collab.github.io/jjk/portfolio.html`, 계정명 노출). 같은 방법으로 옮길 수 있다 — Worker 를 하나 더 만들고 `.assetsignore` 만 반대로 쓰면 된다. 사용자 결정 대기.
+- `stock_sheet.gs` 를 '자산' 프로젝트에 반영 — 계정이 달라(jaenamking@gmail.com) 그 PC 차례에 할 것.
+
 ## 2026-09-14 (155) / 원격 — 주말 수정 **실전 검증** + 모달·집계 손질
 
 ### ⭐ 주말에 고친 게 실제로 유지되는지 확인했다 (추측 아님, `maint` 로 실측)
