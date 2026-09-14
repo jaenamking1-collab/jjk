@@ -1597,9 +1597,12 @@ function renderTickerSummary() {
   holdings.forEach(h => {
     let t = (h.ticker || '').toString().trim().toUpperCase();
     if (!t) return;
+    // 수량 0 = 이미 판 종목. 과거 배당 기록용 자리라 지우지는 않지만(위 목록도 평소엔 숨긴다)
+    // 집계에 넣으면 0주짜리 줄만 늘어난다. 그룹을 만들기 **전에** 걸러야 빈 그룹도 안 생긴다.
+    const qty = parseFloat(h.quantity) || 0;
+    if (!qty) return;
     if (/^\d+$/.test(t) && t.length < 6) t = t.padStart(6, '0');
     if (!g[t]) g[t] = { ticker: t, name: h.name || t, currency: h.currency || 'KRW', rows: [], qty: 0, value: 0 };
-    const qty = parseFloat(h.quantity) || 0;
     g[t].rows.push({ acc: (accById[h.account_id] || {}).name || '?', avg: parseFloat(h.avg_price) || 0, qty });
     g[t].qty += qty;
     g[t].value += valOf(h);
