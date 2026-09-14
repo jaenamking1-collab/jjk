@@ -55,7 +55,10 @@
      노트북 폭)에서 '일정'만 둘째 줄에 홀로 가운데 정렬로 떨어지고 달력 옆이 비었다.
      그 구간에서는 공지+달력을 한 줄, 일정을 그 아래 전체 폭으로 내린다. */
   @media (max-width:1503px) and (min-width:821px){
-    .p-sched{width:100%; flex:1 1 100%; max-width:100%;}
+    /* 이 구간에선 일정 패널이 혼자 한 줄을 쓴다. 폭을 안 묶으면 표가 1,240px 까지 늘어나
+       열 하나가 200px 이 된다(2026-09-14 1280×768·1280×1024 에서 지적). 위 달력과 같은
+       792px 로 묶어 가운데 정렬 — 아래 '공지사항' 게시판도 이 패널 안이라 함께 묶인다. */
+    .p-sched{width:100%; flex:1 1 100%; max-width:792px; margin-left:auto; margin-right:auto;}
     .p-cal{flex:1 1 auto; max-width:none;}
     #distScheduleList table{width:100%;}
   }
