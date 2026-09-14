@@ -812,7 +812,17 @@ function getEtfNotices(source) {
         items.push({ title, date: dateM ? dateM[1].replace(/<[^>]+>/g,'').trim() : '', url: keyM ? 'https://investments.miraeasset.com/tigeretf/ko/customer/notice/view.do?detailsKey=' + keyM[1] : '#' });
       });
     } else if (source === 'plus') {
-      const html = UrlFetchApp.fetch('https://www.plusetf.co.kr/customer/notice/list', { headers:{'User-Agent':'Mozilla/5.0'}, muteHttpExceptions:true }).getContentText('UTF-8');
+      // 한화(plusetf) 는 구글 서버에서 자주 타임아웃·DNS 실패가 난다(2026-09-12·09-14 실측).
+      // 한 번 실패했다고 포기하지 않고 www 없는 호스트로 한 번 더 친다 — 그래도 안 되면
+      // catch 로 넘어가 _noticeFallback 이 마지막 성공분을 돌려준다.
+      let html = '';
+      const _plusUrls = ['https://www.plusetf.co.kr/customer/notice/list', 'https://plusetf.co.kr/customer/notice/list'];
+      for (let i = 0; i < _plusUrls.length; i++) {
+        try {
+          html = UrlFetchApp.fetch(_plusUrls[i], { headers:{'User-Agent':'Mozilla/5.0'}, muteHttpExceptions:true }).getContentText('UTF-8');
+          if (html) break;
+        } catch(e) { if (i === _plusUrls.length - 1) throw e; }
+      }
       const re = /href="(\/customer\/notice\/detail\?n=\d+)"[^>]*>([\s\S]*?)<\/a>/g;
       let m;
       while ((m = re.exec(html)) && items.length < NOTICE_MAX) {
@@ -822,12 +832,44 @@ function getEtfNotices(source) {
         items.push({ title: txt.replace(date,'').trim(), date, url: 'https://www.plusetf.co.kr' + m[1] });
       }
     }
+    if (!items.length) return _noticeFallback(source, '0건');   // 상류는 응답했는데 못 읽은 경우
     const result = { success: true, items };
-    if (items.length) cache.put(cacheKey, JSON.stringify(result), distCacheTtlSec()); // 0건은 캐시 안 함(일시 실패 장기 캐시 방지)
+    cache.put(cacheKey, JSON.stringify(result), distCacheTtlSec()); // 0건은 캐시 안 함(일시 실패 장기 캐시 방지)
+    _saveLastNotices(source, items);
     return result;
   } catch(e) {
-    return { success: false, items: [], error: e.toString() };
+    return _noticeFallback(source, e.toString());
   }
+}
+
+// ── 공지 '마지막 성공분' 영구 보관 ────────────────────────────────────────────
+// 왜: 스크립트캐시는 TTL(2~6시간)이라 상류가 그보다 오래 죽어 있으면 카드가 통째로 빈다.
+// 그때 화면이 "9월 공지 아직 없음"이라고 써서 **공시를 낸 운용사를 안 냈다고 표시했다**
+// (2026-09-14 PLUS. 한화 사이트가 구글 서버에서 타임아웃인데 화면은 '없음'이라고 했다).
+// 없는 것과 못 읽은 것은 다른 상태다. 마지막으로 읽은 목록을 언제 읽었는지와 함께 남겨,
+// 상류가 며칠 죽어도 지난 공지를 계속 보여주고 화면이 그 사실을 밝히게 한다.
+const _LASTN_MAX = 12;   // 속성값 상한 9KB — 제목이 긴 KODEX 기준으로도 여유 있다
+function _saveLastNotices(source, items) {
+  try {
+    PropertiesService.getScriptProperties().setProperty('lastN_' + source, JSON.stringify({
+      items: items.slice(0, _LASTN_MAX),
+      savedAt: Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm')
+    }));
+  } catch(e) {}   // 저장 실패가 조회를 막으면 안 된다
+}
+function _readLastNotices(source) {
+  try {
+    const raw = PropertiesService.getScriptProperties().getProperty('lastN_' + source);
+    if (!raw) return null;
+    const v = JSON.parse(raw);
+    return (v && (v.items || []).length) ? v : null;
+  } catch(e) { return null; }
+}
+// 실패했을 때 돌려줄 응답. 마지막 성공분이 있으면 그걸 주되 fallback/savedAt 으로 밝힌다.
+function _noticeFallback(source, err) {
+  const last = _readLastNotices(source);
+  if (last) return { success: true, items: last.items, fallback: true, savedAt: last.savedAt, error: err };
+  return { success: false, items: [], error: err };
 }
 
 // 6개사 공지를 한 실행에서 반환 — 스크립트캐시에 있는 것만 담고, 없는 곳은 stale:true로 표시만 한다.
@@ -846,7 +888,13 @@ function getEtfNoticesAll() {
   DIST_SOURCE_IDS.forEach(s => {
     let v = null;
     if (hits[key(s)]) { try { v = JSON.parse(hits[key(s)]); } catch(e) {} }
-    sources[s] = (v && (v.items || []).length) ? v : { items: [], stale: true };
+    if (v && (v.items || []).length) { sources[s] = v; return; }
+    // 캐시에 없으면 마지막 성공분을 실어 보낸다 — 프론트는 이걸 화면에 띄운 채로 재조회하고,
+    // 재조회가 실패해도 빈 카드 대신 이 값이 남는다. stale 은 그대로 둬야 재조회가 돈다.
+    const last = _readLastNotices(s);
+    sources[s] = last
+      ? { items: last.items, stale: true, fallback: true, savedAt: last.savedAt }
+      : { items: [], stale: true };
   });
   return { success: true, sources: sources };
 }

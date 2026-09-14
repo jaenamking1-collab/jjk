@@ -94,6 +94,9 @@
   .notice-loading{font-size:12px; color:var(--text3); text-align:center; padding:16px 0;}
   .notice-err{font-size:12px; color:#b91c1c; text-align:center; padding:16px 0;}
   .notice-empty{font-size:12px; color:var(--text2); text-align:center; padding:16px 0;}
+  /* 상류가 죽어 마지막 성공분을 보여주는 중임을 밝힌다 — 낡은 값을 최신인 척 보여주지 않는다 */
+  .notice-stale{font-size:11px; color:#92400e; background:#fffbeb; border:1px solid #fde68a;
+    border-radius:6px; padding:4px 6px; margin:4px 0 2px; line-height:1.35;}
   /* 회차 상태 한 줄 — 달력 바로 위. 대비 6.9:1(#1e3a8a on #eff6ff) */
   .cal-status{font-size:12px; line-height:1.5; color:#1e3a8a; background:#eff6ff;
     border:1px solid #bfdbfe; border-radius:6px; padding:6px 10px; margin-bottom:8px;}
@@ -820,8 +823,13 @@ async function loadAllNotices(){
   const cached = (bulk && bulk.sources) || {};
   const results = await Promise.allSettled(NOTICE_SOURCES.map(s => {
     const hit = cached[s.id];
-    if (hit && !hit.stale) return Promise.resolve({ ...s, items: hit.items || [], ok: true });
-    return s.fetch().then(items => ({ ...s, items, ok: true })).catch(() => ({ ...s, items: [], ok: false }));
+    if (hit && !hit.stale) return Promise.resolve({ ...s, items: hit.items || [], ok: true, fallback: hit.fallback, savedAt: hit.savedAt });
+    // 재조회가 실패하거나 0건이면 벌크가 실어 보낸 '마지막 성공분'으로 되돌아간다.
+    // 예전엔 여기서 빈 배열을 넣어, 상류가 잠깐 죽은 것만으로 카드가 통째로 비었다.
+    const back = (hit && (hit.items || []).length)
+      ? { ...s, items: hit.items, ok: true, fallback: true, savedAt: hit.savedAt }
+      : { ...s, items: [], ok: false };
+    return s.fetch().then(items => (items && items.length) ? { ...s, items, ok: true } : back).catch(() => back);
   }));
   _noticeData = results.map(r => r.value || {});
   renderNotices();
@@ -845,7 +853,7 @@ function renderNotices(){
     const m = String(n.date || '').match(/\d{4}[.\-\/](\d{1,2})/);
     return m ? parseInt(m[1]) : 0;
   };
-  grid.innerHTML = _noticeData.map(({ id, name, label, items, ok }) => {
+  grid.innerHTML = _noticeData.map(({ id, name, label, items, ok, fallback, savedAt }) => {
     const all = (items || []).map(n => ({ ...n, norm: normalizeNoticeTitle(n.title, id) }))
       .filter(n => n.norm.cycle !== '제외');
     const inMonth = all.filter(n => monOf(n) === selM);
@@ -888,11 +896,14 @@ function renderNotices(){
           ...extra.map(itemHtml) ].join('')
       // 응답은 왔는데 이번 달 공지가 아직 없는 것과, 못 받아온 것은 다른 상태다.
       // 예전엔 둘 다 '불러오기 실패'라 정상인데도 빨간 글씨가 떴다.
-      : (ok === false ? '<div class="notice-err">공지를 못 받았습니다</div>'
+      // '아직 공시가 안 났다'와 '운용사 사이트를 못 읽었다'는 전혀 다른 사실이다.
+      // 후자를 '없음'이라고 쓰면 공시를 낸 운용사를 안 냈다고 알리는 셈이다(2026-09-14 PLUS).
+      : (ok === false ? '<div class="notice-err">운용사 사이트 응답 없음 — 확인 못 했습니다</div>'
                       : `<div class="notice-empty">${selM}월 공지 아직 없음</div>`);
     return `
       <div class="notice-card ${id}">
         <div class="notice-brand ${id}">● ${name} <span style="font-weight:400;color:var(--text3)">${label}</span></div>
+        ${fallback ? `<div class="notice-stale">⚠️ 지금 운용사 사이트가 응답하지 않습니다 · 아래는 ${savedAt || '이전'} 에 받아둔 내용</div>` : ''}
         ${rows}
       </div>`;
   }).join('');
