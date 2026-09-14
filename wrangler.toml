@@ -1,0 +1,8 @@
+# Cloudflare Workers (정적 자산) 배포 설정.
+# 대시보드에서 이 저장소를 연결하면 `npx wrangler deploy` 가 이 파일을 읽는다.
+# GitHub Pages(jaenamking1-collab.github.io/jjk/)와 병행 — 이 파일은 Pages 에 아무 영향이 없다.
+name = "jjk"
+compatibility_date = "2026-09-14"
+
+[assets]
+directory = "./"
