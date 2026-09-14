@@ -1,4 +1,4 @@
-# Cloudflare 로 올리지 않을 것 — 프론트 html 세 개만 서비스한다.
+# Cloudflare 로 올리지 않을 것 — dist_notice.html 하나만 서비스한다.
 .git
 .github
 .claude
@@ -12,3 +12,7 @@ tools
 .assetsignore
 wrangler.toml
 .wrangler
+
+# 이 주소는 공개 분배금공지 전용이다 — 개인 앱은 올리지 않는다.
+portfolio.html
+m.html
