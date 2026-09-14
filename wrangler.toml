@@ -3,6 +3,7 @@
 # GitHub Pages(jaenamking1-collab.github.io/jjk/)와 병행 — 이 파일은 Pages 에 아무 영향이 없다.
 name = "jjk"
 compatibility_date = "2026-09-14"
+workers_dev = true
 
 [assets]
 directory = "./"

@@ -11,3 +11,4 @@ tools
 .gitignore
 .assetsignore
 wrangler.toml
+.wrangler
