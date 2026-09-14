@@ -868,8 +868,34 @@ function _readLastNotices(source) {
 // 실패했을 때 돌려줄 응답. 마지막 성공분이 있으면 그걸 주되 fallback/savedAt 으로 밝힌다.
 function _noticeFallback(source, err) {
   const last = _readLastNotices(source);
-  if (last) return { success: true, items: last.items, fallback: true, savedAt: last.savedAt, error: err };
+  const items = last ? last.items.slice() : [];
+  const derived = _derivedNotice(source, items[0] && items[0].date);
+  if (derived) items.unshift(derived);          // 저장분보다 새 회차가 있으면 맨 위에
+  if (items.length) return { success: true, items: items, fallback: true, savedAt: last ? last.savedAt : '', error: err };
   return { success: false, items: [], error: err };
+}
+
+// 목록을 못 읽었는데 **분배 데이터에는 이번 회차가 들어와 있는** 경우를 메운다.
+// 왜 필요한가: plusetf.co.kr 은 해외 IP 에서 DNS 조차 안 된다(2026-09-14 GitHub 러너 curl exit 6,
+// 구글 서버에서도 간헐 실패). 반면 분배 데이터는 smarttoday 폴백이 있어 새 회차가 들어온다.
+// 그러면 '공시가 났다는 사실'은 우리가 이미 아는 것이다 — 목록을 못 읽었다고 새 회차를 감추면
+// 화면이 지난달 공지만 보여주게 된다. 공시일과 회차만으로 한 줄을 만들고 원문 목록으로 링크한다.
+// (없는 공지를 지어내는 게 아니다. 공시일은 실제 파싱 결과에서 온다.)
+function _derivedNotice(source, newestSavedDate) {
+  try {
+    const sc = readDistCache(source);
+    const it = sc && sc.payload && (sc.payload.items || [])[0];
+    const pub = it && it.sched && it.sched['공시일'];        // 예: '9월 10일'
+    if (!pub || !sc.cycleKey) return null;
+    const m = String(pub).match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
+    if (!m) return null;
+    const year = sc.cycleKey.slice(0, 4);
+    const date = year + '.' + ('0' + m[1]).slice(-2) + '.' + ('0' + m[2]).slice(-2);
+    if (newestSavedDate && date <= newestSavedDate) return null;   // 저장분이 이미 이 회차를 담고 있다
+    const cyc = sc.cycleKey.slice(-1) === '중' ? '월중' : '월말';
+    return { title: m[1] + '월 분배금 공지(' + cyc + ')', date: date,
+             url: ISSUER_NOTICE_URL[source] || '#', derived: true };
+  } catch(e) { return null; }
 }
 // 저장소를 지금 채운다(runMaint 전용). 스크립트캐시가 살아 있는 동안엔 스크랩이 안 돌아
 // _saveLastNotices 가 안 불린다 — 배포 직후엔 보호막이 비어 있다는 뜻이라 한 번 태워 둔다.
@@ -2584,7 +2610,10 @@ const _EXEC_URL = 'https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZ
 // 사람이 볼 주소는 아래 둘이다(2026-09-12 둘 다 HTTP 200 확인):
 //   · 분배금공지 공개 페이지 "ETF 분배금 공지" — 비밀번호 없이 열린다. 분배 알림은 여기로 보낸다.
 //   · 폰 앱 "포트폴리오 · 폰" — 계좌까지 보려면 이쪽.
-const _NOTICE_PAGE_URL = 'https://jaenamking1-collab.github.io/jjk-dist/';
+// 공개 분배금공지 페이지. 2026-09-14 에 Cloudflare Workers 로 옮겼다 — 옛 주소
+// (jaenamking1-collab.github.io/jjk-dist/)는 계정명이 드러나서 안 쓰기로 했다.
+// 옛 주소도 미러 워크플로 덕에 아직 살아 있지만, 알림·카톡이 가리키는 곳은 여기 하나다.
+const _NOTICE_PAGE_URL = 'https://jjk.distributionjn.workers.dev/';
 const _PHONE_APP_URL   = 'https://jaenamking1-collab.github.io/jjk/m.html';
 // 운용사 공지 '목록' 페이지. 상세 URL은 회차마다 달라 여기 못 박으므로 목록으로 보낸다.
 // (ace·rise·sol 은 러너에서 200 확인. kodex 는 러너를 봇으로 막아 500 이 났지만 백엔드는 같은
