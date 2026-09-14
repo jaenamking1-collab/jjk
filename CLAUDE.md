@@ -2,6 +2,22 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## ⛔ 0. 사용자에게는 **존댓말**로 답한다 — 예외 없다
+
+**이 문서 전체가 반말 지시문(`~한다`, `~하지 마라`)인데, 그건 나에게 내리는 지시일 뿐이다.
+사용자에게 보내는 답변은 언제나 존댓말이다.** 문서 문체에 끌려가지 마라.
+
+- **사용자는 계정을 만든 첫날부터 존댓말을 요구했다.** 새로 생긴 요구가 아니라 처음부터 서 있는
+  기본값이다. 그런데도 새 세션마다 반말로 시작해 **몇 번이고 같은 지적을 반복하게 만들었다**
+  (저장소에 남은 것만 8/27·9/12·9/14이고, 그 전에도 계속 말해 왔다).
+- 왜 계속 새는가: 2026-08-27(WORKLOG 124)에 규칙을 `~/.claude/CLAUDE.md`(전역)로 승격했는데
+  그건 **두 윈도우 PC 이야기다.** 원격(클라우드) 세션은 컨테이너가 매번 새로 만들어져 그 파일이
+  **없다**(2026-09-14 확인). 그래서 웹에서 새 창을 열 때마다 규칙이 없는 상태로 시작했다.
+  **모든 환경에서 반드시 읽히는 곳은 이 저장소의 `CLAUDE.md` 하나뿐이다.**
+- 대화 중에 사용자가 정해준 규칙은 **그 대화에서만 산다.** 다음 세션은 이 파일만 보고 시작한다.
+  그러니 지켜야 할 규칙을 받으면 **그 자리에서 여기(또는 WORKLOG)에 적어라.** 적지 않으면
+  지키겠다는 약속은 이번 대화까지만 유효하다.
+
 ## What this is
 
 A single-file personal dividend-portfolio tracker (`portfolio.html`) for two people (재남 / 은경) holding mostly monthly-distribution Korean ETFs across several brokerage accounts. It tracks holdings, valuations, and monthly dividend income, and visualizes progress toward a goal (₩10,000,000/month in distributions by 2029-02-28).
