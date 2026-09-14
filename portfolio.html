@@ -6426,8 +6426,15 @@ document.addEventListener('click', e => {
     if (dd) dd.style.display = 'none';
   }
 });
+// ⚠️ **누르기 시작한 곳도 오버레이일 때만 닫는다.** 예전엔 click 의 target 만 봤는데,
+// 입력칸 안에서 드래그로 값을 선택하다 모달 **바깥에서 손을 떼면** 브라우저가 click 을
+// 두 지점의 **공통 부모(=오버레이)** 에 보낸다 → target 이 오버레이라 모달이 닫히고
+// 입력하던 내용이 통째로 날아갔다(2026-09-14 사용자 보고: 수량 고치고 매수평균가를
+// 드래그하면 창이 사라짐).
 document.querySelectorAll('.modal-overlay').forEach(m => {
-  m.addEventListener('click', e => { if(e.target === m) m.classList.remove('open'); });
+  let downOnOverlay = false;
+  m.addEventListener('mousedown', e => { downOnOverlay = (e.target === m); });
+  m.addEventListener('click', e => { if (e.target === m && downOnOverlay) m.classList.remove('open'); });
 });
 
 // ── 진입 비밀번호 잠금 ────────────────────────────────
