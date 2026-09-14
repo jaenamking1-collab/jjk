@@ -3464,12 +3464,17 @@ function getNavMap() {
   } catch(e) { return { success: false, error: e.toString(), navs: {} }; }
 }
 
-// 보유 국내 ETF 괴리율이 -1% 밑으로 이탈하면 카톡 알림(+앱 알림로그 기록).
-// 크로싱 1회만 발송(-1% 밑 진입), -0.5% 이상 회복 시 재무장 → 다음 이탈 때 재알림.
-// 히스테리시스(-1.0~-0.5% 유지)로 딱 -1% 근처 깜빡임 스팸 방지. 상태는 Script 속성 DEVIATION_STATE(JSON).
+// 보유 국내 ETF 괴리율이 DEV_ALERT 밑으로 이탈하면 카톡 알림(+앱 알림로그 기록).
+// 크로싱 1회만 발송(DEV_ALERT 밑 진입), DEV_REARM 이상 회복 시 재무장 → 다음 이탈 때 재알림.
+// 히스테리시스(DEV_ALERT~DEV_REARM 유지)로 경계 근처 깜빡임 스팸 방지. 상태는 Script 속성 DEVIATION_STATE(JSON).
 // 장중(평일 09~16시)에만 체크. 트리거 설치는 맨 아래 '수동 실행'의 setupDeviationTrigger() 참고.
-const DEV_ALERT = -1.0;   // 이 밑으로 내려가면 알림
-const DEV_REARM = -0.5;   // 이 위로 회복하면 재무장
+// ⚠️ 2026-09-14 에 -1.0/-0.5 → -1.5/-0.75 로 올렸다. 보유 종목 대부분이 **미국지수 추종
+// 커버드콜**이라, 한국장이 열려 있는 동안 NAV 는 전날 미국 종가 기준이고 가격만 움직여서
+// -1%대 괴리는 구조적으로 늘 생긴다. 그날 아침에만 5건이 울렸는데 전부 -1.10~-1.30% 였고,
+// 같은 날 낮 12시에도 7종목이 여전히 -1%대였다(= 순간 튐이 아니라 상시 상태).
+// 그 수준까지 알리면 '늘 울리는 알림'이 되어 정작 이례적인 값을 놓친다.
+const DEV_ALERT = -1.5;    // 이 밑으로 내려가면 알림
+const DEV_REARM = -0.75;   // 이 위로 회복하면 재무장
 function checkDeviationAlerts() {
   const now = new Date();
   const dow = parseInt(Utilities.formatDate(now, 'Asia/Seoul', 'u'), 10);  // 1(월)~7(일)
@@ -3520,7 +3525,8 @@ function checkDeviationAlerts() {
   if (!lines.length) return;
 
   // 장중이라 카톡 발송시간대(08~23) 안 → 즉시 발송. 실패해도 알림로그엔 남긴다.
-  try { sendKakaoMemo(('📉 괴리율 -1% 이탈\n' + lines.join('\n')).slice(0, 200)); } catch(e) { console.log('deviation kakao', e); }
+  // 문구에 기준선을 박아두지 않는다 — 상수만 고치고 메시지를 안 고치면 서로 어긋난다.
+  try { sendKakaoMemo(('📉 괴리율 ' + DEV_ALERT + '% 이탈\n' + lines.join('\n')).slice(0, 200)); } catch(e) { console.log('deviation kakao', e); }
   try {
     const logSheet = _getOrCreateSheet('알림로그', ['시각','운용사','종류','메시지','중요도','상태']);
     lines.forEach(ln => _addAlert(logSheet, '괴리율', '괴리율', ln, '정보'));
