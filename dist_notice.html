@@ -374,6 +374,12 @@ async function loadDistributions(force){
     cal.innerHTML = '<div style="color:var(--text3);font-size:13px"><span class="spinner"></span> 불러오는 중...</div>';
   }
 
+  // ⛔ **공지를 여기서 띄운다. 이 함수 끝에서 부르지 마라.** 분배 일정과는 아무 상관 없는
+  // 호출인데 예전엔 맨 끝에 있어서, 위 bulk(최대 25초) + fillStale(최대 45초)이 **다 끝난
+  // 뒤에야** 공지 요청이 시작됐다 — 첫 방문자는 공지 카드를 1분 넘게 못 봤다(2026-09-15 지적).
+  // 스냅샷이 없는 첫 방문자에게 제일 크게 느껴진다. portfolio.html 은 원래 둘을 나란히 부른다.
+  loadAllNotices();
+
   const timeout = ms => new Promise((_,rej) => setTimeout(() => rej(new Error('timeout')), ms));
   // force 재파싱은 OCR(특히 KODEX) 때문에 25초를 넘길 수 있어 여유를 크게 준다
   const fetchOne = (s, ms) => Promise.race([
@@ -439,7 +445,6 @@ async function loadDistributions(force){
   renderDistGrid(_distData);
   renderFreshness(_distData);
   _distSnapSet(_distData);        // 다음에 서버가 죽어도 이 화면은 다시 그릴 수 있다
-  loadAllNotices();
 }
 
 function renderMasterCalendar(allData){
