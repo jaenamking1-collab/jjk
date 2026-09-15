@@ -16,15 +16,21 @@ on:
         description: '임의 URL 을 직접 칠 때. 외부 API 응답 형식을 확인하는 용도.'
         required: false
         default: ''
+      pick:
+        description: '응답이 커서 잘릴 때 볼 부분. 점으로 파고든다 (예: sources.plus).'
+        required: false
+        default: ''
 
 jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4      # pick 이 쓰는 .github/scripts/pick.py 때문에 필요하다
       - name: /exec 호출
         env:
           ACT: ${{ github.event.inputs.action }}
           URL: ${{ github.event.inputs.url }}
+          PICK: ${{ github.event.inputs.pick }}
         run: |
           set -euo pipefail
           BASE='https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec'
@@ -34,6 +40,12 @@ jobs:
           code=$(curl -sL -o /tmp/r.txt -w '%{http_code}' --max-time 120 -A 'Mozilla/5.0' "$TARGET")
           echo "HTTP $code · $(wc -c < /tmp/r.txt) bytes"
           echo "--- 전체 $(wc -l < /tmp/r.txt)줄 ---"
+          # pick 을 주면 그 부분만 판다. getDistributionAll 은 115KB 라 아래 head 로 자르면
+          # 뒤쪽 운용사(plus·rise·sol)를 아예 못 본다 — 그걸 보려고 만들었다(2026-09-15).
+          if [ -n "${PICK:-}" ]; then
+            python3 .github/scripts/pick.py "$PICK" /tmp/r.txt
+            exit 0
+          fi
           # ⚠️ head -40 으로 자르면 마지막 줄이 잘려 '없다'고 오판한다(2026-09-12 실제로 겪음).
           # 응답은 보통 수백 바이트라 통째로 찍고, 폭주에 대비해 상한만 둔다.
           head -c 20000 /tmp/r.txt
