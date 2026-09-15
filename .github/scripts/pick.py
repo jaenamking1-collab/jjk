@@ -28,21 +28,35 @@ for key in path_expr.split('.'):
         print(f'(없음: {key})')
         sys.exit(0)
 
+# 날짜 표기가 운용사마다 다르다: KODEX·PLUS 는 '9월 11일', TIGER 는 '9/11'.
+# 처음엔 'N월' 만 찾았다가 TIGER 가 '-' 로 나와 **멀쩡한 걸 이상하다고 볼 뻔했다**(2026-09-15).
+_MONTH_RE = re.compile(r'(\d{1,2})\s*월|(\d{1,2})\s*/\s*\d{1,2}')
+
+
+def _month_of(text):
+    m = _MONTH_RE.search(str(text))
+    return (m.group(1) or m.group(2)) if m else None
+
+
 def _months(obj):
-    """제목·schedule 에 적힌 '월'을 모아 준다. 오래된 기사를 물었는지 한눈에 보려는 것."""
+    """제목·schedule(없으면 첫 항목의 sched)에 적힌 '월'을 모아 준다.
+    오래된 회차를 물고 있는지 한눈에 보려는 것."""
     found = []
-    for key in ('title', 'articleUrl'):
-        v = obj.get(key)
-        if isinstance(v, str):
-            m = re.search(r'(\d{1,2})\s*월', v)
-            if m:
-                found.append(m.group(1) + '월(제목)')
-    sch = obj.get('schedule') or {}
+    mt = _month_of(obj.get('title') or '')
+    if mt:
+        found.append(mt + '월(제목)')
+    # TIGER 처럼 top-level schedule 이 없는 곳은 항목의 sched 를 본다.
+    sch = obj.get('schedule')
+    where = 'schedule'
+    if not isinstance(sch, dict) or not sch:
+        first = (obj.get('items') or [{}])[0]
+        sch = first.get('sched') if isinstance(first, dict) else None
+        where = 'items[0]'
     if isinstance(sch, dict):
         for k, v in sch.items():
-            m = re.search(r'(\d{1,2})\s*월', str(v))
-            if m:
-                found.append(m.group(1) + '월(' + k + ')')
+            mm = _month_of(v)
+            if mm:
+                found.append(f'{mm}월({k}·{where})')
                 break
     return ' '.join(found) or '-'
 
