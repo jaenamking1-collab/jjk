@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache'
 ];
 
 function runMaint(name, arg) {
@@ -903,6 +903,27 @@ function _derivedNotice(source, newestSavedDate) {
 // ⛔ **캐시를 먼저 지우지 마라.** 처음엔 `cache.remove()` 후 재스크랩으로 짰는데, 상류가 죽어
 // 있던 PLUS 에서 **살아 있던 캐시까지 날려 아무것도 없는 상태로 만들었다**(2026-09-14 실제로
 // 겪음). 캐시에 값이 있으면 그대로 저장소에 옮기고, **비어 있을 때만** 새로 긁는다.
+// 잘못 들어간 분배 데이터를 지운다(runMaint 전용). 분배캐시 시트의 그 운용사 행 + 스크립트캐시
+// (dist2_<source>, 폴백 결과를 통째로 담는 dist2_ALL)를 함께 비운다 — 셋 중 하나라도 남으면
+// 다음 조회가 그걸 다시 집어 온다. 2026-09-15 에 PLUS 가 6월 기사를 물어 6월 금액을 9월 회차로
+// 띄운 것을 걷어내려고 만들었다. 지운 뒤 다음 조회 때 새로 파싱된다.
+function clearDistCache(source) {
+  if (!source) return { success: false, error: '운용사를 지정해라 (예: plus)' };
+  const cache = CacheService.getScriptCache();
+  cache.remove('dist2_' + source);
+  cache.remove('dist2_ALL');
+  let removed = 0;
+  try {
+    const sh = _distCacheSheet();
+    const rows = sh.getDataRange().getValues();
+    for (let i = rows.length - 1; i >= 1; i--) {
+      if (rows[i][0] === source) { sh.deleteRow(i + 1); removed++; }
+    }
+  } catch(e) { return { success: false, error: e.toString() }; }
+  console.log(' | ' + source + ': 분배캐시 ' + removed + '행 삭제 · dist2_' + source + '·dist2_ALL 비움');
+  return { success: true, source: source, rowsRemoved: removed };
+}
+
 function seedLastNotices(only) {
   const cache = CacheService.getScriptCache();
   const list = only ? [only] : DIST_SOURCE_IDS;
@@ -1288,6 +1309,18 @@ function fetchDist_smarttoday(force) {
     if (!/월\s*배당\s*ETF.*분배금\s*내역|월중\s*배당\s*ETF.*분배금\s*내역/.test(title)) continue;
     const brand = Object.keys(BRANDS).find(b => new RegExp(b).test(title));
     if (!brand || found[brand]) continue;
+    // ⛔ **몇 월 기사인지 반드시 본다.** 검색 결과가 최신순이 아니라, 브랜드만 맞으면 첫 기사를
+    // 집는 바람에 2026-09-15 에 PLUS 가 **6월 기사**('…PLUS 월중 배당 ETF 6월 분배금 내역')를
+    // 물어 **6월 금액을 9월 회차로** 공개 페이지에 띄웠다. 한화 홈페이지가 막혀 폴백밖에 없는
+    // 운용사라 아무도 못 알아챘다. 이번 달·지난달까지만 받는다(월초엔 지난달 월말 회차가 현재다).
+    // 맞는 기사가 없으면 빈 채로 두는 게 맞다 — 화면은 그때 '예정'으로 표시한다.
+    const artM = title.match(/(\d{1,2})\s*월\s*분배금\s*내역/);
+    if (artM) {
+      const nowM = Number(Utilities.formatDate(new Date(), 'Asia/Seoul', 'M'));
+      const prevM = nowM === 1 ? 12 : nowM - 1;
+      const m = Number(artM[1]);
+      if (m !== nowM && m !== prevM) continue;
+    }
     found[brand] = { id, html, title };
   }
   Object.keys(BRANDS).forEach(brand => {
