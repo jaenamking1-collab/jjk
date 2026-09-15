@@ -907,21 +907,31 @@ function _derivedNotice(source, newestSavedDate) {
 // (dist2_<source>, 폴백 결과를 통째로 담는 dist2_ALL)를 함께 비운다 — 셋 중 하나라도 남으면
 // 다음 조회가 그걸 다시 집어 온다. 2026-09-15 에 PLUS 가 6월 기사를 물어 6월 금액을 9월 회차로
 // 띄운 것을 걷어내려고 만들었다. 지운 뒤 다음 조회 때 새로 파싱된다.
-function clearDistCache(source) {
-  if (!source) return { success: false, error: '운용사를 지정해라 (예: plus)' };
+// ⛔ **기본은 이번 회차 한 행만 지운다.** 처음 판은 그 운용사의 모든 행을 지웠는데, 만들자마자
+// PLUS 에 돌려 **지난 회차 3행(8월 월중·8월 월말·7월 월말)까지 날렸다**(2026-09-15). 지난 회차는
+// 다시 스크랩되지 않아 분배율 추이에서 영영 빈다. 잘못된 값은 늘 '이번 회차' 행에만 들어온다.
+// 정말 전부 지워야 하면 'plus:all' 처럼 명시해라.
+function clearDistCache(arg) {
+  const [source, scope] = String(arg || '').split(':');
+  if (!source) return { success: false, error: '운용사를 지정해라 (예: plus, plus:all)' };
   const cache = CacheService.getScriptCache();
   cache.remove('dist2_' + source);
   cache.remove('dist2_ALL');
-  let removed = 0;
+  const all = scope === 'all';
+  const need = currentCycleKey();
+  let removed = 0, kept = 0;
   try {
     const sh = _distCacheSheet();
     const rows = sh.getDataRange().getValues();
     for (let i = rows.length - 1; i >= 1; i--) {
-      if (rows[i][0] === source) { sh.deleteRow(i + 1); removed++; }
+      if (rows[i][0] !== source) continue;
+      if (all || rows[i][3] === need) { sh.deleteRow(i + 1); removed++; }
+      else kept++;
     }
   } catch(e) { return { success: false, error: e.toString() }; }
-  console.log(' | ' + source + ': 분배캐시 ' + removed + '행 삭제 · dist2_' + source + '·dist2_ALL 비움');
-  return { success: true, source: source, rowsRemoved: removed };
+  console.log(' | ' + source + ': ' + (all ? '전체' : '이번 회차(' + need + ')') + ' ' + removed
+    + '행 삭제 · 지난 회차 ' + kept + '행 유지 · dist2_' + source + '·dist2_ALL 비움');
+  return { success: true, source: source, scope: all ? 'all' : need, rowsRemoved: removed, rowsKept: kept };
 }
 
 function seedLastNotices(only) {
