@@ -25,6 +25,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           STATUS: ${{ steps.age.outputs.status }}
           DETAIL: ${{ steps.age.outputs.detail }}
+          PARTIAL: ${{ steps.age.outputs.partial }}
+          PARTIAL_DETAIL: ${{ steps.age.outputs.partial_detail }}
           # ⛔ scriptId 는 적지 않는다 — jjk 는 공개 저장소이고 이슈는 영구히 남는다.
           # 프로젝트 목록에서 '포트폴리오관리'를 고르면 되므로 링크 편의보다 안전을 택한다.
           EDITOR_URL: https://script.google.com/home
@@ -64,6 +66,50 @@ jobs:
           \`Authorization is required to perform that action.\` 으로 죽습니다. 트리거 목록에는 그대로
           보이고 재인증만으로는 안 살아나서, 다시 만들어야 합니다.
           자세한 내용은 \`WORKLOG.md\` 149번 항목과 \`CLAUDE.md\` 배포 절차 5단계를 보세요.
+
+          <sub>backend-health 워크플로가 자동으로 만든 이슈입니다. 정상으로 돌아오면 자동으로 닫힙니다.</sub>"
+          echo "이슈 생성됨"
+
+      - name: 운용사 한 곳만 멈췄으면 따로 알린다
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PARTIAL: ${{ steps.age.outputs.partial }}
+          PARTIAL_DETAIL: ${{ steps.age.outputs.partial_detail }}
+        run: |
+          set -euo pipefail
+          # 왜 이슈를 따로 두나: 전체 정지와 원인이 다르다. 전체는 트리거·배포 문제이고,
+          # 한 곳만 멈추는 것은 그 운용사 사이트가 바뀌어 파서가 깨진 것이다(2026-09-20 RISE).
+          TITLE='⚠️ 운용사 한 곳의 분배 데이터가 멈춤 (파서 점검 필요)'
+          OPEN=$(gh issue list --state open --search "$TITLE in:title" --json number --jq '.[0].number // empty')
+
+          if [ -z "${PARTIAL:-}" ]; then
+            if [ -n "$OPEN" ]; then
+              gh issue close "$OPEN" --comment "✅ 여섯 곳 모두 정상으로 돌아왔습니다."
+              echo "이슈 #$OPEN 닫음"
+            fi
+            exit 0
+          fi
+
+          echo "멈춘 곳: $PARTIAL"
+          if [ -n "$OPEN" ]; then
+            echo "이슈 #$OPEN 이 이미 열려 있음 — 새로 만들지 않음"
+            exit 0
+          fi
+
+          gh issue create --title "$TITLE" --body "**${PARTIAL_DETAIL}**
+
+          여섯 곳 중 일부만 갱신이 멈췄습니다. 나머지가 돌고 있으므로 전체 정지 감시에는 안 잡힙니다.
+
+          ## 흔한 원인
+
+          그 운용사 홈페이지가 개편되어 파서가 찾던 표시(링크 형식·클래스 이름)가 사라진 경우입니다.
+          2026-09-20 에 RISE 가 \`riseetf.co.kr\` 에서 \`kbam.co.kr\` 로 통합되며 그렇게 되었습니다.
+
+          ## 확인 방법
+
+          \`probe\` 워크플로로 \`getDistribution\` 을 해당 운용사에 대해 쳐 보고, 0건이거나 오류면
+          \`Code.gs\` 의 그 운용사 파서를 본다. 목록 페이지를 직접 받아 파서가 쓰는 표시가 아직 있는지
+          확인하는 것이 제일 빠르다.
 
           <sub>backend-health 워크플로가 자동으로 만든 이슈입니다. 정상으로 돌아오면 자동으로 닫힙니다.</sub>"
           echo "이슈 생성됨"

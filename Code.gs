@@ -781,13 +781,10 @@ function getEtfNotices(source) {
       const json = fetchAceApi('https://papi.aceetf.co.kr/api/notices?categoryNo=61&page=1&searchValue=');
       (json.data || []).slice(0, NOTICE_MAX).forEach(n => items.push({ title: n.title || '', date: (n.regDate || '').replace(/-/g, '.'), url: 'https://www.aceetf.co.kr/cs/notice/' + n.id }));
     } else if (source === 'rise') {
-      const html = UrlFetchApp.fetch('https://www.riseetf.co.kr/cust/notice?searchText=%EB%B6%84%EB%B0%B0%EA%B8%88&searchType4=tab', { muteHttpExceptions: true }).getContentText('UTF-8');
-      html.split('<li class=').slice(1).forEach(block => {
+      _riseNotices().forEach(n => {
         if (items.length >= NOTICE_MAX) return;
-        const idM = block.match(/href="(\/cust\/notice\/\d+)/);
-        const titleM = block.match(/class="body01">([\s\S]*?)<\/p>/);
-        const dateM = block.match(/class="body02">\s*([\d.]+)/);
-        if (idM && titleM && NOTICE_KEEP_RE.test(titleM[1])) items.push({ title: titleM[1].replace(/<[^>]+>/g, '').trim(), date: dateM ? dateM[1].trim() : '', url: 'https://www.riseetf.co.kr' + idM[1] });
+        if (!NOTICE_KEEP_RE.test(n.title)) return;
+        items.push({ title: n.title, date: n.date, url: 'https://kbam.co.kr/support/notice/' + n.id });
       });
     } else if (source === 'sol') {
       // SOL은 홈페이지가 아니라 네이버 블로그에 분배금 공지를 올린다(홈페이지는 늦거나 누락).
@@ -2158,30 +2155,44 @@ function fetchDist_plus() {
   }
 }
 
+// RISE(KB자산운용) 공지 목록 [{id, title, date:'yyyy.MM.dd'}] — 최신순.
+// 2026-09-20: riseetf.co.kr 이 kbam.co.kr 로 통합되면서 옛 목록 주소(/cust/notice)와 마크업
+// (href="/cust/notice/<id>", class="body01")이 **전부 사라졌다**. 새 사이트는 Next.js 라 목록 HTML 에
+// 글 번호가 없고 클릭해야 /support/notice/<id> 로 간다. 다만 요청에 `RSC: 1` 헤더를 붙이면
+// 서버가 목록을 JSON 조각으로 돌려주고 거기에 번호가 있다(빌드 토큰 _rsc 는 필요 없다).
+// category/1 = 분배금 게시판.
+function _riseNotices() {
+  const res = UrlFetchApp.fetch('https://kbam.co.kr/support/notice/category/1', {
+    muteHttpExceptions: true, headers: { 'RSC': '1', 'User-Agent': 'Mozilla/5.0' }
+  });
+  if (res.getResponseCode() !== 200) return [];
+  const body = res.getContentText('UTF-8');
+  const re = /"id":(\d+),"category":\{"id":\d+,"name":"[^"]*"\},"title":"([^"]*)"[^{]*?"created_at":"(\d{4})-(\d{2})-(\d{2})/g;
+  const out = [];
+  let m;
+  while ((m = re.exec(body))) {
+    out.push({ id: parseInt(m[1]), title: m[2], date: m[3] + '.' + m[4] + '.' + m[5],
+               pubMon: parseInt(m[4]), pubDay: parseInt(m[5]) });
+  }
+  // 옛 사이트에서 옮겨오며 번호가 뒤섞였다(167 다음이 828). 번호 말고 **날짜**로 정렬한다.
+  out.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id));
+  return out;
+}
+
 function fetchDist_rise() {
   try {
-    const listHtml = UrlFetchApp.fetch('https://www.riseetf.co.kr/cust/notice?searchText=%EB%B6%84%EB%B0%B0%EA%B8%88&searchType4=tab', { muteHttpExceptions: true }).getContentText('UTF-8');
-    const liBlocks = listHtml.split('<li').slice(1);
     const cands = [];
-    for (const block of liBlocks) {
-      const idM = block.match(/href="(\/cust\/notice\/(\d+))/);
-      const titleM = block.match(/class="body01">([\s\S]*?)<\/p>/);
-      const dateM = block.match(/(\d{4})[.\-](\d{2})[.\-](\d{2})/);
-      if (idM && titleM) {
-        const title = titleM[1].replace(/<[^>]+>/g,'').trim();
-        if (title.includes('분배금')) {
-          // 제목으로 월중/월말 구분: "6월 말"=월말, "중순"=월중, "초"=비정기(제외)
-          let cycle = null;
-          const monM = title.match(/(\d{1,2})월/);
-          if (/말/.test(title)) cycle = '월말';
-          else if (/중순|중/.test(title)) cycle = '월중';
-          cands.push({ id: parseInt(idM[2]), title, url: idM[1], cycle,
-            mon: monM ? parseInt(monM[1]) : 0,
-            pubMon: dateM ? parseInt(dateM[2]) : 0, pubDay: dateM ? parseInt(dateM[3]) : 0 });
-        }
-      }
-    }
-    cands.sort((a,b) => b.id - a.id);
+    _riseNotices().forEach(n => {
+      const title = n.title.replace(/<[^>]+>/g,'').trim();
+      if (!title.includes('분배금')) return;
+      // 제목으로 월중/월말 구분: "6월 말"=월말, "중순"=월중, "초"=비정기(제외)
+      let cycle = null;
+      const monM = title.match(/(\d{1,2})월/);
+      if (/말/.test(title)) cycle = '월말';
+      else if (/중순|중/.test(title)) cycle = '월중';
+      cands.push({ id: n.id, title, url: '/support/notice/' + n.id, cycle,
+        mon: monM ? parseInt(monM[1]) : 0, pubMon: n.pubMon, pubDay: n.pubDay });
+    });
     // 최신 월의 월중/월말 각 1건
     const dated = cands.filter(c => c.cycle && c.mon);
     if (!dated.length) return { items: [], error: 'RISE: 월중/월말 공지 미발견' };
@@ -2190,7 +2201,7 @@ function fetchDist_rise() {
     const endE = dated.find(c => c.cycle === '월말');
 
     const parseRiseNotice = (entry) => {
-      const html = UrlFetchApp.fetch('https://www.riseetf.co.kr' + entry.url, { muteHttpExceptions: true }).getContentText('UTF-8');
+      const html = UrlFetchApp.fetch('https://kbam.co.kr' + entry.url, { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } }).getContentText('UTF-8');
       const text = html.replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' ').replace(/\s+/g,' ');
       // 일정: 텍스트로 명시 ("지급기준일 : 2026년 6월 30일")
       const sched = {};
@@ -2666,7 +2677,7 @@ const ISSUER_NOTICE_URL = {
   tiger: 'https://investments.miraeasset.com/tigeretf/ko/customer/notice/list.do',
   ace:   'https://www.aceetf.co.kr/cs/notice',
   plus:  'https://www.plusetf.co.kr/customer/notice/list',
-  rise:  'https://www.riseetf.co.kr/cust/notice',
+  rise:  'https://kbam.co.kr/support/notice/category/1',
   sol:   'https://blog.naver.com/soletf'
 };
 

@@ -18,6 +18,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.request
 
 API = ('https://script.google.com/macros/s/'
@@ -60,14 +61,29 @@ def parse_saved_at(v):
                              int(m.group(4)), int(m.group(5)), int(m.group(6)), tzinfo=tz)
 
 
-def fetch_saved_ats():
-    """운용사별 savedAt 목록. 접속 실패는 예외로 올린다."""
+# 한 곳만 멈춘 것을 '멈췄다'고 부르기까지의 시간. 공지창이 아닌 날에도 새벽 5시에 하루 한 번은
+# 돌므로 이틀(=두 번 연속 실패)이면 그 운용사 파서가 깨진 것으로 본다.
+PARTIAL_LIMIT_HOURS = 48
+
+
+def fetch_sources():
+    """운용사 이름 → savedAt. 접속 실패는 예외로 올린다."""
     mock = os.environ.get('MOCK_SAVED_AT')
     if mock:                                    # 로컬 테스트용 — 워크플로에서는 설정하지 않는다
-        return [mock] * 6
-    raw = urllib.request.urlopen(API + '?action=getDistributionAll', timeout=120).read()
-    src = (json.loads(raw) or {}).get('sources') or {}
-    return sorted(v.get('savedAt') for v in src.values() if v.get('savedAt'))
+        return {name: mock for name in ('kodex', 'tiger', 'ace', 'plus', 'rise', 'sol')}
+    # /exec 는 script.googleusercontent.com 으로 넘어가 응답을 돌려주는데 이 구간이 간헐적으로
+    # 깨진다(404). 한 번 실패를 '백엔드 정지'로 오해해 헛이슈를 열지 않도록 세 번 친다.
+    last = None
+    for attempt in range(3):
+        try:
+            raw = urllib.request.urlopen(API + '?action=getDistributionAll', timeout=120).read()
+            src = (json.loads(raw) or {}).get('sources') or {}
+            return {k: v.get('savedAt') for k, v in src.items() if isinstance(v, dict)}
+        except Exception as e:
+            last = e
+            if attempt < 2:
+                time.sleep(5 * (attempt + 1))
+    raise last
 
 
 def main():
@@ -76,11 +92,12 @@ def main():
     out = {'limit': limit}
 
     try:
-        times = fetch_saved_ats()
+        sources = fetch_sources()
     except Exception as e:                      # 접속 자체가 안 되는 것도 '정지'다
         out['status'] = 'unreachable'
         out['detail'] = '백엔드에 접속할 수 없습니다 — %s' % str(e)[:200].replace('\n', ' ')
     else:
+        times = [v for v in sources.values() if v]
         saved = max(filter(None, (parse_saved_at(t) for t in times)), default=None)
         if not saved:
             out['status'] = 'nodata'
@@ -92,6 +109,24 @@ def main():
             out['hours'] = hours
             out['detail'] = ('마지막 갱신 %s (%d시간 전) · 기준 %d시간 · 운용사 %d곳'
                              % (last, hours, limit, len(times)))
+
+        # ── 운용사 한 곳만 멈춘 경우 ──
+        # 2026-09-20: 위 판정은 여섯 곳 중 **가장 최신** 시각만 본다(max). 그래서 RISE 한 곳이
+        # 나흘 멈춰 있어도 나머지가 돌면 'ok' 가 나왔고, 사용자가 화면을 보고 알려줄 때까지
+        # 아무도 몰랐다. 운용사 사이트가 개편되면(그날 RISE 가 kbam.co.kr 로 옮겼다) 그 한 곳만
+        # 조용히 죽는다 — 전체 정지보다 이쪽이 훨씬 흔하다.
+        dead = []
+        for name in sorted(sources):
+            t = parse_saved_at(sources.get(name))
+            if not t:
+                dead.append('%s(시각없음)' % name)
+                continue
+            age = int((now - t).total_seconds() // 3600)
+            if age >= PARTIAL_LIMIT_HOURS:
+                dead.append('%s(%d시간)' % (name, age))
+        out['partial'] = ','.join(dead)
+        out['partial_detail'] = (('%d곳이 %d시간 넘게 멈췄습니다 — %s'
+                                  % (len(dead), PARTIAL_LIMIT_HOURS, ' '.join(dead))) if dead else '')
 
     dest = os.environ.get('GITHUB_OUTPUT')
     lines = ['%s=%s' % (k, v) for k, v in out.items()]
