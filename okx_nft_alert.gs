@@ -3,7 +3,7 @@
  *
  * puuvillasociety / puuvilla-fashionista (Kaia) 두 컬렉션을 30분마다 확인해,
  * Legendary·Mystic 매물이 새로 올라오거나, 가격이 내려가거나, 목록에서 사라지면
- * (= 팔렸거나 판매자가 내림) 'OKX NFT' 캘린더에 일정을 만들고 팝업 알림을 띄운다.
+ * (= 팔렸거나 판매자가 내림) 구글 캘린더에 일정을 만들고 팝업 알림을 띄운다.
  *
  * 설계 문서: docs/superpowers/specs/2026-08-08-okx-nft-legendary-alert-design.md
  *
@@ -18,7 +18,8 @@ var COLLECTIONS = [
   { label: 'Fashionista', projectId: 2289945 }
 ];
 var TARGET_RARITY   = ['Legendary', 'Mystic'];
-var CALENDAR_NAME   = 'OKX NFT';
+// 빈 칸 = 기본 달력. 보조 달력은 폰에서 동기화가 꺼져 있으면 팝업이 조용히 안 온다(WORKLOG 173).
+var CALENDAR_NAME   = '';
 var FALLBACK_USDKRW = 1450;
 
 var MARKET_API = 'https://web3.okx.com/priapi/v1/nft/secondary/market';
@@ -207,11 +208,17 @@ function fetchUsdKrw_() {
 }
 
 // ── 캘린더 ──────────────────────────────────
+/**
+ * 이름을 적었는데 그런 달력이 없으면 **새로 만들지 않고** 기본 달력으로 간다.
+ * 새 보조 달력은 폰에서 기본이 꺼져 있어, 만들어 두면 알림이 조용히 안 온다 — 그게 제일 나쁘다.
+ */
 function getCalendar_() {
-  var found = CalendarApp.getCalendarsByName(CALENDAR_NAME);
-  if (found && found.length) return found[0];
-  Logger.log('캘린더 생성: ' + CALENDAR_NAME);
-  return CalendarApp.createCalendar(CALENDAR_NAME);
+  if (CALENDAR_NAME) {
+    var found = CalendarApp.getCalendarsByName(CALENDAR_NAME);
+    if (found && found.length) return found[0];
+    Logger.log('⚠ 캘린더 "' + CALENDAR_NAME + '"가 없다 — 기본 달력으로 보낸다');
+  }
+  return CalendarApp.getDefaultCalendar();
 }
 
 function createEvent_(cal, r, rate, isTest) {
@@ -305,7 +312,7 @@ function sendTestEvent() {
 
   var rate = fetchUsdKrw_();
   createEvent_(getCalendar_(), { label: bestLabel, x: best, before: null }, rate, true);
-  Logger.log('테스트 일정을 2분 뒤로 만들었다. 캘린더 앱에서 "' + CALENDAR_NAME + '" 동기화가 켜져 있어야 알림이 온다.');
+  Logger.log('테스트 일정을 2분 뒤로 ' + (CALENDAR_NAME || '기본') + ' 달력에 만들었다. 2분 뒤 폰을 볼 것.');
 }
 
 /** 저장된 상태를 지운다. 다음 checkOnce()는 알림 없이 다시 시드한다. */
