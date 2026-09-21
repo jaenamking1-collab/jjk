@@ -1481,7 +1481,8 @@ function renderAccountStats(allHoldings, allDivs, sheet, allDivsFull) {
     const h = state.holdings.filter(x => x.account_id === a.id);
     totalHoldings += h.length;
 
-    const { invest, value, investDom, valueDom, investOvs, valueOvs } = acctInvestValue(h, priceMap);
+    const { invest, value, investDom, valueDom, investOvs, valueOvs,
+            noPrice, noPriceDom, noPriceOvs } = acctInvestValue(h, priceMap);
 
     const hIds = h.map(x => x.id);
     const acctDivs = state.dividends.filter(d => hIds.includes(d.holding_id));
@@ -1498,19 +1499,21 @@ function renderAccountStats(allHoldings, allDivs, sheet, allDivsFull) {
     // 사용자 요청(2026-09-21): "합계 국내 해외 이렇게". 증권사가 국내/해외를 다른 화면에
     // 두므로 우리도 줄을 나눠야 대조가 된다. **비율은 그 줄의 투자금으로 나눈다** —
     // 해외 분배율을 전체 투자금으로 나누면 뜻이 없는 숫자가 된다.
-    const fillRow = (sfx, iv, vv, dv, pj) => {
+    // 시세를 못 받은 종목이 있으면 평가금액 밑에 밝힌다. **회색이 맞는 자리다** — 값이 없다는 뜻이니까.
+    const noteNo = n => n > 0 ? `<div style="font-size:10px;color:var(--text3);line-height:1.3">시세없음 ${n}종목</div>` : '';
+    const fillRow = (sfx, iv, vv, dv, pj, np) => {
       const p = vv - iv;
       const pPct = iv > 0 ? (p/iv*100).toFixed(1) : '0';
       const dr = iv > 0 && dv > 0 ? (dv/iv*100).toFixed(2) : null;
       const yr = iv > 0 && pj > 0 ? (pj/iv*100).toFixed(2) : null;
       set(`ac-val-${a.id}${sfx}`, iv ? fmt(iv) : '-');
-      set(`ac-cur-${a.id}${sfx}`, vv ? fmt(vv) : '-');
+      set(`ac-cur-${a.id}${sfx}`, vv ? fmt(vv) + noteNo(np) : '-');
       set(`ac-pl-${a.id}${sfx}`, iv ? `<span style="color:${p>=0?'var(--red)':'var(--accent)'}">${p>=0?'+':''}${fmt(p)}<br><span style="font-size:9px">(${Number(pPct)>=0?'+':''}${pPct}%)</span></span>` : '-');
       set(`ac-div-${a.id}${sfx}`, dv ? fmt(dv) : '-');
       set(`ac-drt-${a.id}${sfx}`, dr ? dr+'%' : '-');
       set(`ac-yrt-${a.id}${sfx}`, yr ? yr+'%' : '-');
     };
-    fillRow('', invest, value, div, divProj);
+    fillRow('', invest, value, div, divProj, noPrice);
 
     // 해외가 섞인 계좌만 국내/해외 줄을 켠다 — 국내뿐인 계좌에선 같은 값이 두 번 나올 뿐이다.
     const hasOvs = h.some(x => x.currency === 'USD');
@@ -1526,7 +1529,8 @@ function renderAccountStats(allHoldings, allDivs, sheet, allDivsFull) {
         const sDiv = acctDivs.reduce((t, d) => ((curById[d.holding_id] === 'USD') === want)
           ? t + divKrwOf(parseFloat(d.amount)||0, d.currency, d.rate, er2) : t, 0);
         const sProj = h.reduce((t, x) => ((x.currency === 'USD') === want) ? t + (projMap[x.id] || 0) : t, 0);
-        fillRow('-' + sd, want ? investOvs : investDom, want ? valueOvs : valueDom, sDiv, sProj);
+        fillRow('-' + sd, want ? investOvs : investDom, want ? valueOvs : valueDom, sDiv, sProj,
+                want ? noPriceOvs : noPriceDom);
       });
     }
 
@@ -3923,16 +3927,21 @@ function showTab(name) {
 function acctInvestValue(hs, priceMap) {
   const toKrw = (v, cur) => cur === 'USD' ? v * (state.exchangeRate || 1400) : v;
   let invest = 0, value = 0, investDom = 0, valueDom = 0, investOvs = 0, valueOvs = 0;
+  let noPrice = 0, noPriceDom = 0, noPriceOvs = 0;
   (hs || []).forEach(x => {
     const qty = parseFloat(x.quantity) || 0, avg = parseFloat(x.avg_price) || 0;
     const cur = priceMap[(x.ticker || '').toString().trim().toUpperCase()];
     const iv = toKrw(avg * qty, x.currency);
     const vv = toKrw((cur || avg) * qty, x.currency);
     invest += iv; value += vv;
+    // ⛔ 현재가가 없으면 위에서 **매수평균가로 대신 계산**한다. 그러면 그 종목은 손익 0 —
+    // 화면엔 '본전'으로 보인다. 못 받은 것을 본전이라고 말하는 셈이라, 몇 종목이 그런지
+    // 세어 화면에 밝힌다(2026-09-21). m.html 은 진작부터 종목별로 '(시세없음)'을 달고 있었다.
+    if (!cur && qty > 0) { noPrice++; if (x.currency === 'USD') noPriceOvs++; else noPriceDom++; }
     if (x.currency === 'USD') { investOvs += iv; valueOvs += vv; }
     else                      { investDom += iv; valueDom += vv; }
   });
-  return { invest, value, investDom, valueDom, investOvs, valueOvs };
+  return { invest, value, investDom, valueDom, investOvs, valueOvs, noPrice, noPriceDom, noPriceOvs };
 }
 
 // ── 계좌 성적표 ─────────────────────────────
