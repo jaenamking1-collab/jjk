@@ -2,8 +2,8 @@
  * OKX NFT — Legendary/Mystic 리스팅 알림
  *
  * puuvillasociety / puuvilla-fashionista (Kaia) 두 컬렉션을 30분마다 확인해,
- * Legendary·Mystic 매물이 새로 올라오거나 가격이 내려가면 'OKX NFT' 캘린더에
- * 일정을 만들고 팝업 알림을 띄운다.
+ * Legendary·Mystic 매물이 새로 올라오거나, 가격이 내려가거나, 목록에서 사라지면
+ * (= 팔렸거나 판매자가 내림) 'OKX NFT' 캘린더에 일정을 만들고 팝업 알림을 띄운다.
  *
  * 설계 문서: docs/superpowers/specs/2026-08-08-okx-nft-legendary-alert-design.md
  *
@@ -37,12 +37,13 @@ function checkOnce() {
       var list = fetchListings_(col.projectId);
       if (!list) { Logger.log(col.label + ': 응답 실패 — 이번 회차 건너뜀 (상태 유지)'); return; }
 
-      var cur = {}, items = [], onSale = 0;
+      var cur = {}, items = [], onSale = 0, listed = {};
       list.forEach(function (it) {
-        if (it.sale && it.sale.price > 0) onSale++;
+        if (it.sale && it.sale.price > 0) { onSale++; listed[String(it.tokenId)] = 1; }
         var x = extract_(it);
         if (!x || TARGET_RARITY.indexOf(x.rarity) < 0) return;
-        cur[x.tokenId] = { p: x.price, c: x.currency };
+        // 사라진 뒤엔 응답에 없으므로, 알림에 쓸 정보를 지금 같이 저장해 둔다.
+        cur[x.tokenId] = { p: x.price, c: x.currency, r: x.rarity, u: x.url, d: x.usd };
         items.push(x);
       });
       if (onSale > 0 && !hasAnyRarity_(list)) {
@@ -63,6 +64,14 @@ function checkOnce() {
         if (!b || b.c !== x.currency)  rows.push({ label: col.label, x: x, before: null });
         else if (x.price < b.p)        rows.push({ label: col.label, x: x, before: b.p });
       });
+      // 있던 매물이 사라졌다 = 팔렸거나 판매자가 내렸다. 둘은 이 API로 구별되지 않는다.
+      // `listed`로 한 번 더 거르는 이유: 아직 판매중인데 Rarity만 못 읽은 회차에
+      // 가짜 '사라짐'이 나가는 것을 막는다.
+      Object.keys(prev).forEach(function (id) {
+        if (cur[id] || listed[id]) return;
+        rows.push({ label: col.label, x: goneItem_(id, prev[id]), before: null, gone: true });
+      });
+
       pending.push({ key: key, json: JSON.stringify(cur) });
       Logger.log(col.label + ': 대상 ' + items.length + '건 / 판매중 ' + onSale + '건');
 
@@ -84,7 +93,8 @@ function checkOnce() {
 
 // ── OKX ──────────────────────────────────
 /**
- * 판매 등록된 매물을 전부 가져온다. 한 건이라도 못 받으면 null (그 회차는 통째로 건너뛴다).
+ * 판매 등록된 매물을 전부 가져온다. 한 건이라도 못 받거나 목록을 다 못 보면 null
+ * (그 회차는 통째로 건너뛴다 — 덜 본 목록으로 상태를 갱신하면 못 본 매물이 '사라진' 게 된다).
  *
  * makeOrderTimeDesc 정렬은 판매중 항목을 앞에 몰아서 준다(실측: 42건 연속 뒤 미판매).
  * 그래서 미판매가 섞인 페이지가 나오면 리스팅을 다 본 것이라 거기서 멈춘다.
@@ -102,8 +112,8 @@ function fetchListings_(projectId) {
     if (sawUnlisted || d.list.length < PAGE_SIZE || !d.cursor) return all;
     cursor = d.cursor;
   }
-  Logger.log('⚠ project ' + projectId + ': ' + MAX_PAGES + '페이지를 넘겼다 — 리스팅 일부를 못 봤을 수 있다');
-  return all;
+  Logger.log('⚠ project ' + projectId + ': ' + MAX_PAGES + '페이지를 넘겼다 — 목록을 다 못 봤다. 이번 회차 건너뜀');
+  return null;
 }
 
 function fetchPage_(projectId, pageNum, cursor) {
@@ -144,6 +154,23 @@ function extract_(it) {
     listedAt: s.lastTime,
     project:  it.projectName,
     url:      ASSET_URL + it.contractAddress + '/' + it.tokenId
+  };
+}
+
+/**
+ * 사라진 매물은 응답에 없다. 마지막으로 저장해 둔 상태(`cur`에 넣어둔 값)로 표시 정보를 만든다.
+ * 이 기능 이전에 저장된 상태에는 r·u·d가 없어 등급이 '?'로 나오는데, 다음 회차에 저절로 채워진다.
+ */
+function goneItem_(tokenId, b) {
+  return {
+    tokenId:  tokenId,
+    rarity:   b.r || '?',
+    price:    b.p,
+    currency: b.c,
+    usd:      b.d,
+    url:      b.u || '',
+    project:  '',
+    listedAt: 0
   };
 }
 
@@ -188,29 +215,32 @@ function getCalendar_() {
 }
 
 function createEvent_(cal, r, rate, isTest) {
-  var x    = r.x;
-  var krw  = x.usd * rate.value;
-  var isNew = (r.before === null);
+  var x      = r.x;
+  var isGone = !!r.gone;
+  var isNew  = (!isGone && r.before === null);
+  var hasUsd = Number(x.usd) > 0;          // 옛 상태에서 되살린 '사라짐'은 달러가 없을 수 있다
+  var krw    = hasUsd ? x.usd * rate.value : 0;
 
-  var title = (isTest ? '🧪 테스트 · ' : (isNew ? '🆕 ' : '🔻 '))
+  var title = (isTest ? '🧪 테스트 · ' : isGone ? '💰 ' : isNew ? '🆕 ' : '🔻 ')
             + '[' + r.label + '] ' + x.rarity + ' #' + x.tokenId
-            + ' · ' + num_(x.price) + ' ' + x.currency + (isNew ? '' : ' ↓' + num_(r.before))
-            + ' · $' + num_(x.usd)
-            + ' · ' + krwShort_(krw);
+            + (isGone ? ' 사라짐' : '')
+            + ' · ' + num_(x.price) + ' ' + x.currency + (isNew || isGone ? '' : ' ↓' + num_(r.before))
+            + (hasUsd ? ' · $' + num_(x.usd) + ' · ' + krwShort_(krw) : '');
 
   var desc = [
-    '컬렉션: ' + x.project,
+    '컬렉션: ' + (x.project || r.label),
     '등급:   ' + x.rarity,
-    '가격:   ' + num_(x.price) + ' ' + x.currency,
-    '달러:   $' + num_(x.usd),
-    '원화:   ' + num_(krw) + '원  (환율 ' + rate.value.toFixed(2) + (rate.estimated ? ', 추정치' : '') + ')',
+    (isGone ? '마지막가: ' : '가격:   ') + num_(x.price) + ' ' + x.currency,
+    hasUsd ? '달러:   $' + num_(x.usd) : '',
+    hasUsd ? '원화:   ' + num_(krw) + '원  (환율 ' + rate.value.toFixed(2) + (rate.estimated ? ', 추정치' : '') + ')' : '',
     '구분:   ' + (isTest ? '테스트 발송 — 실제 알림이 아닙니다'
+                : isGone ? '목록에서 사라짐 — 팔렸거나 판매자가 내린 것 (OKX 목록만으로는 구별되지 않는다)'
                 : isNew  ? '신규 리스팅'
                          : '가격 인하 ' + num_(r.before) + ' → ' + num_(x.price) + ' ' + x.currency),
-    '리스팅: ' + Utilities.formatDate(new Date(x.listedAt), 'Asia/Seoul', 'yyyy-MM-dd HH:mm'),
+    x.listedAt ? '리스팅: ' + Utilities.formatDate(new Date(x.listedAt), 'Asia/Seoul', 'yyyy-MM-dd HH:mm') : '',
     '',
     x.url
-  ].join('\n');
+  ].filter(function (line) { return line !== ''; }).join('\n');
 
   // 시작을 정확히 '지금'으로 두면 팝업이 발화하지 않을 수 있어 2분 여유를 둔다.
   var start = new Date(Date.now() + 2 * 60 * 1000);
