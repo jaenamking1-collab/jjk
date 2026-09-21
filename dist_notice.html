@@ -123,6 +123,9 @@
   .cal-chip .chip-min{display:none;}
   .cal-evt{margin-top:3px; font-size:11px; font-weight:700; text-align:center; padding:2px 0; border-radius:4px;}
   .cal-evt .lbl-short{display:none;}
+  /* 예정 안내 줄 — 노란 점선 칸의 뜻. 확정과 헷갈리면 안 되므로 폭 전체에 눈에 띄게 둔다. */
+  .cal-plan-note{font-size:11px; line-height:1.45; color:#92400e; background:#fffbeb;
+    border:1px dashed #f59e0b; border-radius:8px; padding:6px 9px; margin-bottom:8px;}
   .cal-companies{display:none; flex-wrap:wrap; gap:3px 10px; justify-content:center; margin-bottom:6px; font-size:10px; color:var(--text2);}
   .cal-co{display:flex; align-items:center; gap:3px;}
   .co-chip{display:inline-flex; align-items:center; justify-content:center; padding:0 3px; height:13px; border-radius:2px; color:#fff; font-size:8px; font-weight:700;}
@@ -503,6 +506,31 @@ function renderMasterCalendar(allData){
     while (dt.getDay() === 0 || dt.getDay() === 6 || HOLIDAYS[`${dt.getFullYear()}-${dt.getMonth() + 1}-${dt.getDate()}`]);
     return { m: dt.getMonth() + 1, d: dt.getDate() };
   };
+  // ── 아무도 공시 안 한 회차의 일정을 '달력만으로' 계산한다 ──
+  // 2026-09-21 에 3회차(8월중·8월말·9월중) × 6개사를 실측해 뽑은 규칙이고 예외가 0건이었다:
+  //   기준일   = 월중 15일 / 월말 말일, 휴장일이면 **직전** 영업일 (8/15 토 → 8/14 금)
+  //   분배락일 = 기준일 직전 영업일
+  //   지급일   = 기준일 +2영업일 (SOL 만 +1 인데, 하루 차이라 대표값은 +2 로 둔다)
+  // ⛔ **공시일은 만들지 않는다.** 8월엔 사흘(8/10~8/12), 9월엔 닷새(9/10~9/14) 폭으로 흩어져
+  //    규칙이 없다. RISE 는 9월에 기준일 하루 전에 냈다. 모르는 건 모르는 채로 둔다.
+  // ⚠️ 화면에서만 만든다 — 분배캐시에 쓰면 워치독·이력이 계산값을 실제 공시로 취급한다.
+  const isOffDay = dt => dt.getDay() === 0 || dt.getDay() === 6
+    || !!HOLIDAYS[`${dt.getFullYear()}-${dt.getMonth() + 1}-${dt.getDate()}`];
+  const addBizDays = (dt, n) => {
+    const d = new Date(dt);
+    while (n > 0) { d.setDate(d.getDate() + 1); if (!isOffDay(d)) n--; }
+    return d;
+  };
+  const fmtMD = dt => (dt.getMonth() + 1) + '월 ' + dt.getDate() + '일';
+  const predictSched = () => {
+    const lastDay = new Date(year, month, 0).getDate();      // 이 달 말일
+    const baseDay = now.getDate() <= 20 ? 15 : lastDay;      // 월중 / 월말
+    const base = new Date(year, month - 1, baseDay);
+    while (isOffDay(base)) base.setDate(base.getDate() - 1); // 휴장이면 직전 영업일
+    const ex = new Date(base); do { ex.setDate(ex.getDate() - 1); } while (isOffDay(ex));
+    return { '기준일': fmtMD(base), '분배락일': fmtMD(ex), '지급일': fmtMD(addBizDays(base, 2)) };
+  };
+
   const fillRakil = (sched, repSched) => {
     if (!sched) return sched;
     if (!sched['공시일'] && repSched && repSched['공시일']) sched['공시일'] = repSched['공시일'];
@@ -559,11 +587,14 @@ function renderMasterCalendar(allData){
   // SOL은 블로그에 늦게 올려서 그 달 월말이 통째로 비어 보이는데, 실제로는 거의 확실히 같은 날이다.
   // ⚠️ 화면에서만 만든다 — 분배캐시에 쓰면 워치독·이력 병합이 **만들어낸 날짜를 실제 공시로** 취급한다.
   // 과반(6곳 중 3곳 이상)이 같은 날일 때만 만든다. 회차 초반이라 아무도 안 냈으면 예정도 안 만든다.
+  // 과반이 모이면 그 합의를, 아직 아무도(또는 1~2곳만) 안 냈으면 달력 계산값을 쓴다.
+  // 둘 다 uncertain(=`?`, 예정 색)으로 그려진다 — 실제 공시가 오면 그 값으로 덮인다.
   const roundBest = Object.keys(roundTally).map(k => roundTally[k]).sort((a, b) => b.n - a.n)[0];
-  if (roundBest && roundBest.n >= 3) {
+  const planSch = (roundBest && roundBest.n >= 3) ? roundBest.sch : predictSched();
+  if (planSch) {
     allData.forEach(c => {
       if (!c.name || roundBySource[c.name]) return;
-      addAll(c, roundBest.sch, null, true);
+      addAll(c, planSch, null, true);
     });
   }
 
@@ -595,8 +626,15 @@ function renderMasterCalendar(allData){
     const hol = HOLIDAYS[`${y}-${m}-${d}`];
     const isToday = m === month && d === today;
     const weekendBg = dow === 0 ? 'background:#fef6f6;' : dow === 6 ? 'background:#f5f8ff;' : '';
-    const bg = isToday ? 'background:#eff6ff;' : ms.length ? 'background:var(--bg3);' : weekendBg;
-    const border = isToday ? 'border:2px solid #3b82f6;' : 'border:1px solid var(--border);';
+    // 그 날에 찍힌 게 전부 예정(합의·계산)이면 셀 자체를 다르게 칠한다 — 확정과 한눈에 갈리게.
+    // 한 곳이라도 실제 공시가 있으면 보통 셀이고, 그 회사만 `?` 없이 나온다.
+    const allPlan = ms.length > 0 && ms.every(mk => mk.uncertain);
+    const bg = isToday ? 'background:#eff6ff;'
+      : allPlan ? 'background:#fffbeb;'
+      : ms.length ? 'background:var(--bg3);' : weekendBg;
+    const border = isToday ? 'border:2px solid #3b82f6;'
+      : allPlan ? 'border:1px dashed #f59e0b;'
+      : 'border:1px solid var(--border);';
     const dateColor = isToday ? '#2563eb' : (hol || dow === 0) ? '#dc2626' : dow === 6 ? '#2563eb' : 'var(--text)';
     const byLabel = {};
     ms.forEach(mk => {
@@ -642,6 +680,10 @@ function renderMasterCalendar(allData){
   const _isRak = l => l === '분배락일';
   const _isStd = l => l.indexOf('기준일') >= 0;
   const _isPay = l => /지급일$/.test(l) && l.indexOf('기준') < 0;
+  // 예정(합의·계산)이 화면에 하나라도 있으면 아래에 그 뜻을 적는다. 노란 점선 칸이 무엇인지
+  // 안 쓰면 보는 사람은 확정으로 읽는다 — 공개 페이지에서 그건 틀린 정보를 알리는 것과 같다.
+  const hasPlan = Object.keys(marks).some(k => marks[k].some(mk => mk.uncertain));
+
   const statusHtml = (() => {
     const rakToday = _pick(_isRak, _t0, _t0);
     const rakNext = _pick(_isRak, new Date(_t0.getTime() + 86400000));
@@ -655,15 +697,22 @@ function renderMasterCalendar(allData){
     const cut = prevBizDay(rak.q.m, rak.q.d);                 // 매수 마감 = 분배락 직전 영업일
     const std = _pick(_isStd, rak.dt), pay = _pick(_isPay, rak.dt);
     const tail = `${std ? ` · 기준일 <b>${_fmt(std.q)}</b>` : ''}${pay ? ` · 지급 <b>${_fmt(pay.q)}</b>` : ''}`;
-    if (rakToday) return `<b>오늘 ${_fmt(rak.q)} 분배락일</b> — 이 회차 매수는 <b>${_fmt(cut)}</b>로 마감됐습니다${tail}`;
+    // ⛔ 이 줄이 확정처럼 말하면 안 된다. 예정 회차가 달력에 생기면서 여기도 그 날짜를 집어
+    // '그날까지 사면 받습니다'라고 단정하게 됐다(2026-09-21). 그 회차의 마크가 전부 예정이면 밝힌다.
+    const _planOn = q => { const a = marks[`${q.m}-${q.d}`] || []; return a.length > 0 && a.every(mk => mk.uncertain); };
+    const plan = _planOn(rak.q);
+    const tag = plan ? ' <b style="color:#b45309">(예정)</b>' : '';
+    const why = plan ? ' · <span style="color:#b45309">아직 공시 전이라 달력으로 계산한 날짜입니다</span>' : '';
+    if (rakToday) return `<b>오늘 ${_fmt(rak.q)} 분배락일</b>${tag} — 이 회차 매수는 <b>${_fmt(cut)}</b>로 마감됐습니다${tail}${why}`;
     const dday = _days(_t0, _dt(cut));
-    if (dday < 0) return `이 회차 매수는 <b>${_fmt(cut)}</b>로 마감됐습니다 · 분배락 ${_fmt(rak.q)}${tail}`;
-    return `다음 매수 마감 <b>${_fmt(cut)}</b> ${dday === 0 ? '<b>오늘까지</b>' : `<b>D-${dday}</b>`} — 그날까지 사면 받습니다 · 분배락 ${_fmt(rak.q)}${tail}`;
+    if (dday < 0) return `이 회차 매수는 <b>${_fmt(cut)}</b>로 마감됐습니다${tag} · 분배락 ${_fmt(rak.q)}${tail}${why}`;
+    return `다음 매수 마감 <b>${_fmt(cut)}</b> ${dday === 0 ? '<b>오늘까지</b>' : `<b>D-${dday}</b>`}${tag} — 그날까지 사면 받습니다 · 분배락 ${_fmt(rak.q)}${tail}${why}`;
   })();
 
   const calHtml = `
     <div>
       ${statusHtml ? `<div class="cal-status">${statusHtml}</div>` : ''}
+      ${hasPlan ? `<div class="cal-plan-note">🟡 <b>노란 점선 칸</b>은 아직 공시 전이라 달력 규칙으로 계산한 <b>예정</b>입니다(회사 이름 뒤 <b>?</b>). 공시가 나오면 실제 날짜로 바뀝니다. <b>공시일은 예측하지 않습니다.</b></div>` : ''}
       <div class="cal-companies">
         ${DIST_SOURCES.map(s => `<span class="cal-co"><span class="co-chip" style="background:${s.color}">${s.name.slice(0,3)}</span>${s.name}</span>`).join('')}
       </div>
