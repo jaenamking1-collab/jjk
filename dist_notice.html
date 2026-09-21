@@ -124,8 +124,8 @@
   .cal-evt{margin-top:3px; font-size:11px; font-weight:700; text-align:center; padding:2px 0; border-radius:4px;}
   .cal-evt .lbl-short{display:none;}
   /* 예정 안내 줄 — 노란 점선 칸의 뜻. 확정과 헷갈리면 안 되므로 폭 전체에 눈에 띄게 둔다. */
-  .cal-plan-note{font-size:11px; line-height:1.45; color:#92400e; background:#fffbeb;
-    border:1px dashed #f59e0b; border-radius:8px; padding:6px 9px; margin-bottom:8px;}
+  .cal-plan-note{font-size:11px; line-height:1.45; color:#64748b; background:#f9fafb;
+    border:1px dashed #cbd5e1; border-radius:8px; padding:6px 9px; margin-bottom:8px;}
   .cal-companies{display:none; flex-wrap:wrap; gap:3px 10px; justify-content:center; margin-bottom:6px; font-size:10px; color:var(--text2);}
   .cal-co{display:flex; align-items:center; gap:3px;}
   .co-chip{display:inline-flex; align-items:center; justify-content:center; padding:0 3px; height:13px; border-radius:2px; color:#fff; font-size:8px; font-weight:700;}
@@ -630,10 +630,10 @@ function renderMasterCalendar(allData){
     // 한 곳이라도 실제 공시가 있으면 보통 셀이고, 그 회사만 `?` 없이 나온다.
     const allPlan = ms.length > 0 && ms.every(mk => mk.uncertain);
     const bg = isToday ? 'background:#eff6ff;'
-      : allPlan ? 'background:#fffbeb;'
+      : allPlan ? 'background:#f9fafb;'
       : ms.length ? 'background:var(--bg3);' : weekendBg;
     const border = isToday ? 'border:2px solid #3b82f6;'
-      : allPlan ? 'border:1px dashed #f59e0b;'
+      : allPlan ? 'border:1px dashed #cbd5e1;'
       : 'border:1px solid var(--border);';
     const dateColor = isToday ? '#2563eb' : (hol || dow === 0) ? '#dc2626' : dow === 6 ? '#2563eb' : 'var(--text)';
     const byLabel = {};
@@ -646,14 +646,19 @@ function renderMasterCalendar(allData){
       // 고정 슬롯: 윗줄 KODEX·TIGER·ACE / 아랫줄 PLUS·RISE·SOL, 없는 회사는 빈칸
       const bySource = {};
       g.sources.forEach(s => { bySource[s.name] = { color: s.color, uncertain: s.uncertain }; });
+      // ⛔ 예정은 **회색**으로 낮춘다. 회사색이 살아 있으면 확정값과 똑같이 읽힌다(2026-09-21 지적).
       const icons = DIST_SOURCES.map(s => { const b = bySource[s.name]; const q = b && b.uncertain ? '?' : '';
+        const chipStyle = b ? (b.uncertain ? 'background:#cbd5e1;color:#475569' : `background:${b.color}`) : '';
         return b
-        ? `<span class="cal-chip" style="background:${b.color}"><span class="chip-full">${s.name}${q}</span><span class="chip-min">${s.name.slice(0,3)}${q}</span></span>`
+        ? `<span class="cal-chip" style="${chipStyle}"><span class="chip-full">${s.name}${q}</span><span class="chip-min">${s.name.slice(0,3)}${q}</span></span>`
         : '<span class="cal-chip"></span>';
       }).join('');
+      const gPlan = g.sources.length > 0 && g.sources.every(x => x.uncertain);   // 이 라벨이 통째로 예정인가
+      const evtStyle = gPlan ? 'background:#e5e7eb;color:#64748b'
+                             : `background:${g.labelColor}1a;color:${g.labelText || g.labelColor}`;
       return `<div style="margin-top:4px">
         <div class="cal-icons">${icons}</div>
-        <div class="cal-evt" style="background:${g.labelColor}1a;color:${g.labelText || g.labelColor}"><span class="lbl-full">${label}</span><span class="lbl-short">${g.shortLabel || label}</span></div>
+        <div class="cal-evt" style="${evtStyle}"><span class="lbl-full">${label}</span><span class="lbl-short">${g.shortLabel || label}</span></div>
       </div>`;
     }).join('');
     return `<div class="cal-cell" style="${bg}${border}">
@@ -701,8 +706,8 @@ function renderMasterCalendar(allData){
     // '그날까지 사면 받습니다'라고 단정하게 됐다(2026-09-21). 그 회차의 마크가 전부 예정이면 밝힌다.
     const _planOn = q => { const a = marks[`${q.m}-${q.d}`] || []; return a.length > 0 && a.every(mk => mk.uncertain); };
     const plan = _planOn(rak.q);
-    const tag = plan ? ' <b style="color:#b45309">(예정)</b>' : '';
-    const why = plan ? ' · <span style="color:#b45309">아직 공시 전이라 달력으로 계산한 날짜입니다</span>' : '';
+    const tag = plan ? ' <b style="color:#64748b">(예정)</b>' : '';
+    const why = plan ? ' · <span style="color:#64748b">아직 공시 전이라 달력으로 계산한 날짜입니다</span>' : '';
     if (rakToday) return `<b>오늘 ${_fmt(rak.q)} 분배락일</b>${tag} — 이 회차 매수는 <b>${_fmt(cut)}</b>로 마감됐습니다${tail}${why}`;
     const dday = _days(_t0, _dt(cut));
     if (dday < 0) return `이 회차 매수는 <b>${_fmt(cut)}</b>로 마감됐습니다${tag} · 분배락 ${_fmt(rak.q)}${tail}${why}`;
@@ -712,7 +717,7 @@ function renderMasterCalendar(allData){
   const calHtml = `
     <div>
       ${statusHtml ? `<div class="cal-status">${statusHtml}</div>` : ''}
-      ${hasPlan ? `<div class="cal-plan-note">🟡 <b>노란 점선 칸</b>은 아직 공시 전이라 달력 규칙으로 계산한 <b>예정</b>입니다(회사 이름 뒤 <b>?</b>). 공시가 나오면 실제 날짜로 바뀝니다. <b>공시일은 예측하지 않습니다.</b></div>` : ''}
+      ${hasPlan ? `<div class="cal-plan-note">⬜ <b>회색 점선 칸</b>은 아직 공시 전이라 달력 규칙으로 계산한 <b>예정</b>입니다(회사 이름 뒤 <b>?</b>). 공시가 나오면 실제 날짜로 바뀝니다. <b>공시일은 예측하지 않습니다.</b></div>` : ''}
       <div class="cal-companies">
         ${DIST_SOURCES.map(s => `<span class="cal-co"><span class="co-chip" style="background:${s.color}">${s.name.slice(0,3)}</span>${s.name}</span>`).join('')}
       </div>
