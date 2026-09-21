@@ -2,7 +2,7 @@
  * XRP당 카이아 교환비율 알림
  *
  * 30분마다 코인게코가 중계하는 빗썸 시세로 XRP ÷ KAIA 비율을 재고,
- * 목표에 닿으면 '시세 알림' 캘린더에 일정을 만들어 폰 팝업을 띄운다.
+ * 목표에 닿으면 기본 캘린더에 일정을 만들어 폰 팝업을 띄운다.
  *
  * 왜 PC 위젯(tools/ticker.pyw)이 아니라 여기서 하나:
  *   위젯은 PC가 켜져 있을 때만 돈다. 밤사이 목표에 닿으면 아무도 못 본다.
@@ -14,8 +14,15 @@
  *   429 로 막는다(2026-09-21 실제로 첫 실행이 그렇게 실패했다).
  *   빗썸이 안 되면 코인게코로 넘어간다.
  *
- * ⚠ 이 파일은 별도 Apps Script 프로젝트의 사본이다. 여기서 고쳐도 반영되지 않는다 —
- *   Apps Script 편집기에 붙여넣어야 한다. (okx_nft_alert.gs 와 같은 규칙)
+ * 어느 달력에 넣나 — **기본 달력**이다. 처음엔 '시세 알림' 달력을 새로 만들어 넣었는데
+ *   일정은 멀쩡히 들어갔는데도 폰에 알림이 안 왔다(2026-09-21). 새로 만든 보조 달력은
+ *   휴대폰 구글 캘린더 앱에서 **기본이 꺼짐**이라 동기화 자체가 안 되고, 동기화가 안 되면
+ *   알림도 영영 안 온다. 같은 내용을 기본 달력에 넣어 보니 바로 왔다. 폰에서 토글 하나
+ *   켜면 되는 일이지만, 알림이 도착하느냐가 이 기능의 전부라 토글에 기대지 않는다.
+ *
+ * ⚠ 이 파일은 별도 Apps Script 프로젝트의 사본이다. 여기서 고치면 **clasp 로 올려야** 한다.
+ *   프로젝트: 17wPsWshNsGLGSeel9rqHvfCWyiAAWAfL0MUUrJAB5kkDv0PqMLKCcUds (XRP-카이아 비율 알림)
+ *   사용자에게 편집기 붙여넣기를 시키지 마라 (CLAUDE.md).
  *   포트폴리오 Code.gs 에 합치지 말 것. 실행 슬롯을 뺏어 앱이 멈춘다 (WORKLOG 85·86).
  */
 
@@ -24,7 +31,7 @@ var TARGET        = 50;        // 이 비율에 닿으면 알린다 (1 XRP = 50 
 var REARM_GAP     = 0.01;      // 목표보다 1% 아래로 내려가야 다시 무장한다(경계에서 떨리는 것 방지)
 var BASE_COIN     = 'ripple';  // 파는 것
 var QUOTE_COIN    = 'kaia';    // 사는 것
-var CALENDAR_NAME = '시세 알림';
+var CALENDAR_NAME = '';      // 빈 칸이면 기본 달력. 폰에서 반드시 켜져 있는 유일한 달력이다
 var SAMPLE_XRP    = 1000;      // 일정 본문에 "XRP 1,000개 → KAIA 몇 개"를 적는다
 
 var BITHUMB = 'https://api.bithumb.com/public/ticker/';   // 종목별. ALL_KRW 는 캐시를 타 값이 멎는다
@@ -117,10 +124,13 @@ function fromGecko_() {
 
 // ── 캘린더 ──────────────────────────────────
 function getCalendar_() {
+  if (!CALENDAR_NAME) return CalendarApp.getDefaultCalendar();
   var found = CalendarApp.getCalendarsByName(CALENDAR_NAME);
   if (found && found.length) return found[0];
-  Logger.log('캘린더 생성: ' + CALENDAR_NAME);
-  return CalendarApp.createCalendar(CALENDAR_NAME);
+  // 없는 달력 이름을 적어 놨으면 만들지 마라. 새로 만든 달력은 폰에서 꺼져 있어
+  // 알림이 안 온다(맨 위 설명). 조용히 안 오느니 기본 달력에 넣는 게 낫다.
+  Logger.log('달력 "' + CALENDAR_NAME + '" 이 없다. 기본 달력을 쓴다');
+  return CalendarApp.getDefaultCalendar();
 }
 
 function createEvent_(cal, ratio, p, isTest) {
