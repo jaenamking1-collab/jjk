@@ -322,9 +322,9 @@ function calcAccount(a, projMap) {
   let invest = 0, value = 0, proj = 0;
   let investDom = 0, valueDom = 0, investOvs = 0, valueOvs = 0;
   // 시세를 못 받은 종목 수 — 그 종목은 매수가로 계산돼 '본전'으로 보인다. 계좌 줄에서도 밝힌다.
-  let noPrice = 0;
+  const noPrice = [];
   hs.forEach(h => { const c = calcHolding(h); invest += c.invest; value += c.value; proj += (projMap[h.id] || 0);
-    if (!c.isLive && c.qty > 0) noPrice++;
+    if (!c.isLive && c.qty > 0) noPrice.push(h.name || h.ticker || '(이름없음)');
     if (h.currency === 'USD') { investOvs += c.invest; valueOvs += c.value; }
     else                      { investDom += c.invest; valueDom += c.value; } });
   const ids = hs.map(h => h.id);
@@ -418,7 +418,7 @@ function viewHome() {
       </button>
       ${isOpen ? `<div class="detail"><dl>
         <dt>총매입</dt><dd>${won(p.invest)}</dd>
-        <dt>평가금</dt><dd>${won(p.value)}${p.noPrice ? ` <span class="muted">(시세없음 ${p.noPrice}종목)</span>` : ''}</dd>
+        <dt>평가금</dt><dd>${won(p.value)}${p.noPrice.length ? ` <span class="muted">(시세없음: ${esc(p.noPrice.join(', '))})</span>` : ''}</dd>
         ${(p.valueDom > 0 && p.valueOvs > 0) ? `
         <dt>ㄴ 국내</dt><dd>${won(p.valueDom)} <span class="muted">(매입 ${won(p.investDom)})</span></dd>
         <dt>ㄴ 해외</dt><dd>${won(p.valueOvs)} <span class="muted">(매입 ${won(p.investOvs)})</span></dd>` : ''}
