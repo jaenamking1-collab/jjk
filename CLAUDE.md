@@ -77,6 +77,18 @@ There is **no build system, package manager, test suite, or lint config**. The f
          그 밖의 날엔 30시간 넘게 안 바뀌면 분배금공지 탭에 🚨 배너가 뜬다. 배너는 안전망이지
          예방책이 아니다 — 배포 직후에 `maint` 를 돌려라.
     공개 분배금공지 페이지가 같은 `/exec` URL을 쓴다. 기존 액션의 응답 계약을 바꾸는 배포라면 먼저 알린다(액션 추가처럼 덧붙이기만 하는 변경은 그냥 배포한다).
+  - ⛔ **버전 200개가 상한이고, 넘으면 `clasp deploy` 가 통째로 막힌다** (2026-09-21에 걸렸다).
+    `Cannot create more versions: Script has reached the limit of 200 versions.` **버전을 지우는
+    API는 없다** — `DELETE .../versions/N` 은 404 고, 안 쓰는 배포를 `clasp undeploy` 로 지워도
+    버전 수는 안 줄었다(6개 지워 봤다). 사람이 편집기에서 지워야 한다.
+    - **그래도 손이 묶이는 건 아니다.** **시간 트리거와 편집기 ▶ 는 배포본이 아니라 `clasp push` 로
+      저장된 코드를 실행한다.** 그러니 `doGet`/`doPost` 를 안 타는 일(시트 손보기, 데이터 채우기)은
+      **push 만으로 오늘 안에 돌릴 수 있다.** 5분마다 도는 `keepWarm` 에 '하루 한 번 따라잡기'가
+      들어 있어(`assetDay` 속성) `pushTrendData`·`markInputCells` 는 곧 저절로 돈다.
+    - **웹앱(`/exec`)만은 새 버전이 필요하다.** 프론트가 쓰는 액션을 고쳤으면 배포가 뚫릴 때까지
+      화면엔 반영되지 않는다. 그땐 사용자에게 **편집기 → 배포 → 배포 관리에서 옛 버전 삭제**를
+      부탁하는 수밖에 없다(구글 계정 안에서만 되는 일이다 — 근거를 같이 줘라).
+    - 교훈: **배포를 습관처럼 하지 마라.** 트리거만 쓰는 변경이면 `clasp push` 로 끝난다.
   - ✅ **원격(클라우드) 세션에서도 배포된다** (2026-09-03 확인). 막힌 건 `script.google.com` **하나뿐**이고 clasp 가 실제로 쓰는 `script.googleapis.com`·`oauth2.googleapis.com`·`accounts.google.com` 은 열려 있다. "원격이라 배포 못 한다"고 말하지 마라 — 아래 순서로 하면 된다.
     1. `npm i -g @google/clasp@2.4.2`
     2. **로그인**: `clasp login` 의 로컬 콜백 서버는 컨테이너 안에 떠서 사용자 브라우저가 못 닿는다. 그래서 인증 URL을 직접 만들어 준다 — clasp 의 공개 client(`1072944905499-vm2v2i5dvn0a0d2o4ca36i1vge8cvbn0.apps.googleusercontent.com`, secret 은 `build/src/auth.js` 안에 있다)와 `redirect_uri=http://localhost:33353`, scope 는 `clasp login` 이 찍는 것 그대로. 사용자가 허용하면 `localhost:33353/?code=...` 로 넘어가 **연결 실패 페이지**가 뜨는데 정상이다. 주소창의 `code=` 를 받아 `oauth2.googleapis.com/token` 에 교환하고 `~/.clasprc.json` 을 `{token, oauth2ClientSettings, isLocalCreds:false}` 형태로 쓴다. `clasp login --status` 로 확인.
