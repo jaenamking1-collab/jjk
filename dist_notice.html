@@ -100,10 +100,6 @@
   /* 상류가 죽어 마지막 성공분을 보여주는 중임을 밝힌다 — 낡은 값을 최신인 척 보여주지 않는다 */
   .notice-stale{font-size:11px; color:#92400e; background:#fffbeb; border:1px solid #fde68a;
     border-radius:6px; padding:4px 6px; margin:4px 0 2px; line-height:1.35;}
-  /* 회차 상태 한 줄 — 달력 바로 위. 대비 6.9:1(#1e3a8a on #eff6ff) */
-  .cal-status{font-size:12px; line-height:1.5; color:#1e3a8a; background:#eff6ff;
-    border:1px solid #bfdbfe; border-radius:6px; padding:6px 10px; margin-bottom:8px;}
-  .cal-status b{font-weight:800;}
   .spinner{display:inline-block; width:16px; height:16px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .6s linear infinite; vertical-align:middle; margin-right:6px;}
   @keyframes spin{to{transform:rotate(360deg)}}
 
@@ -447,6 +443,7 @@ async function loadDistributions(force){
   _distSnapSet(_distData);        // 다음에 서버가 죽어도 이 화면은 다시 그릴 수 있다
 }
 
+let _calStatus = '';   // 달력이 계산한 '다음 매수 마감 …' 줄 (📌 공지사항이 읽는다)
 function renderMasterCalendar(allData){
   const now = new Date();
   const year = now.getFullYear(), month = now.getMonth() + 1;
@@ -721,9 +718,11 @@ function renderMasterCalendar(allData){
     return `다음 매수 마감 <b>${_fmt(cut)}</b> ${dday === 0 ? '<b>오늘까지</b>' : `<b>D-${dday}</b>`}${tag} — 그날까지 사면 받습니다 · 분배락 ${_fmt(rak.q)}${tail}`;
   })();
 
+  // 상태줄('다음 매수 마감 …')은 달력이 아니라 📌 공지사항 맨 위에 둔다(2026-09-21 사용자 요청).
+  // 달력은 날짜만 보여주고, 말로 된 안내는 넓은 공지사항 칸이 맡는다.
+  _calStatus = statusHtml;
   const calHtml = `
     <div>
-      ${statusHtml ? `<div class="cal-status">${statusHtml}</div>` : ''}
       <div class="cal-companies">
         ${DIST_SOURCES.map(s => `<span class="cal-co"><span class="co-chip" style="background:${s.color}">${s.name.slice(0,3)}</span>${s.name}</span>`).join('')}
       </div>
@@ -733,6 +732,8 @@ function renderMasterCalendar(allData){
       </div>
     </div>`;
   document.getElementById('distMasterCalendar').innerHTML = calHtml;
+  // 상태줄이 📌 공지사항에 있으므로, 달을 넘기면 게시판도 다시 그려야 최신이 된다.
+  if (typeof renderNoticeBoard === 'function') renderNoticeBoard();
 
   // ── 운용사별 일정 표 (월중/월말 2줄) ──
   // ←/→ 버튼으로 고른 달(selM)의 일정만 표시. 행 귀속 월은 기준일(없으면 지급일)의 월.
@@ -1071,7 +1072,13 @@ function renderNoticeBoard() {
   // 상시 안내 — 운용사 데이터가 아니라 고정 문구다. 매달 헷갈리는 지점이라 게시판 맨 위에 늘 둔다.
   // 한국 주식은 T+2 결제라 분배락일에 사면 지급기준일 주주명부에 못 든다 ⇒ 매수 마감은 락일 '전날'이다.
   // portfolio.html의 renderNoticeBoard와 쌍이다 — 한쪽을 고치면 반드시 다른 쪽도.
-  const fixed = `
+  // 달력 위에 있던 '다음 매수 마감 …' 줄도 여기로 옮겼다(2026-09-21) — 달력은 날짜만 보여준다.
+  const status = _calStatus ? `
+    <div style="display:flex;align-items:flex-start;gap:6px;min-width:0;padding:5px 8px;border-bottom:1px solid #64748b;background:#fffbeb">
+      <span style="flex-shrink:0;margin-top:1px;background:#d977061a;color:#d97706;font-size:9px;font-weight:800;padding:1px 5px;border-radius:3px">일정</span>
+      <span style="flex:1;min-width:0;font-size:11px;line-height:1.35;color:var(--text)">${_calStatus}</span>
+    </div>` : '';
+  const fixed = status + `
     <div style="display:flex;align-items:center;gap:6px;min-width:0;padding:5px 8px;border-bottom:1px solid #64748b;background:#ecfeff">
       <span style="flex-shrink:0;background:#0891b21a;color:#0891b2;font-size:9px;font-weight:800;padding:1px 5px;border-radius:3px">안내</span>
       <span style="flex:1;min-width:0;font-size:11px;line-height:1.3;color:var(--text)"><b>분배락일 전날</b>까지 사야 받습니다</span>

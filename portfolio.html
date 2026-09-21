@@ -4654,6 +4654,7 @@ function distDueMap(allData, holdings, days) {
   return out;
 }
 
+let _calStatus = '';   // 달력이 계산한 '다음 매수 마감 …' 줄 (📌 공지사항이 읽는다)
 function renderMasterCalendar(allData) {
   const now = new Date();
   const year = now.getFullYear(), month = now.getMonth() + 1;
@@ -4949,15 +4950,19 @@ function renderMasterCalendar(allData) {
 
   const colTmpl = 'repeat(5, 1fr)';
   const dowBg = '#4f46e5', dowColor = '#fff'; // 평일 통일 — 진한 남색 배경 + 흰 글자
+  // 상태줄('다음 매수 마감 …')은 달력이 아니라 📌 공지사항 맨 위에 둔다(2026-09-21 사용자 요청).
+  // 달력은 날짜만 보여주고, 말로 된 안내는 넓은 공지사항 칸이 맡는다.
+  _calStatus = statusHtml;
   const calHtml = `
     <div>
-      ${statusHtml ? `<div style="font-size:12px;line-height:1.5;color:#1e3a8a;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:6px 10px;margin-bottom:8px">${statusHtml}</div>` : ''}
       <div style="display:grid;grid-template-columns:${colTmpl};gap:4px;width:100%">
         ${dowsShow.map(d => `<div style="text-align:center;font-size:13px;font-weight:700;padding:6px 0;color:${dowColor};background:${dowBg};border-radius:5px">${d}</div>`).join('')}
         ${cells.map(cellHtml).join('')}
       </div>
     </div>`;
   document.getElementById('distMasterCalendar').innerHTML = calHtml;
+  // 상태줄이 📌 공지사항에 있으므로, 달을 넘기면 게시판도 다시 그려야 최신이 된다.
+  if (typeof renderNoticeBoard === 'function') renderNoticeBoard();
 
   // 일정 카드: 보유종목 기준, 일정이 다르면 분리 (KODEX 월중/월말 등)
   const myTk = new Set((state.holdings || []).map(h => (h.ticker||'').toString().trim().toUpperCase()));
@@ -5128,7 +5133,13 @@ function renderNoticeBoard() {
     </div>`;
   // 상시 안내 — 운용사 데이터가 아니라 고정 문구다. 매달 헷갈리는 지점이라 게시판 맨 위에 늘 둔다.
   // 한국 주식은 T+2 결제라 분배락일에 사면 지급기준일 주주명부에 못 든다 ⇒ 매수 마감은 락일 '전날'이다.
-  const fixed = `
+  // 달력 위에 있던 '다음 매수 마감 …' 줄도 여기로 옮겼다(2026-09-21) — 달력은 날짜만 보여준다.
+  const status = _calStatus ? `
+    <div style="display:flex;align-items:flex-start;gap:6px;min-width:0;padding:5px 8px;border-bottom:1px solid #64748b;background:#fffbeb">
+      <span style="flex-shrink:0;margin-top:1px;background:#d977061a;color:#d97706;font-size:9px;font-weight:800;padding:1px 5px;border-radius:3px">일정</span>
+      <span style="flex:1;min-width:0;font-size:11px;line-height:1.35;color:var(--text)">${_calStatus}</span>
+    </div>` : '';
+  const fixed = status + `
     <div style="display:flex;align-items:center;gap:6px;min-width:0;padding:5px 8px;border-bottom:1px solid #64748b;background:#ecfeff">
       <span style="flex-shrink:0;background:#0891b21a;color:#0891b2;font-size:9px;font-weight:800;padding:1px 5px;border-radius:3px">안내</span>
       <span style="flex:1;min-width:0;font-size:11px;line-height:1.3;color:var(--text)"><b>분배락일 전날</b>까지 사야 받습니다</span>
