@@ -1366,7 +1366,7 @@ function renderAccounts() {
         <td class="num" id="ac-div-${a.id}" style="padding:7px 6px;font-size:14px;color:var(--green)">-</td>
         <td class="num" id="ac-drt-${a.id}" style="padding:7px 6px;font-size:14px;color:var(--accent)">-</td>
         <td class="num" id="ac-yrt-${a.id}" style="padding:7px 6px;font-size:14px;color:var(--purple)">-</td>
-        <td style="padding:3px 6px;white-space:nowrap;text-align:center" onclick="event.stopPropagation()">
+        <td rowspan="3" style="padding:3px 6px;white-space:nowrap;text-align:center;vertical-align:top" onclick="event.stopPropagation()">
           <span style="display:inline-flex;gap:2px">
             <button onclick="moveAccount('${a.id}',-1)" title="위로" style="background:none;border:none;cursor:pointer;font-size:12px;color:var(--text3);padding:2px 3px">↑</button>
             <button onclick="moveAccount('${a.id}',1)" title="아래로" style="background:none;border:none;cursor:pointer;font-size:12px;color:var(--text3);padding:2px 3px">↓</button>
@@ -1374,7 +1374,16 @@ function renderAccounts() {
             <button onclick="deleteAccount('${a.id}')" title="삭제" style="background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px">🗑️</button>
           </span>
         </td>
-      </tr>`).join('')}</tbody>
+      </tr>
+      ${['dom','ovs'].map((sd, i) => `<tr id="ac-row-${sd}-${a.id}" style="display:none;border-bottom:${i ? `1px solid ${borderColor}` : 'none'}">
+        <td style="padding:4px 12px;font-size:12px;color:var(--text);white-space:nowrap">ㄴ ${sd === 'dom' ? '국내' : '해외'}</td>
+        <td class="num" id="ac-val-${a.id}-${sd}" style="padding:4px 6px;font-size:13px">-</td>
+        <td class="num" id="ac-cur-${a.id}-${sd}" style="padding:4px 6px;font-size:13px">-</td>
+        <td class="num" id="ac-pl-${a.id}-${sd}"  style="padding:4px 6px;font-size:12px">-</td>
+        <td class="num" id="ac-div-${a.id}-${sd}" style="padding:4px 6px;font-size:13px;color:var(--green)">-</td>
+        <td class="num" id="ac-drt-${a.id}-${sd}" style="padding:4px 6px;font-size:13px;color:var(--accent)">-</td>
+        <td class="num" id="ac-yrt-${a.id}-${sd}" style="padding:4px 6px;font-size:13px;color:var(--purple)">-</td>
+      </tr>`).join('')}`).join('')}</tbody>
     </table>`;
   };
 
@@ -1473,9 +1482,6 @@ function renderAccountStats(allHoldings, allDivs, sheet, allDivsFull) {
     totalHoldings += h.length;
 
     const { invest, value, investDom, valueDom, investOvs, valueOvs } = acctInvestValue(h, priceMap);
-    // 해외가 섞인 계좌만 쪼개 적는다. 국내뿐인 계좌에 '국내 …'를 붙이면 잡음이다.
-    const split = (dom, ovs) => (dom > 0 && ovs > 0)
-      ? `<div style="font-size:9px;color:var(--text3);line-height:1.35;margin-top:1px">국내 ${fmt(dom)}<br>해외 ${fmt(ovs)}</div>` : '';
 
     const hIds = h.map(x => x.id);
     const acctDivs = state.dividends.filter(d => hIds.includes(d.holding_id));
@@ -1488,17 +1494,41 @@ function renderAccountStats(allHoldings, allDivs, sheet, allDivsFull) {
     // 환산분배율 = 종목별 배당주기 투영 (대시보드 연 분배율과 동일 방식)
     const divProj = h.reduce((s, x) => s + (projMap[x.id] || 0), 0);
 
-    const pl = value - invest;
-    const plPct = invest > 0 ? (pl/invest*100).toFixed(1) : '0';
-    const drt = invest > 0 && div > 0 ? (div/invest*100).toFixed(2) : null;
-    const yrt = invest > 0 && divProj > 0 ? (divProj/invest*100).toFixed(2) : null;
+    // ── 한 줄(합계·국내·해외)을 채운다 ─────────────────────────────────────────
+    // 사용자 요청(2026-09-21): "합계 국내 해외 이렇게". 증권사가 국내/해외를 다른 화면에
+    // 두므로 우리도 줄을 나눠야 대조가 된다. **비율은 그 줄의 투자금으로 나눈다** —
+    // 해외 분배율을 전체 투자금으로 나누면 뜻이 없는 숫자가 된다.
+    const fillRow = (sfx, iv, vv, dv, pj) => {
+      const p = vv - iv;
+      const pPct = iv > 0 ? (p/iv*100).toFixed(1) : '0';
+      const dr = iv > 0 && dv > 0 ? (dv/iv*100).toFixed(2) : null;
+      const yr = iv > 0 && pj > 0 ? (pj/iv*100).toFixed(2) : null;
+      set(`ac-val-${a.id}${sfx}`, iv ? fmt(iv) : '-');
+      set(`ac-cur-${a.id}${sfx}`, vv ? fmt(vv) : '-');
+      set(`ac-pl-${a.id}${sfx}`, iv ? `<span style="color:${p>=0?'var(--red)':'var(--accent)'}">${p>=0?'+':''}${fmt(p)}<br><span style="font-size:9px">(${Number(pPct)>=0?'+':''}${pPct}%)</span></span>` : '-');
+      set(`ac-div-${a.id}${sfx}`, dv ? fmt(dv) : '-');
+      set(`ac-drt-${a.id}${sfx}`, dr ? dr+'%' : '-');
+      set(`ac-yrt-${a.id}${sfx}`, yr ? yr+'%' : '-');
+    };
+    fillRow('', invest, value, div, divProj);
 
-    set(`ac-val-${a.id}`, invest ? fmt(invest) + split(investDom, investOvs) : '-');
-    set(`ac-cur-${a.id}`, value ? fmt(value) + split(valueDom, valueOvs) : '-');
-    set(`ac-pl-${a.id}`, invest ? `<span style="color:${pl>=0?'var(--red)':'var(--accent)'}">${pl>=0?'+':''}${fmt(pl)}<br><span style="font-size:9px">(${Number(plPct)>=0?'+':''}${plPct}%)</span></span>` : '-');
-    set(`ac-div-${a.id}`, div ? fmt(div) : '-');
-    set(`ac-drt-${a.id}`, drt ? drt+'%' : '-');
-    set(`ac-yrt-${a.id}`, yrt ? yrt+'%' : '-');
+    // 해외가 섞인 계좌만 국내/해외 줄을 켠다 — 국내뿐인 계좌에선 같은 값이 두 번 나올 뿐이다.
+    const hasOvs = h.some(x => x.currency === 'USD');
+    const hasDom = h.some(x => x.currency !== 'USD');
+    const showSides = hasOvs && hasDom;
+    ['dom','ovs'].forEach(sd => {
+      const row = document.getElementById(`ac-row-${sd}-${a.id}`);
+      if (row) row.style.display = showSides ? '' : 'none';
+    });
+    if (showSides) {
+      const curById = {}; h.forEach(x => { curById[x.id] = x.currency; });
+      [['dom', false], ['ovs', true]].forEach(([sd, want]) => {
+        const sDiv = acctDivs.reduce((t, d) => ((curById[d.holding_id] === 'USD') === want)
+          ? t + divKrwOf(parseFloat(d.amount)||0, d.currency, d.rate, er2) : t, 0);
+        const sProj = h.reduce((t, x) => ((x.currency === 'USD') === want) ? t + (projMap[x.id] || 0) : t, 0);
+        fillRow('-' + sd, want ? investOvs : investDom, want ? valueOvs : valueDom, sDiv, sProj);
+      });
+    }
 
     totalInvest += invest; totalValue += value; totalDiv += div; totalProj += divProj;
     acctMonths.forEach(m => allFilledM.add(m));
