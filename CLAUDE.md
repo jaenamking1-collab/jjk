@@ -86,8 +86,15 @@ There is **no build system, package manager, test suite, or lint config**. The f
       **push 만으로 오늘 안에 돌릴 수 있다.** 5분마다 도는 `keepWarm` 에 '하루 한 번 따라잡기'가
       들어 있어(`assetDay` 속성) `pushTrendData`·`markInputCells` 는 곧 저절로 돈다.
     - **웹앱(`/exec`)만은 새 버전이 필요하다.** 프론트가 쓰는 액션을 고쳤으면 배포가 뚫릴 때까지
-      화면엔 반영되지 않는다. 그땐 사용자에게 **편집기 → 배포 → 배포 관리에서 옛 버전 삭제**를
-      부탁하는 수밖에 없다(구글 계정 안에서만 되는 일이다 — 근거를 같이 줘라).
+      화면엔 반영되지 않는다. 그땐 사용자에게 삭제를 부탁하는 수밖에 없다(구글 계정 안에서만
+      되는 일이다 — 근거를 같이 줘라). **부탁할 땐 아래를 그대로 준다:**
+      - 프로젝트 주소: `https://script.google.com/d/1yYeK3W1aHUYd6ok9N-dvt0YRmbB4pxX7AL0kMmZBS4-qFpRxHNASUJvG/edit`
+        ⚠️ **"자산"(시트에 붙은 별개 스크립트)과 헷갈리기 쉽다** — 2026-09-21에 그쪽을 여셨다.
+        구분법: "자산" 쪽 `Code.gs` 첫 줄이 `// ── 분배금 입력칸 자동 하이라이트`다.
+      - 왼쪽 **🕐 프로젝트 기록** → **`버전 일괄 삭제`**(하나씩은 버전 옆 ⋮ → `이 버전 삭제`).
+      - **활성 배포가 쓰는 버전은 못 지운다.** 먼저 안 쓰는 배포를 `clasp undeploy` 로 치워
+        두면(저장소에서 `grep -o 'AKfycb[A-Za-z0-9_-]*'` 로 실제 쓰이는 것만 남긴다) 라이브
+        하나만 묶이고 나머지는 다 지워진다.
     - 교훈: **배포를 습관처럼 하지 마라.** 트리거만 쓰는 변경이면 `clasp push` 로 끝난다.
   - ✅ **원격(클라우드) 세션에서도 배포된다** (2026-09-03 확인). 막힌 건 `script.google.com` **하나뿐**이고 clasp 가 실제로 쓰는 `script.googleapis.com`·`oauth2.googleapis.com`·`accounts.google.com` 은 열려 있다. "원격이라 배포 못 한다"고 말하지 마라 — 아래 순서로 하면 된다.
     1. `npm i -g @google/clasp@2.4.2`
