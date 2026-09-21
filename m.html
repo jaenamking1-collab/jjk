@@ -321,14 +321,17 @@ function calcAccount(a, projMap) {
   const hs = D.holdings.filter(x => x.account_id === a.id);
   let invest = 0, value = 0, proj = 0;
   let investDom = 0, valueDom = 0, investOvs = 0, valueOvs = 0;
+  // 시세를 못 받은 종목 수 — 그 종목은 매수가로 계산돼 '본전'으로 보인다. 계좌 줄에서도 밝힌다.
+  let noPrice = 0;
   hs.forEach(h => { const c = calcHolding(h); invest += c.invest; value += c.value; proj += (projMap[h.id] || 0);
+    if (!c.isLive && c.qty > 0) noPrice++;
     if (h.currency === 'USD') { investOvs += c.invest; valueOvs += c.value; }
     else                      { investDom += c.invest; valueDom += c.value; } });
   const ids = hs.map(h => h.id);
   const div = D.divs.filter(d => ids.includes(d.holding_id))
                     .reduce((s,d) => s + divKrwOf(d.amount, d.currency, d.rate), 0);
   return { acct:a, holdings:hs, invest, value, div, proj, pl: value - invest,
-           investDom, valueDom, investOvs, valueOvs };
+           investDom, valueDom, investOvs, valueOvs, noPrice };
 }
 
 // 전체 집계 (사람별 + 총합)
@@ -415,7 +418,7 @@ function viewHome() {
       </button>
       ${isOpen ? `<div class="detail"><dl>
         <dt>총매입</dt><dd>${won(p.invest)}</dd>
-        <dt>평가금</dt><dd>${won(p.value)}</dd>
+        <dt>평가금</dt><dd>${won(p.value)}${p.noPrice ? ` <span class="muted">(시세없음 ${p.noPrice}종목)</span>` : ''}</dd>
         ${(p.valueDom > 0 && p.valueOvs > 0) ? `
         <dt>ㄴ 국내</dt><dd>${won(p.valueDom)} <span class="muted">(매입 ${won(p.investDom)})</span></dd>
         <dt>ㄴ 해외</dt><dd>${won(p.valueOvs)} <span class="muted">(매입 ${won(p.investOvs)})</span></dd>` : ''}
