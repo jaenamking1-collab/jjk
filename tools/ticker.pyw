@@ -196,6 +196,8 @@ midnight = {}                            # 코인 -> (날짜, 자정 시가) 하
 coin_prem = {}                           # 코인 -> 국내가 ÷ 해외가. 거래소가 막힌 동안 환산에 쓴다
 coin_base = {}                           # 코인 -> (날짜, 국내 자정 시가). 등락률 기준을 빗썸과 맞춘다
 coin_ext = [True]                        # 야후에 코인도 함께 물어볼지 (코인 탓에 실패하면 끈다)
+ext_off = [0.0]                          # 그걸 끈 시각. 일정 시간 뒤 다시 켜 본다
+EXT_RETRY = 600                          # 코인을 다시 물어보기까지(초)
 coin_usd = {}                            # 코인 -> 야후 달러 심볼. 원화 페어가 없는 코인(KAIA 등)
 gecko_at = [0.0]                         # 코인게코를 마지막으로 부른 시각
 gecko_ok = [0.0]                         # 코인게코가 빗썸 시세를 마지막으로 준 시각
@@ -755,6 +757,11 @@ def refresh():
         # 비율을 재 두고, 막히면 그 비율로 해외 시세를 국내가로 환산해서 쓴다.
         # 야후에 원화 페어가 없는 코인(KAIA 등)은 달러 페어로 묻고 환율을 곱해 원화로 만든다.
         ext, ylist = {}, list(groups["yahoo"])
+        # 한 번 실패했다고 영영 끄면, 일시적 오류 하나로 코인이 통째로 멈춘다 —
+        # far 가 비면 환산도 코인게코 갱신도 못 하고 값이 그대로 굳는다(2026-09-21 실제 발생:
+        # 상단에 "거래소 막힘"이 뜬 채 KAIA 가 실제 시세와 벌어졌다). 잠시 뒤 다시 시도한다.
+        if not coin_ext[0] and time.time() - ext_off[0] > EXT_RETRY:
+            coin_ext[0] = True
         if coin_ext[0]:
             for k in groups["coin"]:
                 for sym in (coin_usd[k], FX) if k in coin_usd else (k,):
@@ -768,7 +775,7 @@ def refresh():
             except Exception:
                 try:                                 # 코인 심볼 탓이면 주식만이라도 받는다
                     ext = yahoo(groups["yahoo"]) if groups["yahoo"] else {}
-                    coin_ext[0] = False
+                    coin_ext[0], ext_off[0] = False, time.time()
                 except Exception:
                     pass
         data.update({k: v for k, v in ext.items() if k not in groups["coin"]})
@@ -844,6 +851,9 @@ def refresh():
             cfg["coin_base"] = {k: list(v) for k, v in coin_base.items()}
             root.after(0, save, cfg)
 
+        if not conv and blocked and coin_src[0] == "거래소 막힘" and coin_ok[0]:
+            # 환산도 못 하는 상태 = 코인 값이 굳어 있다. 얼마나 묵었는지 밝힌다.
+            coin_src[0] = "거래소 막힘 · %d분 전 값" % ((time.time() - coin_ok[0]) / 60)
         note = ("요청 과다 · 1분 대기" if wait else
                 "코인: 빗썸 %d초 전 값" % coin_lag[0] if coin_src[0] == "빗썸" and coin_lag[0] > 15 else
                 "" if coin_src[0] in ("빗썸", "") else "코인: " + coin_src[0])
