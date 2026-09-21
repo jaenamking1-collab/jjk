@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet'
 ];
 
 function runMaint(name, arg) {
@@ -3205,11 +3205,17 @@ function clearOldYellowCells() {
 }
 
 // ── 입력할 칸 노란색 표시 ─────────────────────────
-// 이번에 입력해야 할 달의 빈 칸을 노랗게 칠해 어디 넣을지 바로 보이게 한다.
-// 대상 달: 1~9일이면 지난 달(전월 월말분 입력 시기), 10일 이후면 이번 달.
-// 대상 행: D열이 '월중'/'월말'인 월배당 행만 (반기·분기·무배당은 매달 안 들어와 제외).
-// 이미 값이 있는 칸은 건드리지 않는다. 지난 달에 칠했다가 안 채운 표시는 매번 먼저 지워
-// 표시가 한 달치만 남게 한다(빈 칸이라 clearOldYellowCells의 7일 규칙엔 안 걸림).
+// 분배금이 **실제로 들어오는 때**에만, 그 돈이 적힐 칸을 노랗게 칠한다.
+// ⛔ 예전엔 '10일 이후면 이번 달' 식으로 **회차를 안 가리고** 이번 달 칸을 칠했다. 월중·월말
+//    두 회차가 한 달에 있는데 그걸 구분 못 하니, 월배당 행 48개 중 46개가 통째로 노래져
+//    "분배금 탭이 다 노란색"이 됐다(2026-09-21 사용자 지적). 게다가 시트에 붙은 다른
+//    스크립트(markDivInputCells)는 제대로 된 규칙으로 칠하고 있어서, 둘이 같은 칸을 놓고 싸웠다.
+// ✅ 규칙은 그 스크립트와 **같게** 맞춘다:
+//    · 지급일이 오늘 ±2일 안인 회차만 (그 돈이 들어오는 때다)
+//    · 칠할 달 = **지급일의 달** (8월말 회차는 9/2 지급이라 9월 칸이다)
+//    · D열이 '월중'/'월말'인 행만, B열 티커가 영문인 해외 종목은 제외
+//    · 이미 값이 있는 칸은 건드리지 않는다
+// 안 채운 채 남은 지난 표시는 매번 먼저 지운다(빈 칸이라 clearOldYellowCells의 7일 규칙엔 안 걸림).
 // (트리거 설치는 맨 아래 '수동 실행'의 setupInputMarkTrigger() 참고.)
 const MARK_COLOR = '#ffff00';
 
@@ -3225,14 +3231,45 @@ function _yearBlockStart(isYearTab, values, year) {
   return -1;
 }
 
-function markInputCells() {
+// 지급일이 오늘 ±2일 안인 회차 → {회차: 지급월}. 없으면 빈 객체.
+// getDistributionAll 은 같은 스크립트 안에 있으니 HTTP 로 부르지 않는다(실행 슬롯 아낌).
+function _payoutCycles() {
+  const out = {};
+  let sources;
+  try { sources = (getDistributionAll() || {}).sources || {}; }
+  catch(e) { console.log('분배 조회 실패 — ' + e); return out; }
   const now = new Date();
-  const day = parseInt(Utilities.formatDate(now, 'Asia/Seoul', 'd'), 10);
-  let ty = parseInt(Utilities.formatDate(now, 'Asia/Seoul', 'yyyy'), 10);
-  let tm = parseInt(Utilities.formatDate(now, 'Asia/Seoul', 'M'), 10);
-  if (day <= 9) { tm -= 1; if (tm === 0) { tm = 12; ty -= 1; } }   // 1~9일 = 전월 월말분 입력 시기
+  const y = parseInt(Utilities.formatDate(now, 'Asia/Seoul', 'yyyy'), 10);
+  const t0 = new Date(y, parseInt(Utilities.formatDate(now, 'Asia/Seoul', 'M'), 10) - 1,
+                      parseInt(Utilities.formatDate(now, 'Asia/Seoul', 'd'), 10));
+  Object.keys(sources).forEach(src => {
+    ((sources[src] || {}).items || []).forEach(it => {
+      if (it.hist) return;                                   // 과거 회차 병합분 제외
+      const m = /(\d{1,2})\s*월\s*(\d{1,2})\s*일|(\d{1,2})\s*[\/.]\s*(\d{1,2})/
+        .exec(String((it.sched || {})['지급일'] || ''));
+      if (!m) return;
+      const mon = parseInt(m[1] || m[3], 10), day = parseInt(m[2] || m[4], 10);
+      let cyc = it.cycle;
+      if (cyc !== '월중' && cyc !== '월말') cyc = (day >= 25 ? '월말' : '월중');
+      // 연말연초: 12월 지급을 1월에 보거나 그 반대면 해를 옮겨 잡는다.
+      let yy = y;
+      const nowM = t0.getMonth() + 1;
+      if (mon === 12 && nowM === 1) yy = y - 1;
+      else if (mon === 1 && nowM === 12) yy = y + 1;
+      const diff = Math.round((new Date(yy, mon - 1, day) - t0) / 86400000);
+      if (Math.abs(diff) <= 2) out[cyc] = { y: yy, m: mon };
+    });
+  });
+  return out;
+}
 
+function markInputCells() {
   const ss = SpreadsheetApp.openById('19UsD0Tz6YL2eDoLdocL0ify8NLbUYSHaOOV-jtDqNLU');
+  const due = _payoutCycles();
+
+  // 연도별 전용 탭이 있으면 그걸, 없으면 통합 '분배금' 탭.
+  const ty = (due['월중'] || due['월말'] || {}).y
+             || parseInt(Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy'), 10);
   const tab = ss.getSheetByName('분배금' + ty);
   const sheet = tab || ss.getSheetByName('분배금');
   if (!sheet) return;
@@ -3240,10 +3277,6 @@ function markInputCells() {
   const range = sheet.getDataRange();
   const values = range.getValues();
   const bgs = range.getBackgrounds();
-
-  const start = _yearBlockStart(!!tab, values, ty);
-  if (start < 0) { console.log(ty + '년 블록 없음 — 표시 생략'); return; }
-  const target = start + (tm - 1);
 
   // 1) 묵은 표시 제거: 모든 연도 블록 월별칸 중 '값 없는' 노랑칸 (= 안 채운 입력 표시)
   const cols = _monthCols(!!tab, values);
@@ -3258,16 +3291,26 @@ function markInputCells() {
     }
   }
 
-  // 2) 이번에 입력할 달의 빈 칸 칠하기
+  const cycles = Object.keys(due);
+  if (!cycles.length) { console.log('지급일 ±2일인 회차 없음 — 표시 없음 (묵은 표시 ' + cleared + '개 제거)'); return; }
+
+  // 2) 지급이 임박한 회차의 달 칸만 칠한다.
   let marked = 0;
-  for (let i = 4; i < values.length; i++) {
-    const cycle = String(values[i][3] || '').replace(/\s/g, '');   // D열 배당구분
-    if (cycle !== '월중' && cycle !== '월말') continue;
-    if (target >= (values[i] || []).length) continue;
-    if (String(values[i][target] || '').trim() !== '') continue;   // 이미 입력됨
-    sheet.getRange(i + 1, target + 1).setBackground(MARK_COLOR); marked++;
-  }
-  console.log(ty + '년 ' + tm + '월 칸 ' + marked + '개 표시 (묵은 표시 ' + cleared + '개 제거)');
+  const done = [];
+  cycles.forEach(cyc => {
+    const start = _yearBlockStart(!!tab, values, due[cyc].y);
+    if (start < 0) { console.log(due[cyc].y + '년 블록 없음 — ' + cyc + ' 표시 생략'); return; }
+    const target = start + (due[cyc].m - 1);
+    for (let i = 4; i < values.length; i++) {
+      if (String(values[i][3] || '').replace(/\s/g, '') !== cyc) continue;      // D열 배당구분
+      if (/^[A-Za-z]/.test(String(values[i][1] || '').trim())) continue;        // 해외(영문 티커) 제외
+      if (target >= (values[i] || []).length) continue;
+      if (String(values[i][target] || '').trim() !== '') continue;              // 이미 입력됨
+      sheet.getRange(i + 1, target + 1).setBackground(MARK_COLOR); marked++;
+    }
+    done.push(cyc + '→' + due[cyc].y + '년 ' + due[cyc].m + '월');
+  });
+  console.log(done.join(' · ') + ' : ' + marked + '칸 표시 (묵은 표시 ' + cleared + '개 제거)');
 }
 
 // 'yyyy-MM-dd' 문자열 또는 Date → 'yyyy-MM-dd'
@@ -4230,6 +4273,7 @@ const TRIGGER_PLAN = [
   ['distWatchdog',           () => ScriptApp.newTrigger('distWatchdog').timeBased().atHour(8).nearMinute(30).everyDays(1).create()],
   ['snapshotPortfolio',      () => [10, 13, 16].forEach(h => ScriptApp.newTrigger('snapshotPortfolio').timeBased().atHour(h).nearMinute(5).everyDays(1).create())],
   ['snapshotPrices',         () => ScriptApp.newTrigger('snapshotPrices').timeBased().atHour(16).everyDays(1).create()],
+  ['pushTrendData',          () => ScriptApp.newTrigger('pushTrendData').timeBased().atHour(16).nearMinute(40).everyDays(1).create()],
   ['compactPriceLog',        () => ScriptApp.newTrigger('compactPriceLog').timeBased().onWeekDay(ScriptApp.WeekDay.SUNDAY).atHour(4).create()]
 ];
 function resetAllTriggers() {
@@ -4429,6 +4473,148 @@ function _diagAssetSheet() {
   const tr = _getOrCreateSheet('_노란셀추적', ['셀', '최초발견']);
   console.log('  _노란셀추적 ' + Math.max(0, tr.getLastRow() - 1) + '행');
   return { success: true };
+}
+
+// ══ 자산 시트(19UsD0Tz…) 수리 ═══════════════════════════════════════
+// 2026-09-21 사용자 지적 세 가지 중 둘: ① 현재가가 올랐는지 내렸는지 색이 안 나온다,
+// ② 추세선이 다 안 나온다.
+//
+// **원인**: 추세선 L·M열이 `SPARKLINE(QUERY(IMPORTHTML(…)))` 였는데 IMPORTHTML 이 빈 값을
+// 돌려준다(국내 59행 중 60칸이 오류). 현재가 G·H열에는 조건부서식이 **아예 없었다**.
+//
+// **고치는 방법**: 바깥에서 긁어오지 않는다. 앱이 이미 매일 16시에 `시세로그`(SHEET_ID)에
+// 종가를 쌓고 있으니 그걸 자산 시트의 '추세데이터' 탭으로 옮겨, 추세선도 전일종가도 거기서 만든다.
+// 외부 의존이 사라져 IMPORTHTML 처럼 조용히 죽을 일이 없다.
+const ASSET_SHEET_ID = '19UsD0Tz6YL2eDoLdocL0ify8NLbUYSHaOOV-jtDqNLU';
+const TREND_TAB = '추세데이터';
+const TREND_DAYS = 30;                 // B~AE 30칸
+const TREND_PREV_COL = TREND_DAYS + 2; // AF = 전일종가 (VLOOKUP 32번째 열)
+
+// 시세로그 → 자산 시트 '추세데이터' 탭. 매일 snapshotPrices 뒤에 돈다.
+// A열 티커는 **주식상황 B열에 적힌 값 그대로** 쓴다 — 그래야 VLOOKUP·FILTER 가 형(숫자/글자)까지
+// 정확히 맞는다. 시세로그 쪽은 6자리 0채움이라 맞춰 찾는다.
+function pushTrendData() {
+  const log = SpreadsheetApp.openById(SHEET_ID).getSheetByName('시세로그');
+  if (!log) { console.log('시세로그 없음'); return; }
+  const rows = log.getDataRange().getValues();
+
+  const norm = t => {
+    let s = String(t == null ? '' : t).trim().toUpperCase();
+    if (/^\d+$/.test(s) && s.length < 6) s = ('000000' + s).slice(-6);
+    return s;
+  };
+  const byT = {}, dateSet = {};
+  for (let i = 1; i < rows.length; i++) {
+    const d = String(rows[i][0] || '').slice(0, 10);
+    const t = norm(rows[i][1]);
+    const p = parseFloat(rows[i][2]);
+    if (!d || !t || !(p > 0)) continue;
+    (byT[t] = byT[t] || {})[d] = p;      // 같은 날 중복행은 마지막 값
+    dateSet[d] = true;
+  }
+  const dates = Object.keys(dateSet).sort().slice(-TREND_DAYS);
+  if (!dates.length) { console.log('시세로그 비어 있음'); return; }
+  const today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
+
+  const ss = SpreadsheetApp.openById(ASSET_SHEET_ID);
+  const src = ss.getSheetByName('주식상황');
+  const svals = src.getDataRange().getValues();
+
+  const seen = {}, out = [];
+  for (let i = 2; i < svals.length; i++) {
+    const raw = svals[i][1];
+    const key = norm(raw);
+    if (!key || seen[key]) continue;     // 주식상황은 계좌별로 같은 종목을 여러 번 적는다
+    seen[key] = true;
+    const hist = byT[key] || {};
+    const line = [raw];
+    for (let c = 0; c < TREND_DAYS; c++) {
+      const d = dates[c - (TREND_DAYS - dates.length)];   // 칸이 남으면 앞쪽을 비운다
+      line.push(d && hist[d] != null ? hist[d] : '');
+    }
+    // 전일종가 = 오늘 것을 뺀 마지막 기록. (snapshotPrices 는 16시에 도니 장중엔 오늘 값이 없다)
+    let prev = '';
+    for (let c = dates.length - 1; c >= 0; c--) {
+      if (dates[c] >= today) continue;
+      if (hist[dates[c]] != null) { prev = hist[dates[c]]; break; }
+    }
+    line.push(prev);
+    out.push(line);
+  }
+
+  let tab = ss.getSheetByName(TREND_TAB);
+  if (!tab) { tab = ss.insertSheet(TREND_TAB); try { tab.hideSheet(); } catch(e) {} }
+  tab.clear();
+  const head = ['티커'].concat(dates.length < TREND_DAYS
+      ? new Array(TREND_DAYS - dates.length).fill('').concat(dates) : dates).concat(['전일종가']);
+  tab.getRange(1, 1, 1, head.length).setValues([head]);
+  if (out.length) tab.getRange(2, 1, out.length, head.length).setValues(out);
+  console.log('추세데이터: 종목 ' + out.length + '개 × 날짜 ' + dates.length + '일 (' + dates[0] + '~' + dates[dates.length - 1] + ')');
+  return { tickers: out.length, days: dates.length };
+}
+
+// 주식상황의 추세선 수식(L·M)과 현재가 색(G·H 조건부서식)을 세운다. 한 번 돌리면 끝이고,
+// 다시 돌려도 같은 상태가 된다(제가 만든 규칙만 골라 갈아끼운다).
+// ⚠️ 기초자료 시트다 — 덮어쓰기 전에 옛 L·M 수식을 '_백업_수식' 탭에 남긴다.
+function fixAssetSheet() {
+  const ss = SpreadsheetApp.openById(ASSET_SHEET_ID);
+  const sh = ss.getSheetByName('주식상황');
+  const vals = sh.getDataRange().getValues();
+  const fs = sh.getDataRange().getFormulas();
+  const last = vals.length;
+
+  // ── 옛 수식 백업 (한 번만 남긴다 — 이미 있으면 건드리지 않는다) ──
+  if (!ss.getSheetByName('_백업_수식')) {
+    const bk = ss.insertSheet('_백업_수식'); try { bk.hideSheet(); } catch(e) {}
+    const rowsOut = [['행', 'L(30일 추세선)', 'M(5일 추세선)', '백업일시']];
+    const stamp = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm');
+    for (let i = 0; i < fs.length; i++) {
+      const l = (fs[i] || [])[11] || '', m = (fs[i] || [])[12] || '';
+      if (l || m) rowsOut.push([i + 1, l, m, stamp]);
+    }
+    bk.getRange(1, 1, rowsOut.length, 4).setValues(rowsOut);
+    console.log('옛 수식 ' + (rowsOut.length - 1) + '행을 _백업_수식에 남겼다');
+  } else console.log('_백업_수식 이미 있음 — 백업 건너뜀');
+
+  // ── ② 추세선: IMPORTHTML → 추세데이터 탭 ──
+  const FIL = TREND_TAB + "!$A$2:$A$500=$B";
+  let n = 0;
+  for (let i = 2; i < last; i++) {
+    if (!String(vals[i][1] || '').trim()) continue;        // 티커 없는 행은 그대로 둔다
+    const r = i + 1;
+    sh.getRange(r, 12).setFormula(
+      '=IFERROR(SPARKLINE(FILTER(' + TREND_TAB + '!$B$2:$AE$500,' + FIL + r +
+      '),{"charttype","line";"linewidth",1;"color","#1a73e8"}),"")');
+    sh.getRange(r, 13).setFormula(
+      '=IFERROR(SPARKLINE(FILTER(' + TREND_TAB + '!$AA$2:$AE$500,' + FIL + r +
+      '),{"charttype","line";"linewidth",1;"color","#ea8600"}),"")');
+    n++;
+  }
+  console.log('추세선 수식 ' + n + '행 교체 (L=30일, M=5일)');
+
+  // ── ① 현재가 색: 전일 종가보다 오르면 빨강, 내리면 파랑 (한국 증시 관례) ──
+  // G=원화 현재가, H=달러 현재가. 전일종가는 추세데이터 AF열(A부터 32번째).
+  const lk = 'VLOOKUP($B3,' + TREND_TAB + '!$A:$AF,' + TREND_PREV_COL + ',FALSE)';
+  const cond = (cell, op) =>
+    '=AND(N($' + cell + '3)>0,N(IFERROR(' + lk + ',0))>0,$' + cell + '3' + op + lk + ')';
+  const want = [
+    { a1: 'G3:G' + last, f: cond('G', '>'), color: '#d32f2f' },
+    { a1: 'G3:G' + last, f: cond('G', '<'), color: '#1565c0' },
+    { a1: 'H3:H' + last, f: cond('H', '>'), color: '#d32f2f' },
+    { a1: 'H3:H' + last, f: cond('H', '<'), color: '#1565c0' }
+  ];
+  // 남의 규칙 22개는 그대로 둔다. 내가 전에 넣은 것(수식에 추세데이터가 든 것)만 걷어낸다.
+  const kept = sh.getConditionalFormatRules().filter(r => {
+    const b = r.getBooleanCondition();
+    if (!b) return true;
+    return !(b.getCriteriaValues() || []).some(v => String(v).indexOf(TREND_TAB) >= 0);
+  });
+  const mine = want.map(w => SpreadsheetApp.newConditionalFormatRule()
+    .whenFormulaSatisfied(w.f).setFontColor(w.color)
+    .setRanges([sh.getRange(w.a1)]).build());
+  sh.setConditionalFormatRules(kept.concat(mine));
+  console.log('현재가 색 규칙 ' + mine.length + '개 설치 (기존 규칙 ' + kept.length + '개 유지)');
+  return { trendRows: n, rulesKept: kept.length, rulesAdded: mine.length };
 }
 
 // 설치된 트리거 전체 목록. "앱이 가끔 20~80초씩 멈춘다"를 추적할 때 편집기에서 ▶실행.
