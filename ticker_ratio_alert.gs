@@ -8,10 +8,11 @@
  *   위젯은 PC가 켜져 있을 때만 돈다. 밤사이 목표에 닿으면 아무도 못 본다.
  *   이건 구글 클라우드에서 돌아 PC·망과 무관하다.
  *
- * 왜 빗썸을 직접 안 부르나:
- *   학교망이 api.bithumb.com 을 간헐적으로 막는다(WORKLOG 140). 코인게코는
- *   거래소별 시세를 중계하므로 빗썸 가격을 그대로 받으면서 차단을 안 탄다.
- *   여기는 구글 서버라 상관없지만, 위젯과 같은 출처를 써야 값이 어긋나지 않는다.
+ * 시세는 빗썸을 직접 부른다:
+ *   위젯이 코인게코를 거치는 건 **학교망이 빗썸을 막기 때문**이다. 여기는 구글
+ *   서버라 그 제약이 없다. 오히려 구글 IP 는 여러 사람이 같이 쓰므로 코인게코가
+ *   429 로 막는다(2026-09-21 실제로 첫 실행이 그렇게 실패했다).
+ *   빗썸이 안 되면 코인게코로 넘어간다.
  *
  * ⚠ 이 파일은 별도 Apps Script 프로젝트의 사본이다. 여기서 고쳐도 반영되지 않는다 —
  *   Apps Script 편집기에 붙여넣어야 한다. (okx_nft_alert.gs 와 같은 규칙)
@@ -26,17 +27,30 @@ var QUOTE_COIN    = 'kaia';    // 사는 것
 var CALENDAR_NAME = '시세 알림';
 var SAMPLE_XRP    = 1000;      // 일정 본문에 "XRP 1,000개 → KAIA 몇 개"를 적는다
 
-var GECKO = 'https://api.coingecko.com/api/v3/exchanges/bithumb/tickers?coin_ids=';
+var BITHUMB = 'https://api.bithumb.com/public/ticker/';   // 종목별. ALL_KRW 는 캐시를 타 값이 멎는다
+var GECKO   = 'https://api.coingecko.com/api/v3/exchanges/bithumb/tickers?coin_ids=';
+var SYM     = { ripple: 'XRP', kaia: 'KAIA', bitcoin: 'BTC', ethereum: 'ETH' };
+
 var STATE_KEY = 'ratio_armed';
+var FAIL_KEY  = 'ratio_fail';
+var FAIL_ALERT = 8;            // 연속 이만큼(=4시간) 못 받으면 "알림이 죽었다"고 알린다
 
 
 // ── 진입점 (30분 트리거) ──────────────────────────────────
 function checkOnce() {
+  var props = PropertiesService.getScriptProperties();
   var p = fetchPair_();
-  if (!p) { Logger.log('시세를 못 받았다 — 이번 회차는 건너뛴다'); return; }
+  if (!p) {
+    // 조용히 죽으면 "알림이 안 온다 = 목표에 안 닿았다"로 오해한다. 오래 못 받으면 알린다.
+    var n = Number(props.getProperty(FAIL_KEY) || 0) + 1;
+    props.setProperty(FAIL_KEY, String(n));
+    Logger.log('시세를 못 받았다 (' + n + '회 연속)');
+    if (n === FAIL_ALERT) createDeadEvent_(getCalendar_(), n);
+    return;
+  }
+  props.deleteProperty(FAIL_KEY);
 
   var ratio = p.base / p.quote;
-  var props = PropertiesService.getScriptProperties();
   var armed = props.getProperty(STATE_KEY) !== 'no';   // 처음엔 무장 상태
 
   Logger.log('비율 ' + ratio.toFixed(2) + ' / 목표 ' + TARGET + ' / 무장 ' + armed);
@@ -52,25 +66,52 @@ function checkOnce() {
 
 
 // ── 시세 ──────────────────────────────────
-/** 코인게코가 중계하는 빗썸 원화 시세. 둘 다 못 받으면 null. */
+/** 빗썸 원화 시세. 빗썸이 안 되면 코인게코로 넘어간다. 둘 다 안 되면 null. */
 function fetchPair_() {
-  var url = GECKO + BASE_COIN + ',' + QUOTE_COIN;
-  var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true,
-                                     headers: { 'User-Agent': 'ticker-ratio-alert' } });
+  return pack_(fromBithumb_(), '빗썸') || pack_(fromGecko_(), '코인게코');
+}
+
+function pack_(out, src) {
+  if (!out) return null;
+  var b = out[SYM[BASE_COIN]], q = out[SYM[QUOTE_COIN]];
+  if (!b || !q) { Logger.log(src + ' 에 빠진 시세: ' + JSON.stringify(out)); return null; }
+  Logger.log('시세 출처: ' + src);
+  return { base: b, quote: q, baseSym: SYM[BASE_COIN], quoteSym: SYM[QUOTE_COIN], src: src };
+}
+
+/** 빗썸 공개 시세. 종목마다 한 번씩 부른다(30분에 두 번이라 부담이 없다). */
+function fromBithumb_() {
+  var out = {}, syms = [SYM[BASE_COIN], SYM[QUOTE_COIN]];
+  for (var i = 0; i < syms.length; i++) {
+    var res = UrlFetchApp.fetch(BITHUMB + syms[i] + '_KRW', { muteHttpExceptions: true });
+    if (res.getResponseCode() !== 200) {
+      Logger.log('빗썸 응답 ' + res.getResponseCode());
+      return null;
+    }
+    var j = JSON.parse(res.getContentText());
+    if (j.status !== '0000' || !j.data || !j.data.closing_price) {
+      Logger.log('빗썸 status ' + (j && j.status));
+      return null;
+    }
+    out[syms[i]] = Number(j.data.closing_price);
+  }
+  return out;
+}
+
+/** 대체 경로. 구글 IP 는 공용이라 429 가 잦다 — 어디까지나 빗썸이 안 될 때만. */
+function fromGecko_() {
+  var res = UrlFetchApp.fetch(GECKO + BASE_COIN + ',' + QUOTE_COIN,
+                              { muteHttpExceptions: true,
+                                headers: { 'User-Agent': 'ticker-ratio-alert' } });
   if (res.getResponseCode() !== 200) {
     Logger.log('코인게코 응답 ' + res.getResponseCode());
     return null;
   }
-  var ticks = JSON.parse(res.getContentText()).tickers || [];
   var out = {};
-  ticks.forEach(function (t) {
+  (JSON.parse(res.getContentText()).tickers || []).forEach(function (t) {
     if (t.target === 'KRW' && t.last && !t.is_stale) out[t.base] = Number(t.last);
   });
-  // base/quote 를 심볼로 되찾는다. 코인게코 id 와 거래소 심볼이 다르기 때문.
-  var sym = { ripple: 'XRP', kaia: 'KAIA', bitcoin: 'BTC', ethereum: 'ETH' };
-  var b = out[sym[BASE_COIN]], q = out[sym[QUOTE_COIN]];
-  if (!b || !q) { Logger.log('빠진 시세: ' + JSON.stringify(out)); return null; }
-  return { base: b, quote: q, baseSym: sym[BASE_COIN], quoteSym: sym[QUOTE_COIN] };
+  return out;
 }
 
 
@@ -102,7 +143,7 @@ function createEvent_(cal, ratio, p, isTest) {
            : '한 번 알린 뒤에는 목표보다 '
              + (REARM_GAP * 100) + '% 아래로 내려가야 다시 알립니다.',
     '',
-    '출처: 코인게코가 중계하는 빗썸 시세'
+    '출처: ' + (p.src || '빗썸')
   ].join('\n');
 
   // 시작을 정확히 '지금'으로 두면 팝업이 발화하지 않을 수 있어 2분 여유를 둔다.
@@ -110,6 +151,17 @@ function createEvent_(cal, ratio, p, isTest) {
   var end   = new Date(start.getTime() + 15 * 60 * 1000);
   cal.createEvent(title, start, end, { description: desc }).addPopupReminder(0);
   Logger.log('일정 생성 → ' + title);
+}
+
+/** 시세를 오래 못 받으면 알린다. 조용한 실패가 제일 위험하다. */
+function createDeadEvent_(cal, n) {
+  var start = new Date(Date.now() + 2 * 60 * 1000);
+  cal.createEvent('\u26a0\ufe0f 시세 알림이 값을 못 받고 있습니다',
+                  start, new Date(start.getTime() + 15 * 60 * 1000),
+                  { description: n + '회 연속 실패(약 ' + (n / 2) + '시간).\n'
+                                 + 'Apps Script 실행 기록에서 사유를 확인하세요.' })
+     .addPopupReminder(0);
+  Logger.log('죽음 알림 발송');
 }
 
 /** 천 단위 콤마. 소수점은 버린다. */
