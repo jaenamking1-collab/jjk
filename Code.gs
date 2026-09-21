@@ -2205,9 +2205,19 @@ function fetchDist_rise() {
       const text = html.replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' ').replace(/\s+/g,' ');
       // 일정: 텍스트로 명시 ("지급기준일 : 2026년 6월 30일")
       const sched = {};
-      if (entry.pubMon) sched['공시일'] = entry.pubMon + '월 ' + entry.pubDay + '일';
       const baseM = text.match(/지급기준일\s*[:：]\s*\d{4}년\s*(\d{1,2})월\s*(\d{1,2})일/);
       const payM = text.match(/지급예정일\s*[:：]\s*\d{4}년\s*(\d{1,2})월\s*(\d{1,2})일/);
+      // ⛔ RISE 만 '공시일'이 실제 공시가 아니라 **글 게시일**이다. 끝난 회차에 정정·확정 글이
+      // 올라오면 그 게시일이 그 회차에 붙어 **공시일이 지급일보다 뒤**로 나온다
+      // (2026-09-21: 8월말 회차가 기준 8/31·지급 9/2 인데 공시 9/7 → 9월 달력에 '분배금공시일'이 떴다).
+      // 공시가 기준일보다 나중일 수는 없으니 버린다 — 모르는 건 모르는 채로 둔다.
+      // 600 = 6개월치 여유. 12월 공시 → 1월 기준 같은 정상 건까지 지우지 않으려는 것이다.
+      if (entry.pubMon) {
+        const pub = entry.pubMon * 100 + entry.pubDay;
+        const base = baseM ? parseInt(baseM[1]) * 100 + parseInt(baseM[2]) : 0;
+        const diff = pub - base;
+        if (!base || diff <= 0 || diff >= 600) sched['공시일'] = entry.pubMon + '월 ' + entry.pubDay + '일';
+      }
       if (baseM) sched['기준일'] = parseInt(baseM[1]) + '월 ' + parseInt(baseM[2]) + '일';
       if (payM) sched['지급일'] = parseInt(payM[1]) + '월 ' + parseInt(payM[2]) + '일';
       // 표: [종목명, 코드, 좌당예상분배금, 좌당과세분배금, 분배율]
