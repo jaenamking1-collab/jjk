@@ -4207,6 +4207,22 @@ function clearAllYellowNow() {
 // 이건 5분마다였으므로, 자기호출을 없애고 가벼운 워밍만 남긴다.
 function keepWarm() {
   try { SpreadsheetApp.openById(SHEET_ID).getName(); } catch (e) {}
+
+  // ── 자산 시트 일일 작업 따라잡기 (하루 한 번) ────────────────────
+  // 왜 여기 있나: 이 프로젝트에서 **트리거가 조용히 죽는 일이 세 번** 있었다(WORKLOG 128·149).
+  // 그때마다 몇 주 뒤 "왜 안 보이냐"로 발견됐다. 추세선 데이터와 노란칸 표시는 하루 한 번만
+  // 하면 되는 일이라, 5분마다 도는 이 함수가 그날 안에 따라잡게 둔다. 제 시각 트리거
+  // (pushTrendData 16:40 · markInputCells 6시)가 멀쩡하면 이쪽은 그날 이미 된 걸 보고 그냥 지나간다.
+  // 표식을 **먼저** 찍는다 — 중간에 터져도 5분마다 되풀이하지 않게.
+  try {
+    const pr = PropertiesService.getScriptProperties();
+    const today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
+    if (pr.getProperty('assetDay') !== today) {
+      pr.setProperty('assetDay', today);
+      pushTrendData();
+      markInputCells();
+    }
+  } catch (e) { console.log('자산 시트 일일 작업 실패 — ' + e); }
 }
 // 워치독 트리거: 매일 08:30. 편집기에서 이 함수를 한 번만 실행(▶)하면 설치된다.
 // 08:10의 flushKakaoPending·flushCalPending 보다 뒤에 둬서, 밤새 대기분이 먼저 나갈 기회를 준 다음 점검한다.
@@ -4488,11 +4504,24 @@ function _diagAssetSheet() {
 const ASSET_SHEET_ID = '19UsD0Tz6YL2eDoLdocL0ify8NLbUYSHaOOV-jtDqNLU';
 const TREND_TAB = '추세데이터';
 const TREND_DAYS = 30;                 // B~AE 30칸
-const TREND_PREV_COL = TREND_DAYS + 2; // AF = 전일종가 (VLOOKUP 32번째 열)
+const TREND_PREV_COL = TREND_DAYS + 2; // AF = 전일종가 (추세데이터 탭 안)
+const PREV_CLOSE_COL = 27;             // 주식상황 AA열 — 조건부서식이 볼 수 있는 자리
 
 // 시세로그 → 자산 시트 '추세데이터' 탭. 매일 snapshotPrices 뒤에 돈다.
 // A열 티커는 **주식상황 B열에 적힌 값 그대로** 쓴다 — 그래야 VLOOKUP·FILTER 가 형(숫자/글자)까지
 // 정확히 맞는다. 시세로그 쪽은 6자리 0채움이라 맞춰 찾는다.
+// 시세로그의 날짜 칸 → 'yyyy-MM-dd'.
+// ⚠️ 이 칸에는 **Date 와 문자열이 섞여** 있다. 그냥 String().slice(0,10) 하면
+// 'Mon Aug 10' 같은 게 나와 정렬이 글자순으로 엉키고, 30일 창이 엉뚱한 날을 집는다
+// (2026-09-21 추세데이터가 'Mon Jul 13~Wed Sep 16' 으로 나왔다). 어떤 꼴이든 받아낸다.
+function _logDay(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, 'Asia/Seoul', 'yyyy-MM-dd');
+  const s = String(v == null ? '' : v).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? '' : Utilities.formatDate(d, 'Asia/Seoul', 'yyyy-MM-dd');
+}
+
 function pushTrendData() {
   const log = SpreadsheetApp.openById(SHEET_ID).getSheetByName('시세로그');
   if (!log) { console.log('시세로그 없음'); return; }
@@ -4505,7 +4534,7 @@ function pushTrendData() {
   };
   const byT = {}, dateSet = {};
   for (let i = 1; i < rows.length; i++) {
-    const d = String(rows[i][0] || '').slice(0, 10);
+    const d = _logDay(rows[i][0]);
     const t = norm(rows[i][1]);
     const p = parseFloat(rows[i][2]);
     if (!d || !t || !(p > 0)) continue;
@@ -4549,7 +4578,23 @@ function pushTrendData() {
       ? new Array(TREND_DAYS - dates.length).fill('').concat(dates) : dates).concat(['전일종가']);
   tab.getRange(1, 1, 1, head.length).setValues([head]);
   if (out.length) tab.getRange(2, 1, out.length, head.length).setValues(out);
-  console.log('추세데이터: 종목 ' + out.length + '개 × 날짜 ' + dates.length + '일 (' + dates[0] + '~' + dates[dates.length - 1] + ')');
+  // ⚠️ 전일종가는 **주식상황 안에** 도 적는다(AA열). 조건부서식은 **다른 시트를 참조할 수 없어서**
+  // 추세데이터 탭을 VLOOKUP 하는 규칙은 구글이 거부한다(2026-09-21 실제로 막혔다).
+  const prevByT = {};
+  out.forEach(r => { prevByT[norm(r[0])] = r[r.length - 1]; });
+  const col = [];
+  for (let i = 2; i < svals.length; i++) {
+    const key = norm(svals[i][1]);
+    col.push([key && prevByT[key] != null ? prevByT[key] : '']);
+  }
+  if (col.length) {
+    src.getRange(3, PREV_CLOSE_COL, col.length, 1).setValues(col);
+    src.getRange(1, PREV_CLOSE_COL).setValue('전일종가(자동)');
+    try { src.hideColumns(PREV_CLOSE_COL); } catch(e) {}
+    _ensurePriceColorRules(src, svals.length);   // AA를 채운 김에 그걸 보는 규칙도 세워 둔다
+  }
+  console.log('추세데이터: 종목 ' + out.length + '개 × 날짜 ' + dates.length + '일 (' + dates[0] + '~' + dates[dates.length - 1] + ')'
+    + ' · 전일종가를 주식상황 AA열 ' + col.length + '행에 기록');
   return { tickers: out.length, days: dates.length };
 }
 
@@ -4594,27 +4639,34 @@ function fixAssetSheet() {
 
   // ── ① 현재가 색: 전일 종가보다 오르면 빨강, 내리면 파랑 (한국 증시 관례) ──
   // G=원화 현재가, H=달러 현재가. 전일종가는 추세데이터 AF열(A부터 32번째).
-  const lk = 'VLOOKUP($B3,' + TREND_TAB + '!$A:$AF,' + TREND_PREV_COL + ',FALSE)';
-  const cond = (cell, op) =>
-    '=AND(N($' + cell + '3)>0,N(IFERROR(' + lk + ',0))>0,$' + cell + '3' + op + lk + ')';
+  const r2 = _ensurePriceColorRules(sh, last);
+  return { trendRows: n, rulesKept: r2.kept, rulesAdded: r2.added };
+}
+
+// 현재가가 전일 종가보다 오르면 빨강, 내리면 파랑 (한국 증시 관례). G=원화, H=달러.
+// ⛔ 조건부서식 수식은 **다른 시트를 못 본다** — 추세데이터 탭을 VLOOKUP 하려다 구글이
+//    "조건부 서식 규칙은 다른 시트를 참조할 수 없습니다"로 거부했다(2026-09-21). 그래서
+//    전일종가를 같은 시트 AA열에 두고 그걸 본다(pushTrendData 가 매일 채운다).
+// 여러 번 돌려도 같은 상태가 된다 — 내가 넣은 것($AA3 이 든 규칙)만 골라 갈아끼운다.
+function _ensurePriceColorRules(sh, last) {
+  const cond = (cell, op) => '=AND(N($' + cell + '3)>0,N($AA3)>0,$' + cell + '3' + op + '$AA3)';
   const want = [
     { a1: 'G3:G' + last, f: cond('G', '>'), color: '#d32f2f' },
     { a1: 'G3:G' + last, f: cond('G', '<'), color: '#1565c0' },
     { a1: 'H3:H' + last, f: cond('H', '>'), color: '#d32f2f' },
     { a1: 'H3:H' + last, f: cond('H', '<'), color: '#1565c0' }
   ];
-  // 남의 규칙 22개는 그대로 둔다. 내가 전에 넣은 것(수식에 추세데이터가 든 것)만 걷어낸다.
-  const kept = sh.getConditionalFormatRules().filter(r => {
+  const kept = sh.getConditionalFormatRules().filter(r => {      // 남의 규칙 22개는 그대로 둔다
     const b = r.getBooleanCondition();
     if (!b) return true;
-    return !(b.getCriteriaValues() || []).some(v => String(v).indexOf(TREND_TAB) >= 0);
+    return !(b.getCriteriaValues() || []).some(v => String(v).indexOf('$AA3') >= 0);
   });
   const mine = want.map(w => SpreadsheetApp.newConditionalFormatRule()
     .whenFormulaSatisfied(w.f).setFontColor(w.color)
     .setRanges([sh.getRange(w.a1)]).build());
   sh.setConditionalFormatRules(kept.concat(mine));
   console.log('현재가 색 규칙 ' + mine.length + '개 설치 (기존 규칙 ' + kept.length + '개 유지)');
-  return { trendRows: n, rulesKept: kept.length, rulesAdded: mine.length };
+  return { kept: kept.length, added: mine.length };
 }
 
 // 설치된 트리거 전체 목록. "앱이 가끔 20~80초씩 멈춘다"를 추적할 때 편집기에서 ▶실행.
