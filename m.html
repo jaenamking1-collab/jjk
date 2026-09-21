@@ -315,14 +315,20 @@ function projectMonthly(holdings, dividends, year) {
 }
 
 // 계좌 하나의 집계
+// 국내(원화)/해외(USD)를 나눠서도 담는다 — 증권사 앱이 두 화면으로 나눠 보여주기 때문에
+// 합계만 있으면 대조가 안 된다(2026-09-21). portfolio.html acctInvestValue 와 같은 식.
 function calcAccount(a, projMap) {
   const hs = D.holdings.filter(x => x.account_id === a.id);
   let invest = 0, value = 0, proj = 0;
-  hs.forEach(h => { const c = calcHolding(h); invest += c.invest; value += c.value; proj += (projMap[h.id] || 0); });
+  let investDom = 0, valueDom = 0, investOvs = 0, valueOvs = 0;
+  hs.forEach(h => { const c = calcHolding(h); invest += c.invest; value += c.value; proj += (projMap[h.id] || 0);
+    if (h.currency === 'USD') { investOvs += c.invest; valueOvs += c.value; }
+    else                      { investDom += c.invest; valueDom += c.value; } });
   const ids = hs.map(h => h.id);
   const div = D.divs.filter(d => ids.includes(d.holding_id))
                     .reduce((s,d) => s + divKrwOf(d.amount, d.currency, d.rate), 0);
-  return { acct:a, holdings:hs, invest, value, div, proj, pl: value - invest };
+  return { acct:a, holdings:hs, invest, value, div, proj, pl: value - invest,
+           investDom, valueDom, investOvs, valueOvs };
 }
 
 // 전체 집계 (사람별 + 총합)
@@ -410,6 +416,9 @@ function viewHome() {
       ${isOpen ? `<div class="detail"><dl>
         <dt>총매입</dt><dd>${won(p.invest)}</dd>
         <dt>평가금</dt><dd>${won(p.value)}</dd>
+        ${(p.valueDom > 0 && p.valueOvs > 0) ? `
+        <dt>ㄴ 국내</dt><dd>${won(p.valueDom)} <span class="muted">(매입 ${won(p.investDom)})</span></dd>
+        <dt>ㄴ 해외</dt><dd>${won(p.valueOvs)} <span class="muted">(매입 ${won(p.investOvs)})</span></dd>` : ''}
         <dt>수익금</dt><dd class="${cls(p.pl)}">${sign(p.pl)}</dd>
         <dt>연간 분배금</dt><dd style="color:var(--green)">${won(p.div)}</dd>
         <dt>누적 분배율</dt><dd>${pct2(p.div, p.invest)}</dd>
