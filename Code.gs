@@ -4213,14 +4213,18 @@ function keepWarm() {
   // 그때마다 몇 주 뒤 "왜 안 보이냐"로 발견됐다. 추세선 데이터와 노란칸 표시는 하루 한 번만
   // 하면 되는 일이라, 5분마다 도는 이 함수가 그날 안에 따라잡게 둔다. 제 시각 트리거
   // (pushTrendData 16:40 · markInputCells 6시)가 멀쩡하면 이쪽은 그날 이미 된 걸 보고 그냥 지나간다.
-  // 표식을 **먼저** 찍는다 — 중간에 터져도 5분마다 되풀이하지 않게.
+  // 표식은 **끝난 뒤에** 찍는다. 먼저 찍었더니 중간에 터진 날은 그날 내내 다시 시도하지 않아,
+  // 안전망이 있으나 마나였다(2026-09-21 실제로 그렇게 만들었다가 고침).
+  // 터지면 5분 뒤 다시 해 보되, 실패한 이유는 로그에 남긴다.
   try {
     const pr = PropertiesService.getScriptProperties();
     const today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
-    if (pr.getProperty('assetDay') !== today) {
-      pr.setProperty('assetDay', today);
-      pushTrendData();
-      markInputCells();
+    if (pr.getProperty('assetDone') !== today) {
+      // 둘은 서로 남이다 — 하나가 터져도 다른 하나는 해야 한다.
+      let ok = true;
+      try { pushTrendData(); } catch (e) { ok = false; console.log('pushTrendData 실패 — ' + e); }
+      try { markInputCells(); } catch (e) { ok = false; console.log('markInputCells 실패 — ' + e); }
+      if (ok) pr.setProperty('assetDone', today);
     }
   } catch (e) { console.log('자산 시트 일일 작업 실패 — ' + e); }
 }
@@ -4588,6 +4592,11 @@ function pushTrendData() {
     col.push([key && prevByT[key] != null ? prevByT[key] : '']);
   }
   if (col.length) {
+    // ⚠️ getRange 는 **시트에 실제로 있는 열까지만** 잡힌다. 주식상황은 데이터가 25열이라
+    // AA(27)를 바로 쓰려다 예외가 났고, keepWarm 의 따라잡기가 그 자리에서 통째로 멎었다
+    // (2026-09-21: 추세선은 들어갔는데 현재가 색도 노란칸도 안 바뀌어 한참 헤맸다).
+    const need = PREV_CLOSE_COL - src.getMaxColumns();
+    if (need > 0) src.insertColumnsAfter(src.getMaxColumns(), need);
     src.getRange(3, PREV_CLOSE_COL, col.length, 1).setValues(col);
     src.getRange(1, PREV_CLOSE_COL).setValue('전일종가(자동)');
     try { src.hideColumns(PREV_CLOSE_COL); } catch(e) {}
