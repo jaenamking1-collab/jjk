@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet'
 ];
 
 function runMaint(name, arg) {
@@ -4330,6 +4330,95 @@ function testKakao() {
 function testCal() {
   _notifyCal(['✅ jjk 캘린더 알림 연동 테스트 — 이 일정 알림이 오면 설정 완료']);
   console.log('테스트 일정 생성 시도 완료(실행 로그·캘린더 확인)');
+}
+
+// '자산' 스프레드시트(19UsD0Tz…)의 겉모습만 읽는 진단. 아무것도 바꾸지 않는다.
+// 왜: "현재가 색이 안 바뀐다 / 추세선이 안 나온다 / 분배금이 다 노랗다"(2026-09-21)를
+// 고치려면 시트의 조건부서식 규칙과 수식이 지금 어떤 상태인지 봐야 하는데, 그 시트는
+// 다른 구글 계정 소유라 편집기를 열 수 없다. 웹앱은 소유자 권한으로 도니 여기서 읽는다.
+// ⛔ jjk 는 공개 저장소고 Actions 로그도 공개다 — 금액·티커·계좌명은 절대 찍지 않는다.
+//    구조(열 이름·건수·수식 모양·색)만 남긴다.
+function _diagAssetSheet() {
+  const ss = SpreadsheetApp.openById('19UsD0Tz6YL2eDoLdocL0ify8NLbUYSHaOOV-jtDqNLU');
+  console.log('탭: ' + ss.getSheets().map(s => s.getName()).join(' / '));
+
+  // ── 주식상황: 현재가 색(①)과 추세선(②) ──────────────────
+  const st = ss.getSheetByName('주식상황');
+  if (!st) { console.log('❌ 주식상황 탭 없음'); }
+  else {
+    const rng = st.getDataRange();
+    const vals = rng.getValues(), fs = rng.getFormulas();
+    console.log('■ 주식상황 ' + vals.length + '행 × ' + (vals[0] || []).length + '열');
+    console.log('  1행: ' + (vals[0] || []).map((v, i) => i + ':' + String(v).slice(0, 10)).join(' | '));
+    console.log('  2행: ' + (vals[1] || []).map((v, i) => i + ':' + String(v).slice(0, 10)).join(' | '));
+
+    // 열별 수식 census — 값은 빼고 '모양'만(숫자는 #, 따옴표 안은 "…").
+    const shape = f => String(f).replace(/"[^"]*"/g, '"…"').replace(/\d+/g, '#');
+    for (let c = 0; c < (vals[0] || []).length; c++) {
+      const shapes = {}; let n = 0, err = 0;
+      for (let i = 2; i < fs.length; i++) {
+        const f = (fs[i] || [])[c];
+        if (f) { n++; const s = shape(f); shapes[s] = (shapes[s] || 0) + 1; }
+        const v = String((vals[i] || [])[c] || '');
+        if (/^#(N\/A|REF!|VALUE!|ERROR!|NAME\?|DIV\/0!|NUM!)/.test(v)) err++;
+      }
+      if (!n && !err) continue;
+      console.log('  열' + c + ' 수식 ' + n + '개' + (err ? ' · 오류표시 ' + err + '개' : ''));
+      Object.keys(shapes).sort((a, b) => shapes[b] - shapes[a]).slice(0, 3)
+        .forEach(s => console.log('      ×' + shapes[s] + '  ' + s.slice(0, 160)));
+    }
+
+    const rules = st.getConditionalFormatRules();
+    console.log('  조건부서식 ' + rules.length + '개');
+    rules.forEach((r, i) => {
+      const rgs = r.getRanges().map(x => x.getA1Notation()).join(',');
+      const b = r.toString();
+      console.log('    [' + i + '] ' + rgs.slice(0, 80) + '  ' + b.slice(0, 200));
+    });
+  }
+
+  // ── 분배금: 노란칸(③) ───────────────────────────────
+  const y = new Date().getFullYear();
+  const tab = ss.getSheetByName('분배금' + y);
+  const dv = tab || ss.getSheetByName('분배금');
+  if (!dv) { console.log('❌ 분배금 탭 없음'); return { success: true }; }
+  const drng = dv.getDataRange();
+  const dvals = drng.getValues(), dbgs = drng.getBackgrounds();
+  const cols = _monthCols(!!tab, dvals);
+  console.log('■ ' + dv.getName() + ' ' + dvals.length + '행 · 월별칸 열 ' + cols.length + '개 [' + cols.join(',') + ']');
+  let yv = 0, ye = 0, nv = 0, ne = 0;
+  const byCol = {};
+  for (let i = 4; i < dvals.length; i++) {
+    const bg = dbgs[i] || [];
+    for (const c of cols) {
+      if (c >= bg.length) continue;
+      const has = String(dvals[i][c] || '').trim() !== '';
+      if (_isYellow(bg[c])) {
+        has ? yv++ : ye++;
+        byCol[c] = (byCol[c] || 0) + 1;
+      } else { has ? nv++ : ne++; }
+    }
+  }
+  console.log('  노랑: 값있음 ' + yv + ' · 빈칸 ' + ye + '   |   그 밖: 값있음 ' + nv + ' · 빈칸 ' + ne);
+  console.log('  노랑 열 분포: ' + Object.keys(byCol).map(c => c + '→' + byCol[c]).join(' '));
+  // 배경색 종류(노랑만) — 두 스크립트가 서로 다른 노랑을 쓰는지 본다.
+  const tone = {};
+  for (let i = 4; i < dvals.length; i++) {
+    const bg = dbgs[i] || [];
+    for (const c of cols) if (c < bg.length && _isYellow(bg[c])) tone[bg[c]] = (tone[bg[c]] || 0) + 1;
+  }
+  console.log('  노랑 색값: ' + Object.keys(tone).map(k => k + '×' + tone[k]).join(' '));
+  // D열 배당구분 분포 — markInputCells 가 어떤 행을 칠하는지의 근거.
+  const cyc = {};
+  for (let i = 4; i < dvals.length; i++) {
+    const k = String(dvals[i][3] || '').replace(/\s/g, '') || '(빈칸)';
+    cyc[k] = (cyc[k] || 0) + 1;
+  }
+  console.log('  D열 배당구분: ' + Object.keys(cyc).map(k => k + '×' + cyc[k]).join(' '));
+
+  const tr = _getOrCreateSheet('_노란셀추적', ['셀', '최초발견']);
+  console.log('  _노란셀추적 ' + Math.max(0, tr.getLastRow() - 1) + '행');
+  return { success: true };
 }
 
 // 설치된 트리거 전체 목록. "앱이 가끔 20~80초씩 멈춘다"를 추적할 때 편집기에서 ▶실행.
