@@ -1472,7 +1472,10 @@ function renderAccountStats(allHoldings, allDivs, sheet, allDivsFull) {
     const h = state.holdings.filter(x => x.account_id === a.id);
     totalHoldings += h.length;
 
-    const { invest, value } = acctInvestValue(h, priceMap);
+    const { invest, value, investDom, valueDom, investOvs, valueOvs } = acctInvestValue(h, priceMap);
+    // 해외가 섞인 계좌만 쪼개 적는다. 국내뿐인 계좌에 '국내 …'를 붙이면 잡음이다.
+    const split = (dom, ovs) => (dom > 0 && ovs > 0)
+      ? `<div style="font-size:9px;color:var(--text3);line-height:1.35;margin-top:1px">국내 ${fmt(dom)}<br>해외 ${fmt(ovs)}</div>` : '';
 
     const hIds = h.map(x => x.id);
     const acctDivs = state.dividends.filter(d => hIds.includes(d.holding_id));
@@ -1490,8 +1493,8 @@ function renderAccountStats(allHoldings, allDivs, sheet, allDivsFull) {
     const drt = invest > 0 && div > 0 ? (div/invest*100).toFixed(2) : null;
     const yrt = invest > 0 && divProj > 0 ? (divProj/invest*100).toFixed(2) : null;
 
-    set(`ac-val-${a.id}`, invest ? fmt(invest) : '-');
-    set(`ac-cur-${a.id}`, value ? fmt(value) : '-');
+    set(`ac-val-${a.id}`, invest ? fmt(invest) + split(investDom, investOvs) : '-');
+    set(`ac-cur-${a.id}`, value ? fmt(value) + split(valueDom, valueOvs) : '-');
     set(`ac-pl-${a.id}`, invest ? `<span style="color:${pl>=0?'var(--red)':'var(--accent)'}">${pl>=0?'+':''}${fmt(pl)}<br><span style="font-size:9px">(${Number(plPct)>=0?'+':''}${plPct}%)</span></span>` : '-');
     set(`ac-div-${a.id}`, div ? fmt(div) : '-');
     set(`ac-drt-${a.id}`, drt ? drt+'%' : '-');
@@ -3883,16 +3886,23 @@ function showTab(name) {
 
 // ── 계좌 보유원금·평가금액 (단일 정의) ──────
 // renderAccountStats와 계좌 성적표가 같은 식을 쓰게 한다. 현재가가 없으면 평단으로 대체(=손익 0).
+// 국내(원화)와 해외(USD)를 **나눠서** 돌려준다.
+// 왜: 증권사 앱은 '국내 잔고'와 '해외 잔고'를 다른 화면에 둔다. 우리가 합쳐서만 보여주니
+// 키움 화면(국내만 79,195,571)과 우리 계좌 행(102,879,986)이 안 맞아 보여 사용자가 틀린
+// 줄 알았다(2026-09-21). 값은 맞았고 **쪼개서 보여주지 않은 것이 문제**였다.
 function acctInvestValue(hs, priceMap) {
   const toKrw = (v, cur) => cur === 'USD' ? v * (state.exchangeRate || 1400) : v;
-  let invest = 0, value = 0;
+  let invest = 0, value = 0, investDom = 0, valueDom = 0, investOvs = 0, valueOvs = 0;
   (hs || []).forEach(x => {
     const qty = parseFloat(x.quantity) || 0, avg = parseFloat(x.avg_price) || 0;
     const cur = priceMap[(x.ticker || '').toString().trim().toUpperCase()];
-    invest += toKrw(avg * qty, x.currency);
-    value  += toKrw((cur || avg) * qty, x.currency);
+    const iv = toKrw(avg * qty, x.currency);
+    const vv = toKrw((cur || avg) * qty, x.currency);
+    invest += iv; value += vv;
+    if (x.currency === 'USD') { investOvs += iv; valueOvs += vv; }
+    else                      { investDom += iv; valueDom += vv; }
   });
-  return { invest, value };
+  return { invest, value, investDom, valueDom, investOvs, valueOvs };
 }
 
 // ── 계좌 성적표 ─────────────────────────────
