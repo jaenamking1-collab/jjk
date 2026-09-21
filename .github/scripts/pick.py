@@ -10,6 +10,28 @@ import re
 import sys
 
 path_expr, file_path = sys.argv[1], sys.argv[2]
+
+# 특수 모드: 'sched' — 6개사의 회차별 일정(공시·분배락·기준·지급)을 중복 없이 모아 준다.
+# 왜: "예상 공시일·기준일을 알 수 있나"(2026-09-21)에 답하려면 과거 회차가 실제로 규칙적인지
+# 봐야 하는데, 응답이 110KB 라 items 를 눈으로 훑을 수가 없다. 회차 단위로 접어서 본다.
+if path_expr == 'sched':
+    import json as _j
+    d = _j.load(open(file_path, encoding='utf-8'))
+    srcs = d.get('sources') or {'(단일)': d}
+    for name, v in srcs.items():
+        seen = {}
+        for it in (v.get('items') or []):
+            s = it.get('sched') or {}
+            if not s:
+                continue
+            key = (it.get('cycle') or '?',
+                   s.get('공시일', '-'), s.get('분배락일', '-'),
+                   s.get('기준일', '-'), s.get('지급일', '-'))
+            seen[key] = seen.get(key, 0) + 1
+        print(f'--- {name} ({len(seen)}회차) ---')
+        for (cyc, pub, ex, base, pay), n in sorted(seen.items(), key=lambda x: x[0][3]):
+            print(f'  {cyc:<4} 공시 {pub:<9} 분배락 {ex:<9} 기준 {base:<9} 지급 {pay:<9} ({n}종목)')
+    sys.exit(0)
 try:
     data = json.load(open(file_path, encoding='utf-8'))
 except Exception as e:
