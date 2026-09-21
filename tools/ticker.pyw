@@ -208,6 +208,7 @@ coin_mid = {}                            # 코인 -> (날짜, 그날 한국시�
 RANGE_DAYS = 30                          # 교환비율 줄에 보여줄 최저~최고 구간(일)
 ratio_band = {}                          # "A/B" -> (날짜, 최저, 최고). 하루 한 번만 잰다
 band_pos = {}                            # "A/B" -> 지금이 그 구간의 몇 %
+targets = {}                             # 종목 -> (목표값, 구간%인가). 닿으면 반짝인다
 prem_at = [0.0]                          # 환산비를 마지막으로 저장한 시각
 PREM_SAVE = 600                          # 환산비 저장 간격(초)
 INDEX = {"KOSPI": "KOSPI", "KOSDAQ": "KOSDAQ", "^KS11": "KOSPI", "^KQ11": "KOSDAQ"}
@@ -221,9 +222,24 @@ BRAND = {"KODEX": "K", "TIGER": "T", "RISE": "R", "KBSTAR": "R", "PLUS": "P", "A
 
 
 def split(line):
-    """069500=KODEX 200 -> (069500, KODEX 200). USDKRW=X 처럼 심볼에 =가 있어도 안전."""
+    """069500=KODEX 200 -> (069500, KODEX 200). USDKRW=X 처럼 심볼에 =가 있어도 안전.
+    뒤에 붙은 @목표는 여기서 떼어 낸다 — 심볼에도 이름에도 섞이면 안 된다."""
+    line = line.split("@")[0].rstrip()
     sym, sep, name = line.rpartition("=")
     return (sym, name) if sep and len(name) > 1 else (line, line)
+
+
+def target_of(line):
+    """줄 뒤의 @목표를 읽는다. "@50"은 비율 그 자체, "@80%"는 30일 구간의 위치.
+    XRP를 카이아로 바꿀 때 받는 개수는 비율 하나가 정하므로, 목표도 비율로 잡는다."""
+    head, sep, t = line.rpartition("@")
+    if not sep:
+        return None
+    t = t.strip()
+    try:
+        return float(t.rstrip("%")), t.endswith("%")
+    except ValueError:
+        return None
 
 
 def cut(name):
@@ -629,6 +645,11 @@ def build():
             continue
         for line in group:
             sym, name = split(line)
+            tgt = target_of(line)
+            if tgt:
+                targets[sym] = tgt
+            else:
+                targets.pop(sym, None)
             given = name != sym                  # 직접 지정한 이름은 약칭 처리 안 함
             nm = tk.Label(body, text=name if given else cut(name), bg=panel_bg(), fg=FG,
                           font=("Malgun Gothic", 8, "bold"))
@@ -687,6 +708,21 @@ def paint(sym, res):
         c.config(bg=panel_bg())
     text = fmt(price, dec)
     p.config(text=text, font=("Consolas", 7 if len(text) > 9 else 9))   # 자릿수 많으면 축소
+    want = targets.get(sym)
+    if want:
+        goal = want[0]
+        if want[1]:                      # "@80%" 는 30일 구간의 위치 -> 비율로 환산
+            _, lo, hi = ratio_band.get(sym) or ("", 0, 0)
+            goal = lo + (hi - lo) * want[0] / 100 if hi > lo else None
+        if goal:
+            gap = (goal / price - 1) * 100       # 목표까지 몇 % 더 올라야 하나
+            if gap <= 0:
+                c.config(text="\u2605 도달", fg=THEME["up"])
+                alerts[sym] = THEME["up"]        # 닿으면 반짝인다
+            else:
+                c.config(text="\u2197%.1f%%" % gap, fg=THEME["dim"])
+                alerts.pop(sym, None)
+            return
     if sym in band_pos:                  # 교환비율 줄: 하루치 등락 대신 30일 구간 위치
         pos = band_pos[sym]              # 0 = 최근 30일 최저, 100 = 최고
         c.config(text="\u2195%d%%" % round(pos),
@@ -905,6 +941,7 @@ def settings(_=None):
     tip = ("국내: 6자리 코드만 (069500, 0005A0) · 지수 KOSPI KOSDAQ\n"
            "환율 USDKRW=X · 코인 BTC-KRW · 미국 AAPL\n"
            "교환비율: XRP-KRW/KAIA-KRW=XRP당카이아\n"
+           "목표: 뒤에 @50 을 붙이면 그 값에 닿을 때 반짝임 (@80%는 30일 구간 위치)\n"
            "이름이 길면 069500=코덱스200 처럼 직접 지정")
     tk.Label(win, text=tip, bg=BG, fg=DIM, justify="left",
              font=("Malgun Gothic", 8)).pack(anchor="w", padx=12, pady=(4, 6))
