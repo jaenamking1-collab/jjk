@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice'
 ];
 
 function runMaint(name, arg) {
@@ -4412,6 +4412,37 @@ function testCal() {
 // 다른 구글 계정 소유라 편집기를 열 수 없다. 웹앱은 소유자 권한으로 도니 여기서 읽는다.
 // ⛔ jjk 는 공개 저장소고 Actions 로그도 공개다 — 금액·티커·계좌명은 절대 찍지 않는다.
 //    구조(열 이름·건수·수식 모양·색)만 남긴다.
+// 구글 금융이 그 티커를 아는지 시험한다. 숨긴 '추세데이터' 탭 구석에 수식을 썼다가 지운다.
+// 왜: "은경 SPYI 는 오류난다"(2026-09-22). 현재가 칸이 `=GOOGLEFINANCE(B,"price")` 인데
+// 구글이 모르는 종목이면 #N/A 가 된다 — 짐작 말고 실제로 물어본다.
+function _probePrice(ticker) {
+  const t = String(ticker || '').trim().toUpperCase();
+  if (!/^[A-Z0-9.:-]{1,12}$/.test(t)) { console.log('티커 형식이 아님'); return { success: false }; }
+  const ss = SpreadsheetApp.openById(ASSET_SHEET_ID);
+  const tab = ss.getSheetByName(TREND_TAB);
+  if (!tab) { console.log('추세데이터 탭 없음'); return { success: false }; }
+  const row = tab.getMaxRows(), col = tab.getMaxColumns();   // 아무도 안 쓰는 구석
+  const tries = [
+    ['price',      '=IFERROR(GOOGLEFINANCE("' + t + '","price"),"(오류)")'],
+    ['기본',        '=IFERROR(GOOGLEFINANCE("' + t + '"),"(오류)")'],
+    ['NYSEARCA',   '=IFERROR(GOOGLEFINANCE("NYSEARCA:' + t + '","price"),"(오류)")'],
+    ['NASDAQ',     '=IFERROR(GOOGLEFINANCE("NASDAQ:' + t + '","price"),"(오류)")'],
+    ['closeyest',  '=IFERROR(GOOGLEFINANCE("' + t + '","closeyest"),"(오류)")']
+  ];
+  const out = {};
+  tries.forEach(([name, f]) => {
+    const cell = tab.getRange(row, col);
+    cell.setFormula(f);
+    SpreadsheetApp.flush();
+    Utilities.sleep(1200);                                   // 외부 시세는 늦게 온다
+    const v = cell.getValue();
+    out[name] = (v === '' || v == null) ? '(빈값)' : String(v);
+    cell.clearContent();
+  });
+  Object.keys(out).forEach(k => console.log('  ' + k + ' → ' + out[k]));
+  return out;
+}
+
 function _diagAssetSheet() {
   const ss = SpreadsheetApp.openById('19UsD0Tz6YL2eDoLdocL0ify8NLbUYSHaOOV-jtDqNLU');
   console.log('탭: ' + ss.getSheets().map(s => s.getName()).join(' / '));
@@ -4449,6 +4480,36 @@ function _diagAssetSheet() {
       const b = r.toString();
       console.log('    [' + i + '] ' + rgs.slice(0, 80) + '  ' + b.slice(0, 200));
     });
+
+    // 추세데이터가 주식상황의 티커와 실제로 맞물리는지 — 여기가 어긋나면 추세선이 빈칸이 된다.
+    const tt = ss.getSheetByName(TREND_TAB);
+    if (tt) {
+      const tv = tt.getDataRange().getValues();
+      const keys = {};
+      for (let i = 1; i < tv.length; i++) keys[String(tv[i][0]).trim().toUpperCase()] = typeof tv[i][0];
+      let hit = 0, miss = 0, typeNum = 0;
+      Object.keys(keys).forEach(k => { if (keys[k] === 'number') typeNum++; });
+      const seen2 = {};
+      for (let i = 2; i < vals.length; i++) {
+        const b = vals[i][1]; if (!String(b || '').trim()) continue;
+        const k = String(b).trim().toUpperCase(); if (seen2[k]) continue; seen2[k] = 1;
+        (keys[k] != null ? hit++ : miss++);
+      }
+      console.log('  추세데이터 ' + (tv.length - 1) + '행 · 티커가 숫자로 저장된 것 ' + typeNum + '개'
+        + ' · 주식상황과 맞물림 ' + hit + ' / 못 맞물림 ' + miss);
+    } else console.log('  추세데이터 탭 없음');
+
+    // AA열 전일종가 — 현재가 색(①)이 이걸 본다.
+    let aaN = 0, diff = 0, same = 0;
+    for (let i = 2; i < vals.length; i++) {
+      const prev = parseFloat(vals[i][PREV_CLOSE_COL - 1]);
+      const cur = parseFloat(vals[i][6]) || parseFloat(vals[i][7]);
+      if (!(prev > 0)) continue;
+      aaN++;
+      if (cur > 0) (Math.abs(cur - prev) > 1e-9 ? diff++ : same++);
+    }
+    console.log('  AA열 전일종가 ' + aaN + '행 · 현재가와 다름 ' + diff + ' / 같음 ' + same
+      + '  (다른 만큼 색이 붙어야 한다)');
   }
 
   // ── 분배금: 노란칸(③) ───────────────────────────────
@@ -4510,6 +4571,7 @@ const TREND_TAB = '추세데이터';
 const TREND_DAYS = 30;                 // B~AE 30칸
 const TREND_PREV_COL = TREND_DAYS + 2; // AF = 전일종가 (추세데이터 탭 안)
 const PREV_CLOSE_COL = 27;             // 주식상황 AA열 — 조건부서식이 볼 수 있는 자리
+const TREND_ALT_COL  = TREND_DAYS + 3; // 추세데이터 AG열 = 구글 금융이 모르는 종목의 예비 시세
 
 // 시세로그 → 자산 시트 '추세데이터' 탭. 매일 snapshotPrices 뒤에 돈다.
 // A열 티커는 **주식상황 B열에 적힌 값 그대로** 쓴다 — 그래야 VLOOKUP·FILTER 가 형(숫자/글자)까지
@@ -4560,7 +4622,7 @@ function pushTrendData() {
     if (!key || seen[key]) continue;     // 주식상황은 계좌별로 같은 종목을 여러 번 적는다
     seen[key] = true;
     const hist = byT[key] || {};
-    const line = [raw];
+    const line = [String(raw)];          // 숫자로 저장되지 않게 글자로 넣는다(위 setNumberFormat 참고)
     for (let c = 0; c < TREND_DAYS; c++) {
       const d = dates[c - (TREND_DAYS - dates.length)];   // 칸이 남으면 앞쪽을 비운다
       line.push(d && hist[d] != null ? hist[d] : '');
@@ -4572,20 +4634,44 @@ function pushTrendData() {
       if (hist[dates[c]] != null) { prev = hist[dates[c]]; break; }
     }
     line.push(prev);
+    line.push('');          // AG 예비 시세 — 아래에서 채운다
     out.push(line);
   }
 
   let tab = ss.getSheetByName(TREND_TAB);
   if (!tab) { tab = ss.insertSheet(TREND_TAB); try { tab.hideSheet(); } catch(e) {} }
   tab.clear();
+  // ⚠️ A열(티커)은 **텍스트 서식**이어야 한다. setValues 는 '330590' 같은 숫자꼴 문자열을
+  // **숫자로 바꿔 저장**해서, 주식상황 B열이 텍스트면 `=$B3` 비교가 조용히 어긋난다.
+  // 2026-09-22: 그래서 글자가 섞인 티커(0005A0·JEPQ·PLTR…)만 추세선이 나오고
+  // 숫자만인 국내 티커는 전부 빈칸이었다. 양쪽을 글자로 맞춘다.
+  tab.getRange(1, 1, tab.getMaxRows(), 1).setNumberFormat('@');
+  // ── 구글 금융이 모르는 해외 종목의 예비 시세 (AG열) ──────────────
+  // 2026-09-22: SPYI 는 GOOGLEFINANCE 가 price·기본·NYSEARCA:·NASDAQ:·closeyest **전부 오류**다.
+  // 시트의 현재가 칸은 그래서 영영 #N/A 였고, 평가액·수익률·추세선까지 줄줄이 비었다.
+  // 백엔드가 해외 시세에 이미 쓰는 야후에서 받아 여기 둔다 — 시트 수식이 예비로 본다.
+  const alt = {};
+  out.forEach(r => {
+    const t = norm(r[0]);
+    if (!/^[A-Z]/.test(t)) return;                       // 해외(영문 티커)만
+    try {
+      const q = getStockPrice(t, 'USD');
+      if (q && q.success && q.current > 0) alt[t] = q.current;
+    } catch (e) { console.log('  야후 실패 ' + t + ' — ' + e); }
+  });
+  console.log('예비 시세(야후) ' + Object.keys(alt).length + '종목');
+
   const head = ['티커'].concat(dates.length < TREND_DAYS
-      ? new Array(TREND_DAYS - dates.length).fill('').concat(dates) : dates).concat(['전일종가']);
+      ? new Array(TREND_DAYS - dates.length).fill('').concat(dates) : dates).concat(['전일종가', '현재가(예비)']);
   tab.getRange(1, 1, 1, head.length).setValues([head]);
+  out.forEach(r => { const t = norm(r[0]); if (alt[t] != null) r[TREND_ALT_COL - 1] = alt[t]; });
   if (out.length) tab.getRange(2, 1, out.length, head.length).setValues(out);
   // ⚠️ 전일종가는 **주식상황 안에** 도 적는다(AA열). 조건부서식은 **다른 시트를 참조할 수 없어서**
   // 추세데이터 탭을 VLOOKUP 하는 규칙은 구글이 거부한다(2026-09-21 실제로 막혔다).
   const prevByT = {};
-  out.forEach(r => { prevByT[norm(r[0])] = r[r.length - 1]; });
+  // ⚠️ `r[r.length-1]` 로 잡으면 안 된다 — AG(예비 시세)를 뒤에 붙이면서 전일종가가 밀려
+  // AA열이 66행에서 7행으로 비었다(2026-09-22). 자리를 **번호로** 짚는다.
+  out.forEach(r => { prevByT[norm(r[0])] = r[TREND_PREV_COL - 1]; });
   const col = [];
   for (let i = 2; i < svals.length; i++) {
     const key = norm(svals[i][1]);
@@ -4631,25 +4717,43 @@ function fixAssetSheet() {
   } else console.log('_백업_수식 이미 있음 — 백업 건너뜀');
 
   // ── ② 추세선: IMPORTHTML → 추세데이터 탭 ──
-  const FIL = TREND_TAB + "!$A$2:$A$500=$B";
+  // 양쪽을 TO_TEXT 로 맞춘다 — 티커가 숫자로 저장돼 있어도 걸린다(2026-09-22).
+  // ⚠️ 괄호를 문자열 이어붙이기로 맞추다 **SPARKLINE 의 옵션이 FILTER 안으로 들어가** 76칸이
+  // 통째로 오류가 났다(2026-09-22). 조각을 따로 만들어 한 군데서 조립한다.
+  const match = r => 'ARRAYFORMULA(TO_TEXT(' + TREND_TAB + '!$A$2:$A$500))=TO_TEXT($B' + r + ')';
+  const spark = (cols, r, color) =>
+    '=IFERROR(SPARKLINE(FILTER(' + TREND_TAB + '!' + cols + ',' + match(r) + ')'
+    + ',{"charttype","line";"linewidth",1;"color","' + color + '"}),"")';
   let n = 0;
   for (let i = 2; i < last; i++) {
     if (!String(vals[i][1] || '').trim()) continue;        // 티커 없는 행은 그대로 둔다
     const r = i + 1;
-    sh.getRange(r, 12).setFormula(
-      '=IFERROR(SPARKLINE(FILTER(' + TREND_TAB + '!$B$2:$AE$500,' + FIL + r +
-      '),{"charttype","line";"linewidth",1;"color","#1a73e8"}),"")');
-    sh.getRange(r, 13).setFormula(
-      '=IFERROR(SPARKLINE(FILTER(' + TREND_TAB + '!$AA$2:$AE$500,' + FIL + r +
-      '),{"charttype","line";"linewidth",1;"color","#ea8600"}),"")');
+    sh.getRange(r, 12).setFormula(spark('$B$2:$AE$500', r, '#1a73e8'));   // 30일
+    sh.getRange(r, 13).setFormula(spark('$AA$2:$AE$500', r, '#ea8600'));  // 5일
     n++;
   }
   console.log('추세선 수식 ' + n + '행 교체 (L=30일, M=5일)');
 
   // ── ① 현재가 색: 전일 종가보다 오르면 빨강, 내리면 파랑 (한국 증시 관례) ──
   // G=원화 현재가, H=달러 현재가. 전일종가는 추세데이터 AF열(A부터 32번째).
+  // ── 시세를 못 받는 해외 칸에 예비를 물린다 (현재가 H열) ──────────
+  // GOOGLEFINANCE 가 먼저다 — 되면 그 값이고, 안 될 때만 추세데이터 AG열(야후)을 본다.
+  // **오류로 떠 있는 칸만** 건드린다. 멀쩡한 수식은 그대로 둔다.
+  let alt = 0;
+  for (let i = 2; i < last; i++) {
+    const t = String(vals[i][1] || '').trim();
+    if (!/^[A-Za-z]/.test(t)) continue;                       // 해외만
+    if (!/^#(N\/A|REF!|VALUE!|ERROR!|NAME\?|DIV\/0!|NUM!)/.test(String(vals[i][7] || ''))) continue;
+    const r = i + 1;
+    sh.getRange(r, 8).setFormula(
+      '=IFERROR(GOOGLEFINANCE($B' + r + ',"price"),IFERROR(VLOOKUP(TO_TEXT($B' + r + '),'
+      + TREND_TAB + '!$A:$AG,' + TREND_ALT_COL + ',FALSE),""))');
+    alt++;
+  }
+  console.log('시세를 못 받던 해외 칸 ' + alt + '개에 예비 시세를 물렸다');
+
   const r2 = _ensurePriceColorRules(sh, last);
-  return { trendRows: n, rulesKept: r2.kept, rulesAdded: r2.added };
+  return { trendRows: n, altPrices: alt, rulesKept: r2.kept, rulesAdded: r2.added };
 }
 
 // 현재가가 전일 종가보다 오르면 빨강, 내리면 파랑 (한국 증시 관례). G=원화, H=달러.
