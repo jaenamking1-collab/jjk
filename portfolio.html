@@ -3007,7 +3007,32 @@ function renderPlChart() {
   };
 
   // 총합 차트
-  const totalPts = keys.map(k => Object.values(byAcc).reduce((s,m)=>s+(m[k]?m[k].v:0),0));
+  // ⚠️ **한 계좌라도 빠진 날은 합계를 내지 않는다.** 백엔드는 시세를 못 구한 종목이 있으면
+  // 그 계좌의 스냅샷을 통째로 건너뛴다(snapshotPortfolio 의 `missing` 분기 — 거짓 원금값을
+  // 영구히 남기지 않으려는 의도적 동작이다). 그런데 여기서 있는 것만 더하면 그 하루만
+  // **계좌 하나치(억 단위)가 통째로 빠진 합계**가 나오고, 자산이 폭락한 것처럼 보인다.
+  // (2026-09-22: 9/21 에 은경 키움 일반계좌가 빠져 5.83억이 4.90억으로 찍혔다.)
+  // 계좌마다 데이터가 있는 구간(첫 기록~마지막 기록)을 잡아, 그 구간 안인데 값이 없으면
+  // 그날 합계는 null(빈칸)이다. 구간 밖(아직 안 만든 계좌·이미 닫은 계좌)은 세지 않는다.
+  // ⚠️ **마지막 날 빠진 계좌를 '닫힌 계좌'로 보면 안 된다** — 그 하루가 바로 잡으려는 구멍이다.
+  // 그래서 최근 3개 시점 중 한 번이라도 보이면 지금까지 살아 있는 계좌로 친다.
+  const recentKeys = allKeys.slice(-3);
+  const lastAll = allKeys[allKeys.length-1];
+  const accSpan = {};
+  Object.keys(byAcc).forEach(a => {
+    const ks = Object.keys(byAcc[a]).sort();
+    const alive = recentKeys.some(k => byAcc[a][k]);
+    accSpan[a] = { first: ks[0], last: alive ? lastAll : ks[ks.length-1] };
+  });
+  const totalPts = keys.map(k => {
+    let s = 0;
+    for (const a of Object.keys(byAcc)) {
+      if (k < accSpan[a].first || k > accSpan[a].last) continue;
+      if (!byAcc[a][k]) return null;
+      s += byAcc[a][k].v;
+    }
+    return s;
+  });
   const tValid = totalPts.filter(v=>v>0);
   const tLast = tValid[tValid.length-1]||0;
   const tFirst = tValid[0]||0;
@@ -3094,11 +3119,18 @@ function renderPlChart() {
     ? `<span style="font-size:11px;font-weight:600;color:#d97706;margin-left:8px">${fmtX(lastKey)}일 ${lastSlot}:00 기준 · 16:00 확정 전</span>`
     : '';
 
+  // 합계가 빈 날(계좌 하나라도 스냅샷이 빠진 날)이 보이는 구간에 있으면 그 사실을 적는다.
+  // 빈칸만 남기면 "왜 끊겼지" 로 끝나고, 더 나쁘게는 빠진 줄 모르고 낮은 값을 믿게 된다.
+  const holeKeys = keys.filter((k,i) => totalPts[i] == null);
+  const holeNote = holeKeys.length
+    ? `<span style="font-size:11px;font-weight:600;color:#d97706;margin-left:8px">⚠️ ${holeKeys.length===1?fmtX(holeKeys[0])+(_plMode==='day'?'일':''):holeKeys.length+'개 날짜'} 합계 없음 — 시세를 못 구해 일부 계좌 스냅샷이 빠졌다</span>`
+    : '';
+
   el.innerHTML = `
     <!-- 총합계 -->
     <div style="background:var(--bg2);border:1.5px solid #7c3aed55;border-radius:12px;padding:14px 16px;margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <span style="font-size:13px;font-weight:700;color:#7c3aed">📊 총합계${slotNote}</span>
+        <span style="font-size:13px;font-weight:700;color:#7c3aed">📊 총합계${slotNote}${holeNote}</span>
         <span style="font-family:var(--mono);font-size:18px;font-weight:700;color:#7c3aed">${fmt억(hTotal)}
           <span style="font-size:11px;color:${hPl>=0?'var(--red)':'var(--accent)'};margin-left:6px">${hPl>=0?'+':''}${Math.round(hPl).toLocaleString()}${hPct!=null?` (${hPct>=0?'+':''}${hPct.toFixed(1)}%)`:''}</span>
         </span>
