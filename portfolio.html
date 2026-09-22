@@ -3086,22 +3086,42 @@ function renderPlChart() {
     if(seg.length>1)path+=`<polyline points="${seg.join(' ')}" fill="none" stroke="#7c3aed" stroke-width="2.5" stroke-linejoin="round"/>`;
     const li=pts.reduceRight((f,v,i)=>f!=null?f:(v?i:null),null);
     if(li!=null)path+=`<circle cx="${toX(li).toFixed(1)}" cy="${toY(pts[li]).toFixed(1)}" r="4" fill="#7c3aed"/>`;
-    // 꺾인 지점(국소 고점·저점)과 마지막 점(오늘)에 금액 라벨. 고점은 위, 저점은 아래로 분산.
+    // 금액 라벨. 겹치지 않는 한 **모든 점**에 붙인다.
+    // ⚠️ 꺾임에만 붙이면 **쭉 오르내리는 구간엔 숫자가 하나도 안 생긴다** — 화면에 5개뿐이라
+    // 긴 구간을 읽을 수 없었다(2026-09-22 사용자 요청: "꺾인곳에 수치를 좀 많이 넣었음").
     const vi=pts.map((v,i)=>({v,i})).filter(o=>o.v);
+    // 점 라벨은 억 셋째 자리까지(=십만 원 단위). 축과 같은 두 자리로 두면 이웃한 날이
+    // 전부 `5.67억` 으로 찍혀 **값이 구분되지 않는다**(2026-09-22 실측).
+    const fmtPt=v=>v>=1e8?(v/1e8).toFixed(3)+'억':fmt억(v);
+    // 겹침 판정 간격은 **글자 수에서 직접 낸다.** 어림짐작으로 넉넉히 잡았더니 자리가
+    // 남는데도 라벨을 버렸다(2026-09-22: 실측 폭 24.5 인데 36.8 로 잡고 있었다).
+    // font-size 6 기준 숫자·점은 ≈3.2, 억·만은 ≈6.2 (getBBox 로 잰 값).
+    const GAP=Math.max(...vi.map(o=>fmtPt(o.v).length))*3.2+3+4;
+    // 자리가 모자라면 덜 중요한 것부터 버린다. 무조건 붙이면 **날마다 오르내리는 구간에서
+    // 꺾임이 다닥다닥 붙어 서로 겹친다** — 순서: 마지막 점 → 최고·최저 → 나머지 꺾임 → 평범한 점.
+    const bend=j=>{
+      if(j===0) return vi[1] ? vi[1].v<vi[0].v : true;
+      if(j===vi.length-1) return vi[j].v>=vi[j-1].v;
+      return vi[j].v-vi[j-1].v>0;       // 올라오다 꺾임 = 고점(위에 붙인다)
+    };
+    const isBend=j=>j===0||j===vi.length-1||
+      ((vi[j].v-vi[j-1].v>0)!==(vi[j+1].v-vi[j].v>0));
+    const vs=vi.map(o=>o.v);
+    const order=[vi.length-1, vs.indexOf(Math.max(...vs)), vs.indexOf(Math.min(...vs))]
+      .concat(vi.map((o,j)=>j).filter(isBend))
+      .concat(vi.map((o,j)=>j));
+    const placed=[];
+    order.forEach(j=>{
+      if(placed.some(q=>q.j===j)) return;
+      const x=toX(vi[j].i);
+      if(placed.some(q=>Math.abs(toX(vi[q.j].i)-x)<GAP)) return;
+      placed.push({j,peak:bend(j)});
+    });
     let lbl='';
-    vi.forEach((o,j)=>{
-      const isLast=j===vi.length-1;
-      let peak;
-      if(j>0 && j<vi.length-1){
-        const d1=o.v-vi[j-1].v, d2=vi[j+1].v-o.v;
-        if((d1>0)===(d2>0)) return;   // 방향 전환 아님 = 꺾임 아님 → 스킵
-        peak=d1>0;                    // 올라오다 꺾임 = 고점
-      } else {
-        if(!isLast) return;           // 첫 점은 스킵
-        peak=o.v>=vi[j-1].v;          // 마지막 점: 올라왔으면 위, 내려왔으면 아래
-      }
+    placed.sort((a,b)=>a.j-b.j).forEach(({j,peak})=>{
+      const o=vi[j], isLast=j===vi.length-1;
       const x=toX(o.i), y=toY(o.v), dy=peak?-7:13;
-      lbl+=`<text x="${x.toFixed(1)}" y="${(y+dy).toFixed(1)}" text-anchor="middle" font-size="${isLast?7:6}" font-weight="${isLast?700:600}" fill="${isLast?'#7c3aed':'var(--text2)'}">${fmt억(o.v)}</text>`;
+      lbl+=`<text x="${x.toFixed(1)}" y="${(y+dy).toFixed(1)}" text-anchor="middle" font-size="${isLast?7:6}" font-weight="${isLast?700:600}" fill="${isLast?'#7c3aed':'var(--text2)'}">${fmtPt(o.v)}</text>`;
     });
     // 이어 붙인 날은 속 빈 원으로 — 실제 기록이 아님을 점 모양으로 구분한다(계좌별 차트의 미확정 점과 같은 표시).
     const estDots=keys.map((k,i)=>(estSet.has(k)&&pts[i])?`<circle cx="${toX(i).toFixed(1)}" cy="${toY(pts[i]).toFixed(1)}" r="3.5" fill="var(--bg2)" stroke="#7c3aed" stroke-width="1.5"/>`:'').join('');
