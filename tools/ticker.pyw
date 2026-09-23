@@ -231,15 +231,21 @@ def split(line):
 
 def target_of(line):
     """줄 뒤의 @목표를 읽는다. "@50"은 비율 그 자체, "@80%"는 30일 구간의 위치.
+    "@47,48,49,50"처럼 쉼표로 여러 단을 둘 수 있다 — 아직 안 닿은 가장 낮은 단을 겨눈다.
+    목표 하나만 두면 그게 멀 때 중간의 좋은 자리를 다 놓친다(2026-09-23).
     XRP를 카이아로 바꿀 때 받는 개수는 비율 하나가 정하므로, 목표도 비율로 잡는다."""
     head, sep, t = line.rpartition("@")
     if not sep:
         return None
-    t = t.strip()
-    try:
-        return float(t.rstrip("%")), t.endswith("%")
-    except ValueError:
-        return None
+    pct = t.strip().endswith("%")
+    goals = []
+    for one in t.split(","):
+        one = one.strip().rstrip("%")
+        try:
+            goals.append(float(one))
+        except ValueError:
+            pass                         # 오타 한 칸 때문에 줄 전체를 잃지는 않는다
+    return (sorted(goals), pct) if goals else None
 
 
 def cut(name):
@@ -710,18 +716,20 @@ def paint(sym, res):
     p.config(text=text, font=("Consolas", 7 if len(text) > 9 else 9))   # 자릿수 많으면 축소
     want = targets.get(sym)
     if want:
-        goal = want[0]
+        goals = want[0]
         if want[1]:                      # "@80%" 는 30일 구간의 위치 -> 비율로 환산
             _, lo, hi = ratio_band.get(sym) or ("", 0, 0)
-            goal = lo + (hi - lo) * want[0] / 100 if hi > lo else None
-        if goal:
-            gap = (goal / price - 1) * 100       # 목표까지 몇 % 더 올라야 하나
-            if gap <= 0:
-                c.config(text="\u2605 도달", fg=THEME["up"])
-                alerts[sym] = THEME["up"]        # 닿으면 반짝인다
-            else:
-                c.config(text="\u2197%.1f%%" % gap, fg=THEME["dim"])
+            goals = [lo + (hi - lo) * g / 100 for g in goals] if hi > lo else []
+        # 아직 안 닿은 가장 낮은 단을 겨눈다. 다 넘었으면 맨 위 단을 넘은 것이다.
+        ahead = [g for g in goals if g > price]
+        if goals:
+            if ahead:
+                c.config(text="\u2197%.1f%%" % ((ahead[0] / price - 1) * 100), fg=THEME["dim"])
                 alerts.pop(sym, None)
+            else:
+                # 폭이 늘면 위젯이 넓어진다. "★ 도달"과 같은 네 칸을 넘기지 않는다.
+                c.config(text="\u2605%g" % goals[-1], fg=THEME["up"])
+                alerts[sym] = THEME["up"]        # 닿으면 반짝인다
             return
     if sym in band_pos:                  # 교환비율 줄: 하루치 등락 대신 30일 구간 위치
         pos = band_pos[sym]              # 0 = 최근 30일 최저, 100 = 최고
