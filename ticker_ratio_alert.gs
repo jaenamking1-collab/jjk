@@ -27,8 +27,10 @@
  */
 
 // ── 설정 ──────────────────────────────────
-var TARGET        = 50;        // 이 비율에 닿으면 알린다 (1 XRP = 50 KAIA)
-var REARM_GAP     = 0.01;      // 목표보다 1% 아래로 내려가야 다시 무장한다(경계에서 떨리는 것 방지)
+// 낮은 것부터 적는다. 각 단을 처음 넘을 때 한 번씩 알린다.
+// 50 하나만 두면, 50이 최근 한 달 고점(49.08)보다 위라 중간의 좋은 자리를 다 놓친다(2026-09-23).
+var TARGETS       = [47, 48, 49, 50];
+var REARM_GAP     = 0.01;      // 그 단보다 1% 아래로 내려가야 다시 무장한다(경계에서 떨리는 것 방지)
 var BASE_COIN     = 'ripple';  // 파는 것
 var QUOTE_COIN    = 'kaia';    // 사는 것
 var CALENDAR_NAME = '';      // 빈 칸이면 기본 달력. 폰에서 반드시 켜져 있는 유일한 달력이다
@@ -58,17 +60,36 @@ function checkOnce() {
   props.deleteProperty(FAIL_KEY);
 
   var ratio = p.base / p.quote;
-  var armed = props.getProperty(STATE_KEY) !== 'no';   // 처음엔 무장 상태
+  var armed = readArmed_(props);
 
-  Logger.log('비율 ' + ratio.toFixed(2) + ' / 목표 ' + TARGET + ' / 무장 ' + armed);
+  // 닿은 단 중 가장 높은 것 하나만 알린다. 45에서 50으로 한 번에 뛰어도 알림은 하나다.
+  var hit = null;
+  TARGETS.forEach(function (t) {
+    if (ratio >= t && armed[t]) { armed[t] = false; hit = t; }
+    else if (ratio < t * (1 - REARM_GAP) && !armed[t]) {
+      armed[t] = true;
+      Logger.log(t + ' 아래로 내려와 다시 무장');
+    }
+  });
 
-  if (ratio >= TARGET && armed) {
-    createEvent_(getCalendar_(), ratio, p, false);
-    props.setProperty(STATE_KEY, 'no');                // 한 번 알리면 잠근다
-  } else if (ratio < TARGET * (1 - REARM_GAP) && !armed) {
-    props.setProperty(STATE_KEY, 'yes');               // 충분히 내려오면 다시 무장
-    Logger.log('목표 아래로 내려와 다시 무장');
-  }
+  Logger.log('비율 ' + ratio.toFixed(2) + ' / 남은 목표 ' + (waiting_(armed).join(', ') || '없음'));
+
+  if (hit !== null) createEvent_(getCalendar_(), ratio, p, hit, armed, false);
+  props.setProperty(STATE_KEY, JSON.stringify(armed));
+}
+
+/** 단별 무장 상태. 처음이거나 못 읽으면 전부 무장으로 본다 — 조용히 안 오느니 한 번 더 온다. */
+function readArmed_(props) {
+  var saved = {};
+  try { saved = JSON.parse(props.getProperty(STATE_KEY) || '{}') || {}; } catch (e) { saved = {}; }
+  var armed = {};
+  TARGETS.forEach(function (t) { armed[t] = saved[t] !== false; });
+  return armed;
+}
+
+/** 아직 안 닿은 단들. */
+function waiting_(armed) {
+  return TARGETS.filter(function (t) { return armed[t]; });
 }
 
 
@@ -133,16 +154,20 @@ function getCalendar_() {
   return CalendarApp.getDefaultCalendar();
 }
 
-function createEvent_(cal, ratio, p, isTest) {
-  var got = SAMPLE_XRP * ratio;
+function createEvent_(cal, ratio, p, goal, armed, isTest) {
+  var got  = SAMPLE_XRP * ratio;
+  var left = waiting_(armed);
 
   var title = (isTest ? '🧪 테스트 · ' : '🎯 ')
             + p.baseSym + '당 ' + p.quoteSym + ' ' + ratio.toFixed(2)
-            + ' · 목표 ' + TARGET + ' 도달';
+            + ' · ' + goal + ' 도달';
 
   var desc = [
     '비율:   1 ' + p.baseSym + ' = ' + ratio.toFixed(2) + ' ' + p.quoteSym,
-    '목표:   ' + TARGET + ' (' + ((ratio / TARGET - 1) * 100).toFixed(1) + '%)',
+    '도달:   ' + goal + ' 단',
+    '다음:   ' + (left.length
+                  ? left[0] + ' (여기서 ' + ((left[0] / ratio - 1) * 100).toFixed(1) + '% 더)'
+                  : '없음 — 마지막 단이었습니다'),
     '',
     p.baseSym + ':    ' + num_(p.base) + '원',
     p.quoteSym + ':   ' + p.quote.toFixed(2) + '원',
@@ -150,8 +175,8 @@ function createEvent_(cal, ratio, p, isTest) {
     p.baseSym + ' ' + num_(SAMPLE_XRP) + '개 → ' + p.quoteSym + ' ' + num_(got) + '개',
     '',
     isTest ? '테스트 발송 — 실제 알림이 아닙니다'
-           : '한 번 알린 뒤에는 목표보다 '
-             + (REARM_GAP * 100) + '% 아래로 내려가야 다시 알립니다.',
+           : '이 단은 ' + goal + '보다 ' + (REARM_GAP * 100)
+             + '% 아래로 내려가야 다시 알립니다.',
     '',
     '출처: ' + (p.src || '빗썸')
   ].join('\n');
@@ -198,19 +223,23 @@ function testOnce() {
   if (!p) { Logger.log('시세를 못 받았다'); return; }
   var ratio = p.base / p.quote;
   Logger.log(p.baseSym + ' ' + num_(p.base) + '원 / ' + p.quoteSym + ' ' + p.quote.toFixed(2) + '원');
-  Logger.log('비율 ' + ratio.toFixed(2) + ' / 목표 ' + TARGET
-             + ' (' + ((ratio / TARGET - 1) * 100).toFixed(1) + '%)');
+  Logger.log('비율 ' + ratio.toFixed(2) + ' / 시세 출처: ' + (p.src || '빗썸'));
+  TARGETS.forEach(function (t) {
+    Logger.log('  ' + t + ' 까지 ' + ((t / ratio - 1) * 100).toFixed(1) + '%'
+               + (ratio >= t ? '  ← 이미 넘었다' : ''));
+  });
 }
 
 /** 캘린더·팝업이 실제로 뜨는지 확인한다. 지금 비율로 테스트 일정을 만든다. */
 function sendTestEvent() {
   var p = fetchPair_();
   if (!p) { Logger.log('시세를 못 받았다'); return; }
-  createEvent_(getCalendar_(), p.base / p.quote, p, true);
+  var ratio = p.base / p.quote;
+  createEvent_(getCalendar_(), ratio, p, TARGETS[0], readArmed_(PropertiesService.getScriptProperties()), true);
 }
 
 /** 목표에 이미 닿아 잠겨 있을 때 다시 알리도록 푼다. */
 function resetState() {
   PropertiesService.getScriptProperties().deleteProperty(STATE_KEY);
-  Logger.log('다시 무장했다');
+  Logger.log('모든 단을 다시 무장했다: ' + TARGETS.join(', '));
 }
