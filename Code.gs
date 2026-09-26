@@ -3916,11 +3916,24 @@ function snapshotPortfolio() {
   }
   const src = SpreadsheetApp.openById('19UsD0Tz6YL2eDoLdocL0ify8NLbUYSHaOOV-jtDqNLU').getSheetByName('주식상황');
   const srcRows = src.getDataRange().getValues();
+  // ⛔ **해외 현재가는 이 시트에서 읽지 않는다.** 주식상황 H열은
+  // `IFERROR(GOOGLEFINANCE(B,"price"), VLOOKUP(B,'추세데이터'!A:AG,33,FALSE))` 인데,
+  // 구글 금융이 'SPYI' 를 **엉뚱한 종목으로 붙잡아** $53 대신 **$3,838.5** 를 내놓는다.
+  // 오류가 아니라 '성공'이라 IFERROR 의 첫 가지가 이겨 **옆에 있던 올바른 야후 예비시세(53.65)가
+  // 아예 안 쓰였다**(2026-09-26 확인). 그 값이 9/24·9/25 수익로그에 박혀 은경 키움 일반계좌를
+  // 1.2억 부풀렸다(WORKLOG 178). 앱이 이미 쓰는 야후 시세를 그대로 쓴다 — 한 번에 받아 온다.
+  // 국내는 '시세' 탭(네이버)을 바깥에서 채우므로 시트 값을 그대로 믿어도 된다.
+  const live = (getLivePrices() || {}).prices || {};
   const priceMap = {};
   for (let i = 2; i < srcRows.length; i++) {
     const t = (srcRows[i][1] || '').toString().trim().toUpperCase();
     if (!t) continue;
-    const price = parseFloat(srcRows[i][6]) || parseFloat(srcRows[i][7]) || 0;
+    let price;
+    if (/^[A-Z]/.test(t)) {
+      price = (live[t] && parseFloat(live[t].current)) || 0;   // 못 받으면 0 → 아래 missing 로 잡혀 그 계좌는 건너뛴다
+    } else {
+      price = parseFloat(srcRows[i][6]) || parseFloat(srcRows[i][7]) || 0;
+    }
     if (price) priceMap[t] = price;
   }
   const er = fetchExchangeRate() || 1450;
@@ -5208,7 +5221,9 @@ function rebuildPortfolioLogDay(dateArg) {
 // 야후를 한 번씩 부르고(45종목), 같은 턴에 pushTrendData 까지 겹치면 6분 실행 제한에 걸린다.
 // 걸리면 표식이 안 찍혀 영원히 같은 자리를 되풀이한다. 단계 표식은 **그 단계가 끝난 뒤에** 찍는다.
 // MAINT_ALLOW 에도 넣어 뒀다 — 표식을 지우면 언제든 다시 부를 수 있다.
-const SPYI_FIX_KEY = 'fix_spyi_20260924';
+// 키를 바꾸면 처음부터 다시 돈다(모든 단계가 여러 번 돌려도 같은 결과다).
+// 20260924 판은 9/26 행을 '종가 없음'으로 건너뛰어 3,838.5 를 남겼다 — 그래서 한 번 더 돌린다.
+const SPYI_FIX_KEY = 'fix_spyi_20260926';
 function _fixSpyiPoison() {
   const pr = PropertiesService.getScriptProperties();
   const at = pr.getProperty(SPYI_FIX_KEY) || '';
@@ -5223,9 +5238,10 @@ function _fixSpyiPoison() {
       if (String(rows[i][1]).trim().toUpperCase() !== 'SPYI') continue;
       const d = _logDay(rows[i][0]);
       if (!d || d < '2026-09-24') continue;
-      const c = _closeOnDate('SPYI', 'USD', d);
-      // 장이 안 선 날은 종가가 없다. 못 구하면 건드리지 않고 넘어간다.
-      if (!(c > 0)) { console.log('  SPYI ' + d + ' 종가 없음 — 그대로 둔다'); left++; continue; }
+      // 오늘 날짜는 아직 종가가 없다. 그땐 현재가로 채운다 — 72배 틀린 값을 그대로 두는 것보다 낫다.
+      // (첫 판은 그냥 넘어가게 해 뒀다가 9/26 행에 3,838.5 가 남았다.)
+      const c = _closeOnDate('SPYI', 'USD', d) || ((getStockPrice('SPYI', 'USD') || {}).current || 0);
+      if (!(c > 0)) { console.log('  SPYI ' + d + ' 시세를 못 구해 그대로 둔다'); left++; continue; }
       log.getRange(i + 1, 3).setValue(c);
       console.log('  SPYI ' + d + ': ' + rows[i][2] + ' → ' + c);
       fixed++;
@@ -5238,7 +5254,26 @@ function _fixSpyiPoison() {
   if (at === 'log')  { console.log('② 9/24 수익로그 복구'); rebuildPortfolioLogDay('2026-09-24'); pr.setProperty(SPYI_FIX_KEY, '0924'); return; }
   if (at === '0924') { console.log('③ 9/25 수익로그 복구'); rebuildPortfolioLogDay('2026-09-25'); pr.setProperty(SPYI_FIX_KEY, '0925'); return; }
 
-  // ④ 자산 시트(추세데이터 예비시세 · 주식상황 현재가)도 오늘 다시 만들게 한다.
+  // ④ 주식상황의 SPYI 현재가 수식을 뒤집는다.
+  // 원래는 `IFERROR(GOOGLEFINANCE(B,"price"), VLOOKUP('추세데이터'…))` 인데, 구글 금융이 SPYI 를
+  // **오류 없이 엉뚱한 값(3,838.5)으로** 내놓아 예비 가지가 영영 안 쓰였다. 순서를 바꿔 우리가
+  // 야후에서 받아 둔 예비 시세를 먼저 보게 한다. 예비가 비면 그때 구글 금융으로 간다.
+  // ⚠️ SPYI **한 종목만** 바꾼다. 나머지 해외 종목은 지금 값이 맞고, 구글 금융이 더 최신이다.
+  //    다른 종목이 같은 증상을 보이면 여기에 티커를 더하면 된다.
+  const ssrc = SpreadsheetApp.openById(ASSET_SHEET_ID).getSheetByName('주식상황');
+  const svals = ssrc.getDataRange().getValues();
+  let swapped = 0;
+  for (let i = 2; i < svals.length; i++) {
+    if (String(svals[i][1]).trim().toUpperCase() !== 'SPYI') continue;
+    const row = i + 1;
+    ssrc.getRange(row, 8).setFormula(
+      '=IFERROR(VLOOKUP(TO_TEXT($B' + row + "),'추세데이터'!$A:$AG,33,FALSE),IFERROR(GOOGLEFINANCE($B"
+      + row + ',"price"),""))');
+    swapped++;
+  }
+  console.log('④ 주식상황 SPYI 현재가 수식 ' + swapped + '칸을 예비시세 우선으로 바꿈');
+
+  // 자산 시트(추세데이터 예비시세 · 주식상황 현재가)도 오늘 다시 만들게 한다.
   // 오늘 몫은 이미 끝난 것으로 표시돼 있어, 지우지 않으면 내일까지 3,838.5 가 그대로 보인다.
   pr.deleteProperty('assetDone');
   pr.setProperty(SPYI_FIX_KEY, 'done');
