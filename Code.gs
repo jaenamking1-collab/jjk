@@ -4286,6 +4286,9 @@ function keepWarm() {
   // 표식은 **끝난 뒤에** 찍는다. 먼저 찍었더니 중간에 터진 날은 그날 내내 다시 시도하지 않아,
   // 안전망이 있으나 마나였다(2026-09-21 실제로 그렇게 만들었다가 고침).
   // 터지면 5분 뒤 다시 해 보되, 실패한 이유는 로그에 남긴다.
+  // 전일종가 기준을 '직전 거래일'로 바꿨다 → 오늘 몫을 한 번 다시 돌려야 색이 살아난다.
+  try { _redoTrendOnce(); } catch (e) { console.log('_redoTrendOnce 실패 — ' + e); }
+
   try {
     const pr = PropertiesService.getScriptProperties();
     const today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
@@ -4309,6 +4312,17 @@ function keepWarm() {
 //     (PLTR 은 분배금 기록이 없어 되살릴 이유가 없다.)
 //  ② 빈칸으로 들어온 배당주기를 채운다. 비어 있으면 대시보드 투영에서 통째로 빠지고,
 //     그 상태로 분배금을 한 번 입력하면 **연 1회 받는 종목**으로 잡혀 연간 예상·분배율이 낮아진다.
+// 일회성: 전일종가 기준이 바뀌었으니 오늘 몫의 자산 시트 작업을 다시 돌리게 한다.
+// (assetDone 은 '오늘 이미 했다'는 표식이라, 지우지 않으면 내일까지 옛 전일종가가 남는다.)
+const TREND_REDO_KEY = 'trend_redo_20260926';
+function _redoTrendOnce() {
+  const pr = PropertiesService.getScriptProperties();
+  if (pr.getProperty(TREND_REDO_KEY) === 'done') return;
+  pr.deleteProperty('assetDone');
+  pr.setProperty(TREND_REDO_KEY, 'done');
+  _fixLog('전일종가 기준을 직전 거래일로 변경 — 자산 시트 일일 작업 표식을 지워 다시 돌린다');
+}
+
 const HOLD_FIX_KEY = 'hold_fix_20260926';
 function _fixHoldingsOnce() {
   const pr = PropertiesService.getScriptProperties();
@@ -4736,6 +4750,26 @@ function pushTrendData() {
   if (!dates.length) { console.log('시세로그 비어 있음'); return; }
   const today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
 
+  // ── 직전 '거래일' 찾기 ──────────────────────────────────────────
+  // ⛔ 전일종가를 '어제 기록'으로 잡으면 **휴장일에 현재가와 같아진다.** 장이 안 선 날에도
+  // snapshotPrices 는 매일 도는데, 시트 현재가가 안 움직이니 같은 값을 그대로 또 적기 때문이다.
+  // 그러면 주식상황의 색 규칙(현재가>전일종가=빨강, <=파랑)이 **둘 다 거짓**이 되어 색이 통째로
+  // 사라진다(2026-09-26 추석 연휴: 국내 59칸 전부 현재가==전일종가, 색 0개).
+  // → 기준은 **직전 거래일**이어야 한다. 거래일 달력은 지수 일봉에서 한 번만 받는다
+  //   (국내=코스피, 해외=S&P500 — 한국 휴장일에도 미국장은 열리므로 따로 본다).
+  //   못 받으면 옛 방식으로 돈다 — 색이 안 나오는 건 불편이지만 틀린 값을 적는 것보다 낫다.
+  const ymd = d => String(d).replace(/-/g, '');
+  const prevTradingDay = (sym, tz) => {
+    try {
+      const days = _yahooDaily(sym, '3mo', tz).map(r => r.ymd).sort();
+      const upto = days.filter(d => d <= ymd(today));
+      return upto.length >= 2 ? upto[upto.length - 2] : '';   // 최근 거래일의 '바로 앞' 거래일
+    } catch (e) { console.log('거래일 달력 실패 ' + sym + ' — ' + e); return ''; }
+  };
+  const prevKR = prevTradingDay('^KS11', 'Asia/Seoul');
+  const prevUS = prevTradingDay('^GSPC', 'America/New_York');
+  console.log('직전 거래일 — 국내 ' + (prevKR || '(못 구함)') + ' · 해외 ' + (prevUS || '(못 구함)'));
+
   const ss = SpreadsheetApp.openById(ASSET_SHEET_ID);
   const src = ss.getSheetByName('주식상황');
   const svals = src.getDataRange().getValues();
@@ -4752,10 +4786,12 @@ function pushTrendData() {
       const d = dates[c - (TREND_DAYS - dates.length)];   // 칸이 남으면 앞쪽을 비운다
       line.push(d && hist[d] != null ? hist[d] : '');
     }
-    // 전일종가 = 오늘 것을 뺀 마지막 기록. (snapshotPrices 는 16시에 도니 장중엔 오늘 값이 없다)
+    // 전일종가 = **직전 거래일**의 기록. 그 날에 기록이 없으면 더 앞으로 간다.
+    // 달력을 못 구했으면 옛 방식(오늘 것을 뺀 마지막 기록)으로 물러선다.
+    const cut = /^[A-Z]/.test(key) ? prevUS : prevKR;
     let prev = '';
     for (let c = dates.length - 1; c >= 0; c--) {
-      if (dates[c] >= today) continue;
+      if (cut ? ymd(dates[c]) > cut : dates[c] >= today) continue;
       if (hist[dates[c]] != null) { prev = hist[dates[c]]; break; }
     }
     line.push(prev);
