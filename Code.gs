@@ -3399,6 +3399,59 @@ function getPriceLog() {
   return { success: true, items };
 }
 
+// ── 시세 이상치 교정 ────────────────────────────────────────────────
+// ⛔ **이 앱은 같은 방식으로 두 번 털렸다.** 9/22 는 계좌 하나가 빠진 합계를, 9/24 는 SPYI 가
+// $53 → $3,856 으로 들어와 계좌를 1.2억 부풀린 값을, **둘 다 멀쩡한 값처럼** 그렸다.
+// 공통점은 파이프라인이 살아 있었다는 것이다 — 0건도 오류도 아니라 기존 감시가 전부 통과했다.
+// 그래서 **값 자체를 본다.** 다만 이상하다고 버리지 않는다 — 버리면 구멍이 남을 뿐이다.
+// **다른 출처로 맞는 값을 찾아 고친다.** 두 출처가 똑같이 튀면 진짜 사건(액면분할·급등)이니
+// 그대로 쓰고 알린다. 확인할 출처가 없을 때만 직전 값을 유지한다(거짓 값을 굳히지 않는다).
+const PRICE_JUMP = 1.5;                       // 직전 대비 1.5배↑ / 1.5분의1↓ 이면 의심
+function _priceOdd(cur, prev) {
+  return prev > 0 && cur > 0 && (cur > prev * PRICE_JUMP || cur < prev / PRICE_JUMP);
+}
+function _verifyPrice(t, cur, prev, notes) {
+  if (!prev || !prev.p || !_priceOdd(cur, prev.p)) return cur;
+  const isUsd = /^[A-Z]/.test(t);
+  let alt = 0;
+  try {
+    const rows = _yahooDaily(_yahooSymbol(t, isUsd ? 'USD' : 'KRW'), '5d',
+                             isUsd ? 'America/New_York' : 'Asia/Seoul');
+    if (rows.length) alt = rows[rows.length - 1].close;
+  } catch (e) {}
+  if (alt > 0 && !_priceOdd(alt, prev.p)) {
+    notes.push(t + ' ' + cur + ' → ' + alt + ' 로 교정 (직전 ' + prev.p + ' 대비 이상, 야후 값 사용)');
+    return alt;
+  }
+  if (alt > 0) {
+    notes.push(t + ' ' + cur + ' — 두 출처 모두 직전 ' + prev.p + ' 와 크게 다름. 액면분할·급등일 수 있어 그대로 기록하니 확인 바람');
+    return cur;
+  }
+  notes.push(t + ' ' + cur + ' — 직전 ' + prev.p + ' 대비 이상한데 대조할 출처가 없어 직전 값을 유지함');
+  return prev.p;
+}
+// 시세로그에서 티커별 마지막 기록을 뽑는다(이상치 판정 기준).
+function _lastLoggedPrices(logVals) {
+  const out = {};
+  for (let i = 1; i < logVals.length; i++) {
+    const t = String(logVals[i][1] || '').trim().toUpperCase();
+    const p = parseFloat(logVals[i][2]);
+    const d = _logDay(logVals[i][0]);
+    if (!t || !(p > 0) || !d) continue;
+    if (!out[t] || d >= out[t].d) out[t] = { d: d, p: p };
+  }
+  return out;
+}
+function _notifyPriceOdd(notes) {
+  if (!notes || !notes.length) return;
+  try {
+    const ls = _getOrCreateSheet('알림로그', ['시각','운용사','종류','메시지','중요도','상태']);
+    notes.forEach(n => _addAlert(ls, '시세', '시세이상', n, '중요', true));
+  } catch (e) { console.log('시세이상 로그 실패 ' + e); }
+  try { _notifyKakao(notes.map(n => '🚨 시세 이상 — ' + n)); } catch (e) { console.log('시세이상 카톡 실패 ' + e); }
+  notes.forEach(n => console.log('시세이상: ' + n));
+}
+
 function snapshotPrices() {
   const src = SpreadsheetApp.openById('19UsD0Tz6YL2eDoLdocL0ify8NLbUYSHaOOV-jtDqNLU').getSheetByName('주식상황');
   const rows = src.getDataRange().getValues();
@@ -3406,7 +3459,10 @@ function snapshotPrices() {
   let log = ss.getSheetByName('시세로그');
   if (!log) { log = ss.insertSheet('시세로그'); log.appendRow(['date','ticker','price']); }
   const today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
-  if (log.getDataRange().getValues().some(r => r[0] && r[0].toString() === today)) return;
+  const logVals = log.getDataRange().getValues();
+  if (logVals.some(r => r[0] && r[0].toString() === today)) return;
+  const prevP = _lastLoggedPrices(logVals);           // 이상치 판정 기준(티커별 마지막 기록)
+  const notes = [];
   const out = [];
   const seen = {};                                    // 티커 중복 제거 (주식상황이 계좌별로 종목 중복 나열)
   for (let i = 2; i < rows.length; i++) {
@@ -3429,9 +3485,11 @@ function snapshotPrices() {
     } else {
       price = (parseFloat(rows[i][6]) || 0) || (parseFloat(rows[i][7]) || 0);
     }
+    if (price) price = _verifyPrice(t, price, prevP[t], notes);   // 튀면 다른 출처로 교정한다
     if (price) { out.push([today, t, price]); seen[t] = true; }
   }
   if (out.length) log.getRange(log.getLastRow() + 1, 1, out.length, 3).setValues(out);
+  _notifyPriceOdd(notes);
 }
 
 // [주1회 트리거용] 시세로그 압축: 원본은 백업시트로 이관, 본시트는 다운샘플만 유지
@@ -3967,6 +4025,11 @@ function snapshotPortfolio() {
   // 1.2억 부풀렸다(WORKLOG 178). 앱이 이미 쓰는 야후 시세를 그대로 쓴다 — 한 번에 받아 온다.
   // 국내는 '시세' 탭(네이버)을 바깥에서 채우므로 시트 값을 그대로 믿어도 된다.
   const live = (getLivePrices() || {}).prices || {};
+  // ⛔ 수익로그는 **한 번 쓰면 영구히 남는다.** 시세로그에 넣은 것과 같은 이상치 교정을 여기도 건다
+  //    — 틀린 값 하나가 계좌 평가액을 억 단위로 부풀린 게 2026-09-24 SPYI 사건이다.
+  const logSh = ss.getSheetByName('시세로그');
+  const prevP = logSh ? _lastLoggedPrices(logSh.getDataRange().getValues()) : {};
+  const notes = [];
   const priceMap = {};
   for (let i = 2; i < srcRows.length; i++) {
     const t = (srcRows[i][1] || '').toString().trim().toUpperCase();
@@ -3977,8 +4040,10 @@ function snapshotPortfolio() {
     } else {
       price = parseFloat(srcRows[i][6]) || parseFloat(srcRows[i][7]) || 0;
     }
+    if (price) price = _verifyPrice(t, price, prevP[t], notes);
     if (price) priceMap[t] = price;
   }
+  _notifyPriceOdd(notes);
   const er = fetchExchangeRate() || 1450;
   const accounts = getAccounts();
   const allHoldings = getHoldings();
