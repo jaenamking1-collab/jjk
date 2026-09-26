@@ -2071,8 +2071,13 @@ function fetchDist_plus() {
       const title = titleM[0].trim();
       const dateM = block.match(/(\d{4})\.(\d{2})\.(\d{2})/);
       let cycle = null;
-      if (/\(월말\)/.test(title)) cycle = '월말';
-      else if (/\(월중\)/.test(title)) cycle = '월중';
+      // ⚠️ **괄호를 문자 그대로 찾으면 안 된다.** 2026-09-23 올라온 'PLUS ETF 9월 분배금 공지'
+      // 부터 제목의 괄호가 `&amp;#40;월말&amp;#41;` 로 **이중 이스케이프**돼 있다(8월까진 `(월말)`).
+      // `\(월말\)` 이 안 맞아 cycle 이 null → dated 에서 탈락 → **월말 회차가 통째로 사라지고**
+      // 화면은 9/15 월중 회차에 멈춰 있었다(2026-09-26 사용자 신고로 발견).
+      // 괄호는 회차 판정에 필요 없다. '월말'/'월중' 글자만 본다.
+      if (/월말/.test(title)) cycle = '월말';
+      else if (/월중/.test(title)) cycle = '월중';
       const monM = title.match(/(\d{1,2})월/);
       cands.push({ n: rm[1], title, cycle, mon: monM ? parseInt(monM[1]) : 0,
         pubMon: dateM ? parseInt(dateM[2]) : 0, pubDay: dateM ? parseInt(dateM[3]) : 0 });
@@ -4257,6 +4262,22 @@ function keepWarm() {
 
   // 일회성 복구. 끝나면 스스로 표식을 남겨 다시 돌지 않는다(_fixSpyiPoison 주석 참고).
   try { _fixSpyiPoison(); } catch (e) { console.log('SPYI 복구 실패 — ' + e); }
+  try { _refreshPlusOnce(); } catch (e) { _fixLog('PLUS 재파싱 실패 — ' + e); }
+}
+
+// 일회성: PLUS 월말 회차를 지금 다시 긁는다. 파서를 고쳤어도 분배캐시엔 월중 회차가 들어 있고,
+// 선갱신 트리거(refreshAllDistributions)는 새벽 5시라 그때까지 화면이 안 바뀐다.
+// ⚠️ 배포는 필요 없다 — 캐시를 채우는 건 트리거(=clasp push 한 코드)이고, 웹앱은 그 캐시를 읽기만 한다.
+const PLUS_REFRESH_KEY = 'plus_refresh_20260926';
+function _refreshPlusOnce() {
+  const pr = PropertiesService.getScriptProperties();
+  if (pr.getProperty(PLUS_REFRESH_KEY) === 'done') return;
+  const r = getDistribution('plus', true);
+  const items = (r && r.items) || [];
+  _fixLog('PLUS 강제 재파싱: ' + (items.length
+    ? items.length + '건 · 회차 ' + (items[0].cycle || '?') + ' · 기준일 ' + (((items[0].sched || {})['기준일']) || '?')
+    : '실패 — ' + ((r && r.error) || '알 수 없음')));
+  pr.setProperty(PLUS_REFRESH_KEY, 'done');
 }
 // 워치독 트리거: 매일 08:30. 편집기에서 이 함수를 한 번만 실행(▶)하면 설치된다.
 // 08:10의 flushKakaoPending·flushCalPending 보다 뒤에 둬서, 밤새 대기분이 먼저 나갈 기회를 준 다음 점검한다.
