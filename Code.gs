@@ -5204,36 +5204,43 @@ function rebuildPortfolioLogDay(dateArg) {
 //   · 시세로그 SPYI  9/24 $3,856 · 9/25~ $3,838.5  (실제는 $53 대)
 //   · 수익로그 9/24·9/25  은경 키움 일반계좌가 9,468만 → 2억 1,388만 (+1.2억 허수)
 // 그래서 대시보드 그래프가 23일 5.87억에서 24일 7.06억으로 수직 상승했다.
-// keepWarm 이 딱 한 번 대신 돌려 준다. 표식은 **끝난 뒤에** 찍는다(중간에 터지면 5분 뒤 다시 시도).
+// keepWarm 이 대신 돌려 준다. ⚠️ **한 턴에 한 단계씩만** 한다 — rebuildPortfolioLogDay 는 종목마다
+// 야후를 한 번씩 부르고(45종목), 같은 턴에 pushTrendData 까지 겹치면 6분 실행 제한에 걸린다.
+// 걸리면 표식이 안 찍혀 영원히 같은 자리를 되풀이한다. 단계 표식은 **그 단계가 끝난 뒤에** 찍는다.
 // MAINT_ALLOW 에도 넣어 뒀다 — 표식을 지우면 언제든 다시 부를 수 있다.
 const SPYI_FIX_KEY = 'fix_spyi_20260924';
 function _fixSpyiPoison() {
   const pr = PropertiesService.getScriptProperties();
-  if (pr.getProperty(SPYI_FIX_KEY) === 'done') return;
-  const log = SpreadsheetApp.openById(SHEET_ID).getSheetByName('시세로그');
-  if (!log) { console.log('시세로그 없음'); return; }
-  const rows = log.getDataRange().getValues();
-  let fixed = 0, left = 0;
-  for (let i = 1; i < rows.length; i++) {
-    if (String(rows[i][1]).trim().toUpperCase() !== 'SPYI') continue;
-    const d = _logDay(rows[i][0]);
-    if (!d || d < '2026-09-24') continue;
-    const c = _closeOnDate('SPYI', 'USD', d);
-    // 장이 안 선 날은 종가가 없다. 못 구하면 건드리지 않고 넘어간다.
-    if (!(c > 0)) { console.log('  SPYI ' + d + ' 종가 없음 — 그대로 둔다'); left++; continue; }
-    log.getRange(i + 1, 3).setValue(c);
-    console.log('  SPYI ' + d + ': ' + rows[i][2] + ' → ' + c);
-    fixed++;
+  const at = pr.getProperty(SPYI_FIX_KEY) || '';
+  if (at === 'done') return;
+
+  if (!at) {                                  // ① 시세로그의 SPYI 값을 그날 실제 종가로
+    const log = SpreadsheetApp.openById(SHEET_ID).getSheetByName('시세로그');
+    if (!log) { console.log('시세로그 없음'); return; }
+    const rows = log.getDataRange().getValues();
+    let fixed = 0, left = 0;
+    for (let i = 1; i < rows.length; i++) {
+      if (String(rows[i][1]).trim().toUpperCase() !== 'SPYI') continue;
+      const d = _logDay(rows[i][0]);
+      if (!d || d < '2026-09-24') continue;
+      const c = _closeOnDate('SPYI', 'USD', d);
+      // 장이 안 선 날은 종가가 없다. 못 구하면 건드리지 않고 넘어간다.
+      if (!(c > 0)) { console.log('  SPYI ' + d + ' 종가 없음 — 그대로 둔다'); left++; continue; }
+      log.getRange(i + 1, 3).setValue(c);
+      console.log('  SPYI ' + d + ': ' + rows[i][2] + ' → ' + c);
+      fixed++;
+    }
+    console.log('① 시세로그 SPYI ' + fixed + '행 정정' + (left ? ' (' + left + '행은 종가 없음)' : ''));
+    pr.setProperty(SPYI_FIX_KEY, 'log');
+    return;
   }
-  console.log('시세로그 SPYI ' + fixed + '행 정정' + (left ? ' (' + left + '행은 종가를 못 구해 그대로)' : ''));
+  // ②③ 수익로그는 시트가 아니라 야후 종가로 다시 계산한다(rebuildPortfolioLogDay 가 그렇게 돈다).
+  if (at === 'log')  { console.log('② 9/24 수익로그 복구'); rebuildPortfolioLogDay('2026-09-24'); pr.setProperty(SPYI_FIX_KEY, '0924'); return; }
+  if (at === '0924') { console.log('③ 9/25 수익로그 복구'); rebuildPortfolioLogDay('2026-09-25'); pr.setProperty(SPYI_FIX_KEY, '0925'); return; }
 
-  // 수익로그는 시트가 아니라 야후 종가로 다시 계산한다(rebuildPortfolioLogDay 가 그렇게 돈다).
-  rebuildPortfolioLogDay('2026-09-24');
-  rebuildPortfolioLogDay('2026-09-25');
-
-  // 자산 시트(추세데이터 예비시세 · 주식상황 현재가)도 오늘 다시 만들게 한다.
+  // ④ 자산 시트(추세데이터 예비시세 · 주식상황 현재가)도 오늘 다시 만들게 한다.
   // 오늘 몫은 이미 끝난 것으로 표시돼 있어, 지우지 않으면 내일까지 3,838.5 가 그대로 보인다.
   pr.deleteProperty('assetDone');
   pr.setProperty(SPYI_FIX_KEY, 'done');
-  console.log('⇒ SPYI 복구 끝. 다음 keepWarm 에서 자산 시트가 다시 채워진다.');
+  console.log('④ SPYI 복구 끝. 다음 keepWarm 에서 자산 시트가 다시 채워진다.');
 }
