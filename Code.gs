@@ -2508,6 +2508,42 @@ function _addAlert(sheet, source, kind, message, level, oncePerDay) {
 }
 
 // 6개 운용사 파싱 후 알림 감지·생성 (getDistribution 호출하며 비교)
+// ── 회차 정체 감시 ──────────────────────────────────────────────────
+// ⛔ **기존 감시는 전부 '파싱이 됐나'만 본다. 엉뚱한 회차를 멀쩡히 파싱해 오면 아무도 모른다.**
+// 2026-09-23 PLUS 월말 공지가 제목 이스케이프 변화(`(월말)` → `&amp;#40;월말&amp;#41;`)로 통째로
+// 탈락했는데, 월중 17건이 **정상 파싱**됐기 때문에 0건 경고도·구조변경 경고도·신선도 배너도
+// 울리지 않았다. 결국 사용자가 직접 보고 알려줘야 했다("일일이 내가 확인해서 알려줘야 하냐").
+// → **지난달 같은 회차를 낸 운용사가 이번 달 같은 회차를 아직 안 냈으면** 알린다.
+//    애초에 월말을 안 내는 운용사는 지난달에도 없으니 헛알림이 안 난다 — 스스로 기준을 잡는다.
+function _alertStaleCycle(logSheet, kakaoMsgs) {
+  const need = currentCycleKey();                           // 예: '2026-09-말'
+  const m = String(need).match(/^(\d{4})-(\d{2})-(중|말)$/);
+  if (!m) return;
+  const day = parseInt(Utilities.formatDate(new Date(), 'Asia/Seoul', 'd'), 10);
+  // 공시가 아직 안 나올 시기엔 보지 않는다(월중 공시는 10~14일, 월말 공시는 23~26일에 몰린다).
+  if (m[3] === '중' ? day < 16 : day < 26) return;
+  let y = parseInt(m[1], 10), mo = parseInt(m[2], 10) - 1;
+  if (mo === 0) { mo = 12; y -= 1; }
+  const prevKey = y + '-' + ('0' + mo).slice(-2) + '-' + m[3];   // 지난달 같은 회차
+
+  const rows = _distCacheSheet().getDataRange().getValues();
+  const have = {};
+  for (let i = 1; i < rows.length; i++) {
+    const s = String(rows[i][0] || '');
+    if (s) (have[s] = have[s] || {})[String(rows[i][3] || '')] = 1;
+  }
+  const SRC_LABEL = { kodex:'KODEX', tiger:'TIGER', ace:'ACE', rise:'RISE', plus:'PLUS', sol:'SOL' };
+  Object.keys(SRC_LABEL).forEach(s => {
+    const h = have[s] || {};
+    if (!h[prevKey] || h[need]) return;      // 지난달에도 없던 회차거나, 이번 회차가 이미 들어왔다
+    if (_addAlert(logSheet, SRC_LABEL[s], '회차정체',
+        SRC_LABEL[s] + ' ' + need + ' 회차가 아직 없다 (지난달 ' + prevKey + ' 은 있었다)'
+        + ' — 공지는 떴는데 파서가 놓쳤을 수 있다. 운용사 공지목록을 직접 확인할 것.',
+        '중요', true))
+      kakaoMsgs.push('🚨 ' + SRC_LABEL[s] + ' ' + need + ' 회차 누락 — 파서 점검');
+  });
+}
+
 function checkAndLogAlerts() {
   const logSheet = _getOrCreateSheet('알림로그', ['시각','운용사','종류','메시지','중요도','상태']);
   const metaSheet = _getOrCreateSheet('_파서메타', ['운용사','source','isOcr','itemCount','cycles','pubDate','updated','contentHash']);
@@ -2605,6 +2641,8 @@ function checkAndLogAlerts() {
       newMeta.push([source, fp.source, fp.isOcr, fp.itemCount, fp.cycles, fp.pubDate, Utilities.formatDate(new Date(),'Asia/Seoul','yyyy-MM-dd HH:mm'), fp.contentHash]);
     }
   });
+
+  try { _alertStaleCycle(logSheet, kakaoMsgs); } catch(e) { console.log('_alertStaleCycle 오류', e); }
 
   // ⚠️ 순서가 중요하다. 예전엔 메타를 여기서 먼저 덮어쓰고 그 뒤에 알림을 보냈다. 그러면 발송이
   // 실패해도 메타는 이미 새 공시일로 갱신되므로, 다음 실행부터 fp.pubDate === prev.pubDate 가 되어

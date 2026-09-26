@@ -3746,20 +3746,42 @@ async function applySyncChanges() {
   const btn = document.getElementById('syncApplyBtn');
   btn.disabled = true; btn.textContent = '적용 중...';
   let ok = 0, fail = 0;
+  const noCycle = [];        // 주기를 못 채운 신규 종목 — 끝에 알린다(투영에서 빠지므로 그냥 넘기면 안 된다)
 
   // 신규 추가
   for (const m of toAdd) {
     try {
       const acc = state.accounts.find(a => a.name === m.appAccName);
       if (!acc) { fail++; continue; }
+      // ⚠️ 예전엔 div_cycle 을 무조건 '' 로 넣었다. 그러면 대시보드 투영에서 그 종목이 **통째로
+      // 빠진다**(payMonthsOf 가 주기도 과거 이력도 없으면 빈 배열). 더 나쁜 건 그 상태로 분배금을
+      // 한 번 입력하면 **그 달 1회만 받는 종목**으로 잡혀 연간 예상·분배율이 크게 낮아진다는 것이다
+      // (2026-09-26: 동기화로 들어온 AGNC 755주·ACE미국500 이 정확히 그 상태였다).
+      // 종목목록(stocks 시트)에 주기가 있으면 그걸 쓰고, 없으면 아래에서 사용자에게 알린다.
+      const known = (state.stockList || []).find(s => String(s.ticker).trim().toUpperCase() === String(m.ticker).trim().toUpperCase());
+      const cyc = (known && known.div_cycle) || '';
+      if (!cyc) noCycle.push(m.name || m.ticker);
       await apiPost({ action:'addHolding', account_id: acc.id, ticker: m.ticker, name: m.name||m.ticker,
-        avg_price: m.avg_price, quantity: m.quantity, currency: m.currency||'KRW', div_cycle:'' });
+        avg_price: m.avg_price, quantity: m.quantity, currency: m.currency||'KRW', div_cycle: cyc });
       ok++;
     } catch(e) { fail++; }
   }
-  // 삭제
+  // 삭제 — ⛔ **행을 지우지 않는다. 수량만 0 으로 만든다.**
+  // 이 앱은 판 종목도 행을 남겨 과거 배당 기록을 붙여 둔다(수량 0 은 평소 숨겨진다).
+  // 지우면 그 종목의 분배금 행이 주인을 잃어 화면·합계에서 조용히 사라진다
+  // (2026-09-26 동기화로 SCHD·TSLA 배당 14건이 실제로 그렇게 떴다).
   for (const m of toRemove) {
-    try { await apiPost({ action:'deleteHolding', id: m.id }); ok++; }
+    try {
+      const h = state.holdings.find(x => x.id === m.id) || m;
+      await apiPost({
+        action: 'updateHolding',
+        id: m.id, account_id: h.account_id,
+        ticker: h.ticker, name: h.name,
+        avg_price: h.avg_price, quantity: 0,
+        currency: h.currency, div_cycle: h.div_cycle
+      });
+      ok++;
+    }
     catch(e) { fail++; }
   }
 
@@ -3781,7 +3803,10 @@ async function applySyncChanges() {
 
   btn.disabled = false; btn.textContent = '✅ 선택 항목 적용';
   document.getElementById('modal-sync').style.display = 'none';
-  alert(`동기화 완료: ${ok}건 성공${fail ? `, ${fail}건 실패` : ''}`);
+  alert(`동기화 완료: ${ok}건 성공${fail ? `, ${fail}건 실패` : ''}`
+    + (toRemove.length ? `\n\n· 빠진 종목 ${toRemove.length}개는 지우지 않고 수량 0 으로 뒀습니다(과거 분배금 기록 보존).` : '')
+    + (noCycle.length ? `\n\n⚠️ 배당주기를 모르는 신규 종목 ${noCycle.length}개: ${noCycle.join(', ')}\n종목관리에서 주기(월초/월중/월말/분기/반기)를 넣어 주세요.`
+        + `\n안 넣으면 대시보드 연간 예상·분배율에서 이 종목이 빠집니다.` : ''));
   await loadHoldings();
   loadAccountStats();
 }
