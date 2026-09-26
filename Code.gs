@@ -5223,7 +5223,22 @@ function rebuildPortfolioLogDay(dateArg) {
 // MAINT_ALLOW 에도 넣어 뒀다 — 표식을 지우면 언제든 다시 부를 수 있다.
 // 키를 바꾸면 처음부터 다시 돈다(모든 단계가 여러 번 돌려도 같은 결과다).
 // 20260924 판은 9/26 행을 '종가 없음'으로 건너뛰어 3,838.5 를 남겼다 — 그래서 한 번 더 돌린다.
-const SPYI_FIX_KEY = 'fix_spyi_20260926';
+// 20260926b: ②③(수익로그 재계산)이 24분 동안 아무 일도 안 했는데 **왜인지 알 방법이 없었다.**
+// keepWarm 의 console.log 는 Cloud Logging 으로만 가고, 이 PC엔 그걸 볼 통로가 없다
+// (GitHub 미로그인 → runMaint 불가, clasp tail-logs → GCP 프로젝트 미설정).
+// → 복구가 **자기 결과를 시트에 적는다**. 드라이브로 읽을 수 있는 곳이어야 진단이 된다.
+const SPYI_FIX_KEY = 'fix_spyi_20260926b';
+
+// 복구 진행 상황을 'SHEET_ID / 복구로그' 탭에 남긴다. 로그를 볼 수 없으면 고칠 수도 없다.
+function _fixLog(msg) {
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    let t = ss.getSheetByName('복구로그');
+    if (!t) { t = ss.insertSheet('복구로그'); t.appendRow(['시각', '내용']); }
+    t.appendRow([Utilities.formatDate(new Date(), 'Asia/Seoul', 'MM-dd HH:mm:ss'), String(msg).slice(0, 900)]);
+  } catch (e) {}
+  console.log(msg);
+}
 function _fixSpyiPoison() {
   const pr = PropertiesService.getScriptProperties();
   const at = pr.getProperty(SPYI_FIX_KEY) || '';
@@ -5246,13 +5261,28 @@ function _fixSpyiPoison() {
       console.log('  SPYI ' + d + ': ' + rows[i][2] + ' → ' + c);
       fixed++;
     }
-    console.log('① 시세로그 SPYI ' + fixed + '행 정정' + (left ? ' (' + left + '행은 종가 없음)' : ''));
+    _fixLog('① 시세로그 SPYI ' + fixed + '행 정정' + (left ? ' (' + left + '행은 종가 없음)' : ''));
     pr.setProperty(SPYI_FIX_KEY, 'log');
     return;
   }
   // ②③ 수익로그는 시트가 아니라 야후 종가로 다시 계산한다(rebuildPortfolioLogDay 가 그렇게 돈다).
-  if (at === 'log')  { console.log('② 9/24 수익로그 복구'); rebuildPortfolioLogDay('2026-09-24'); pr.setProperty(SPYI_FIX_KEY, '0924'); return; }
-  if (at === '0924') { console.log('③ 9/25 수익로그 복구'); rebuildPortfolioLogDay('2026-09-25'); pr.setProperty(SPYI_FIX_KEY, '0925'); return; }
+  // ⚠️ **결과를 반드시 남긴다.** 이 함수는 계좌에 종가 없는 종목이 하나라도 있으면 그 계좌를
+  // 건너뛰고, 전부 건너뛰면 '복구할 값이 없다'로 조용히 끝난다 — 겉보기엔 안 돈 것과 똑같다.
+  const step = (at === 'log') ? ['2026-09-24', '0924'] : ['2026-09-25', '0925'];
+  if (at === 'log' || at === '0924') {
+    _fixLog((at === 'log' ? '②' : '③') + ' ' + step[0] + ' 수익로그 복구 시작');
+    try {
+      const r = rebuildPortfolioLogDay(step[0]);
+      _fixLog('   결과: ' + (r ? '기록 ' + r.written + '행 · 삭제 ' + r.removed + '행'
+                                 + (r.missTickers && r.missTickers.length ? ' · 종가 못 구한 티커: ' + r.missTickers.join(',') : '')
+                             : '아무것도 안 썼다(전 계좌 건너뜀)'));
+    } catch (e) {
+      _fixLog('   ⚠ 실패: ' + e);
+      return;                      // 표식을 안 올린다 → 다음 턴에 다시 시도
+    }
+    pr.setProperty(SPYI_FIX_KEY, step[1]);
+    return;
+  }
 
   // ④ 주식상황의 SPYI 현재가 수식을 뒤집는다.
   // 원래는 `IFERROR(GOOGLEFINANCE(B,"price"), VLOOKUP('추세데이터'…))` 인데, 구글 금융이 SPYI 를
@@ -5271,11 +5301,11 @@ function _fixSpyiPoison() {
       + row + ',"price"),""))');
     swapped++;
   }
-  console.log('④ 주식상황 SPYI 현재가 수식 ' + swapped + '칸을 예비시세 우선으로 바꿈');
+  _fixLog('④ 주식상황 SPYI 현재가 수식 ' + swapped + '칸을 예비시세 우선으로 바꿈');
 
   // 자산 시트(추세데이터 예비시세 · 주식상황 현재가)도 오늘 다시 만들게 한다.
   // 오늘 몫은 이미 끝난 것으로 표시돼 있어, 지우지 않으면 내일까지 3,838.5 가 그대로 보인다.
   pr.deleteProperty('assetDone');
   pr.setProperty(SPYI_FIX_KEY, 'done');
-  console.log('④ SPYI 복구 끝. 다음 keepWarm 에서 자산 시트가 다시 채워진다.');
+  _fixLog('④ SPYI 복구 끝. 다음 keepWarm 에서 자산 시트가 다시 채워진다.');
 }
