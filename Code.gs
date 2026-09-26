@@ -4371,6 +4371,55 @@ function keepWarm() {
   try { _refreshPlusOnce(); } catch (e) { _fixLog('PLUS 재파싱 실패 — ' + e); }
   try { _fixHoldingsOnce(); } catch (e) { _fixLog('holdings 보정 실패 — ' + e); }
   try { _fixCyclesOnce(); } catch (e) { _fixLog('배당주기 정정 실패 — ' + e); }
+  try { _foreignFormulaOnce(); } catch (e) { _fixLog('해외 현재가 수식 변경 실패 — ' + e); }
+  try { _attachOrphanDivsOnce(); } catch (e) { _fixLog('고아 배당 연결 실패 — ' + e); }
+}
+
+// 일회성: 주식상황의 **모든 해외 종목** 현재가(H열)를 예비시세 우선으로 바꾼다(2026-09-27 사용자 결정).
+// 구글 금융은 'SPYI' 를 오류 없이 엉뚱한 종목으로 붙잡았다 — 다른 해외 종목도 같은 구조라 언제든 같다.
+// ⚠️ VLOOKUP 은 **빈 칸을 찾으면 오류가 아니라 0 을 준다.** 예전 SPYI 수식처럼 IFERROR 로만 감싸면
+//    예비시세가 아직 없는 새 종목(AGNC 같은)은 현재가가 0 이 된다. 그래서 N(...)>0 로 한 번 더 거른다.
+const FX_FORMULA_KEY = 'fx_formula_20260927';
+function _foreignFormulaOnce() {
+  const pr = PropertiesService.getScriptProperties();
+  if (pr.getProperty(FX_FORMULA_KEY) === 'done') return;
+  const sh = SpreadsheetApp.openById(ASSET_SHEET_ID).getSheetByName('주식상황');
+  const vals = sh.getDataRange().getValues();
+  const done = [];
+  for (let i = 2; i < vals.length; i++) {
+    const t = String(vals[i][1] || '').trim();
+    if (!/^[A-Za-z]/.test(t) || t.length > 8) continue;       // 영문 티커만(메모 줄은 길어서 걸러진다)
+    const r = i + 1;
+    const lk = "VLOOKUP(TO_TEXT($B" + r + "),'추세데이터'!$A:$AG,33,FALSE)";
+    sh.getRange(r, 8).setFormula('=IF(N(IFERROR(' + lk + ',0))>0,' + lk
+      + ',IFERROR(GOOGLEFINANCE($B' + r + ',"price"),""))');
+    done.push(t + '(' + r + '행)');
+  }
+  _fixLog('해외 현재가 수식을 예비시세 우선으로: ' + done.join(', '));
+  pr.setProperty(FX_FORMULA_KEY, 'done');
+}
+
+// 일회성: 주인 종목이 지워져 **어느 화면에서도 안 세던** 분배금 17건(2026년 89.8만원+USD)을 다시 붙인다.
+// 사용자: "그 배당금은 우리 계좌 안에서 녹아서 또 다른 주식을 사거나 예수금이 됐으니 자산으로 해야지.
+//          기록으로 남겨두되 보이지만 않는 거잖아." → 수량 0 행을 **원래 id 그대로** 만든다.
+// 계좌는 id(=생성 시각)가 계좌 생성 순서대로 붙은 것으로 가렸다(SCHD·TSLA·PLTR 로 검증).
+// ⚠️ 종목 **이름은 모른다** — 원본 거래내역이 다른 PC에 있다. 거래내역을 받으면 이름을 채울 것(WORKLOG 178).
+const ORPHAN_KEY = 'orphan_attach_20260927';
+function _attachOrphanDivsOnce() {
+  const pr = PropertiesService.getScriptProperties();
+  if (pr.getProperty(ORPHAN_KEY) === 'done') return;
+  const sh = getSheet('holdings');
+  const have = {};
+  sh.getDataRange().getValues().slice(1).forEach(r => { have[String(Number(r[0]))] = 1; });
+  const NAME = '(매도 종목 · 이름 확인 필요)';
+  const rows = [
+    [1780296947867, 1780296935798, '', NAME, 0, 0, 'USD', ''],   // 재남 키움 일반 · 월배당 소액 $5.91
+    [1780296997113, 1780296989778, '', NAME, 0, 0, 'KRW', ''],   // 은경 미래에셋 일반 · 89.8만원
+    [1780297017749, 1780297006767, '', NAME, 0, 0, 'USD', '']    // 은경 키움 일반 · 분기 $94.60
+  ].filter(r => !have[String(r[0])]);
+  if (rows.length) sh.getRange(sh.getLastRow() + 1, 1, rows.length, 8).setValues(rows);
+  _fixLog('고아 배당 연결: 수량 0 행 ' + rows.length + '개 추가(이름 미상) → 분배금 17건이 합계에 다시 잡힌다');
+  pr.setProperty(ORPHAN_KEY, 'done');
 }
 
 // 일회성: 배당주기 라벨을 **야후 배당락일 실측**으로 바로잡는다(2026-09-27, 최근 8회 기준).
