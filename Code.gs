@@ -4373,6 +4373,41 @@ function keepWarm() {
   try { _fixCyclesOnce(); } catch (e) { _fixLog('배당주기 정정 실패 — ' + e); }
   try { _foreignFormulaOnce(); } catch (e) { _fixLog('해외 현재가 수식 변경 실패 — ' + e); }
   try { _attachOrphanDivsOnce(); } catch (e) { _fixLog('고아 배당 연결 실패 — ' + e); }
+  try { _nameOrphansOnce(); } catch (e) { _fixLog('고아 배당 이름 채우기 실패 — ' + e); }
+}
+
+// 일회성: 어제 '(매도 종목 · 이름 확인 필요)' 로 붙인 3행에 **실제 이름**을 채운다(2026-09-27).
+// 근거: H:\내 드라이브\내꺼\금융\계좌 의 증권사 원본 거래내역과 월·금액을 대조했다.
+//   1780296997113 은경 미래 일반 KRW 2~6월 264,916·264,216·182,160·162,100·24,680
+//     → 미래에셋 거래내역 2026 '삼성 KODEX CD금리액티브' 분배금입금 5건과 금액 일치. 티커 459580(네이버 확인).
+//   1780297017749 은경 키움 일반 USD 4·7월 $47.30 → 키움 거래내역 '코카콜라 배당금(외화)입금' 4/1·7/1.
+//   1780296947867 재남 키움 일반 USD 2~6월 $0.31→1.63 → 키움 거래내역 'AGNC인베스트먼트' 매달 11일경.
+// ⚠️ **AGNC 는 지금 755주 행(9/26 동기화로 새로 생김)에 합치지 않는다.** 올해 초 소량 보유분의 배당
+//    ($0.31~1.63)이 섞이면 대시보드가 그 금액을 755주의 월 예상으로 써서 크게 낮게 잡는다.
+//    보유 기간이 다른 별개의 행으로 둔다. 코카콜라는 기존 KO 행에 2026 배당이 0건이라 겹칠 일이 없다.
+const ORPHAN_NAME_KEY = 'orphan_name_20260927';
+function _nameOrphansOnce() {
+  const pr = PropertiesService.getScriptProperties();
+  if (pr.getProperty(ORPHAN_NAME_KEY) === 'done') return;
+  const fix = {
+    '1780296997113': ['459580', 'KODEX CD금리액티브(합성)', '월말|채권'],
+    '1780297017749': ['KO',     '코카콜라',                 '분기배당|필수소비재'],
+    '1780296947867': ['AGNC',   'AGNC (2026 상반기 보유분)', '월말|리츠']
+  };
+  const sh = getSheet('holdings');
+  const rows = sh.getDataRange().getValues();
+  const done = [];
+  for (let i = 1; i < rows.length; i++) {
+    const id = String(Number(rows[i][0]));
+    const f = fix[id];
+    if (!f || rows[i][2]) continue;                 // 이미 티커가 있으면 누가 손댄 것 — 건드리지 않는다
+    sh.getRange(i + 1, 3).setValue(f[0]);
+    sh.getRange(i + 1, 4).setValue(f[1]);
+    sh.getRange(i + 1, 8).setValue(f[2]);
+    done.push(f[1]);
+  }
+  _fixLog('고아 배당 이름 채움: ' + (done.length ? done.join(', ') : '(바꿀 행 없음)'));
+  pr.setProperty(ORPHAN_NAME_KEY, 'done');
 }
 
 // 일회성: 주식상황의 **모든 해외 종목** 현재가(H열)를 예비시세 우선으로 바꾼다(2026-09-27 사용자 결정).
