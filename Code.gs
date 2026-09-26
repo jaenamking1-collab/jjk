@@ -5119,6 +5119,13 @@ function _closeOnDate(ticker, currency, dateStr) {
   const rows = _yahooDaily(_yahooSymbol(ticker, currency), '3mo',
                            isUsd ? 'America/New_York' : 'Asia/Seoul');
   for (let i = rows.length - 1; i >= 0; i--) if (rows[i].ymd === ymd) return rows[i].close;
+  // ⚠️ **휴장일은 그날 종가가 없다.** 2026-09-24·25 는 추석이라 한국 증시가 쉬었고(코스피·코스닥
+  // 지수도 9/23 이 마지막), 그래서 rebuildPortfolioLogDay 가 국내 30종목을 전부 '종가 없음'으로
+  // 보고 **전 계좌를 건너뛰어 아무것도 못 고쳤다**(2026-09-26 복구로그: '아무것도 안 썼다').
+  // 겉보기엔 함수가 안 돈 것과 똑같아서 한참 헤맸다.
+  // 장이 안 선 날의 평가액은 **직전 거래일 종가**가 맞다 — 그 값을 쓴다.
+  // (그 종목이 아직 상장 전이면 앞선 종가도 없으므로 0 → 호출부가 그 계좌를 건너뛴다. 그대로 맞다.)
+  for (let i = rows.length - 1; i >= 0; i--) if (rows[i].ymd < ymd) return rows[i].close;
   return 0;
 }
 
@@ -5227,7 +5234,7 @@ function rebuildPortfolioLogDay(dateArg) {
 // keepWarm 의 console.log 는 Cloud Logging 으로만 가고, 이 PC엔 그걸 볼 통로가 없다
 // (GitHub 미로그인 → runMaint 불가, clasp tail-logs → GCP 프로젝트 미설정).
 // → 복구가 **자기 결과를 시트에 적는다**. 드라이브로 읽을 수 있는 곳이어야 진단이 된다.
-const SPYI_FIX_KEY = 'fix_spyi_20260926b';
+const SPYI_FIX_KEY = 'fix_spyi_20260926c';
 
 // 복구 진행 상황을 'SHEET_ID / 복구로그' 탭에 남긴다. 로그를 볼 수 없으면 고칠 수도 없다.
 function _fixLog(msg) {
