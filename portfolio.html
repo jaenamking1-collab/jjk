@@ -2968,7 +2968,21 @@ function renderPlChart() {
 
   const makeOneChart = (acc, color, bgColor='var(--bg2)', bdColor='') => {
     const dataMap = byAcc[acc] || {};
-    const pts = keys.map(k => dataMap[k] ? dataMap[k].v : null);
+    // ⚠️ 구멍을 빈칸으로 두면 **선이 끊겨 그것대로 고장 난 것처럼 보인다.** 총합 차트엔 이미
+    // 이어 붙이기를 넣었는데(2026-09-22) 계좌별 차트엔 안 넣어서, 9/21 에 시세를 못 구해
+    // 건너뛴 은경 키움 일반계좌만 중간이 뻥 뚫렸다(2026-09-27 사용자 지적).
+    // 그 계좌에 기록이 있는 구간 안의 구멍만 **직전 값으로 잇고**, 이은 점은 속 빈 원으로 구분한다.
+    // 구간 밖(계좌를 만들기 전·닫은 뒤)은 그대로 비운다.
+    const dKeys = Object.keys(dataMap).sort();
+    const dFirst = dKeys[0], dLast = dKeys[dKeys.length - 1];
+    const estIdx = new Set();
+    let carry = null;
+    const pts = keys.map((k, i) => {
+      if (dataMap[k]) { carry = dataMap[k].v; return carry; }
+      if (!dFirst || k < dFirst || k > dLast || carry == null) return null;
+      estIdx.add(i);
+      return carry;
+    });
     const valid = pts.filter(v => v != null);
     if (!valid.length) return '';
     // x축 글자 잘림 방지: 왼쪽 패딩 넓게, 하단 패딩 20px 확보
@@ -3004,6 +3018,8 @@ function renderPlChart() {
     // 16시 확정 전(10·13시 슬롯)이면 마지막 점을 속 빈 원으로 그려 미확정임을 표시
     const prov = _plMode==='day' && li!=null && ((dataMap[keys[li]]||{})._slot||16) < 16;
     if(li!=null)path+=`<circle cx="${toX(li).toFixed(1)}" cy="${toY(lv).toFixed(1)}" r="3" fill="${prov?'var(--bg2)':color}" stroke="${color}" stroke-width="${prov?1.5:0}"/>`;
+    // 이어 붙인 날은 속 빈 원 — 실제 기록과 구분한다(총합 차트와 같은 표시).
+    path+=[...estIdx].map(i=>`<circle cx="${toX(i).toFixed(1)}" cy="${toY(pts[i]).toFixed(1)}" r="2.5" fill="var(--bg2)" stroke="${color}" stroke-width="1.2"/>`).join('');
     const diff=lv-valid[0], dc=diff>=0?'var(--red)':'var(--accent)';
     const label=acc.replace('재남 ','').replace('은경 ','');
     return `<div style="background:${bgColor};border:1px solid ${color}33;border-radius:8px;padding:10px">
