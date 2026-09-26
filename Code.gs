@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison'
 ];
 
 function runMaint(name, arg) {
@@ -3371,7 +3371,21 @@ function snapshotPrices() {
     if (!t) continue;
     if (/^\d+$/.test(t) && t.length < 6) t = t.padStart(6, '0');
     if (seen[t]) continue;                            // 이미 기록한 티커면 건너뜀
-    const price = (parseFloat(rows[i][6]) || 0) || (parseFloat(rows[i][7]) || 0);
+    // ⛔ 해외 종목은 이 시트에서 읽으면 안 된다 — **값이 제 꼬리를 문다.**
+    // 주식상황의 해외 현재가 칸은 GOOGLEFINANCE 가 실패하면 '추세데이터'의 예비 시세를 보는데,
+    // 그 예비 시세를 채우는 게 바로 이 시세로그다: snapshotPrices → pushTrendData → 주식상황 → 다시 여기.
+    // 2026-09-24 에 SPYI 가 $53.7 대신 $3,856 로 들어오자 그 값이 **스스로를 먹이며 매일 되살아났고**,
+    // 은경 키움 일반계좌 평가액을 1.2억 부풀린 채 수익로그에 이틀치가 박혔다(WORKLOG 178).
+    // 국내는 '시세' 탭(네이버)이 바깥에서 채우므로 고리가 아니다. 해외만 야후에서 직접 받는다.
+    // 못 받으면 **기록하지 않는다** — 거짓 값이 영구히 남는 것보다 빈칸이 낫다.
+    let price;
+    if (/^[A-Z]/.test(t)) {
+      const q = getStockPrice(t, 'USD');
+      price = (q && q.success && q.current > 0) ? q.current : 0;
+      if (!price) console.log('시세로그 건너뜀: ' + t + ' — 야후 시세 없음');
+    } else {
+      price = (parseFloat(rows[i][6]) || 0) || (parseFloat(rows[i][7]) || 0);
+    }
     if (price) { out.push([today, t, price]); seen[t] = true; }
   }
   if (out.length) log.getRange(log.getLastRow() + 1, 1, out.length, 3).setValues(out);
@@ -4227,6 +4241,9 @@ function keepWarm() {
       if (ok) pr.setProperty('assetDone', today);
     }
   } catch (e) { console.log('자산 시트 일일 작업 실패 — ' + e); }
+
+  // 일회성 복구. 끝나면 스스로 표식을 남겨 다시 돌지 않는다(_fixSpyiPoison 주석 참고).
+  try { _fixSpyiPoison(); } catch (e) { console.log('SPYI 복구 실패 — ' + e); }
 }
 // 워치독 트리거: 매일 08:30. 편집기에서 이 함수를 한 번만 실행(▶)하면 설치된다.
 // 08:10의 flushKakaoPending·flushCalPending 보다 뒤에 둬서, 밤새 대기분이 먼저 나갈 기회를 준 다음 점검한다.
@@ -5180,4 +5197,43 @@ function rebuildPortfolioLogDay(dateArg) {
   out.forEach(r => console.log('  ' + r[1] + '  ' + Math.round(r[2]).toLocaleString()));
   console.log('⇒ 끝. 앱 대시보드를 새로고침하면 그래프의 수직 상승이 사라진다.');
   return { date: DATE, written: out.length, removed: removed, missTickers: missTickers };
+}
+
+// ── 일회성 복구: SPYI 오염 (2026-09-24~) ──────────────────────────────
+// 되먹임 고리는 snapshotPrices 에서 막았다(그 주석 참고). 하지만 **이미 적힌 값은 저절로 안 고쳐진다**:
+//   · 시세로그 SPYI  9/24 $3,856 · 9/25~ $3,838.5  (실제는 $53 대)
+//   · 수익로그 9/24·9/25  은경 키움 일반계좌가 9,468만 → 2억 1,388만 (+1.2억 허수)
+// 그래서 대시보드 그래프가 23일 5.87억에서 24일 7.06억으로 수직 상승했다.
+// keepWarm 이 딱 한 번 대신 돌려 준다. 표식은 **끝난 뒤에** 찍는다(중간에 터지면 5분 뒤 다시 시도).
+// MAINT_ALLOW 에도 넣어 뒀다 — 표식을 지우면 언제든 다시 부를 수 있다.
+const SPYI_FIX_KEY = 'fix_spyi_20260924';
+function _fixSpyiPoison() {
+  const pr = PropertiesService.getScriptProperties();
+  if (pr.getProperty(SPYI_FIX_KEY) === 'done') return;
+  const log = SpreadsheetApp.openById(SHEET_ID).getSheetByName('시세로그');
+  if (!log) { console.log('시세로그 없음'); return; }
+  const rows = log.getDataRange().getValues();
+  let fixed = 0, left = 0;
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][1]).trim().toUpperCase() !== 'SPYI') continue;
+    const d = _logDay(rows[i][0]);
+    if (!d || d < '2026-09-24') continue;
+    const c = _closeOnDate('SPYI', 'USD', d);
+    // 장이 안 선 날은 종가가 없다. 못 구하면 건드리지 않고 넘어간다.
+    if (!(c > 0)) { console.log('  SPYI ' + d + ' 종가 없음 — 그대로 둔다'); left++; continue; }
+    log.getRange(i + 1, 3).setValue(c);
+    console.log('  SPYI ' + d + ': ' + rows[i][2] + ' → ' + c);
+    fixed++;
+  }
+  console.log('시세로그 SPYI ' + fixed + '행 정정' + (left ? ' (' + left + '행은 종가를 못 구해 그대로)' : ''));
+
+  // 수익로그는 시트가 아니라 야후 종가로 다시 계산한다(rebuildPortfolioLogDay 가 그렇게 돈다).
+  rebuildPortfolioLogDay('2026-09-24');
+  rebuildPortfolioLogDay('2026-09-25');
+
+  // 자산 시트(추세데이터 예비시세 · 주식상황 현재가)도 오늘 다시 만들게 한다.
+  // 오늘 몫은 이미 끝난 것으로 표시돼 있어, 지우지 않으면 내일까지 3,838.5 가 그대로 보인다.
+  pr.deleteProperty('assetDone');
+  pr.setProperty(SPYI_FIX_KEY, 'done');
+  console.log('⇒ SPYI 복구 끝. 다음 keepWarm 에서 자산 시트가 다시 채워진다.');
 }
