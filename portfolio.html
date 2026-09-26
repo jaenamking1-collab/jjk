@@ -1104,7 +1104,8 @@ let state = {
   dividends: [],
   exchangeRate: 1447,
   currentYear: new Date().getFullYear(),
-  stockList: []
+  stockList: [],
+  dashData: null        // 대시보드가 재사용하는 {holdings, divsAll}. 쓰기가 있으면 apiPost 가 비운다.
   };
 
 // ── API ──────────────────────────────────
@@ -1213,6 +1214,8 @@ async function apiPost(data) {
     method:'POST',
     body: JSON.stringify({ ...data, token: APP_TOKEN })
   });
+  // 뭔가 썼으니 대시보드가 재사용하던 종목·분배금은 낡았다. 다음 대시보드는 다시 받아 온다.
+  state.dashData = null;
   return res.json();
 }
 
@@ -1460,6 +1463,8 @@ async function loadAccountStats() {
 function renderAccountStats(allHoldings, allDivs, sheet, allDivsFull) {
   state.holdings = allHoldings || [];
   state.dividends = allDivs || [];
+  // 대시보드가 그대로 쓰는 몫. state.dividends 는 **올해치만**이라 따로 둔다(투영은 과거 연도가 필요하다).
+  state.dashData = { holdings: state.holdings, divsAll: allDivsFull || [] };
   // 환산분배율용 투영맵 (대시보드 연 분배율과 동일 방식·동일 데이터)
   const projMap = projectAnnualDist(state.holdings, allDivsFull || [], state.currentYear);
 
@@ -2606,9 +2611,14 @@ async function loadDashboard() {
   const year = parseInt(document.getElementById('dashYearSel').value) || new Date().getFullYear();
   document.getElementById('dashYear').textContent = year + '년';
 
+  // 종목·분배금은 부팅(getBootstrap)이 이미 받아 둔 것이다. 같은 걸 또 물으면 왕복이 2번 늘고,
+  // 앱스스크립트는 같은 사용자의 요청을 **하나씩** 처리해서 그 시간이 그대로 대기가 된다
+  // (가벼운 요청 하나도 5~6초다 — 대시보드가 20~30초 걸리던 이유).
+  // 쓰기가 있었으면 apiPost 가 state.dashData 를 비우므로, 그때만 다시 받는다.
+  const cached = state.dashData;
   const [allHoldings, allDivs, sheet] = await Promise.all([
-    api({ action:'getHoldings' }),
-    api({ action:'getDividends' }),
+    cached ? cached.holdings : api({ action:'getHoldings' }),
+    cached ? cached.divsAll  : api({ action:'getDividends' }),
     fetchPriceItems()
   ]);
   const holdings = allHoldings || [];
