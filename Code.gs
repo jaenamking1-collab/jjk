@@ -4301,6 +4301,42 @@ function keepWarm() {
   // 일회성 복구. 끝나면 스스로 표식을 남겨 다시 돌지 않는다(_fixSpyiPoison 주석 참고).
   try { _fixSpyiPoison(); } catch (e) { console.log('SPYI 복구 실패 — ' + e); }
   try { _refreshPlusOnce(); } catch (e) { _fixLog('PLUS 재파싱 실패 — ' + e); }
+  try { _fixHoldingsOnce(); } catch (e) { _fixLog('holdings 보정 실패 — ' + e); }
+}
+
+// 일회성: 2026-09-26 동기화가 남긴 두 가지를 바로잡는다(코드는 applySyncChanges 에서 이미 고쳤다).
+//  ① 지워진 SCHD·TSLA 행을 **원래 id 그대로** 수량 0 으로 되살린다 — 그래야 뜬 분배금 14건이 다시 붙는다.
+//     (PLTR 은 분배금 기록이 없어 되살릴 이유가 없다.)
+//  ② 빈칸으로 들어온 배당주기를 채운다. 비어 있으면 대시보드 투영에서 통째로 빠지고,
+//     그 상태로 분배금을 한 번 입력하면 **연 1회 받는 종목**으로 잡혀 연간 예상·분배율이 낮아진다.
+const HOLD_FIX_KEY = 'hold_fix_20260926';
+function _fixHoldingsOnce() {
+  const pr = PropertiesService.getScriptProperties();
+  if (pr.getProperty(HOLD_FIX_KEY) === 'done') return;
+  const sh = getSheet('holdings');
+  const rows = sh.getDataRange().getValues();
+  const idx = {};
+  for (let i = 1; i < rows.length; i++) {
+    const t = String(rows[i][2] || '').trim().toUpperCase();
+    if (t) (idx[t] = idx[t] || []).push(i + 1);
+  }
+  const revive = [
+    [1780296953100, 1780296935798, 'SCHD', 'SCHD', 26.07, 0, 'USD', '분기배당|S&P500'],
+    [1780296955989, 1780296935798, 'TSLA', 'TSLA', 289.86, 0, 'USD', '무배당|자동차']
+  ].filter(r => !idx[r[2]]);
+  if (revive.length) {
+    sh.getRange(sh.getLastRow() + 1, 1, revive.length, 8).setValues(revive);
+    _fixLog('holdings 복구: ' + revive.map(r => r[2]).join(', ') + ' 를 수량 0 으로 되살림 (분배금 재연결)');
+  }
+  const cyc = { 'AGNC': '월말|리츠', '480030': '월중|S&P500' };
+  Object.keys(cyc).forEach(t => {
+    (idx[t] || []).forEach(r => {
+      if (String(sh.getRange(r, 8).getValue() || '').trim()) return;   // 이미 채워져 있으면 안 건드린다
+      sh.getRange(r, 8).setValue(cyc[t]);
+      _fixLog('배당주기 채움: ' + t + ' → ' + cyc[t]);
+    });
+  });
+  pr.setProperty(HOLD_FIX_KEY, 'done');
 }
 
 // 일회성: PLUS 월말 회차를 지금 다시 긁는다. 파서를 고쳤어도 분배캐시엔 월중 회차가 들어 있고,
