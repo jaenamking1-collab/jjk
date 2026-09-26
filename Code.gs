@@ -4305,6 +4305,32 @@ function keepWarm() {
   try { _fixSpyiPoison(); } catch (e) { console.log('SPYI 복구 실패 — ' + e); }
   try { _refreshPlusOnce(); } catch (e) { _fixLog('PLUS 재파싱 실패 — ' + e); }
   try { _fixHoldingsOnce(); } catch (e) { _fixLog('holdings 보정 실패 — ' + e); }
+  try { _fixCyclesOnce(); } catch (e) { _fixLog('배당주기 정정 실패 — ' + e); }
+}
+
+// 일회성: 배당주기 라벨을 **야후 배당락일 실측**으로 바로잡는다(2026-09-27, 최근 8회 기준).
+//   AGNC 27~31일 → 월말 (월초로 적혀 있었다)   JEPQ 1~3일 → 월초 (맞다, 안 건드린다)
+//   SPYI 16~22일 → 월중 (월말로 적혀 있었다)
+// ⚠️ 라벨은 **표시용**이다. 투영은 '월' 글자만 보므로(payMonthsOf) 숫자에는 영향이 없다.
+// 분류(| 뒤 카테고리)는 그대로 둔다.
+const CYC_FIX_KEY = 'cyc_fix_20260927';
+function _fixCyclesOnce() {
+  const pr = PropertiesService.getScriptProperties();
+  if (pr.getProperty(CYC_FIX_KEY) === 'done') return;
+  const want = { 'AGNC': '월말', 'SPYI': '월중' };
+  const sh = getSheet('holdings');
+  const rows = sh.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    const t = String(rows[i][2] || '').trim().toUpperCase();
+    if (!want[t]) continue;
+    const cur = String(rows[i][7] || '');
+    const parts = cur.split('|');
+    if (parts[0] === want[t]) continue;
+    const next = want[t] + (parts[1] ? '|' + parts[1] : '');
+    sh.getRange(i + 1, 8).setValue(next);
+    _fixLog('배당주기 정정: ' + t + '  ' + (cur || '(빈칸)') + ' → ' + next);
+  }
+  pr.setProperty(CYC_FIX_KEY, 'done');
 }
 
 // 일회성: 2026-09-26 동기화가 남긴 두 가지를 바로잡는다(코드는 applySyncChanges 에서 이미 고쳤다).
