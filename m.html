@@ -253,7 +253,11 @@ function projectAnnualDist(holdings, dividends, year) {
     const thisYear = (byH[h.id] && byH[h.id][year]) || {};
     let vals = Object.values(thisYear).filter(v => v > 0);
     if (!vals.length) vals = Object.values(byH[h.id] || {}).flatMap(o => Object.values(o)).filter(v => v > 0);
-    const perPay = vals.length ? vals.reduce((a,b)=>a+b,0) / vals.length : 0;
+    // 1회 예상액 = **최근 3회** 평균. 올해 전체 평균은 연중 추가 매수 전(수량 적던 때)의 작은 금액이
+    // 끌어내려 월배당 48종목 합계가 월 ~75만원 낮게 잡혔다(2026-09-27 실측, 사용자 결정 A).
+    // vals 는 월 오름차순(연도 넘어가면 연도 오름차순)이라 뒤에서 3개가 가장 최근이다.
+    const recent = vals.slice(-3);
+    const perPay = recent.length ? recent.reduce((a,b)=>a+b,0) / recent.length : 0;
     let sum = 0;
     payMonthsOf(h).forEach(m => {
       const actual = thisYear[m] || 0;
@@ -283,7 +287,11 @@ function projectMonthly(holdings, dividends, year) {
     const thisYear = (byH[h.id] && byH[h.id][year]) || {};
     let vals = Object.values(thisYear).filter(v => v > 0);
     if (!vals.length) vals = Object.values(byH[h.id] || {}).flatMap(o => Object.values(o)).filter(v => v > 0);
-    const perPay = vals.length ? vals.reduce((a,b)=>a+b,0) / vals.length : 0;
+    // 1회 예상액 = **최근 3회** 평균. 올해 전체 평균은 연중 추가 매수 전(수량 적던 때)의 작은 금액이
+    // 끌어내려 월배당 48종목 합계가 월 ~75만원 낮게 잡혔다(2026-09-27 실측, 사용자 결정 A).
+    // vals 는 월 오름차순(연도 넘어가면 연도 오름차순)이라 뒤에서 3개가 가장 최근이다.
+    const recent = vals.slice(-3);
+    const perPay = recent.length ? recent.reduce((a,b)=>a+b,0) / recent.length : 0;
     const cyc = h.div_cycle || '';
     let months;
     if (/월|주/.test(cyc)) months = ALLM;
