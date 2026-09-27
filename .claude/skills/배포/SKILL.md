@@ -62,3 +62,4 @@ description: jjk 의 Code.gs(Apps Script 백엔드)를 clasp 로 올리고 라�
 - `getDistribution` 파서 수정을 push 만 하고 "재배포 불필요"라고 했다 — 웹앱은 옛 버전을 계속 돌렸다(WORKLOG 93).
 - "원격이라 배포 못 한다"고 했다 — 막힌 건 `script.google.com` 하나뿐이었고 Actions 로 된다.
 - 9/18 배포가 상해 `/exec` 가 익명 403 으로 사흘 죽었다. 같은 ID 로 다시 `deploy` 하자 즉시 복구(WORKLOG 165). 9/28 의 403 은 모양이 같았지만 원인이 승인 풀림이었다(WORKLOG 180) — **응답 페이지가 드라이브식 'You need access' 인지 먼저 본다.**
+- 2026-09-28 `check_only` 첫 실행에서 **작업 브랜치가 `main` 보다 뒤처져** 편집기 코드(IMPORTDATA 다시 받기, 26줄)가 브랜치에 없었다. 그 브랜치로 배포했으면 남의 수정을 되돌릴 뻔했다 — **배포 전엔 `main` 을 먼저 합치고 `check_only` 로 '차이 없음'(또는 내 변경분만)을 확인한다.** clasp 3.x 는 `Code.gs` 를 `Code.js` 로 받는다는 것도 이때 알았다.

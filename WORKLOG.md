@@ -15,6 +15,7 @@
 ## 2026-09-28 (181) / 원격 — 매뉴얼 체계 과제 2~7 완료 (CLAUDE.md 188→129줄)
 
 - **과제 6 승인받고 진행**("진행안된거 고고"): 배포 세부(약 60줄)·공개 페이지 미러 세부를 매뉴얼로 옮기고, 존댓말·"먼저 해봐라"는 **줄여서 남겼다**(원격 세션은 공용 기억을 못 본다). 맨 위에 공용 규칙·매뉴얼 안내 3줄. 옮긴 뒤 옛 CLAUDE.md 의 핵심 문구 24개(`Skipping push`·편집기 주소·clasp client id·`_NOTICE_PAGE_URL` 등)가 새 파일들에 모두 있는지 grep 으로 대조 — 빠진 것 0.
+- **배포 매뉴얼 1단계(clasp pull)도 원격에서 해냈다** — 사용자 클릭 없이. `deploy.yml` 에 `check_only` 입력을 더해 Actions 가 `CLASPRC_JSON` 으로 임시 폴더에 pull 해 비교만 한다. 첫 실행에서 clasp 3.x 가 `Code.js` 로 받는 걸 보고 보정했고, 두 번째에 **브랜치가 `main` 보다 뒤처져 편집기 코드 26줄이 없다**는 걸 잡았다(`main` 합친 뒤 '차이 없음'). 비교 단계는 `continue-on-error` 라 배포를 막지 않는다.
 - ⛔ **첫 커밋에서 `CHECKS.md`·매뉴얼 셋이 조용히 빠져 있었다.** `.gitignore` 의 `.claude/*` 때문이다(예외는 `settings.json` 하나뿐이었다). 푸시해 놓고 "만들었다"고 보고했었다 — `git status --untracked-files=all` 로 확인했어야 했다. `!.claude/CHECKS.md`·`!.claude/skills/` 예외를 넣었다.
 
 165 의 계획서(`docs/superpowers/plans/2026-09-20-working-manual-system.md`) 남은 과제를 했다.
@@ -32,7 +33,6 @@
 
 ### 다음 할 일
 - 다른 프로젝트(보건실·시세 위젯 등)에도 같은 구조 적용 — 계획서 과제 7 의 '다음 할 일'.
-- PC 세션에서 배포 매뉴얼 1단계(임시 폴더 `clasp pull`)를 한 번 따라가 보고 막히면 매뉴얼을 고친다.
 - 알림로그를 에이전트가 볼 통로가 없다 — 필요하면 요약 함수를 `MAINT_ALLOW` 에.
 
 ## 2026-09-28 (180) / 원격 — "총매입과 평가금액이 같다" → 백엔드 `/exec` 가 **403 Access Denied**
