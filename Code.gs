@@ -4374,6 +4374,27 @@ function keepWarm() {
   try { _foreignFormulaOnce(); } catch (e) { _fixLog('해외 현재가 수식 변경 실패 — ' + e); }
   try { _attachOrphanDivsOnce(); } catch (e) { _fixLog('고아 배당 연결 실패 — ' + e); }
   try { _nameOrphansOnce(); } catch (e) { _fixLog('고아 배당 이름 채우기 실패 — ' + e); }
+  try { _refreshImportOnce(); } catch (e) { _fixLog('IMPORTDATA 새로고침 실패 — ' + e); }
+}
+
+// 일회성: 주식상황의 IMPORTDATA(현재가 CSV) 칸을 지웠다 다시 써서 **새로 받게** 한다(2026-09-28).
+// 왜: /exec 가 몇 시간 403 이던 동안 IMPORTDATA 가 오류를 받아 두었고, 서버가 살아난 뒤에도
+// 구글 시트가 그 오류를 붙들고 있어 현재가가 안 나왔다. 같은 수식을 한 번 비웠다 넣으면 다시 받는다.
+const IMPORT_REFRESH_KEY = 'import_refresh_20260928';
+function _refreshImportOnce() {
+  const pr = PropertiesService.getScriptProperties();
+  if (pr.getProperty(IMPORT_REFRESH_KEY) === 'done') return;
+  const sh = SpreadsheetApp.openById(ASSET_SHEET_ID).getSheetByName('주식상황');
+  const rng = sh.getDataRange(), fs = rng.getFormulas();
+  const cells = [];
+  fs.forEach((row, r) => row.forEach((f, c) => { if (/IMPORTDATA/i.test(f)) cells.push([r + 1, c + 1, f]); }));
+  cells.forEach(([r, c]) => sh.getRange(r, c).clearContent());
+  SpreadsheetApp.flush();
+  Utilities.sleep(2000);
+  cells.forEach(([r, c, f]) => sh.getRange(r, c).setFormula(f));
+  SpreadsheetApp.flush();
+  pr.setProperty(IMPORT_REFRESH_KEY, 'done');
+  _fixLog('IMPORTDATA ' + cells.length + '칸 다시 받기 (403 동안 굳은 오류 풀기)');
 }
 
 // 일회성: 어제 '(매도 종목 · 이름 확인 필요)' 로 붙인 3행에 **실제 이름**을 채운다(2026-09-27).
