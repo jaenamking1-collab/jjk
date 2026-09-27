@@ -1190,7 +1190,11 @@ let APP_TOKEN = sessionStorage.getItem('jjk_token') || '';  // 진입 비밀번�
 // 마지막 시도만 길게 남긴다(오래 안 쓰다 열 때의 진짜 콜드스타트는 17~57초가 걸린 적이 있다).
 const API_TIMEOUT = 90000;
 const API_ATTEMPT_MS = [15000, 30000, API_TIMEOUT];
+// 서버가 통째로 죽었을 때(2026-09-28 /exec 403) 요청마다 재시도 사다리(최대 2분여)를 다시 타면
+// 화면마다 스피너가 한참 돈다. 한 번 3회 다 실패하면 1분간은 바로 실패시켜 오류 화면을 곧장 띄운다.
+let _apiDownUntil = 0;
 async function api(params) {
+  if (Date.now() < _apiDownUntil) throw new Error('서버 응답 없음 (잠시 뒤 다시 시도)');
   const url = API + '?' + new URLSearchParams({ ...params, token: APP_TOKEN });
   let last;
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -1207,6 +1211,7 @@ async function api(params) {
       clearTimeout(timer);
     }
   }
+  _apiDownUntil = Date.now() + 60000;
   throw last;
 }
 async function apiPost(data) {
@@ -1751,10 +1756,18 @@ async function loadHoldings() {
   document.getElementById('holdingsTable').innerHTML = '<div class="loading"><span class="spinner"></span>불러오는 중...</div>';
   // api()는 90초 타임아웃 × 3회라, 백엔드가 느리거나 죽으면 최대 4분 반을 기다린 뒤 그냥 throw 한다.
   // 예전엔 그 예외를 아무도 안 받아서 스피너가 영원히 도는 '무한 로딩'으로 보였다.
-  let data;
+  let data, stale = false;
   try {
     data = await api({ action:'getHoldings', account_id: accountId === 'ALL' ? '' : accountId });
   } catch (e) {
+    // 서버가 죽어도 마지막 저장본이 있으면 그걸 보여 준다(2026-09-28 /exec 403 때 스피너만 돌았다).
+    const snapH = ((_snapGet() || {}).holdings) || [];
+    if (snapH.length) {
+      data = accountId === 'ALL' ? snapH : snapH.filter(h => String(h.account_id) === String(accountId));
+      stale = true;
+    }
+  }
+  if (!data) {
     document.getElementById('holdingsTable').innerHTML =
       '<div class="empty"><div class="empty-icon">⚠️</div>' +
       '<p>종목을 불러오지 못했습니다<br><span style="font-size:12px;color:var(--text3)">서버가 응답하지 않습니다. 백엔드 권한 승인이 풀렸거나(새 서비스가 추가되면 구글이 재승인을 요구한다) Apps Script가 느린 것입니다.</span></p>' +
@@ -1783,6 +1796,9 @@ async function loadHoldings() {
   const shown = showSold ? state.holdings
                          : state.holdings.filter(h => (parseFloat(h.quantity) || 0) > 0);
   renderHoldingsTable(shown);
+  if (stale) document.getElementById('holdingsTable').insertAdjacentHTML('afterbegin',
+    '<div style="margin-bottom:8px;padding:6px 10px;border-radius:6px;background:#fef3c7;color:#92400e;font-size:12px">' +
+    '⚠️ 서버에 연결되지 않아 마지막 저장본을 보여 드립니다. <button class="btn btn-sm" onclick="loadHoldings()">다시 시도</button></div>');
   loadHoldingPrices(shown); // 자동 시세 로드
 }
 
