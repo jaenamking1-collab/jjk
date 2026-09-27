@@ -1193,6 +1193,18 @@ const API_ATTEMPT_MS = [15000, 30000, API_TIMEOUT];
 // 서버가 통째로 죽었을 때(2026-09-28 /exec 403) 요청마다 재시도 사다리(최대 2분여)를 다시 타면
 // 화면마다 스피너가 한참 돈다. 한 번 3회 다 실패하면 1분간은 바로 실패시켜 오류 화면을 곧장 띄운다.
 let _apiDownUntil = 0;
+// 서버가 죽으면 화면 맨 위에 빨간 띠를 띄운다. 저장본으로 화면을 채워도 그게 옛 값이라는 걸
+// 모르면 소용없다 — "그렇게 되면 오류가 난지 모르는거 아냐?"(2026-09-28 사용자).
+function showApiDown(on) {
+  let b = document.getElementById('apiDownBar');
+  if (!on) { if (b) b.remove(); return; }
+  if (b) return;
+  b = document.createElement('div');
+  b.id = 'apiDownBar';
+  b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:4000;background:#dc2626;color:#fff;font-size:13px;font-weight:700;text-align:center;padding:7px 12px';
+  b.textContent = '🚨 서버 연결 끊김 — 지금 보이는 숫자는 마지막 저장값입니다. 새 데이터·저장이 안 됩니다.';
+  document.body.appendChild(b);
+}
 async function api(params) {
   if (Date.now() < _apiDownUntil) throw new Error('서버 응답 없음 (잠시 뒤 다시 시도)');
   const url = API + '?' + new URLSearchParams({ ...params, token: APP_TOKEN });
@@ -1204,7 +1216,9 @@ async function api(params) {
     try {
       const res = await fetch(url, { redirect: 'follow', signal: ac.signal });
       if (!res.ok) throw new Error('HTTP ' + res.status);   // 404 = 배달 실패 → 재시도
-      return await res.json();
+      const j = await res.json();
+      showApiDown(false);
+      return j;
     } catch (e) {
       last = e;
     } finally {
@@ -1212,6 +1226,7 @@ async function api(params) {
     }
   }
   _apiDownUntil = Date.now() + 60000;
+  showApiDown(true);
   throw last;
 }
 async function apiPost(data) {
