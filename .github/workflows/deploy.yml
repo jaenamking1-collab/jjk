@@ -76,13 +76,18 @@ jobs:
       # 배포 매뉴얼 1단계: 임시 폴더에서 clasp pull 해 원격(편집기)과 이 커밋의 Code.gs 를 비교한다.
       # 저장소 안에서 pull 하면 Code.gs 가 덮이므로 반드시 임시 폴더. 다르다고 멈추지는 않는다 —
       # 배포하려는 변경분만큼 다른 게 정상이다. 그 외의 차이(누가 편집기에서 직접 고침)를 눈으로 본다.
+      # 비교가 깨져도 배포는 막지 않는다(continue-on-error) — 확인용 단계다.
       - name: 원격과 비교 (clasp pull, 임시 폴더)
+        continue-on-error: true
         run: |
           set -euo pipefail
           t=$(mktemp -d); cp .clasp.json "$t/"
           (cd "$t" && clasp pull >/dev/null)
-          if diff -q "$t/Code.gs" Code.gs >/dev/null; then echo "원격 = 이 커밋의 Code.gs (차이 없음)"
-          else echo "원격과 다름:"; diff "$t/Code.gs" Code.gs | grep -c '^[<>]' | xargs echo "  바뀐 줄 수"; diff "$t/Code.gs" Code.gs | head -40 || true; fi
+          # clasp 3.x 는 .gs 를 Code.js 로 받는다(2026-09-28 실측) — 둘 다 본다.
+          r="$t/Code.gs"; [ -f "$r" ] || r="$t/Code.js"
+          echo "받은 파일: $(cd "$t" && ls | tr '\n' ' ')"
+          if diff -q "$r" Code.gs >/dev/null; then echo "원격 = 이 커밋의 Code.gs (차이 없음)"
+          else echo "원격과 다름 — 바뀐 줄 $(diff "$r" Code.gs | grep -c '^[<>]' || true)개:"; diff "$r" Code.gs | head -40 || true; fi
 
       - name: 올라갈 파일 확인 (Code.gs 만이어야 한다)
         if: ${{ github.event.inputs.check_only != 'true' }}
