@@ -846,7 +846,9 @@ function applyBoot(b, prices) {
   D.holdings = b.holdings || [];
   D.divs     = b.dividends || [];
   D.divsAll  = b.divsAll || [];
-  D.priceMap = prices || {};
+  // 시세를 하나도 못 받았으면 스냅샷에서 읽어 둔 지난 시세를 그대로 둔다. 빈 맵이면 전 종목이
+  // 평단가로 잡혀 평가금액 = 총매입이 되고, 그게 스냅샷까지 덮어쓴다(2026-09-28 신고).
+  if (prices && Object.keys(prices).length) D.priceMap = prices;
   document.getElementById('rate').textContent = '$1 = ' + Math.round(D.rate).toLocaleString();
   snapSet({ rate:D.rate, accounts:D.accounts, holdings:D.holdings, divs:D.divs, divsAll:D.divsAll, priceMap:D.priceMap });
 }
