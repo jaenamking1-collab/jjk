@@ -21,6 +21,7 @@ description: jjk 의 Code.gs(Apps Script 백엔드)를 clasp 로 올리고 라�
 6. `maint.yml` 을 `fn=resetAllTriggers` 로 돌린다 — **배포의 일부다.**
 
 **원격(클라우드) 세션** — `~/.clasprc.json` 이 없으므로 Actions 로 한다.
+0. 올리기 전 원격 확인: `deploy.yml` 을 `check_only=true` 로 돌리면 임시 폴더 `clasp pull` 로 편집기 코드와 커밋의 `Code.gs` 를 비교만 한다(아무것도 안 올린다). 배포할 때도 이 비교가 맨 먼저 돈다.
 1. 변경을 `main` 에 푸시한다.
 2. `deploy.yml` 을 돌린다(`note=<설명>`, 트리거만 쓰는 변경이면 `push_only=true`). 워크플로가 파일 확인 → `clasp push --force` → `clasp deploy -i <라이브 ID>` 를 한다.
 3. `maint.yml` 을 `fn=resetAllTriggers` 로 돌린다.
