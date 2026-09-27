@@ -86,5 +86,5 @@ jobs:
       - name: 트리거 재설치 안내
         run: |
           echo "::warning::clasp push 는 스코프가 바뀌면 기존 트리거를 'Authorization is required' 로 죽인다."
-          echo "::warning::편집기에서 resetAllTriggers 를 ▶ 실행해야 한다 — 트리거 설치는 API executable 배포가"
-          echo "::warning::필요해 clasp 로 안 되므로, 이것만은 사람이 눌러야 한다."
+          echo "::warning::이어서 maint 워크플로를 fn=resetAllTriggers 로 돌려라 — 웹앱은 소유자 권한으로 돌아 트리거가"
+          echo "::warning::설치된다(2026-09-12 확인). 절차: .claude/skills/배포/SKILL.md"
