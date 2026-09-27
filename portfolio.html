@@ -1236,6 +1236,7 @@ async function apiPost(data) {
   });
   // 뭔가 썼으니 대시보드가 재사용하던 종목·분배금은 낡았다. 다음 대시보드는 다시 받아 온다.
   state.dashData = null;
+  _costNowP = null;       // 원금월별 이번 달 수량도 holdings 에서 오므로 같이 다시 받는다
   return res.json();
 }
 
@@ -1327,6 +1328,13 @@ async function init(boot) {
     applyBootstrap(b, sheet);
   }
   setupYearSelects();
+  // 원금월별이 오면 환산분배율(예상 분배금)을 B 방식으로 다시 그린다. 부팅을 기다리게 하지 않는다.
+  loadCostNow().then(c => {
+    if (!c) return;
+    state.costNow = c;
+    const s = _snapGet();
+    if (s && s.holdings) renderAccountStats(s.holdings, s.divs || [], s.sheet || { items: [] }, s.divsFull || []);
+  });
   if (painted) showRefreshing(false);
 }
 
@@ -1433,9 +1441,53 @@ function divKrwOf(amt, cur, rowRate, er) {
   return cur === 'USD' ? a * (parseFloat(rowRate) || er) : a;
 }
 
+// 1회 예상액 = 최근 3회의 **1주당 분배금** 평균 × 지금 수량(B 방식, WORKLOG 183).
+// 금액 평균(A)은 추가 매수 직후 수량 적던 때의 작은 금액이 섞여 낮게 잡힌다 — 주당으로 나누면 수량 변화가 빠진다.
+// 그달 수량은 원금월별(getCostBasis). 세 회차 중 하나라도 수량 이력이 없거나 올해 밖이면 A 로 둔다
+// — 지금 수량으로 과거를 나누면 주당이 틀린다(2026-09-07 ACE 미국반도체 ▲+176% 사례).
+// hist = { 연: { 월: 금액 } }. m.html 에 같은 함수가 있다 — 같이 고칠 것.
+function perPayEstimate(h, hist, year, costMap) {
+  const Y = parseInt(year), thisYear = hist[Y] || {};
+  let recent = Object.keys(thisYear).map(m => ({ y: Y, m: +m, v: thisYear[m] })).filter(r => r.v > 0);
+  if (!recent.length) recent = Object.keys(hist).flatMap(y => Object.keys(hist[y]).map(m => ({ y: +y, m: +m, v: hist[y][m] }))).filter(r => r.v > 0);
+  // 키가 숫자라 월·연 오름차순으로 나온다 → 뒤에서 3개가 가장 최근이다.
+  recent = recent.slice(-3);
+  if (!recent.length) return 0;
+  const avgAmt = recent.reduce((a, r) => a + r.v, 0) / recent.length;
+  const qtyNow = parseFloat(h.quantity) || 0;
+  if (!costMap || qtyNow <= 0) return avgAmt;
+  const per = recent.map(r => {
+    const cb = r.y === Y ? costMap[`${h.id}_${r.m}`] : null;
+    const q = cb ? (parseFloat(cb.qty) || 0) : 0;
+    return q > 0 ? r.v / q : null;
+  });
+  if (per.some(p => p === null)) return avgAmt;
+  return per.reduce((a, b) => a + b, 0) / per.length * qtyNow;
+}
+
+// 올해 원금월별 — B 방식의 그달 수량. 부팅 뒤에 한 번만 받는다(앱스스크립트는 같은 사용자 요청을
+// 한 줄로 세우므로 부팅과 같이 치면 첫 화면이 그만큼 늦어진다). 못 받으면 지난번 값, 그것도 없으면 null → A.
+// 새 액션이 아니라 분배금 탭이 쓰던 getCostBasis 라 **재배포가 필요 없다.** m.html 과 같은 키를 쓴다.
+const _COST_KEY = 'jjk_cost_v1';
+function costNowCached() {
+  try { const o = JSON.parse(localStorage.getItem(_COST_KEY)); return o && o.year === state.currentYear ? o.map : null; }
+  catch (e) { return null; }
+}
+let _costNowP = null;
+function loadCostNow() {
+  if (!_costNowP) _costNowP = api({ action:'getCostBasis', year: state.currentYear })
+    .then(m => {
+      if (!m || m.error || !Object.keys(m).length) return costNowCached();
+      try { localStorage.setItem(_COST_KEY, JSON.stringify({ year: state.currentYear, map: m })); } catch (e) {}
+      return m;
+    })
+    .catch(() => costNowCached());
+  return _costNowP;
+}
+
 // 종목별 연간 분배금 투영 — 대시보드 loadDashboard와 동일 알고리즘.
 // 반환: { holding_id: 연 투영액 }  (금액은 저장된 그대로=KRW 취급, 대시보드와 동일)
-function projectAnnualDist(holdings, dividends, year) {
+function projectAnnualDist(holdings, dividends, year, costMap) {
   const byH = {};
   (dividends || []).forEach(d => {
     const hid = d.holding_id, y = parseInt(d.year), m = parseInt(d.month);
@@ -1459,13 +1511,7 @@ function projectAnnualDist(holdings, dividends, year) {
   (holdings || []).forEach(h => {
     if ((parseFloat(h.quantity) || 0) <= 0) { perH[h.id] = 0; return; }   // 판 종목은 앞으로 안 나온다
     const thisYear = (byH[h.id] && byH[h.id][year]) || {};
-    let vals = Object.values(thisYear).filter(v => v > 0);
-    if (!vals.length) vals = Object.values(byH[h.id] || {}).flatMap(o => Object.values(o)).filter(v => v > 0);
-    // 1회 예상액 = **최근 3회** 평균. 올해 전체 평균은 연중 추가 매수 전(수량 적던 때)의 작은 금액이
-    // 끌어내려 월배당 48종목 합계가 월 ~75만원 낮게 잡혔다(2026-09-27 실측, 사용자 결정 A).
-    // vals 는 월 오름차순(연도 넘어가면 연도 오름차순)이라 뒤에서 3개가 가장 최근이다.
-    const recent = vals.slice(-3);
-    const perPay = recent.length ? recent.reduce((a,b)=>a+b,0) / recent.length : 0;
+    const perPay = perPayEstimate(h, byH[h.id] || {}, year, costMap);   // 최근 3회 1주당 × 지금 수량
     let sum = 0;
     payMonthsOf(h).forEach(m => {
       const actual = thisYear[m] || 0;
@@ -1496,7 +1542,7 @@ function renderAccountStats(allHoldings, allDivs, sheet, allDivsFull) {
   // 대시보드가 그대로 쓰는 몫. state.dividends 는 **올해치만**이라 따로 둔다(투영은 과거 연도가 필요하다).
   state.dashData = { holdings: state.holdings, divsAll: allDivsFull || [] };
   // 환산분배율용 투영맵 (대시보드 연 분배율과 동일 방식·동일 데이터)
-  const projMap = projectAnnualDist(state.holdings, allDivsFull || [], state.currentYear);
+  const projMap = projectAnnualDist(state.holdings, allDivsFull || [], state.currentYear, state.costNow || costNowCached());
 
   // 현재가 맵 (ticker → 현재가)
   const priceMap = {};
@@ -2657,10 +2703,11 @@ async function loadDashboard() {
   // (가벼운 요청 하나도 5~6초다 — 대시보드가 20~30초 걸리던 이유).
   // 쓰기가 있었으면 apiPost 가 state.dashData 를 비우므로, 그때만 다시 받는다.
   const cached = state.dashData;
-  const [allHoldings, allDivs, sheet] = await Promise.all([
+  const [allHoldings, allDivs, sheet, costMap] = await Promise.all([
     cached ? cached.holdings : api({ action:'getHoldings' }),
     cached ? cached.divsAll  : api({ action:'getDividends' }),
-    fetchPriceItems()
+    fetchPriceItems(),
+    year === state.currentYear ? loadCostNow() : null    // 지난 해는 '지금 수량'이 그 해 수량이 아니다 → A
   ]);
   const holdings = allHoldings || [];
   const divs = allDivs || [];
@@ -2732,13 +2779,7 @@ async function loadDashboard() {
     const cur = h.currency;
     const held = (parseFloat(h.quantity) || 0) > 0;
     const thisYear = (byHolding[h.id] && byHolding[h.id][year]) || {};
-    let vals = Object.values(thisYear).filter(v => v > 0);
-    if (!vals.length) vals = Object.values(byHolding[h.id] || {}).flatMap(o => Object.values(o)).filter(v => v > 0);
-    // 1회 예상액 = **최근 3회** 평균. 올해 전체 평균은 연중 추가 매수 전(수량 적던 때)의 작은 금액이
-    // 끌어내려 월배당 48종목 합계가 월 ~75만원 낮게 잡혔다(2026-09-27 실측, 사용자 결정 A).
-    // vals 는 월 오름차순(연도 넘어가면 연도 오름차순)이라 뒤에서 3개가 가장 최근이다.
-    const recent = vals.slice(-3);
-    const perPay = recent.length ? recent.reduce((a,b)=>a+b,0) / recent.length : 0;
+    const perPay = perPayEstimate(h, byHolding[h.id] || {}, year, costMap);   // 최근 3회 1주당 × 지금 수량
     (held ? payMonthsOf(h) : []).forEach(m => {
       const actual = thisYear[m] || 0;
       const amtK = divKrw(actual > 0 ? actual : perPay, cur);

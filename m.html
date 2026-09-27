@@ -207,7 +207,8 @@ async function apiPost(data) {
 
 // ── 상태 ──────────────────────────────────────────────
 const D = { rate:1447, accounts:[], holdings:[], divs:[], divsAll:[], priceMap:{},
-            year:new Date().getFullYear(), month:new Date().getMonth()+1 };
+            year:new Date().getFullYear(), month:new Date().getMonth()+1,
+            cost:null };         // 올해 원금월별(getCostBasis) — 분배금 예측 B 방식의 그달 수량
 let view = 'home';
 const open = {};                 // 펼쳐진 행 id
 
@@ -240,6 +241,45 @@ function calcHolding(h) {
   return { qty, avg, price, isLive: !!live, invest, value, pl: value - invest };
 }
 
+// 1회 예상액 = 최근 3회의 1주당 분배금 평균 × 지금 수량(B 방식). portfolio.html perPayEstimate 와 동일 —
+// 같이 고칠 것. 수량 이력이 하나라도 없거나 올해 밖이면 최근 3회 금액 평균(A)으로 둔다.
+function perPayEstimate(h, hist, year, costMap) {
+  const Y = parseInt(year), thisYear = hist[Y] || {};
+  let recent = Object.keys(thisYear).map(m => ({ y: Y, m: +m, v: thisYear[m] })).filter(r => r.v > 0);
+  if (!recent.length) recent = Object.keys(hist).flatMap(y => Object.keys(hist[y]).map(m => ({ y: +y, m: +m, v: hist[y][m] }))).filter(r => r.v > 0);
+  // 키가 숫자라 월·연 오름차순으로 나온다 → 뒤에서 3개가 가장 최근이다.
+  recent = recent.slice(-3);
+  if (!recent.length) return 0;
+  const avgAmt = recent.reduce((a, r) => a + r.v, 0) / recent.length;
+  const qtyNow = parseFloat(h.quantity) || 0;
+  if (!costMap || qtyNow <= 0) return avgAmt;
+  const per = recent.map(r => {
+    const cb = r.y === Y ? costMap[`${h.id}_${r.m}`] : null;
+    const q = cb ? (parseFloat(cb.qty) || 0) : 0;
+    return q > 0 ? r.v / q : null;
+  });
+  if (per.some(p => p === null)) return avgAmt;
+  return per.reduce((a, b) => a + b, 0) / per.length * qtyNow;
+}
+// 원금월별은 올해 것만 받는다. 지난 해를 보면 '지금 수량'이 그 해 수량이 아니므로 A 로 둔다.
+// portfolio.html 과 같은 오리진·같은 키라 PC에서 받아 둔 값을 폰이 바로 쓴다.
+const _COST_KEY = 'jjk_cost_v1';
+function costFor(year) {
+  if (year !== new Date().getFullYear()) return null;
+  if (D.cost) return D.cost;
+  try { const o = JSON.parse(localStorage.getItem(_COST_KEY)); return o && o.year === year ? o.map : null; }
+  catch (e) { return null; }
+}
+async function loadCost() {
+  try {
+    const m = await api({ action:'getCostBasis', year: new Date().getFullYear() });
+    if (!m || m.error || !Object.keys(m).length) return false;
+    D.cost = m;
+    try { localStorage.setItem(_COST_KEY, JSON.stringify({ year: new Date().getFullYear(), map: m })); } catch (e) {}
+    return true;
+  } catch (e) { return false; }
+}
+
 // 배당주기 투영. portfolio.html:1315 projectAnnualDist 와 동일 로직.
 function projectAnnualDist(holdings, dividends, year) {
   const byH = {};
@@ -265,13 +305,7 @@ function projectAnnualDist(holdings, dividends, year) {
   (holdings || []).forEach(h => {
     if ((parseFloat(h.quantity) || 0) <= 0) { perH[h.id] = 0; return; }   // 판 종목은 앞으로 안 나온다
     const thisYear = (byH[h.id] && byH[h.id][year]) || {};
-    let vals = Object.values(thisYear).filter(v => v > 0);
-    if (!vals.length) vals = Object.values(byH[h.id] || {}).flatMap(o => Object.values(o)).filter(v => v > 0);
-    // 1회 예상액 = **최근 3회** 평균. 올해 전체 평균은 연중 추가 매수 전(수량 적던 때)의 작은 금액이
-    // 끌어내려 월배당 48종목 합계가 월 ~75만원 낮게 잡혔다(2026-09-27 실측, 사용자 결정 A).
-    // vals 는 월 오름차순(연도 넘어가면 연도 오름차순)이라 뒤에서 3개가 가장 최근이다.
-    const recent = vals.slice(-3);
-    const perPay = recent.length ? recent.reduce((a,b)=>a+b,0) / recent.length : 0;
+    const perPay = perPayEstimate(h, byH[h.id] || {}, year, costFor(year));   // 최근 3회 1주당 × 지금 수량
     let sum = 0;
     payMonthsOf(h).forEach(m => {
       const actual = thisYear[m] || 0;
@@ -299,13 +333,7 @@ function projectMonthly(holdings, dividends, year) {
     const cur = h.currency;
     const held = (parseFloat(h.quantity) || 0) > 0;
     const thisYear = (byH[h.id] && byH[h.id][year]) || {};
-    let vals = Object.values(thisYear).filter(v => v > 0);
-    if (!vals.length) vals = Object.values(byH[h.id] || {}).flatMap(o => Object.values(o)).filter(v => v > 0);
-    // 1회 예상액 = **최근 3회** 평균. 올해 전체 평균은 연중 추가 매수 전(수량 적던 때)의 작은 금액이
-    // 끌어내려 월배당 48종목 합계가 월 ~75만원 낮게 잡혔다(2026-09-27 실측, 사용자 결정 A).
-    // vals 는 월 오름차순(연도 넘어가면 연도 오름차순)이라 뒤에서 3개가 가장 최근이다.
-    const recent = vals.slice(-3);
-    const perPay = recent.length ? recent.reduce((a,b)=>a+b,0) / recent.length : 0;
+    const perPay = perPayEstimate(h, byH[h.id] || {}, year, costFor(year));   // 최근 3회 1주당 × 지금 수량
     const cyc = h.div_cycle || '';
     let months;
     if (/월|주/.test(cyc)) months = ALLM;
@@ -910,6 +938,8 @@ async function boot(pre) {
     ]);
     if (b && b.error === 'unauthorized') { relock(); return; }
     if (b && !b.error) { applyBoot(b, prices); render(); }
+    // 원금월별이 오면 예상 분배금을 B 방식으로 다시 그린다. 첫 화면을 기다리게 하지 않는다.
+    loadCost().then(ok => { if (ok) render(); });
   } catch (e) {
     if (!painted) document.getElementById('view').innerHTML =
       '<div class="empty">서버에 연결할 수 없습니다.<br>잠시 뒤 ⟳ 를 눌러 주세요.</div>';
