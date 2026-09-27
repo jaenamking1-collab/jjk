@@ -17,7 +17,7 @@ on:
         required: false
         default: ''
       pick:
-        description: '응답이 커서 잘릴 때 볼 부분. 점으로 파고든다 (예: sources.plus).'
+        description: '응답이 커서 잘릴 때 볼 부분. 점으로 파고든다 (예: sources.plus). size 면 크기·해시만.'
         required: false
         default: ''
 
@@ -40,6 +40,9 @@ jobs:
           code=$(curl -sL -o /tmp/r.txt -w '%{http_code}' --max-time 120 -A 'Mozilla/5.0' "$TARGET")
           echo "HTTP $code · $(wc -c < /tmp/r.txt) bytes"
           echo "--- 전체 $(wc -l < /tmp/r.txt)줄 ---"
+          # pick=size 면 크기만 본다 — 공개 페이지가 저장소 dist_notice.html 과 같은지(바이트·줄 수)
+          # 대조할 때 90KB 본문을 로그로 읽지 않으려고(2026-09-28, .claude/CHECKS.md).
+          if [ "${PICK:-}" = "size" ]; then sha256sum /tmp/r.txt; exit 0; fi
           # pick 을 주면 그 부분만 판다. getDistributionAll 은 115KB 라 아래 head 로 자르면
           # 뒤쪽 운용사(plus·rise·sol)를 아예 못 본다 — 그걸 보려고 만들었다(2026-09-15).
           if [ -n "${PICK:-}" ]; then

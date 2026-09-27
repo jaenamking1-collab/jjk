@@ -12,6 +12,29 @@
 - **작업 종료**: 맨 위에 새 항목 추가 → `git add .` → `git commit` → `git push`
 
 
+## 2026-09-28 (181) / 원격 — 매뉴얼 체계 과제 2~7 완료 (CLAUDE.md 188→129줄)
+
+- **과제 6 승인받고 진행**("진행안된거 고고"): 배포 세부(약 60줄)·공개 페이지 미러 세부를 매뉴얼로 옮기고, 존댓말·"먼저 해봐라"는 **줄여서 남겼다**(원격 세션은 공용 기억을 못 본다). 맨 위에 공용 규칙·매뉴얼 안내 3줄. 옮긴 뒤 옛 CLAUDE.md 의 핵심 문구 24개(`Skipping push`·편집기 주소·clasp client id·`_NOTICE_PAGE_URL` 등)가 새 파일들에 모두 있는지 grep 으로 대조 — 빠진 것 0.
+- **배포 매뉴얼 1단계(clasp pull)도 원격에서 해냈다** — 사용자 클릭 없이. `deploy.yml` 에 `check_only` 입력을 더해 Actions 가 `CLASPRC_JSON` 으로 임시 폴더에 pull 해 비교만 한다. 첫 실행에서 clasp 3.x 가 `Code.js` 로 받는 걸 보고 보정했고, 두 번째에 **브랜치가 `main` 보다 뒤처져 편집기 코드 26줄이 없다**는 걸 잡았다(`main` 합친 뒤 '차이 없음'). 비교 단계는 `continue-on-error` 라 배포를 막지 않는다.
+- ⛔ **첫 커밋에서 `CHECKS.md`·매뉴얼 셋이 조용히 빠져 있었다.** `.gitignore` 의 `.claude/*` 때문이다(예외는 `settings.json` 하나뿐이었다). 푸시해 놓고 "만들었다"고 보고했었다 — `git status --untracked-files=all` 로 확인했어야 했다. `!.claude/CHECKS.md`·`!.claude/skills/` 예외를 넣었다.
+
+165 의 계획서(`docs/superpowers/plans/2026-09-20-working-manual-system.md`) 남은 과제를 했다.
+
+- **과제 2 `.claude/CHECKS.md`** — 매번 / 배포 직후 / 매일 첫 세션 / 주간, 항목마다 확인 명령.
+  - "매일" 세 항목을 **실제로 돌렸다**: 미푸시 커밋 0 · `backend-health` `status=ok`(08:38 갱신, 6곳, 이슈 #5 자동 종료) · 공개 페이지 87633 bytes/1306줄 = 저장소 `dist_notice.html` 과 같음.
+  - 돌려 보다 드러난 것: **원격 컨테이너는 `script.google.com`·`workers.dev` 에 직접 못 닿는다**(프록시 403). 그래서 목록에 Actions 경유 방법을 적었다.
+  - 공개 페이지 대조는 `probe` 가 90KB 본문을 로그에 통째로 찍어 비쌌다 → `probe.yml` 에 `pick=size`(크기·해시만) 추가.
+- **과제 3 매뉴얼 셋** `.claude/skills/{배포,화면수정,분배금점검}/SKILL.md` — 언제/순서/결정 규칙/완료 확인/과거에 틀렸던 것.
+  - 배포 매뉴얼 4단계(임시 폴더 `clasp pull` 실제로 해보기)는 **못 했다** — 이 컨테이너엔 clasp 로그인이 없다. 다음 PC 세션에서 한 번 따라가 볼 것.
+  - `deploy.yml` 의 "트리거 재설치는 사람이 눌러야 한다" 경고가 9/12 이후 틀린 말이라 `maint` 로 안내하게 고쳤다.
+- **과제 4 `tools/INDEX.md`** — 파일 머리 주석을 읽고 적었다. 계획서가 말한 `ticker_config.json` 은 보유 종목이 들어 있어 `.gitignore` 로 빠져 있다(비공개 `claude-memory` 로 동기화) — 목록엔 그렇게 적었다. `.github/scripts/` 도 같이 적었다. `tools/test_*` 5개 모두 통과 확인.
+- **과제 5 훅** — `SessionStart` 공용 기억 훅 끝에 "`CLAUDE.md` 에 `일하는_방식` 이 없으면 알림" 한 줄. JSON·`bash -n` 통과, 빈 폴더=알림 / 표시 있는 폴더=조용함 확인. **jjk 도 지금은 알림이 뜬다**(과제 6 전이라 맞다).
+- **과제 6** — 처음엔 제안서만 만들었다(`/mnt/project-files/reports/CLAUDE-md-슬림화-제안.md`). 핵심 쟁점: 원격 세션은 공용 기억을 못 보므로 존댓말·"먼저 해봐라" 규칙은 **줄여서 남기자**고 제안.
+
+### 다음 할 일
+- 다른 프로젝트(보건실·시세 위젯 등)에도 같은 구조 적용 — 계획서 과제 7 의 '다음 할 일'.
+- 알림로그를 에이전트가 볼 통로가 없다 — 필요하면 요약 함수를 `MAINT_ALLOW` 에.
+
 ## 2026-09-28 (180) / 원격 — "총매입과 평가금액이 같다" → 백엔드 `/exec` 가 **403 Access Denied**
 
 - **원인 확정(실측)**: 러너에서 `/exec` 를 치면 공개 액션(`hitCounter`)·토큰 액션 전부
