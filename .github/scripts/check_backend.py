@@ -19,6 +19,7 @@ import os
 import re
 import sys
 import time
+import urllib.error
 import urllib.request
 
 API = ('https://script.google.com/macros/s/'
@@ -79,6 +80,14 @@ def fetch_sources():
             raw = urllib.request.urlopen(API + '?action=getDistributionAll', timeout=120).read()
             src = (json.loads(raw) or {}).get('sources') or {}
             return {k: v.get('savedAt') for k, v in src.items() if isinstance(v, dict)}
+        except urllib.error.HTTPError as e:
+            # 403 은 배달 오류가 아니라 '소유자 실행 승인이 풀린 것'이다(2026-09-28, WORKLOG 180).
+            # 재시도해도 안 낫고, 트리거 재설치가 아니라 편집기 ▶ 재승인이 약이라 따로 가려 올린다.
+            if e.code == 403:
+                raise
+            last = e
+            if attempt < 2:
+                time.sleep(5 * (attempt + 1))
         except Exception as e:
             last = e
             if attempt < 2:
@@ -93,6 +102,13 @@ def main():
 
     try:
         sources = fetch_sources()
+    except urllib.error.HTTPError as e:
+        if e.code != 403:
+            out['status'] = 'unreachable'
+            out['detail'] = '백엔드에 접속할 수 없습니다 — %s' % str(e)[:200].replace('\n', ' ')
+        else:
+            out['status'] = 'unauthorized'
+            out['detail'] = '백엔드가 403 을 냅니다 — 소유자 실행 승인이 풀렸습니다'
     except Exception as e:                      # 접속 자체가 안 되는 것도 '정지'다
         out['status'] = 'unreachable'
         out['detail'] = '백엔드에 접속할 수 없습니다 — %s' % str(e)[:200].replace('\n', ' ')
