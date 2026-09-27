@@ -42,3 +42,18 @@ jobs:
           hit "getStockList"    --data-urlencode "action=getStockList"
           hit "getAlerts"       --data-urlencode "action=getAlerts"
           hit "getExchangeRate" --data-urlencode "action=getExchangeRate"
+          echo "=== 시세 맞물림 (개수만 — 공개 로그라 값·티커는 안 찍는다) ==="
+          hit "getHoldings"     --data-urlencode "action=getHoldings";   cp /tmp/l.json /tmp/h.json
+          hit "getLivePrices"   --data-urlencode "action=getLivePrices"; cp /tmp/l.json /tmp/p.json
+          python3 - <<'PY'
+          import json
+          h = json.load(open('/tmp/h.json')); p = json.load(open('/tmp/p.json'))
+          h = h if isinstance(h, list) else (h.get('holdings') or h.get('data') or [])
+          prices = (p or {}).get('prices') or {}
+          held = [x for x in h if float(x.get('quantity') or 0) > 0]
+          keys = {k.upper() for k in prices}
+          miss = [x for x in held if str(x.get('ticker') or '').strip().upper() not in keys]
+          print('getLivePrices 응답 키:', sorted((p or {}).keys()), '· error:', (p or {}).get('error'))
+          print(f'보유 {len(held)}종목 · 시세 {len(prices)}개 · 시세 못 찾은 보유 {len(miss)}개'
+                f' (KRW {sum(1 for x in miss if x.get("currency")!="USD")} / USD {sum(1 for x in miss if x.get("currency")=="USD")})')
+          PY
