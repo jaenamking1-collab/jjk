@@ -79,6 +79,11 @@ if path_expr == 'chg':
             print(f'  {c or "?":<3} {it.get("ticker", ""):<7} {str(it.get("name", ""))[:26]:<26} '
                   f'{a!s:>6} 전달 {p!s:>6} {pct:>8}{flag}  기준 {sch(it).get("기준일", "-")}{rt}')
     sys.exit(0)
+# 특수 모드: 'raw' — 응답 전체를 한 줄로 찍는다. 원격 세션이 로그에서 받아 화면을 재현하는 데 쓴다.
+if path_expr == 'raw':
+    print('RAW ' + open(file_path, encoding='utf-8', errors='replace').read().replace('\n', ' '))
+    sys.exit(0)
+
 # 특수 모드: 'text:<낱말>' — HTML 응답의 태그를 벗기고 그 낱말 앞뒤만 찍는다.
 # 왜: 운용사 공지 원문(TIGER view.do 등)은 수십 KB 라 head 로 자르면 본문까지 닿지 않는다(2026-09-28).
 if path_expr.startswith('text:'):

@@ -1833,7 +1833,13 @@ function fetchDist_tiger() {
       const pubM = text.match(/(\d{1,2})\/(\d{1,2})\s*\([월화수목금토일]\)\s*분배금\s*공시일/);
       if (!pubM) continue;
       const pubMon = parseInt(pubM[1]), pubDay = parseInt(pubM[2]);
-      const cycle = pubDay >= 20 ? '월말' : '월중'; // 공시 20일 이후=월말, 이전=월중
+      // ⛔ 회차는 **기준일**의 '일'로 가른다(20일 이하=월중) — 달력·다른 운용사와 같은 규칙.
+      // 예전엔 본문 전체에서 처음 걸린 '분배금 공시일'로 갈랐는데, 9월말 글(기준 9/30·지급 10/2)이
+      // '월중'으로 분류돼 달력 10/2 에 '월중 지급일'이 하나 더 떴고 9월 월중 회차는 통째로 밀려났다
+      // (2026-09-28). 일정 표는 parseTigerSchedule 이 '분배금 지급 일정' 절에서만 읽으므로 그걸 믿는다.
+      const baseS = parseTigerSchedule(html)['기준일'];
+      const baseDay = baseS ? parseInt(baseS.split('/')[1]) : 0;
+      const cycle = baseDay ? (baseDay <= 20 ? '월중' : '월말') : (pubDay >= 20 ? '월말' : '월중');
       found.push({ key, pubMon, pubDay, cycle });
       if (found.length >= 8) break;
     }
@@ -2235,10 +2241,13 @@ function fetchDist_rise() {
         if (ti < 0) continue;
         const ticker = cols[ti];
         const name = (cols[ti-1] || cols[0] || '').replace(/\s*ETF\s*$/,'').trim();
-        const after = cols.slice(ti+1).filter(c => /^[\d.]+$/.test(c)).map(Number);
+        // ⛔ 분배율 칸은 '0.23%' 처럼 %가 붙어 오는 행이 있다. 예전엔 %붙은 칸을 숫자로 안 쳐서
+        // 분배금 하나만 남았고, 그게 그대로 분배율이 돼 '271%'·'236%'가 떴다
+        // (2026-09-28 금융채액티브·중기우량회사채 — 원문은 271원 0.27%, 236원 0.23%).
+        const after = cols.slice(ti+1).filter(c => /^[\d.]+%?$/.test(c)).map(c => Number(c.replace('%', '')));
         if (!after.length) continue;
         const amount = after[0];          // 좌당 예상분배금
-        const rate = after[after.length-1]; // 분배율(마지막)
+        const rate = after.length > 1 ? after[after.length-1] : null; // 분배율(마지막). 숫자가 하나뿐이면 그건 분배금이다
         if (amount == null) continue;
         out.push({ name, ticker, amount: Number(amount), rate, cycle: entry.cycle, sched: { ...sched } });
       }
