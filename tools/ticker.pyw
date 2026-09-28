@@ -296,14 +296,22 @@ def theme():
 
 
 def band_note(sym):
-    """교환비율 줄 밑에 "최근 30일  42.8 ~ 49.1" 을 적는다. 위 칸의 바닥권/고점권이
-    무엇을 기준으로 한 말인지 눈으로 보이게 하는 것이 전부다."""
+    """교환비율 줄 밑에 "최근 30일 42.8~49.1 중 24%" 를 적는다.
+    위 칸의 바닥권/고점권이 무엇을 기준으로 한 말인지 눈으로 보이게 하는 것이 전부다.
+    구간 위치(%)는 **반드시 이 줄에** 둔다 — 오른쪽 칸에 두면 옆줄들의 '오늘 등락'과
+    모양이 같아 마이너스로 읽힌다(2026-09-28, 같은 질문을 세 번 받았다).
+    여기서는 바로 왼쪽에 42.8~49.1 이 있어 "무엇의 24%"가 눈으로 이어진다.
+    '중' 한 글자가 '변동'이 아니라 '그 안에서의 자리'임을 말해 준다."""
     bl = band_row.get(sym)
     if not bl:
         return
     _, lo, hi = ratio_band.get(sym) or ("", 0, 0)
-    bl.config(text="최근 %d일  %.1f ~ %.1f" % (RANGE_DAYS, lo, hi) if hi > lo else "",
-              fg=THEME["dim"], bg=panel_bg())
+    note = ""
+    if hi > lo:
+        note = "최근 %d일 %.1f~%.1f" % (RANGE_DAYS, lo, hi)
+        if sym in band_pos:
+            note += " 중 %d%%" % round(band_pos[sym])
+    bl.config(text=note, fg=THEME["dim"], bg=panel_bg())
 
 
 def repaint(w, old, new):
