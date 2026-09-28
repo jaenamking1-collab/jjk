@@ -5911,6 +5911,7 @@ function _fixSpyiPoison() {
 //  - 수동현재가가 있는 줄(펀드·예금·채권·현금)은 G 에 값을 박는다 → getLivePrices 시트 폴백이 그 값을 쓴다.
 //  - 같은 칸이 이미 있으면 새로 만들지 않고, 그 칸의 같은 티커 줄의 수량·평단·수동현재가만 고친다.
 //  - 앱: 계좌가 없으면 만들고, 그 계좌에 없는 티커만 종목으로 넣는다.
+// 수량 칸이 'DEL' 인 줄은 시트·앱에서 지운다(없는 종목을 넣었을 때).
 // 인자 끝에 ':dry' 를 붙이면 쓰지 않고 계획만 로그로 보여 준다.
 function importSheetBlocks(arg) {
   const dry = /:dry$/.test(arg || '');
@@ -5931,14 +5932,16 @@ function importSheetBlocks(arg) {
   const tick = t => { t = String(t || '').trim(); return /^\d{1,5}$/.test(t) ? ('000000' + t).slice(-6) : t; };
   groups.forEach(g => {
     if (labelRow[g.label]) {                 // 이미 있다 → 수량·평단·수동현재가만 고친다
-      const s = labelRow[g.label], e = blockEnd(s);
+      const s = labelRow[g.label], e = blockEnd(s), del = [];
       g.rows.forEach(r => {
         for (let i = s; i <= e; i++) {
           if (tick(all[i - 1][1]) !== tick(r[1])) continue;
+          if (String(r[3]).trim() === 'DEL') { if (i !== s) del.push(i); continue; }   // 수량 칸 'DEL' = 그 줄을 지운다(칸 첫 줄은 안 지운다)
           console.log('고침 ' + g.label + ' 줄 ' + i);
           if (!dry) { ws.getRange(i, 4, 1, 2).setValues([[r[3], r[4]]]); if (r[5] !== '') ws.getRange(i, 7, 1, 2).setValues([[r[5], '']]); }
         }
       });
+      del.sort((x, y) => y - x).forEach(i => { console.log('지움 ' + g.label + ' 줄 ' + i); if (!dry) ws.deleteRow(i); });
       return;
     }
     const n = g.rows.length, s = next;
@@ -5966,6 +5969,12 @@ function importSheetBlocks(arg) {
     let added = 0;
     const have = acc ? getHoldings().filter(h => String(h.account_id) === String(acc.id)).map(h => tick(h.ticker)) : [];
     g.rows.forEach(r => {
+      if (String(r[3]).trim() === 'DEL') {
+        if (!acc) return;
+        getHoldings().filter(h => String(h.account_id) === String(acc.id) && tick(h.ticker) === tick(r[1]))
+          .forEach(h => { console.log('앱 종목 지움: ' + g.label); if (!dry) deleteHolding(h.id); });
+        return;
+      }
       if (have.indexOf(tick(r[1])) !== -1) return;
       added++;
       if (!dry) addHolding({ account_id: acc.id, ticker: tick(r[1]), name: r[2], avg_price: r[4], quantity: r[3], currency: 'KRW', div_cycle: '' });
