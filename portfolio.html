@@ -4989,6 +4989,60 @@ function distDueMap(allData, holdings, days) {
 }
 
 let _calStatus = '';   // 달력이 계산한 '다음 매수 마감 …' 줄 (📌 공지사항이 읽는다)
+// ── 아직 공지 안 난 회차의 '예정' 일정 (달력·운용사별 일정 표가 함께 쓴다) ──
+// ⛔ portfolio.html / dist_notice.html 에 **똑같이** 있어야 하는 '데이터 해석 규칙'이다.
+// 예전엔 '지금 회차' 하나만, 그것도 3곳 이상이 같은 날을 냈을 때만 예정을 만들었다. 그래서
+//   · 다음 회차(10월 월중 등)는 달력에 아무것도 없었고
+//   · 지급일이 운용사마다 하루씩 갈리면(KODEX·ACE 10/1, RISE 10/2) 합의 3곳이 안 돼 표가 '·'로 비었다(2026-09-28).
+// 이제 운용사·회차마다 따로 계산한다. 규칙(2026-09-21 실측, 예외 0건):
+//   기준일 = 월중 15일 / 월말 말일, 휴장이면 직전 영업일 · 분배락일 = 기준일 직전 영업일
+//   지급일 = 기준일 + N영업일. N 은 **그 운용사의 가장 최근 같은 회차 실제 공시에서 배운다**(없으면 2, SOL 1).
+// 이미 공시가 난 회차는 만들지 않고, 지급일이 지난 회차도 만들지 않는다. 공시일은 규칙이 없어 만들지 않는다.
+// ⚠️ 화면에서만 만든다 — 분배캐시에 쓰면 워치독·이력 병합이 만들어낸 날짜를 실제 공시로 취급한다.
+function distPlanner(allData, parseDay) {
+  const now = new Date();
+  const Y = now.getFullYear(), M = now.getMonth() + 1;
+  const today = new Date(Y, M - 1, now.getDate());
+  const yearOf = m => m - M > 6 ? Y - 1 : M - m > 6 ? Y + 1 : Y;
+  const off = dt => dt.getDay() === 0 || dt.getDay() === 6
+    || !!HOLIDAYS[`${dt.getFullYear()}-${dt.getMonth() + 1}-${dt.getDate()}`];
+  const toDate = p => new Date(yearOf(p.m), p.m - 1, p.d);
+  const bizBetween = (a, b) => { let n = 0; const d = new Date(a); while (d < b) { d.setDate(d.getDate() + 1); if (!off(d)) n++; } return n; };
+  const fmt = dt => (dt.getMonth() + 1) + '월 ' + dt.getDate() + '일';
+  const cycOfDay = d => d <= 20 ? '월중' : '월말';
+  const done = {}, lag = {};   // done[운용사]['M|회차'] · lag[운용사][회차] = {at, n}
+  allData.forEach(c => {
+    const rep = (c.data && c.data.schedule) || {};
+    const scheds = ((c.data && c.data.items) || []).map(it => it.sched && Object.keys(it.sched).length ? it.sched : rep);
+    scheds.push(rep);
+    done[c.name] = done[c.name] || {}; lag[c.name] = lag[c.name] || {};
+    scheds.forEach(s => {
+      const b = parseDay(s['기준일']);
+      if (!b) return;
+      const cyc = cycOfDay(b.d);
+      done[c.name][b.m + '|' + cyc] = true;
+      const p = parseDay(s['지급일']);
+      if (!p) return;
+      const bd = toDate(b), n = bizBetween(bd, toDate(p));
+      const cur = lag[c.name][cyc];
+      if (n >= 1 && n <= 5 && (!cur || bd > cur.at)) lag[c.name][cyc] = { at: bd, n };
+    });
+  });
+  // plan(운용사, 월, 회차) → {분배락일, 기준일, 지급일} 또는 null
+  return (name, m, cyc) => {
+    if (done[name] && done[name][m + '|' + cyc]) return null;
+    const y = yearOf(m);
+    const base = new Date(y, m - 1, cyc === '월중' ? 15 : new Date(y, m, 0).getDate());
+    while (off(base)) base.setDate(base.getDate() - 1);
+    const ex = new Date(base); do { ex.setDate(ex.getDate() - 1); } while (off(ex));
+    const l = lag[name] && lag[name][cyc];
+    let n = l ? l.n : (name === 'SOL' ? 1 : 2);
+    const pay = new Date(base); while (n > 0) { pay.setDate(pay.getDate() + 1); if (!off(pay)) n--; }
+    if (pay < today) return null;
+    return { '분배락일': fmt(ex), '기준일': fmt(base), '지급일': fmt(pay) };
+  };
+}
+
 function renderMasterCalendar(allData) {
   const now = new Date();
   const year = now.getFullYear(), month = now.getMonth() + 1;
@@ -5021,13 +5075,6 @@ function renderMasterCalendar(allData) {
     if (!base) return '';
     return base.d <= 20 ? '월중' : '월말';
   };
-  // 이번 회차(오늘이 20일 이하면 월중, 넘으면 월말) 판정 — '예정' 채우기에 쓴다.
-  const curCycle = now.getDate() <= 20 ? '월중' : '월말';
-  const roundBySource = {};   // 운용사명 → 이번 회차 일정을 이미 냈으면 그 sched
-  const roundTally = {};      // '락|기준|지급'(정규화) → {n, sch}
-  // 예정에 쓰는 날짜는 이 셋뿐이다. 공시일은 운용사가 언제 낼지 우리가 알 수 없으므로 만들어내지 않는다.
-  const PLAN_KEYS = ['분배락일','기준일','지급일'];
-  const planSched = sch => { const o = {}; PLAN_KEYS.forEach(k => { if (sch[k]) o[k] = sch[k]; }); return o; };
   // ⛔ 공시일이 제 기준일보다 뒤면 그건 공시일이 아니다. RISE 만 '공시일'을 실제 공시가 아니라
   // **글 게시일**에서 뽑는데, 끝난 회차에 정정·확정 글이 올라오면 그 게시일이 그 회차에 붙는다
   // (2026-09-21: 8월말 회차가 기준 8/31·지급 9/2 인데 공시 9/7 → 끝난 회차의 '분배금공시일'이
@@ -5041,19 +5088,6 @@ function renderMasterCalendar(allData) {
   };
   const addAll = (c, sch, it, uncertain) => {
     const cyc = cycleOf(sch, it);
-    if (!uncertain && cyc === curCycle) {
-      const b = parseDay(sch['기준일']);
-      if (b && b.m === month) {
-        roundBySource[c.name] = sch;
-        // ⚠️ 날짜 문자열을 그대로 비교하면 안 된다 — 운용사마다 표기가 다르다
-        // (KODEX·ACE·PLUS·RISE는 '8월 28일', TIGER는 '8/28'). 그대로 세면 같은 날인데 다른 키가 돼
-        // 최빈값이 2곳에 그쳐 과반(3곳) 문턱을 못 넘었다(2026-08-27 실제로 예정이 안 떴다).
-        // 공시일은 키에서 뺀다 — 운용사마다 하루씩 다르고(8/26 vs 8/27) 예정 판단에 필요 없다.
-        const k = PLAN_KEYS.map(x => { const q = parseDay(sch[x]); return q ? q.m + '/' + q.d : ''; }).join('|');
-        if (!roundTally[k]) roundTally[k] = { n: 0, sch: planSched(sch) };
-        roundTally[k].n++;
-      }
-    }
     SCHED_CFG.forEach(({ key, color, text, label }) => {
       if (key === '공시일' && pubAfterBase(sch)) return;
       // 예정도 **라벨은 확정분과 똑같이** 둔다 → 같은 줄에 `SOL?` 배지로만 붙는다.
@@ -5071,27 +5105,6 @@ function renderMasterCalendar(allData) {
     do { dt.setDate(dt.getDate() - 1); }
     while (dt.getDay() === 0 || dt.getDay() === 6 || HOLIDAYS[`${dt.getFullYear()}-${dt.getMonth() + 1}-${dt.getDate()}`]);
     return { m: dt.getMonth() + 1, d: dt.getDate() };
-  };
-  // ── 아무도 공시 안 한 회차의 일정을 '달력만으로' 계산한다 (dist_notice.html 과 같은 규칙) ──
-  // 2026-09-21 에 3회차(8월중·8월말·9월중) × 6개사를 실측해 뽑았고 예외가 0건이었다:
-  //   기준일 = 월중 15일 / 월말 말일, 휴장이면 **직전** 영업일 · 분배락일 = 기준일 직전 영업일
-  //   지급일 = 기준일 +2영업일 (SOL 만 +1)
-  // ⛔ 공시일은 만들지 않는다 — 8월 사흘·9월 닷새 폭으로 흩어져 규칙이 없다.
-  const isOffDay = dt => dt.getDay() === 0 || dt.getDay() === 6
-    || !!HOLIDAYS[`${dt.getFullYear()}-${dt.getMonth() + 1}-${dt.getDate()}`];
-  const addBizDays = (dt, n) => {
-    const d = new Date(dt);
-    while (n > 0) { d.setDate(d.getDate() + 1); if (!isOffDay(d)) n--; }
-    return d;
-  };
-  const fmtMD = dt => (dt.getMonth() + 1) + '월 ' + dt.getDate() + '일';
-  const predictSched = () => {
-    const lastDay = new Date(year, month, 0).getDate();
-    const baseDay = now.getDate() <= 20 ? 15 : lastDay;
-    const base = new Date(year, month - 1, baseDay);
-    while (isOffDay(base)) base.setDate(base.getDate() - 1);
-    const ex = new Date(base); do { ex.setDate(ex.getDate() - 1); } while (isOffDay(ex));
-    return { '기준일': fmtMD(base), '분배락일': fmtMD(ex), '지급일': fmtMD(addBizDays(base, 2)) };
   };
 
   const fillRakil = (sched, repSched) => {
@@ -5166,14 +5179,10 @@ function renderMasterCalendar(allData) {
   // SOL은 블로그에 늦게 올려서 그 달 월말이 통째로 비어 보이는데, 실제로는 거의 확실히 같은 날이다.
   // ⚠️ 화면에서만 만든다 — 분배캐시에 쓰면 워치독·이력 병합이 **만들어낸 날짜를 실제 공시로** 취급한다.
   // 과반(6곳 중 3곳 이상)이 같은 날일 때만 만든다. 회차 초반이라 아무도 안 냈으면 예정도 안 만든다.
-  const roundBest = Object.keys(roundTally).map(k => roundTally[k]).sort((a, b) => b.n - a.n)[0];
-  const planSch = (roundBest && roundBest.n >= 3) ? roundBest.sch : predictSched();
-  if (planSch) {
-    allData.forEach(c => {
-      if (!c.name || roundBySource[c.name]) return;
-      addAll(c, planSch, null, true);
-    });
-  }
+  // 공시가 안 난 회차는 운용사마다 따로 계산한다 — 지난달 월말부터 다음 달 월말까지(distPlanner 참고).
+  const plan = distPlanner(allData, parseDay);
+  [[prevMonth, '월말'], [month, '월중'], [month, '월말'], [nextMonth, '월중'], [nextMonth, '월말']].forEach(([m, cyc]) =>
+    allData.forEach(c => { const s = c.name && plan(c.name, m, cyc); if (s) addAll(c, s, null, true); }));
 
   const startDow = new Date(year, month - 1, 1).getDay();
   const dim = new Date(year, month, 0).getDate();
@@ -5354,26 +5363,13 @@ function renderMasterCalendar(allData) {
     rowsData.push({ name: c.name, color: c.color, mid, end });
   });
 
-  // 아직 공지를 안 낸 회차 칸은 나머지 운용사의 합의 일정으로 채우고 '예정'으로 표시한다.
-  // 달력의 예정과 같은 근거·같은 기준(과반 3곳 이상) — SOL 8월 월말처럼 한 줄이 통째로 '·'만 남는 걸 막는다.
-  // ⚠️ 화면에서만 만든다(분배캐시엔 안 쓴다). planned 표시로 확정분과 구분한다.
-  ['mid', 'end'].forEach(slot => {
-    const tally = {};
-    rowsData.forEach(r => {
-      if (!r[slot].hasNotice || !r[slot].sched) return;
-      // ⚠️ 달력 쪽과 같은 이유로 parseDay 정규화가 필요하다 — TIGER 만 '8/28', 나머지는 '8월 28일'.
-      // 공시일은 키에서 빼고(운용사마다 8/26·8/27로 갈린다) 예정 sched 에도 안 넣는다.
-      const k = PLAN_KEYS.map(x => { const q = parseDay(r[slot].sched[x]); return q ? q.m + '/' + q.d : ''; }).join('|');
-      if (!tally[k]) tally[k] = { n: 0, sched: planSched(r[slot].sched) };
-      tally[k].n++;
-    });
-    const best = Object.keys(tally).map(k => tally[k]).sort((a, b) => b.n - a.n)[0];
-    if (!best || best.n < 3) return;
-    rowsData.forEach(r => {
-      if (r[slot].hasNotice) return;
-      r[slot] = { sched: best.sched, hasHolding: false, hasNotice: true, planned: true };
-    });
-  });
+  // 아직 공지를 안 낸 회차 칸은 달력과 **같은 계산**(distPlanner)으로 채우고 '(예정)'으로 표시한다.
+  // 예전엔 3곳 이상이 같은 날을 냈을 때만 채워서, 지급일이 하루씩 갈린 9월 월말은 TIGER·PLUS·SOL 이 '·'로 비었다(2026-09-28).
+  rowsData.forEach(r => [['mid', '월중'], ['end', '월말']].forEach(([slot, cyc]) => {
+    if (r[slot].hasNotice) return;
+    const s = plan(r.name, selM, cyc);
+    if (s) r[slot] = { sched: s, hasHolding: false, hasNotice: true, planned: true };
+  }));
 
   const dcell = (info, key) => {
     if (!info || !info.hasNotice) return '';

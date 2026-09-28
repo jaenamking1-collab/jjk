@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist'
 ];
 
 function runMaint(name, arg) {
@@ -2160,6 +2160,10 @@ function fetchDist_plus() {
     // 회차별로 격리: 한쪽이 타임아웃/파싱 실패해도 나머지 회차는 살린다.
     if (midE) { try { const r = parsePlusNotice(midE); items = items.concat(r.items); if (Object.keys(r.schedule).length) schedule = r.schedule; if (r.usedOcr) anyOcr = true; dbgs.push('월중 ' + r.dbg); } catch(e) { dbgs.push('월중 EXC ' + e); } }
     if (endE) { try { const r = parsePlusNotice(endE); items = items.concat(r.items); if (!Object.keys(schedule).length && Object.keys(r.schedule).length) schedule = r.schedule; if (r.usedOcr) anyOcr = true; dbgs.push('월말 ' + r.dbg); } catch(e) { dbgs.push('월말 EXC ' + e); } }
+    // ⛔ 한 회차만 0건이어도 밝힌다. 예전엔 **전부** 0건일 때만 에러였어서, 9/23 월말 글이 0건으로
+    // 파싱돼도 월중이 살아 있으니 아무 경고 없이 월말만 사라졌다(2026-09-28 달력 PLUS? 의 원인).
+    const cycN = c => items.filter(it => it.cycle === c).length;
+    if ((midE && !cycN('월중')) || (endE && !cycN('월말'))) console.log('PLUS 회차 누락 — ' + dbgs.join(' || '));
     if (!items.length) return { items: [], error: 'PLUS: 종목 파싱 0건 || ' + dbgs.join(' || ') };
     return { success: true, items, schedule, title: 'PLUS 분배금 (자사 공지 파싱)' + (anyOcr ? ' [OCR]' : ''), _usedOcr: anyOcr };
   } catch(e) {
@@ -4856,6 +4860,21 @@ function testCal() {
 // 다른 구글 계정 소유라 편집기를 열 수 없다. 웹앱은 소유자 권한으로 도니 여기서 읽는다.
 // ⛔ jjk 는 공개 저장소고 Actions 로그도 공개다 — 금액·티커·계좌명은 절대 찍지 않는다.
 //    구조(열 이름·건수·수식 모양·색)만 남긴다.
+// 운용사 파서를 캐시 없이 한 번 돌려 **회차별 건수와 일정**을 찍는다. 아무것도 쓰지 않는다.
+// 왜: 한 회차만 0건이면 캐시·화면엔 '없음'으로만 보이고 이유가 안 남는다(2026-09-28 PLUS·SOL 9월말).
+// 공개 공지 데이터만 찍는다(개인 정보 없음).
+function _diagDist(source) {
+  const r = globalThis['fetchDist_' + (source || 'plus')]() || {};
+  const by = {};
+  (r.items || []).forEach(it => {
+    const s = it.sched || {};
+    const k = (it.cycle || '?') + ' 기준 ' + (s['기준일'] || '-') + ' 지급 ' + (s['지급일'] || '-') + ' 공시 ' + (s['공시일'] || '-');
+    by[k] = (by[k] || 0) + 1;
+  });
+  console.log(source + ' 총 ' + (r.items || []).length + '건' + (r.error ? ' ⛔ ' + r.error : ''));
+  Object.keys(by).forEach(k => console.log('  ' + k + ' — ' + by[k] + '종목'));
+}
+
 // 구글 금융이 그 티커를 아는지 시험한다. 숨긴 '추세데이터' 탭 구석에 수식을 썼다가 지운다.
 // 왜: "은경 SPYI 는 오류난다"(2026-09-22). 현재가 칸이 `=GOOGLEFINANCE(B,"price")` 인데
 // 구글이 모르는 종목이면 #N/A 가 된다 — 짐작 말고 실제로 물어본다.
