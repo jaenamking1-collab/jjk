@@ -4673,6 +4673,7 @@ async function loadDistributions(force, silent) {
   }
   renderMasterCalendar(_distData);
   renderDistGrid(_distData);
+  if (_noticeData) renderNotices();   // 공지 카드가 분배 데이터로 이번 회차 줄을 채운다
   _distSnapSet(_distData);        // 다음에 서버가 죽어도 이 화면은 다시 그릴 수 있다
   showDistOffline(_distData);
   showDistDead(_distData);
@@ -4840,6 +4841,11 @@ function renderMasterCalendar(allData) {
   // 월중/월말 판정: 명시 cycle 우선, 없으면 기준일의 '일'로 추정(20일 이하=월중).
   // 월(月) 비교(base.m===month)는 월 경계에서 깨짐(7월에 6월 월중 데이터가 월말로 오분류)→ 일 기준으로 판정.
   const cycleOf = (sch, it) => {
+    // ⛔ 기준일이 있으면 **서버가 붙인 cycle 보다 기준일이 이긴다.** 서버 파서가 회차를 잘못 달면
+    // (2026-09-28 TIGER 9월말 글 → '월중') 달력 10/2 에 '월중 지급일'이 하나 더 떴다. 기준일은 공지
+    // 원문의 일정 표에서 오므로 더 믿을 만하다. dist_notice.html 과 같아야 하는 '데이터 해석 규칙'이다.
+    const b0 = parseDay(sch['기준일']);
+    if (b0) return b0.d <= 20 ? '월중' : '월말';
     if (it && it.cycle) return it.cycle;
     // 기준일 → 분배락일 → 지급일 순. ⚠️ 지급일을 먼저 보면 안 된다 — 월말 회차의 지급일은 다음 달 초라
     // '일'로 가르면 월중으로 오분류된다(백엔드 _solCycle도 같은 이유로 지급일을 안 쓴다).
@@ -5350,12 +5356,14 @@ function renderDistGrid(allData) {
   // 기준일/지급일 문자열("7월 15일" 또는 "7/15")에서 '월'만 뽑는다.
   const monthOf = s => { s = String(s||''); let m = s.match(/(\d{1,2})월/); if (m) return parseInt(m[1]); m = s.match(/(\d{1,2})[\/\.]\d{1,2}/); if (m) return parseInt(m[1]); return null; };
   const cycleOf = (it, repSched) => {
-    if (it && it.cycle) return it.cycle;
     const sch = (it.sched && Object.keys(it.sched).length) ? it.sched : (repSched||{});
+    // 기준일이 있으면 서버 cycle 보다 먼저 본다 — 달력 cycleOf 와 같은 규칙(2026-09-28 TIGER 오분류).
+    // 이게 어긋나면 전달비가 엉뚱한 회차(9월말 ↔ 8월중)와 비교된다.
+    if (it && it.cycle && !sch['기준일']) return it.cycle;
     const ref = sch['기준일'] || sch['지급일'] || '';
     // 기준일의 '일'로 회차 추정(20일 이하=월중). 월 비교는 월 경계에서 깨져 사용 안 함.
     const m = ref.match(/(\d{1,2})월\s*(\d{1,2})일/) || ref.match(/\d{1,2}[\/\.](\d{1,2})/);
-    if (!m) return '';
+    if (!m) return (it && it.cycle) || '';
     const day = m[2] != null ? parseInt(m[2]) : parseInt(m[1]);
     return day <= 20 ? '월중' : '월말';
   };
@@ -6098,6 +6106,15 @@ async function applyAllDivCycles() {
 }
 
 // ── ETF 분배금 공지 ─────────────────────────
+// 운용사 공지 목록 주소 — 목록이 늦어 분배 데이터로 채운 줄의 링크(Code.gs ISSUER_NOTICE_URL 과 같다).
+const ISSUER_NOTICE_URL = {
+  kodex: 'https://www.samsungfund.com/etf/lounge/notice.do?category=DIVIDEND',
+  tiger: 'https://investments.miraeasset.com/tigeretf/ko/customer/notice/list.do',
+  ace:   'https://www.aceetf.co.kr/cs/notice',
+  plus:  'https://www.plusetf.co.kr/customer/notice/list',
+  rise:  'https://kbam.co.kr/support/notice/category/1',
+  sol:   'https://blog.naver.com/soletf'
+};
 const NOTICE_SOURCES = [
   {
     id: 'kodex', name: 'KODEX', label: '삼성자산운용',
@@ -6278,6 +6295,29 @@ function renderNotices() {
     };
     // 월중/월말 슬롯은 공지가 없어도 자리를 비워둔다(카드 높이·순서 고정). 특별·기타는 있을 때만. (공지페이지와 동일)
     const picks = [pickByCycle('월중'), pickByCycle('월말'), pickByCycle('특별')];
+    // ⛔ 공지 목록은 서버 캐시(2시간)라 **분배 데이터보다 늦다.** 2026-09-28 KODEX 9월말 공시가 달력엔
+    // 떴는데 이 카드는 '9월 월말배당 -' 로 비어 NEW 가 안 떴다(목록은 08:37 판). 분배 데이터에 이번 달
+    // 그 회차의 공시일이 이미 지났으면 한 줄을 채운다 — 공시일은 실제 파싱 결과라 지어낸 공지가 아니다.
+    // (서버 _derivedNotice 와 같은 생각. dist_notice.html renderNotices 와 같은 코드 — 한쪽만 고치지 마라)
+    const derive = cyc => {
+      const src = (_distData || []).find(c => c.id === id);
+      const d = (src && src.data) || {};
+      for (const it of (d.items || [])) {
+        if (it.hist) continue;
+        const sch = (it.sched && Object.keys(it.sched).length) ? it.sched : (d.schedule || {});
+        const b = distParseDay(sch['기준일']), p = distParseDay(sch['공시일']);
+        if (!b || !p || b.m !== selM || (b.d <= 20 ? '월중' : '월말') !== cyc) continue;
+        const pub = new Date(now.getFullYear(), p.m - 1, p.d);
+        if (pub - now > 180 * 86400000) pub.setFullYear(pub.getFullYear() - 1);   // 1월에 본 12월 공시
+        if (pub > now) continue;
+        const date = pub.getFullYear() + '.' + String(p.m).padStart(2, '0') + '.' + String(p.d).padStart(2, '0');
+        return { title: `${selM}월 ${cyc} 분배금 공시 (공지 목록 갱신 전 — 분배 데이터 기준)`, date,
+                 url: ISSUER_NOTICE_URL[id] || '', norm: { label: `${selM}월 ${cyc}배당`, cycle: cyc, mon: selM } };
+      }
+      return null;
+    };
+    if (!picks[0]) picks[0] = derive('월중');
+    if (!picks[1]) picks[1] = derive('월말');
     const extra = picks.every(p => !p) ? inMonth.filter(n => n.norm.cycle !== '안내').slice(0, 1) : []; // 회차 분류 안 된 공지 폴백
     // 등록 7일 이내 공지엔 NEW 배지 — 월중 공시(10~13일)→기준일(15일) 흐름을 다 덮게 (공지페이지와 동일)
     const ageMs = n => {
