@@ -12,7 +12,7 @@
 - **작업 종료**: 맨 위에 새 항목 추가 → `git add .` → `git commit` → `git push`
 
 
-## 2026-09-28 (181) / 원격 — 오래된 원격 브랜치 정리 (6개 삭제 대기)
+## 2026-09-28 (184) / 원격 — 오래된 원격 브랜치 정리 (6개 삭제 대기)
 
 - 원격 브랜치 전수 대조(⚠️ 원격 컨테이너 clone 은 **shallow** 라 처음엔 "공통 조상 없음"으로 나온다 — `git fetch --unshallow` 후 비교할 것).
 - **main 에 전부 반영돼 삭제해도 되는 6개**(`git cherry` 0건): `backend-trigger-reset`, `jjk-submenu-separation-1m9cub`,
