@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard'
 ];
 
 function runMaint(name, arg) {
@@ -4922,6 +4922,42 @@ function testCal() {
 // 다른 구글 계정 소유라 편집기를 열 수 없다. 웹앱은 소유자 권한으로 도니 여기서 읽는다.
 // ⛔ jjk 는 공개 저장소고 Actions 로그도 공개다 — 금액·티커·계좌명은 절대 찍지 않는다.
 //    구조(열 이름·건수·수식 모양·색)만 남긴다.
+// 계좌성적표 검산 차이(총자산 − 투자원금 − 총수익)가 **어느 계좌·어느 항목**에서 나는지 찾는다. 읽기만 한다.
+// 차이 = 보유원금 + 예수금 − 투자원금 − 실현손익 − 배당누적 (현재가와 무관 — 평가손익은 양쪽에서 지워진다).
+// 돈이 새지 않았다면 수수료만큼만 음수여야 한다. 두 가지 대조로 원인을 가른다:
+//   원가검산 = 앱 보유원금 − (매수 − 매도 + 실현손익)   → 앱의 매수평균가·수량이 거래내역과 어긋났나
+//   현금검산 = 예수금 − (입금+이체 + 매도 − 매수 + 배당·이자) → 예수금 잔고가 거래내역 흐름과 어긋났나
+// ⛔ Actions 로그는 공개다 — **금액·계좌명은 안 찍고** 투자원금 대비 %와 '재남#1' 같은 번호만 남긴다.
+function _diagScorecard() {
+  const er = fetchExchangeRate() || 1400;
+  const hs = getHoldings();
+  const pct = (a, b) => b ? (a / b * 100).toFixed(1) + '%' : '-';
+  const seen = {};
+  const tot = { dep: 0, gap: 0 };
+  getAccountSummary().forEach(s => {
+    const own = String(s.name || '').slice(0, 2);
+    seen[own] = (seen[own] || 0) + 1;
+    const mine = hs.filter(h => String(h.account_id) === String(s.account_id));
+    let inv = 0, invUsd = 0;
+    mine.forEach(h => { const v = (+h.avg_price || 0) * (+h.quantity || 0) * (h.currency === 'USD' ? er : 1);
+                        inv += v; if (h.currency === 'USD') invUsd += v; });
+    const cash = (+s.cash || 0) + (+s.cash_usd || 0) * er;
+    const dep = (+s.deposit || 0) + (+s.transfer || 0) + (+s.inkind || 0);
+    const real = +s.realized || 0, div = (+s.div || 0) + (+s.interest || 0);
+    const gap = inv + cash - dep - real - div;
+    const costChk = inv - ((+s.buy || 0) - (+s.sell || 0) + real);
+    const cashChk = cash - ((+s.deposit || 0) + (+s.transfer || 0) + (+s.sell || 0) - (+s.buy || 0) + div);
+    tot.dep += dep; tot.gap += gap;
+    console.log(own + '#' + seen[own] + ' | 검산차이 ' + pct(gap, dep) + ' | 원가검산 ' + pct(costChk, dep)
+      + ' | 현금검산 ' + pct(cashChk, dep) + ' | 보유원금 ' + pct(inv, dep) + ' (해외 ' + pct(invUsd, inv) + ')'
+      + ' 예수금 ' + pct(cash, dep) + ' 실현 ' + pct(real, dep) + ' 배당 ' + pct(div, dep)
+      + (s.inkind ? ' 현물이관 ' + pct(+s.inkind, dep) : '') + ' | 앱 종목 ' + mine.length + '개');
+  });
+  const noSum = {};
+  hs.forEach(h => { if (!getAccountSummary().some(s => String(s.account_id) === String(h.account_id))) noSum[h.account_id] = 1; });
+  console.log('전체 검산차이 ' + pct(tot.gap, tot.dep) + ' · 계좌요약에 없는 앱 계좌 ' + Object.keys(noSum).length + '개');
+}
+
 // 운용사 파서를 캐시 없이 한 번 돌려 **회차별 건수와 일정**을 찍는다. 아무것도 쓰지 않는다.
 // 왜: 한 회차만 0건이면 캐시·화면엔 '없음'으로만 보이고 이유가 안 남는다(2026-09-28 PLUS·SOL 9월말).
 // 공개 공지 데이터만 찍는다(개인 정보 없음).
