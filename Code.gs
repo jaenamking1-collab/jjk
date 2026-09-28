@@ -1475,6 +1475,16 @@ function ocrImageText(imgUrl) {
     const code = resp.getResponseCode();
     const bytes = resp.getBlob().getBytes();
     if (code !== 200 || !bytes.length) { _ocrDbg = 'img fetch code=' + code + ' bytes=' + bytes.length + ' url=' + imgUrl; return ''; }
+    // ⛔ 요금 안전장치: Vision 은 **월 1,000건까지 무료**다. 이 프로젝트가 쓴 건수를 세서
+    // 500·800건에 카톡으로 미리 알리고(checkAndLogAlerts 가 ocrQuota 를 읽는다), 950건이면 이달은 더 안 부른다.
+    // 그러면 결제 계정이 연결돼 있어도 청구가 생길 수 없다(2026-09-28 사용자: "결제 상황이 오기 전 알람부터").
+    // 막히면 PLUS 는 달력 '예정'으로 버티고, 다음 달 1일에 저절로 풀린다.
+    const _sp = PropertiesService.getScriptProperties();
+    const _mk = 'ocrN_' + Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM');
+    const _n = parseInt(_sp.getProperty(_mk) || '0', 10);
+    if (_n >= 950) { _ocrDbg = 'monthly cap ' + _n; _sp.setProperty('ocrQuota', _mk.slice(5) + ' ' + _n + '건 — 무료 한도 보호로 이달 OCR 중단'); return ''; }
+    _sp.setProperty(_mk, String(_n + 1));
+    if (_n + 1 === 500 || _n + 1 === 800) _sp.setProperty('ocrQuota', _mk.slice(5) + ' ' + (_n + 1) + '건 사용 (무료 1,000건, 950건에서 자동 중단)');
     const b64 = Utilities.base64Encode(bytes);
     const payload = { requests: [{ image: { content: b64 }, features: [{ type: 'DOCUMENT_TEXT_DETECTION' }] }] };
     const res = UrlFetchApp.fetch('https://vision.googleapis.com/v1/images:annotate?key=' + key, {
@@ -2702,6 +2712,13 @@ function checkAndLogAlerts() {
   const ocrDown = PropertiesService.getScriptProperties().getProperty('ocrDown');
   if (ocrDown && _addAlert(logSheet, 'OCR', '파싱경고', 'Vision OCR 막힘 — ' + ocrDown + ' · PLUS 표(이미지)를 못 읽는다', '중요', true))
     kakaoMsgs.push('🚨 Vision OCR 막힘(구글 클라우드 결제 확인) — PLUS 분배금 못 읽음');
+  // 무료 한도 경보(ocrImageText 가 500·800·950건에 남긴다). 한 번 알리면 지운다.
+  const ocrQuota = PropertiesService.getScriptProperties().getProperty('ocrQuota');
+  if (ocrQuota) {
+    if (_addAlert(logSheet, 'OCR', '요금경보', 'Vision OCR ' + ocrQuota, '중요'))
+      kakaoMsgs.push('💳 Vision OCR ' + ocrQuota);
+    PropertiesService.getScriptProperties().deleteProperty('ocrQuota');
+  }
 
   // ⚠️ 순서가 중요하다. 예전엔 메타를 여기서 먼저 덮어쓰고 그 뒤에 알림을 보냈다. 그러면 발송이
   // 실패해도 메타는 이미 새 공시일로 갱신되므로, 다음 실행부터 fp.pubDate === prev.pubDate 가 되어
