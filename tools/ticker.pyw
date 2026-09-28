@@ -210,6 +210,7 @@ coin_mid = {}                            # 코인 -> (날짜, 그날 한국시�
 RANGE_DAYS = 30                          # 교환비율 줄에 보여줄 최저~최고 구간(일)
 ratio_band = {}                          # "A/B" -> (날짜, 최저, 최고). 하루 한 번만 잰다
 band_pos = {}                            # "A/B" -> 지금이 그 구간의 몇 %
+amt_lbl = {}                             # 종목 -> 퍼센트 오른쪽 '±금액' 칸(펼쳤을 때만 보인다)
 band_row = {}                            # "A/B" -> 그 밑에 붙는 "한달 42.8 ~ 49.1" 라벨
 targets = {}                             # 종목 -> (목표값, 구간%인가). 닿으면 반짝인다
 prem_at = [0.0]                          # 환산비를 마지막으로 저장한 시각
@@ -292,6 +293,8 @@ def theme():
         root.attributes("-alpha", cfg["bg_op"] / 100.0)         # 뚫기가 안 되면 예전처럼
     for sym in band_row:
         band_note(sym)
+    for sym in amt_lbl:
+        amt_note(sym)
     for sym in rows:
         nm, p, c, _ = rows[sym]
         nm.config(fg=THEME["fg"])
@@ -303,10 +306,7 @@ def theme():
 
 
 def band_note(sym):
-    """교환비율 줄 밑의 흐린 한 줄. **줄을 클릭하면 접었다 폈다** 한다.
-
-    접힘: 최근 30일 42.8~49.1 중 24%
-    펼침: 오늘 -1.20%  ·  최근 30일 42.8~49.1 중 24%  ·  ▲49,50  ▼41
+    """교환비율 줄 밑의 흐린 한 줄: "최근 30일 42.8~49.1 중 24%". 항상 보인다.
 
     위 칸의 바닥권/고점권이 무엇을 기준으로 한 말인지 눈으로 보이게 하는 것이 전부다.
     구간 위치(%)는 **반드시 이 줄에** 둔다 — 오른쪽 칸에 두면 옆줄들의 '오늘 등락'과
@@ -314,47 +314,46 @@ def band_note(sym):
     여기서는 바로 왼쪽에 42.8~49.1 이 있어 "무엇의 24%"가 눈으로 이어진다.
     '중' 한 글자가 '변동'이 아니라 '그 안에서의 자리'임을 말해 준다.
 
-    '오늘 등락'은 펼쳤을 때만 보인다. 교환비율 줄에서 그 수치를 아예 빼 버렸더니
-    자세히 볼 길이 없다는 지적을 받았다(2026-09-28). 숨기되 없애지는 않는다."""
+    ⚠️ 여기에 오늘 금액·전일값·목표 단을 더 붙이지 마라. 한때 펼치면 그렇게 길어지게
+    만들었다가 "아래쪽으로 자꾸 정보가 보인다"는 지적을 받았다(2026-09-28).
+    자세한 수치는 퍼센트 오른쪽의 '±금액' 칸(amt_note)이 맡는다."""
     bl = band_row.get(sym)
     if not bl:
         return
-    open_ = bool(cfg.get("detail_open"))
-    bits = []
-    if open_ and sym in last:
-        price, diff, pct, dec, _ = last[sym]
-        # 오른쪽 칸은 비율(%)만 보여준다. 여기엔 그 칸에 없는 것 — 오른 '금액'과
-        # 그 기준이 된 전일 값을 적는다. 같은 값을 두 번 적으면 펼칠 이유가 없다.
-        sign = "+" if diff > 0 else ""       # 음수는 fmt 가 이미 붙여 준다
-        bits.append("오늘 %s%s (%+.2f%%)" % (sign, fmt(diff, dec), pct))
-        bits.append("전일 %s" % fmt(price - diff, dec))
     _, lo, hi = ratio_band.get(sym) or ("", 0, 0)
+    text = ""
     if hi > lo:
-        band = "최근 %d일 %.1f~%.1f" % (RANGE_DAYS, lo, hi)
+        text = "최근 %d일 %.1f~%.1f" % (RANGE_DAYS, lo, hi)
         if sym in band_pos:
-            band += " 중 %d%%" % round(band_pos[sym])
-        bits.append(band)
-    if open_:
-        want = targets.get(sym)
-        if want:
-            if want[0]:
-                bits.append("\u25b2" + ",".join("%g" % g for g in want[0]))
-            if want[2]:
-                bits.append("\u25bc" + ",".join("%g" % g for g in want[2]))
-    text = "  \u00b7  ".join(bits)
+            text += " 중 %d%%" % round(band_pos[sym])
     bl.config(text=text, fg=THEME["dim"], bg=panel_bg())
-    # 빈 줄은 자리를 차지하지 않게 뺀다. 종목이 많을 때 창이 두 배로 길어지면 안 된다.
-    (bl.grid_remove if not text else bl.grid)()
+    (bl.grid_remove if not text else bl.grid)()     # 빈 줄은 자리를 차지하지 않게
+
+
+def amt_note(sym):
+    """퍼센트 오른쪽의 '±금액' 칸. 펼쳤을 때만 보인다(전 종목 한꺼번에).
+    오른쪽 칸은 비율(%)이니 여기엔 그 칸에 없는 **오른 금액**을 적는다."""
+    d = amt_lbl.get(sym)
+    if not d:
+        return
+    if not cfg.get("detail_open") or sym not in last:
+        d.grid_remove()
+        return
+    price, diff, pct, dec, _ = last[sym]
+    sign = "+" if diff > 0 else ""           # 음수는 fmt 가 이미 붙여 준다
+    d.config(text=sign + fmt(diff, dec), bg=panel_bg(),
+             fg=THEME["up"] if diff > 0 else THEME["down"] if diff < 0 else THEME["dim"])
+    d.grid()
 
 
 def band_toggle(sym=None):
-    """아무 줄이나 클릭 -> **전 종목**의 밑줄을 한꺼번에 폈다 접었다.
+    """아무 줄이나 클릭 -> **전 종목**의 '±금액' 칸을 한꺼번에 보였다 숨겼다.
     처음엔 줄마다 따로 폈는데, 사용자가 원한 건 한 번에 전체가 나오는 것이었다(2026-09-28).
-    창 크기가 바뀌므로 배경도 같이 맞춘다."""
+    창 폭이 바뀌므로 배경도 같이 맞춘다."""
     cfg["detail_open"] = not cfg.get("detail_open")
     save(cfg)
-    for k in list(band_row):
-        band_note(k)
+    for k in list(amt_lbl):
+        amt_note(k)
     sync_back()
     place_panel()
 
@@ -706,6 +705,7 @@ def sync_back(_=None):
 
 def build():
     band_row.clear()
+    amt_lbl.clear()
     for w in body.winfo_children():
         w.destroy()
     rows.clear()
@@ -718,7 +718,7 @@ def build():
     for gi, group in enumerate(gs):
         shut = cfg["collapsed"][gi]
         strip = tk.Frame(body, bg=panel_bg())
-        strip.grid(row=r, column=0, columnspan=3, sticky="ew")
+        strip.grid(row=r, column=0, columnspan=4, sticky="ew")
         r += 1
         bar = tk.Frame(strip, bg=LINE, height=1)
         bar.pack(fill="x", expand=True, pady=4)
@@ -746,22 +746,26 @@ def build():
             p.grid(row=r, column=1, sticky="e")
             c.grid(row=r, column=2, sticky="e", padx=(3, 0))
             rows[sym] = (nm, p, c, given)
+            # 펼치면 퍼센트 **오른쪽에** '±금액' 한 칸이 붙는다. 아래로 줄을 늘리지 않는다 —
+            # 밑줄로 오늘 금액·전일값을 보여 줬더니 "아래쪽으로 자꾸 정보가 보인다,
+            # 현재가 옆 퍼센트 옆에 ±얼마 정도만 있으면 된다"는 지적을 받았다(2026-09-28).
+            d = tk.Label(body, text="", bg=panel_bg(), fg=DIM, font=("Consolas", 8))
+            d.grid(row=r, column=3, sticky="e", padx=(3, 0))
+            if not cfg.get("detail_open"):
+                d.grid_remove()
+            amt_lbl[sym] = d
             # 교환비율 줄만, 그 밑에 기준이 되는 구간을 적는다. 숨겨 놓은 두 숫자로
             # 암산을 시키면 안 된다 — "42.8 의 24%" 를 머릿속으로 푸는 사람은 없다.
             # 무엇의 몇 달치인지도 화면에 적혀 있어야 한다(2026-09-28 지적).
-            # 밑줄은 **모든 종목**에 있다. 오늘 오르내린 수치는 어느 줄에나 있는 값이니
-            # 자세히 보는 방법도 줄마다 같아야 한다(2026-09-28 지적).
-            # 교환비율 줄만 접어도 구간이 남는다 — 그게 오른쪽 칸 '바닥권'의 근거라서다.
-            band_row[sym] = bl = tk.Label(body, text="", bg=panel_bg(), fg=DIM,
-                                          font=("Malgun Gothic", 7))
-            bl.grid(row=r + 1, column=0, columnspan=3, sticky="w")
-            if RATIO not in sym and not cfg.get("detail_open"):
-                bl.grid_remove()
-            for w in (nm, p, c, bl):         # 줄 아무 데나 눌러도 펴진다
-                w.bind("<Button-1>", lambda e, k=sym: band_toggle(k))
-                w.config(cursor="hand2")
-            r += 1
-            tk.Frame(body, bg=ROWLINE, height=1).grid(row=r + 1, column=0, columnspan=3,
+            if RATIO in sym:
+                band_row[sym] = bl = tk.Label(body, text="", bg=panel_bg(), fg=DIM,
+                                              font=("Malgun Gothic", 7))
+                bl.grid(row=r + 1, column=0, columnspan=4, sticky="w")
+                r += 1
+            for w in (nm, p, c, d) + ((band_row[sym],) if sym in band_row else ()):
+                w.bind("<Button-1>", lambda e, k=sym: band_toggle(k))   # 아무 줄이나 누르면
+                w.config(cursor="hand2")                                # 전 종목이 같이 펴진다
+            tk.Frame(body, bg=ROWLINE, height=1).grid(row=r + 1, column=0, columnspan=4,
                                                       sticky="ew")
             r += 2
     theme()
@@ -811,7 +815,8 @@ def paint(sym, res):
     text = fmt(price, dec)
     p.config(text=text, font=("Consolas", 7 if len(text) > 9 else 9))   # 자릿수 많으면 축소
     if sym in band_row:              # 목표를 걸었든 안 걸었든 기준 구간은 늘 보여준다
-        band_note(sym)                                   # 펼쳐 놨으면 오늘 금액도 여기서
+        band_note(sym)
+    amt_note(sym)                    # 펼쳐 놨으면 퍼센트 옆에 ±금액
     want = targets.get(sym)
     if want:
         goals, floors = want[0], want[2]
