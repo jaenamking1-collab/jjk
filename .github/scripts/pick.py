@@ -32,6 +32,51 @@ if path_expr == 'sched':
         for (cyc, pub, ex, base, pay), n in sorted(seen.items(), key=lambda x: x[0][3]):
             print(f'  {cyc:<4} 공시 {pub:<9} 분배락 {ex:<9} 기준 {base:<9} 지급 {pay:<9} ({n}종목)')
     sys.exit(0)
+
+# 특수 모드: 'chg' — 공지 종목 표의 '전달비'를 화면과 같은 규칙으로 다시 계산해 전 행을 찍는다.
+# 왜: "전달비에 심각한 숫자가 있다"(2026-09-28)를 확인하려면 6개사 전 종목을 봐야 하는데 응답이 67KB 다.
+# 규칙은 dist_notice.html renderDistGrid 의 prevAmt/chgHtml 과 같다(기준일 월로 이번 달/지난달을 가른다).
+if path_expr == 'chg':
+    d = json.load(open(file_path, encoding='utf-8'))
+    _mre = re.compile(r'(\d{1,2})\s*월|(\d{1,2})\s*[/.]\s*\d{1,2}')
+    _dre = re.compile(r'(\d{1,2})\s*월\s*(\d{1,2})\s*일|\d{1,2}\s*[/.]\s*(\d{1,2})')
+
+    def mon(s):
+        m = _mre.search(str(s or ''))
+        return int(m.group(1) or m.group(2)) if m else None
+
+    def cyc(it, rep):
+        if it.get('cycle'):
+            return it['cycle']
+        s = it.get('sched') or rep or {}
+        m = _dre.search(str(s.get('기준일') or s.get('지급일') or ''))
+        if not m:
+            return ''
+        return '월중' if int(m.group(2) or m.group(3)) <= 20 else '월말'
+
+    import datetime
+    sel = int(sys.argv[3]) if len(sys.argv) > 3 else datetime.date.today().month
+    prev = 12 if sel == 1 else sel - 1
+    for name, v in (d.get('sources') or {}).items():
+        rep = v.get('schedule') or {}
+        its = v.get('items') or []
+        sch = lambda it: it.get('sched') or rep
+        pm = {}
+        for it in its:
+            if it.get('hist') and it.get('amount') is not None and mon(sch(it).get('기준일') or sch(it).get('지급일')) == prev:
+                pm[(it.get('ticker') or it.get('name')) + '|' + cyc(it, rep)] = it['amount']
+        print(f'--- {name} ({sel}월, 지난달 비교 {len(pm)}건) ---')
+        for it in its:
+            if it.get('hist') or mon(sch(it).get('기준일') or sch(it).get('지급일')) != sel:
+                continue
+            c = cyc(it, rep)
+            p = pm.get((it.get('ticker') or it.get('name')) + '|' + c)
+            a = it.get('amount')
+            pct = f'{(a - p) / p * 100:+.1f}%' if p and a is not None else '-'
+            flag = ' ⚠️' if p and a is not None and abs((a - p) / p) > 0.3 else ''
+            print(f'  {c or "?":<3} {it.get("ticker", ""):<7} {str(it.get("name", ""))[:26]:<26} '
+                  f'{a!s:>6} 전달 {p!s:>6} {pct:>8}{flag}  기준 {sch(it).get("기준일", "-")}')
+    sys.exit(0)
 try:
     data = json.load(open(file_path, encoding='utf-8'))
 except Exception as e:
