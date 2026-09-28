@@ -12,19 +12,20 @@
 - **작업 종료**: 맨 위에 새 항목 추가 → `git add .` → `git commit` → `git push`
 
 
-## 2026-09-28 (184) / 원격 — 오래된 원격 브랜치 정리 (6개 삭제 대기)
+## 2026-09-28 (184) / 원격 — 오래된 원격 브랜치 6개 삭제 완료
 
 - 원격 브랜치 전수 대조(⚠️ 원격 컨테이너 clone 은 **shallow** 라 처음엔 "공통 조상 없음"으로 나온다 — `git fetch --unshallow` 후 비교할 것).
 - **main 에 전부 반영돼 삭제해도 되는 6개**(`git cherry` 0건): `backend-trigger-reset`, `jjk-submenu-separation-1m9cub`,
   `loving-rubin-g1982z`, `vigilant-volta-gn483j`, `school-work-resume-19qrrq`, `school-wrap-up-content-59vfyq`. 사용자 삭제 승인 받음.
 - **못 지운 이유**: 원격 세션은 자기 브랜치에만 push 가능(삭제 403), GitHub MCP 에 브랜치 삭제 도구 없음.
   사용자가 웹 🗑 를 눌렀으나 "Branch could not be deleted"(ruleset·보호·열린 PR 모두 없음 — 원인 미확인).
-  노트북(Windows)에는 Git 이 없어 명령 실행도 불가.
+  → 사용자가 노트북(직장 PC 계정 `azsxd`) PowerShell 에서 `git push origin --delete` 로 **6개 삭제 완료**(`git ls-remote` 확인).
+  ⚠️ 이 PC 의 PowerShell 은 `git` 이 PATH 에 없다. 실제 위치는 `C:\Program Files\Git\bin\git.exe`(`cmd\` 아님).
 - **보류**: `pensive-hamilton-r90l9c`(블로그 초안 7커밋, main 에 없음 — 블로그 계속이면 병합), `project-thread-k3pnnd`·
   `dist-forecast-per-share-le0lbr`·`project-thread-b3kzt2`·`project-thread-edor3g`(다른 스레드 작업 중).
 
 **다음 할 일**
-- [ ] Git 있는 PC(직장·집)에서: `git push origin --delete` 로 위 6개 삭제 → `git ls-remote --heads origin` 으로 확인.
+- [x] 6개 삭제 — 완료. 남은 건 `pensive-hamilton` 병합/삭제 결정뿐.
 
 ## 2026-09-28 (180) / 원격 — "총매입과 평가금액이 같다" → 백엔드 `/exec` 가 **403 Access Denied**
 
