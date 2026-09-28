@@ -4137,13 +4137,80 @@ function xirr(flows, endValue, endDate) {
   return (lo + hi) / 2 * 100;
 }
 
+// ── 성적표를 스스로 굴리기 (WORKLOG 147·187) ──
+// 계좌요약·현금흐름 시트는 증권사 거래내역으로 맞춘 **그날까지**만 안다. 그 뒤로 앱에서 종목을
+// 사고팔고 분배금을 적으면 예수금·실현손익·배당누적이 얼어 있어 숫자가 틀어진다.
+// 그래서 그 뒤의 변화는 앱이 가진 기록으로 굴린다 — 사용자가 거래내역을 다시 받지 않아도 되게.
+//   매수 = 보유원금 증가분(이동평균이라 정확) → 예수금에서 빠진다
+//   매도 = 줄어든 수량 × 지금 현재가(**추정**) → 예수금에 들어오고 실현손익이 생긴다
+//   분배금 = 앱 분배금 표의 기준일 다음 달부터 → 예수금·배당누적에 더한다
+//   예수금이 모자라면 그만큼은 밖에서 넣은 돈으로 보고 투자원금·현금흐름(XIRR)에 더한다
+// 매매 기록은 '보유변동' 시트(하루 3번)에 지금의 앱 보유 상태를 마지막 한 줄로 이어 붙인다 —
+// 그래서 앱에서 고친 것이 트리거를 기다리지 않고 바로 반영된다.
+// ⚠️ 거래내역을 새로 받아 두 시트를 다시 만들면 이 날짜를 그 거래내역의 마지막 날로 바꾼다.
+const SCORECARD_ASOF = '2026-08-18';
+function rollScorecard(log, divs, priceMap, er) {
+  const toKrw = (v, cur, rate) => cur === 'USD' ? v * (rate || er) : v;
+  const at = {}, ev = [], adj = {};
+  const A = id => adj[id] = adj[id] || { realized: 0, div: 0, buys: 0, sells: 0, ndiv: 0 };
+  const step = (id, acc, cur, ticker, qty, avg, date, kind) => {
+    const p = at[id];
+    at[id] = { qty, avg, acc, cur, ticker };
+    // 기준일 이전 기록과 첫 기준선(base)은 '그때 상태'로만 쓴다
+    if (date <= SCORECARD_ASOF || kind === 'base') return;
+    const pq = p ? p.qty : 0, pa = p ? p.avg : 0;
+    if (qty > pq) {
+      const cost = toKrw(qty * avg - pq * pa, cur);
+      if (cost > 0) { ev.push({ date, acc, amt: -cost }); A(acc).buys++; }
+    } else if (qty < pq) {
+      const px = priceMap[(ticker || '').toString().trim().toUpperCase()] || pa;
+      const sold = pq - qty;
+      ev.push({ date, acc, amt: toKrw(sold * px, cur) });
+      A(acc).realized += toKrw((px - pa) * sold, cur);
+      A(acc).sells++;
+    }
+  };
+  (log || []).slice().sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0).forEach(r =>
+    step(r.holding_id, r.account_id, r.currency, r.ticker, r.quantity, r.avg_price, r.date.slice(0, 10), r.kind));
+  const today = new Date().toISOString().slice(0, 10);
+  const seen = {};
+  (state.holdings || []).forEach(h => {
+    const id = h.id.toString();
+    seen[id] = true;
+    const p = at[id], qty = parseFloat(h.quantity) || 0, avg = parseFloat(h.avg_price) || 0;
+    if (p && p.qty === qty && p.avg === avg) return;
+    step(id, h.account_id.toString(), h.currency, h.ticker, qty, avg, today, p ? '' : (log && log.length ? 'new' : 'base'));
+  });
+  Object.keys(at).forEach(id => {
+    const p = at[id];
+    if (!seen[id] && p.qty) step(id, p.acc, p.cur, p.ticker, 0, p.avg, today, 'gone');
+  });
+  // 분배금: 기준일이 든 달은 거래내역에 이미 들어 있으므로 **다음 달부터**
+  const asofYm = SCORECARD_ASOF.slice(0, 7);
+  (divs || []).forEach(d => {
+    const ym = d.year + '-' + String(d.month).padStart(2, '0');
+    const amt = parseFloat(d.amount) || 0;
+    if (ym <= asofYm || !amt) return;
+    const h = (state.holdings || []).find(x => x.id.toString() === d.holding_id.toString());
+    const acc = h ? h.account_id.toString() : at[d.holding_id] && at[d.holding_id].acc;
+    if (!acc) return;
+    const krw = toKrw(amt, d.currency, parseFloat(d.rate));
+    ev.push({ date: ym + '-01', acc, amt: krw });
+    A(acc).div += krw; A(acc).ndiv++;
+  });
+  ev.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+  return { adj, ev };
+}
+
 async function loadScorecard() {
   const box = document.getElementById('scorecardBox');
   box.innerHTML = '<div class="loading"><span class="spinner"></span>불러오는 중...</div>';
-  const [sum, flows, sheet] = await Promise.all([
+  const [sum, flows, sheet, hlog, divs] = await Promise.all([
     api({ action: 'getAccountSummary' }).catch(() => []),
     api({ action: 'getAccountFlows' }).catch(() => []),
-    fetchPriceItems()
+    fetchPriceItems(),
+    api({ action: 'getHoldingLog' }).catch(() => ({})),
+    api({ action: 'getDividends' }).catch(() => [])
   ]);
   if (!sum || !sum.length) {
     box.innerHTML = '<div class="empty"><p>계좌요약 시트를 읽지 못했습니다.</p></div>';
@@ -4156,6 +4223,7 @@ async function loadScorecard() {
   });
   const er = state.exchangeRate || 1400;
   const today = new Date().toISOString().slice(0, 10);
+  const roll = rollScorecard((hlog && hlog.items) || [], divs, priceMap, er);
 
   const n = v => Math.round(v).toLocaleString();
   const col = v => v > 0 ? '#dc2626' : v < 0 ? '#2563eb' : '#111827';
@@ -4173,20 +4241,28 @@ async function loadScorecard() {
     const hs = state.holdings.filter(x => x.account_id === s.account_id);
     const { invest, value } = acctInvestValue(hs, priceMap);
     const inkind = +s.inkind || 0;
-    const deposit = (+s.deposit || 0) + (+s.transfer || 0) + inkind;
-    const cash = (+s.cash || 0) + (+s.cash_usd || 0) * er;
-    const div = (+s.div || 0) + (+s.interest || 0);
-    const unreal = value - invest, realized = +s.realized || 0;
+    // 기준일 뒤 매매·분배금으로 예수금을 굴린다. 모자라면 그만큼 밖에서 넣은 돈이다.
+    const id = s.account_id.toString(), ad = roll.adj[id] || {};
+    let cash = (+s.cash || 0) + (+s.cash_usd || 0) * er, added = 0;
+    const addFlows = [];
+    roll.ev.filter(e => e.acc.toString() === id).forEach(e => {
+      cash += e.amt;
+      if (cash < 0) { added -= cash; addFlows.push({ account_id: id, date: e.date, amount: cash }); cash = 0; }
+    });
+    const deposit = (+s.deposit || 0) + (+s.transfer || 0) + inkind + added;
+    const div = (+s.div || 0) + (+s.interest || 0) + (ad.div || 0);
+    const unreal = value - invest, realized = (+s.realized || 0) + (ad.realized || 0);
     return { name: s.name, id: s.account_id, deposit, inkind, cash, asset: value + cash,
              value, invest, unreal, realized, profit: unreal + realized, div, div12: +s.div12 || 0,
-             tax: +s.tax || 0, total: unreal + realized + div,
-             flows: (flows || []).filter(f => f.account_id.toString() === s.account_id.toString()) };
+             tax: +s.tax || 0, total: unreal + realized + div, added,
+             buys: ad.buys || 0, sells: ad.sells || 0, ndiv: ad.ndiv || 0,
+             flows: (flows || []).filter(f => f.account_id.toString() === id).concat(addFlows) };
   };
   const rows = state.accounts.map(a => sum.find(x => x.account_id.toString() === a.id.toString()))
                              .filter(Boolean).map(line);
   const agg = (label, rs) => {
     const o = { name: label, flows: [] };
-    ['deposit','inkind','cash','asset','value','invest','unreal','realized','profit','div','div12','tax','total']
+    ['deposit','inkind','cash','asset','value','invest','unreal','realized','profit','div','div12','tax','total','added','buys','sells','ndiv']
       .forEach(k => o[k] = rs.reduce((t, r) => t + r[k], 0));
     rs.forEach(r => o.flows = o.flows.concat(r.flows));
     return o;
@@ -4209,10 +4285,13 @@ async function loadScorecard() {
       td('', '외부입금 − 출금 + 계좌간이체' + (r.inkind ? ' + 현물이관 ' + n(r.inkind) + '원(다른 증권사에서 주식째로 옮겨온 것)' : ''),
          n(r.deposit) + (r.inkind ? ' *' : '')) +
       td('g', '보유 종목 현재가 × 수량', n(r.value)) +
-      td('', '계좌에 남은 현금. 원화는 2026-08-18, 외화는 2026-07-09 기준', n(r.cash)) +
+      td('', '계좌에 남은 현금. 거래내역(' + SCORECARD_ASOF + ') 잔고에서 그 뒤 매수 ' + r.buys + '건·매도 ' +
+           r.sells + '건·분배금 ' + r.ndiv + '건으로 굴린 값' + (r.added ? '. 모자란 ' + n(r.added) +
+           '원은 새로 넣은 돈으로 보고 투자원금에 더했다' : ''), n(r.cash)) +
       td('', '주식 + 예수금', n(r.asset)) +
       td('g', '평가금액 − 보유원금. 아직 안 판 것의 손익', sgn(r.unreal)) +
-      td('', '이미 판 것에서 실제로 남긴 차익', sgn(r.realized)) +
+      td('', '이미 판 것에서 실제로 남긴 차익' + (r.sells ? '. 기준일 뒤 매도 ' + r.sells +
+           '건은 지금 현재가로 추정했다' : ''), sgn(r.realized) + (r.sells ? '<sup style="color:#b45309">추정</sup>' : '')) +
       td('', '평가손익 + 실현손익 (배당 제외)', sgn(r.profit)) +
       td('g', '지금까지 받은 배당·분배금 + 이자. 세금 떼고 실제로 들어온 금액(세후)', n(r.div)) +
       td('', '최근 1년 배당 ÷ 주식 평가금액. 지금 이 계좌가 연 몇 %로 배당을 주고 있는지',
@@ -4280,7 +4359,9 @@ async function loadScorecard() {
       sumRow(agg('은경 합계', rows.filter(r => r.name.startsWith('은경'))), 'sub', TONE_SUM['은경']) +
       sumRow(all, 'tot') +
     '</tbody></table>' +
-    '<div style="font-size:12px;font-weight:700;color:#334155;margin:14px 0 4px">세부 내역</div>' +
+    '<div style="font-size:12px;font-weight:700;color:#334155;margin:14px 0 4px">세부 내역' +
+      '<span style="font-weight:400;margin-left:8px" title="증권사 거래내역은 이 날까지. 그 뒤는 앱의 보유 변화와 분배금 입력으로 자동 반영">' +
+      '거래내역 ' + SCORECARD_ASOF + ' + 이후 매수 ' + all.buys + '·매도 ' + all.sells + '·분배금 ' + all.ndiv + '건 자동 반영</span></div>' +
     '<table class="sc-table"><thead><tr>' +
     '<th>계좌</th>' +
     '<th title="외부입금 − 출금 + 계좌간이체 + 현물이관. 이 계좌에 실제로 들어온 돈">투자원금</th>' +
