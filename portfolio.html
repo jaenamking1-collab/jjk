@@ -713,7 +713,8 @@ if (!/[?&]pc=1/.test(location.search) && window.innerWidth <= 768) {
 
   <!-- ── 대시보드 탭 ── -->
   <div id="tab-dashboard" class="page">
-    <div class="card" style="margin-bottom:14px">
+    <div class="card" style="margin-bottom:14px;position:relative;cursor:default"
+         onmouseenter="toggleGoalHist(true)" onmouseleave="toggleGoalHist(false)" onclick="toggleGoalHist()">
       <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px">
         <div style="font-size:13px;font-weight:700;color:var(--text2)">🎯 월 1,000만원 목표 진척도</div>
         <div id="goalSub" style="font-size:11px;color:var(--text3)"></div>
@@ -726,6 +727,8 @@ if (!/[?&]pc=1/.test(location.search) && window.innerWidth <= 768) {
         <div id="goalBar" style="height:100%;width:0%;background:linear-gradient(90deg,var(--accent),var(--green));border-radius:7px;transition:width .6s"></div>
       </div>
       <div id="goalGap" style="font-size:11px;color:var(--text3);margin-top:6px"></div>
+      <!-- 진척도 추이: 마우스를 올리면(휴대폰은 탭) 월별 실수령 분배금 그래프가 뜬다 -->
+      <div id="goalHist" style="display:none;position:absolute;left:12px;right:12px;top:44px;z-index:20;background:var(--bg2,#fff);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.15);padding:10px 12px"></div>
       <!-- 목표일 D-Day -->
       <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
@@ -2648,6 +2651,68 @@ let _plLog  = null;
 let _plSpan = null;    // 보이는 점 개수(휠 줌). null=모드 기본값
 let _plOffset = 0;     // 최신에서 뒤로 민 점 개수(드래그 팬). 0=최신
 
+// 목표 진척도 카드에 마우스를 올리면 월별 추이. 휴대폰(마우스 없음)은 탭으로 켜고 끈다.
+let _goalHistPinned = false;
+function toggleGoalHist(show) {
+  const el = document.getElementById('goalHist');
+  if (!el || !el.innerHTML) return;
+  if (show === undefined) { _goalHistPinned = !_goalHistPinned; show = _goalHistPinned; }
+  else if (!show && _goalHistPinned) return;
+  el.style.display = show ? 'block' : 'none';
+}
+// map: {'YYYY-MM': 그달 받은 분배금(원)}. 이번 달은 아직 덜 받았으니 회색으로 두고 평균에서 뺀다.
+function renderGoalHist(map, goal) {
+  const el = document.getElementById('goalHist');
+  if (!el) return;
+  const now = new Date(), curK = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  const keys = Object.keys(map).filter(k => map[k] > 0 && k <= curK).sort();
+  if (!keys.length) { el.innerHTML = ''; return; }
+  const all = [];
+  for (let [y, m] = keys[0].split('-').map(Number); ; m++) {
+    if (m > 12) { y++; m = 1; }
+    const k = y + '-' + String(m).padStart(2, '0');
+    if (k > curK) break;
+    all.push({ k, v: map[k] || 0 });
+  }
+  const done = all.filter(p => p.k < curK);
+  const avg3 = i => { const s = done.slice(Math.max(0, i - 2), i + 1); return s.reduce((a, p) => a + p.v, 0) / s.length; };
+  done.forEach((p, i) => { p.a = avg3(i); });
+  const pts = all.slice(-24);
+  const W = 600, H = 150, P = 18, bw = (W - P * 2) / pts.length;
+  const max = Math.max(...pts.map(p => Math.max(p.v, p.a || 0))) * 1.15 || 1;
+  const y = v => H - P - (v / max) * (H - P * 2);
+  const man = v => (v / 10000).toFixed(0) + '만';
+  let svg = '';
+  pts.forEach((p, i) => {
+    const x = P + i * bw, h = (H - P) - y(p.v);
+    svg += `<rect x="${(x + bw * .15).toFixed(1)}" y="${y(p.v).toFixed(1)}" width="${(bw * .7).toFixed(1)}" height="${Math.max(h, 0).toFixed(1)}"
+      fill="${p.k === curK ? 'var(--text3)' : 'var(--accent)'}" opacity="${p.k === curK ? .4 : .55}"><title>${p.k} ${Math.round(p.v).toLocaleString()}${p.k === curK ? ' (이번 달, 받는 중)' : ''}</title></rect>`;
+    if (i % 3 === 0 || i === pts.length - 1)
+      svg += `<text x="${(x + bw / 2).toFixed(1)}" y="${H - 4}" font-size="10" text-anchor="middle" fill="var(--text3)">${p.k.slice(2).replace('-', '.')}</text>`;
+  });
+  const line = pts.map((p, i) => p.a == null ? null : `${(P + i * bw + bw / 2).toFixed(1)},${y(p.a).toFixed(1)}`).filter(Boolean);
+  svg += `<polyline points="${line.join(' ')}" fill="none" stroke="var(--green)" stroke-width="2.5"/>`;
+  // 속도: 3개월 평균이 최근 6개월 동안 한 달에 얼마씩 늘었나 → 그 속도면 목표에 언제 닿나
+  const n = done.length, last = done[n - 1];
+  let pace = '';
+  if (n >= 7) {
+    const slope6 = (last.a - done[n - 7].a) / 6;
+    const slope12 = n >= 13 ? (last.a - done[n - 13].a) / 12 : null;
+    pace = `최근 6개월 월 <b>${slope6 >= 0 ? '+' : ''}${man(slope6)}</b>씩 증가`
+      + (slope12 != null ? ` · 12개월 기준 월 ${slope12 >= 0 ? '+' : ''}${man(slope12)}` : '');
+    if (slope6 > 0 && last.a < goal) {
+      const mm = Math.ceil((goal - last.a) / slope6), eta = new Date(now.getFullYear(), now.getMonth() + mm, 1);
+      pace += ` · 이 속도면 목표 도달 <b>${eta.getFullYear()}년 ${eta.getMonth() + 1}월</b>`;
+    }
+  }
+  el.innerHTML = `<div style="display:flex;justify-content:space-between;font-size:12px;font-weight:700;color:var(--text2);margin-bottom:4px">
+      <span>월별 받은 분배금 (최근 ${pts.length}개월)</span>
+      <span style="font-weight:400;color:var(--text)">3개월 평균 <b style="color:var(--green)">${Math.round(last ? last.a : 0).toLocaleString()}</b> · 목표 ${goal.toLocaleString()}</span></div>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">${svg}</svg>
+    <div style="font-size:11px;color:var(--text);margin-top:4px">${pace || '추이를 보려면 7개월 이상 기록이 필요합니다'}</div>
+    <div style="font-size:10px;color:var(--text3);margin-top:2px">막대 = 그달 실제 받은 분배금(입력분) · 초록선 = 3개월 평균 · 회색 = 이번 달(받는 중)</div>`;
+}
+
 async function loadDashboard() {
   const year = parseInt(document.getElementById('dashYearSel').value) || new Date().getFullYear();
   document.getElementById('dashYear').textContent = year + '년';
@@ -2770,6 +2835,15 @@ async function loadDashboard() {
     ? `목표까지 월 ${Math.round(gap).toLocaleString()} 부족`
     : `목표 달성 (+${Math.round(-gap).toLocaleString()})`)
     + ` · 세후 추정 월평균 ${Math.round(afterMonthly).toLocaleString()} (건보료 별도)`;
+  // 진척도 추이 — 월별 실제 받은 분배금(입력분)과 3개월 평균. 속도가 붙는지 꺾이는지 보려는 것.
+  const histMap = {}, curOf = {};
+  holdings.forEach(h => { curOf[h.id] = h.currency; });
+  Object.entries(byHolding).forEach(([hid, ys]) => Object.entries(ys).forEach(([y, ms]) =>
+    Object.entries(ms).forEach(([m, a]) => {
+      const k = y + '-' + String(m).padStart(2, '0');
+      histMap[k] = (histMap[k] || 0) + divKrwOf(a, curOf[hid], divRate[hid + '_' + y + '_' + m], rate);
+    })));
+  renderGoalHist(histMap, GOAL);
 
   // D-Day: 2029년 2월 28일
   const TARGET_DATE = new Date('2029-02-28');
@@ -4148,7 +4222,7 @@ function xirr(flows, endValue, endDate) {
 // 매매 기록은 '보유변동' 시트(하루 3번)에 지금의 앱 보유 상태를 마지막 한 줄로 이어 붙인다 —
 // 그래서 앱에서 고친 것이 트리거를 기다리지 않고 바로 반영된다.
 // ⚠️ 거래내역을 새로 받아 두 시트를 다시 만들면 이 날짜를 그 거래내역의 마지막 날로 바꾼다.
-const SCORECARD_ASOF = '2026-08-18';
+const SCORECARD_ASOF = '2026-09-28';
 function rollScorecard(log, divs, priceMap, er) {
   const toKrw = (v, cur, rate) => cur === 'USD' ? v * (rate || er) : v;
   const at = {}, ev = [], adj = {};
