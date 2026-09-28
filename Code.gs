@@ -4946,7 +4946,11 @@ function testCal() {
 function _diagScorecard() {
   const er = fetchExchangeRate() || 1400;
   const hs = getHoldings();
+  CacheService.getScriptCache().remove('liveprices_v1');   // 방금 고친 경로를 캐시 없이 본다
   const lp = getLivePrices() || {};
+  const sheetT = {};
+  (getSheetData().items || []).forEach(it => { const t = String(it.ticker || '').replace(/^'/, '').trim().toUpperCase();
+    if (t && parseFloat(it.current)) sheetT[/^\d{1,5}$/.test(t) ? ('000000' + t).slice(-6) : t] = 1; });
   const pct = (a, b) => b ? (a / b * 100).toFixed(1) + '%' : '-';
   const seen = {};
   const tot = { dep: 0, gap: 0 };
@@ -4966,17 +4970,18 @@ function _diagScorecard() {
     tot.dep += dep; tot.gap += gap;
     // 평가 쪽: 화면과 같은 현재가(getLivePrices)로 평가손익률과 **현재가/평단 이상치**를 본다.
     // 종목은 가린다(첫 글자+길이) — 단위 섞임(달러↔원, 1/1000)인지 판단하는 데는 비율과 통화면 충분하다.
-    let val = 0, miss = 0; const odd = [];
+    let val = 0, miss = 0; const odd = [], missT = [];
     mine.forEach(h => {
       const t = String(h.ticker || '').replace(/^'/, '').trim().toUpperCase();
       const p = ((lp.prices || {})[t] || {}).current;
       const avg = +h.avg_price || 0, q = +h.quantity || 0, k = h.currency === 'USD' ? er : 1;
-      if (!p) { miss++; val += avg * q * k; return; }
+      if (!p) { miss++; val += avg * q * k; missT.push(t.slice(0, 1) + '*' + t.length + '(' + (h.currency || '?') + (sheetT[t] ? ',시트O' : ',시트X') + ')'); return; }
       val += p * q * k;
       const r = avg ? p / avg : 0;
       if (r && (r < 0.5 || r > 2)) odd.push(t.slice(0, 1) + '*' + t.length + '(' + (h.currency || '?') + ') 현재가/평단 ' + r.toFixed(3) + ' 비중 ' + pct(avg * q * k, inv));
     });
-    console.log('    평가손익률 ' + pct(val - inv, inv) + ' · 시세없음 ' + miss + '종목' + (odd.length ? ' · ⚠ 이상치 ' + odd.join(' / ') : ''));
+    console.log('    평가손익률 ' + pct(val - inv, inv) + ' · 시세없음 ' + miss + '종목' + (missT.length ? ' ' + missT.join(' ') : '')
+      + (odd.length ? ' · ⚠ 이상치 ' + odd.join(' / ') : ''));
     console.log(own + '#' + seen[own] + ' | 검산차이 ' + pct(gap, dep) + ' | 원가검산 ' + pct(costChk, dep)
       + ' | 현금검산 ' + pct(cashChk, dep) + ' | 보유원금 ' + pct(inv, dep) + ' (해외 ' + pct(invUsd, inv) + ')'
       + ' 예수금 ' + pct(cash, dep) + ' 실현 ' + pct(real, dep) + ' 배당 ' + pct(div, dep)
