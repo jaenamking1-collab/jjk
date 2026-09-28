@@ -282,7 +282,8 @@ function getCostBasis(year) {
 // 시트 [account_id, name, deposit, transfer, buy, sell, realized, inkind, div, interest, div12, tax, cash, cash_usd].
 // 못 열면 [] → 탭이 안내문을 띄운다.
 // inkind = 타사대체입고(현물이관) 원가. 현금 입금은 아니지만 외부에서 들어온 자본이라 투자원금에 포함한다.
-const SUMMARY_SHEET_ID = '1WXslTXPsdZNm8aG-3DbHx_yIsxz4xHonYAkTSvKb-j4';
+// v4: 2026-09-28 거래내역 기준(WORKLOG 187). 이 날짜는 portfolio.html 의 SCORECARD_ASOF 와 같아야 한다.
+const SUMMARY_SHEET_ID = '1YF2xePv2bnTA9kXLOR5U482RoqTMWgF_fhz-4mx1EYU';
 function getAccountSummary() {
   let rows;
   try {
@@ -300,7 +301,7 @@ function getAccountSummary() {
 // 계좌별 현금흐름 (XIRR용). 투자자 관점 부호: 계좌에 넣은 돈 −, 빼낸 돈 +.
 // 계좌간 이체는 양쪽에 반대 부호로 들어 있어 소계·합계에서 저절로 상쇄된다.
 // 시트 [account_id, date, amount].
-const FLOW_SHEET_ID = '1JdnOiI8UQ2HJ_SKZRYVSl4DWoxcZ19mTQhmlgHvQ23A';
+const FLOW_SHEET_ID = '12lsA_H3dvyQvCShdnuIaTd1dakIYtXsR7tAtQKZfx5I';  // v2: 2026-09-28 기준
 function getAccountFlows() {
   let rows;
   try {
