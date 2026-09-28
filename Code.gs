@@ -1143,6 +1143,23 @@ function readDistCache(source, rows) {
   } catch(e) {}
   return null;
 }
+// 회차 = 기준일의 '일'(20일 이하 월중). 기준일이 없을 때만 파서가 붙인 cycle 을 믿는다(TIGER 오분류 전례).
+function _itemCycle(it) {
+  const m = String(((it && it.sched) || {})['기준일'] || '').match(/(\d{1,2})\s*일|\d{1,2}\/(\d{1,2})/);
+  const d = m ? parseInt(m[1] || m[2], 10) : 0;
+  return d ? (d <= 20 ? '월중' : '월말') : ((it && it.cycle) || '');
+}
+function _carryMissingCycles(payload, oldRaw) {
+  try {
+    const old = JSON.parse(oldRaw);
+    const have = new Set((payload.items || []).filter(it => !it.hist).map(_itemCycle));
+    const carry = (old.items || []).filter(it => !it.hist && _itemCycle(it) && !have.has(_itemCycle(it)));
+    if (carry.length) {
+      payload.items = (payload.items || []).concat(carry);
+      console.log('분배캐시: 이번 파싱에 없는 회차 ' + carry.length + '건을 이전 값으로 유지');
+    }
+  } catch(e) {}
+}
 function writeDistCache(source, payload, cycleKey) {
   try {
     const sh = _distCacheSheet();
@@ -1152,7 +1169,15 @@ function writeDistCache(source, payload, cycleKey) {
     const mine = [];   // 같은 source의 다른 회차 행들
     for (let i = 1; i < rows.length; i++) {
       if (rows[i][0] !== source) continue;
-      if (rows[i][3] === cycleKey) { sh.getRange(i + 1, 1, 1, 4).setValues([rec]); return; }
+      if (rows[i][3] === cycleKey) {
+        // ⛔ 같은 회차 줄을 **통째로 덮으면 안 된다.** 이번 실행이 한 회차 글만 읽고(다른 글은 타임아웃)
+        // 성공하면, 전에 읽어 둔 다른 회차가 지워진다. 2026-09-28 PLUS: 9/23 월말을 한 번 읽었는데
+        // 그 뒤 plusetf.co.kr 타임아웃 실행이 월중만 들고 덮어써 월말이 사라졌다(달력 `PLUS?`, 표 '·').
+        // 이번 결과에 **아예 없는 회차**만 옛 줄에서 이어 붙인다 — 있는 회차는 새 값이 이긴다.
+        _carryMissingCycles(payload, rows[i][1]);
+        sh.getRange(i + 1, 1, 1, 4).setValues([[source, JSON.stringify(payload), now, cycleKey]]);
+        return;
+      }
       mine.push({ row: i + 1, rank: cycleRank(rows[i][3]) });
     }
     sh.appendRow(rec);

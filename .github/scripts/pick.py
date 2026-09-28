@@ -84,6 +84,17 @@ if path_expr == 'raw':
     print('RAW ' + open(file_path, encoding='utf-8', errors='replace').read().replace('\n', ' '))
     sys.exit(0)
 
+# 특수 모드: 'rss' — RSS 글 목록(날짜·글번호·제목)만 찍는다. text 모드는 CDATA 제목을 태그로 보고 지워 버린다.
+# 왜: SOL 은 네이버 블로그 RSS 로 분배 공지를 찾는데, 9월말 글을 못 찾는 이유를 보려면 목록이 필요했다(2026-09-28).
+if path_expr == 'rss':
+    raw = open(file_path, encoding='utf-8', errors='replace').read()
+    for c in raw.split('<item>')[1:15]:
+        t = re.search(r'<title>\s*(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?\s*</title>', c)
+        d = re.search(r'<pubDate>\s*(.*?)\s*</pubDate>', c)
+        l = re.search(r'/(\d{6,})', c)
+        print((d.group(1) if d else '-'), (l.group(1) if l else '-'), (t.group(1).strip() if t else '-'))
+    sys.exit(0)
+
 # 특수 모드: 'text:<낱말>' — HTML 응답의 태그를 벗기고 그 낱말 앞뒤만 찍는다.
 # 왜: 운용사 공지 원문(TIGER view.do 등)은 수십 KB 라 head 로 자르면 본문까지 닿지 않는다(2026-09-28).
 if path_expr.startswith('text:'):
