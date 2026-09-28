@@ -150,7 +150,7 @@ DEFAULT = {
     "coin_mid": {},                      # 코인 -> (날짜, 한국시간 자정의 해외 시세)
     "ratio_band": {},                    # 교환비율 -> (날짜, 30일 최저, 최고)
     "coin_base": {},                     # 코인 -> (날짜, 국내 기준가). 등락률 기준
-    "band_open": {},                     # 교환비율 줄 -> 밑줄을 펼쳐 놨나(클릭으로 토글)
+    "detail_open": False,                # 밑줄(오늘 금액·전일값)을 펼쳐 놨나. 전 종목 한꺼번에
 }
 
 SPARK = "https://query1.finance.yahoo.com/v7/finance/spark?range=1d&interval=1d&symbols="
@@ -319,7 +319,7 @@ def band_note(sym):
     bl = band_row.get(sym)
     if not bl:
         return
-    open_ = bool(cfg["band_open"].get(sym))
+    open_ = bool(cfg.get("detail_open"))
     bits = []
     if open_ and sym in last:
         price, diff, pct, dec, _ = last[sym]
@@ -347,11 +347,14 @@ def band_note(sym):
     (bl.grid_remove if not text else bl.grid)()
 
 
-def band_toggle(sym):
-    """줄을 클릭 -> 밑줄을 폈다 접었다. 창 크기가 바뀌므로 배경도 같이 맞춘다."""
-    cfg["band_open"][sym] = not cfg["band_open"].get(sym)
+def band_toggle(sym=None):
+    """아무 줄이나 클릭 -> **전 종목**의 밑줄을 한꺼번에 폈다 접었다.
+    처음엔 줄마다 따로 폈는데, 사용자가 원한 건 한 번에 전체가 나오는 것이었다(2026-09-28).
+    창 크기가 바뀌므로 배경도 같이 맞춘다."""
+    cfg["detail_open"] = not cfg.get("detail_open")
     save(cfg)
-    band_note(sym)
+    for k in list(band_row):
+        band_note(k)
     sync_back()
     place_panel()
 
@@ -752,7 +755,7 @@ def build():
             band_row[sym] = bl = tk.Label(body, text="", bg=panel_bg(), fg=DIM,
                                           font=("Malgun Gothic", 7))
             bl.grid(row=r + 1, column=0, columnspan=3, sticky="w")
-            if RATIO not in sym and not cfg["band_open"].get(sym):
+            if RATIO not in sym and not cfg.get("detail_open"):
                 bl.grid_remove()
             for w in (nm, p, c, bl):         # 줄 아무 데나 눌러도 펴진다
                 w.bind("<Button-1>", lambda e, k=sym: band_toggle(k))
