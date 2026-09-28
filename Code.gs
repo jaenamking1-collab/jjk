@@ -4428,7 +4428,8 @@ function sectorSnapshot(tab) {
     newPx[tk] = p.current;
     const fx = o.usd ? rate : 1;
     const val = p.current * o.qty * fx;
-    const stale = lastPx[tk] === p.current;          // 휴장 등으로 값이 안 바뀜
+    // 휴장 등으로 값이 안 바뀜. 점심 표는 판별하지 않는다 — 장중 값이 아침과 우연히 같을 수 있다(9/28 현대차).
+    const stale = !tab && lastPx[tk] === p.current;
     if (stale) flat++;
     const chg = stale ? 0 : (p.change || 0);
     const diff = stale || !p.prev ? 0 : (p.current - p.prev) * o.qty * fx;
