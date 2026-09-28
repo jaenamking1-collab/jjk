@@ -4387,6 +4387,11 @@ function keepWarm() {
       sectorSnapshot();
       pr.setProperty('sectorDay', today);
     }
+    // 점심 표 — 국내장 장중 등락. 아침 표와 비교하라고 '점심' 탭에 따로 쓴다(2026-09-28 사용자 요청).
+    if (dow <= 5 && hm >= '1200' && pr.getProperty('sectorNoonDay') !== today) {
+      sectorSnapshot('점심');
+      pr.setProperty('sectorNoonDay', today);
+    }
   } catch (e) { console.log('섹터 등락표 실패 — ' + e); }
 }
 
@@ -4397,7 +4402,7 @@ function keepWarm() {
 // ⚠️ 드라이브 커넥터는 탭마다 **앞 7행만** 보여 준다 — 그래서 섹터를 행이 아니라 **열**로 펼친다.
 // 섹터는 holdings.div_cycle 의 '|' 뒤(앱의 TICKER_SECTOR 로 채운 값). 가중치는 원화 평가금액.
 // 휴장 판별: 직전 표를 만들 때와 현재가가 같으면 그 종목은 '변동 없음'으로 빼고 계산한다.
-function sectorSnapshot() {
+function sectorSnapshot(tab) {
   const pr = PropertiesService.getScriptProperties();
   const prices = (getLivePrices() || {}).prices || {};
   const rate = parseFloat(fetchExchangeRate()) || 1400;
@@ -4458,10 +4463,10 @@ function sectorSnapshot() {
     pr.setProperty('sectorSheetId', ss.getId());
     _fixLog('섹터보고 시트 새로 만듦: ' + ss.getId());
   }
-  const sh = ss.getSheets()[0];
+  const sh = tab ? (ss.getSheetByName(tab) || ss.insertSheet(tab)) : ss.getSheets()[0];
   sh.clear();
   sh.getRange(1, 1, 3, head.length).setValues([head, sum, detail]);
-  pr.setProperty('sectorLastPx', JSON.stringify(newPx));
+  if (!tab) pr.setProperty('sectorLastPx', JSON.stringify(newPx));   // 휴장 판별 기준은 아침 표만
   console.log('섹터 등락표 작성: ' + names.length + '개 섹터, ' + stamp);
 }
 
