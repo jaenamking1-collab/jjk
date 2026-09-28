@@ -33,4 +33,4 @@ const now = new Date().getMonth() + 1;
 console.log(`${Y}년 예상 분배금 (KRW, 확정+예상) — A → B`);
 for (let m = now; m <= 12; m++) console.log(`  ${m}월: ${man(A.proj[m-1])} → ${man(B.proj[m-1])}`);
 console.log(`  월평균: ${man(A.annual / 12)} → ${man(B.annual / 12)}  (목표 1,000만)`);
-console.log(`보유 종목 중 B 로 계산: ${nB}개 (올라감 ${up} · 내려감 ${down}) · 수량 이력 부족으로 A 유지: ${nA}개`);
+console.log(`보유 종목 중 B 로 계산: ${nB}개 (올라감 ${up} · 내려감 ${down}) · 그대로: ${nA}개 (최근 3회 수량이 같았거나 수량 이력이 없어 A 와 같음)`);
