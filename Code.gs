@@ -3119,6 +3119,21 @@ function getLivePrices() {
       });
     } catch(e) { console.log('getLivePrices USD', e); }
   }
+  // ⛔ 못 받은 종목은 **종목별로** '주식상황' 시트 현재가(GOOGLEFINANCE)로 메운다.
+  // 예전엔 한 종목이라도 받으면 이 목록만 썼다(프론트 fetchPriceItems 의 시트 폴백은 전부 실패할 때만 돈다).
+  // 야후가 구글 서버 요청을 자주 막아 해외 7종목씩(은경·재남 해외 계좌)이 '시세없음' → 평단으로 계산돼
+  // 평가손익 0으로 보였고, 성적표·포트폴리오가 증권사 화면과 어긋났다(2026-09-28 _diagScorecard 로 확인).
+  const all = codes.map(c => krw[c]).concat(usd);
+  if (all.some(t => !prices[t])) {
+    try {
+      (getSheetData().items || []).forEach(it => {
+        let t = String(it.ticker || '').replace(/^'/, '').trim().toUpperCase();
+        if (/^\d{1,5}$/.test(t)) t = ('000000' + t).slice(-6);   // 시트가 069500 → 69500 으로 먹은 경우
+        const cur = parseFloat(it.current);
+        if (t && cur && !prices[t] && all.indexOf(t) >= 0) prices[t] = { current: cur, prev: 0, change: parseFloat(it.change) || 0, src: 'sheet' };
+      });
+    } catch(e) { console.log('getLivePrices 시트 폴백', e); }
+  }
 
   const out = { success: true, prices: prices };
   if (Object.keys(prices).length) { try { cache.put('liveprices_v1', JSON.stringify(out), 60); } catch(e) {} }
