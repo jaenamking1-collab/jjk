@@ -1481,7 +1481,15 @@ function ocrImageText(imgUrl) {
       method: 'post', contentType: 'application/json', payload: JSON.stringify(payload), muteHttpExceptions: true
     });
     const json = JSON.parse(res.getContentText('UTF-8'));
-    if (json.error) { _ocrDbg = 'vision err ' + JSON.stringify(json.error).slice(0, 180); return ''; }
+    if (json.error) {
+      _ocrDbg = 'vision err ' + JSON.stringify(json.error).slice(0, 180);
+      // Vision 이 막히면 PLUS(표가 이미지)가 통째로 빈다. 7/7 에 이미 한 번 결제 미연결로 막혔고
+      // 9/28 에 또 막혔는데(무료체험 종료 추정) **둘 다 사람이 화면을 보고서야 알았다.**
+      // 알림 엔진(checkAndLogAlerts)이 이 표시를 보고 알린다.
+      PropertiesService.getScriptProperties().setProperty('ocrDown', Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm') + ' ' + (json.error.message || json.error.status || '').slice(0, 120));
+      return '';
+    }
+    PropertiesService.getScriptProperties().deleteProperty('ocrDown');
     const r0 = json.responses && json.responses[0];
     if (r0 && r0.error) { _ocrDbg = 'vision resp err ' + JSON.stringify(r0.error).slice(0, 180); return ''; }
     const text = r0 && r0.fullTextAnnotation ? r0.fullTextAnnotation.text : '';
@@ -2689,6 +2697,11 @@ function checkAndLogAlerts() {
   });
 
   try { _alertStaleCycle(logSheet, kakaoMsgs); } catch(e) { console.log('_alertStaleCycle 오류', e); }
+  // OCR(Vision) 장애는 운용사 하나가 아니라 **이미지 공지 전부**를 죽인다. 원인이 우리 코드가 아니라
+  // 구글 클라우드 결제라 사람이 고쳐야 하므로 하루 한 번 알린다(표시는 ocrImageText 가 남긴다).
+  const ocrDown = PropertiesService.getScriptProperties().getProperty('ocrDown');
+  if (ocrDown && _addAlert(logSheet, 'OCR', '파싱경고', 'Vision OCR 막힘 — ' + ocrDown + ' · PLUS 표(이미지)를 못 읽는다', '중요', true))
+    kakaoMsgs.push('🚨 Vision OCR 막힘(구글 클라우드 결제 확인) — PLUS 분배금 못 읽음');
 
   // ⚠️ 순서가 중요하다. 예전엔 메타를 여기서 먼저 덮어쓰고 그 뒤에 알림을 보냈다. 그러면 발송이
   // 실패해도 메타는 이미 새 공시일로 갱신되므로, 다음 실행부터 fp.pubDate === prev.pubDate 가 되어

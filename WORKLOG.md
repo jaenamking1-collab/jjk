@@ -42,8 +42,19 @@
   `분배락(9월 29일)` 괄호도 허용. `tools/test_sol_items.js` 에 실제 9/28 행 추가(6형식 통과). 0건 글은 로그를 남긴다.
 - 도구: `pick.py` 에 `rss` 모드, `text:낱말@길이`.
 
+**배포·확인(이 세션)**: deploy → `resetAllTriggers`(16개 ✅) → `_diagDist sol` = 9월말 14종목·지급 10/1 ✅ → `clearDistCache` sol·tiger
+→ `getDistributionAll` 에서 TIGER 9월말이 **월말**(24종목·지급 10/2), SOL 9월말 14종목 확인.
+
+**PLUS 는 아직 안 된다 — 진짜 원인은 Vision OCR 결제**: `_diagDist plus` →
+`vision err 403 "This API method requires billing to be enabled" (project #610977749646)`. PLUS 공지 표는 이미지라 OCR 없이는 0건이다.
+7/7(WORKLOG 그날 항목)에 **무료체험 크레딧으로** 결제를 연결해 살렸는데, 그게 끝난 것으로 보인다(구글 계정 안의 일이라 내가 못 한다).
+- 재발 감지: `ocrImageText` 가 Vision 오류 때 `ocrDown` 속성을 남기고, `checkAndLogAlerts` 가 하루 한 번 **카톡**으로 알린다(push 만으로 동작 — 트리거 경로).
+- 그 전까지 화면은 `distPlanner` 예정(9월말 PLUS 지급 10/2 `?`)으로 채운다.
+
 ### 다음 할 일
-- 배포 후 `_diagDist sol` 로 9월말 14종목·지급 10/1 확인, `clearDistCache` 로 화면 갱신.
+- **사용자**: 구글 클라우드 결제 다시 연결 — https://console.developers.google.com/billing/enable?project=610977749646
+  (Vision 은 월 1,000건 무료. PLUS 는 새 이미지에만 OCR 하고 6시간 캐시라 무료 한도 안쪽).
+- 연결 후: `maint` `_diagDist plus` 로 월말 종목 확인 → `clearDistCache plus`.
 
 ## 2026-09-28 (195) / 원격 — 계좌성적표 총수익을 **평가손익 + 실현손익 + 배당누적**으로
 
