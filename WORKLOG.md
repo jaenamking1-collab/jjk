@@ -12,7 +12,7 @@
 - **작업 종료**: 맨 위에 새 항목 추가 → `git add .` → `git commit` → `git push`
 
 
-## 2026-09-28 (182) / 원격 — prompt-audit 반영 (CLAUDE.md 129→125줄)
+## 2026-09-28 (186) / 원격 — prompt-audit 반영 (CLAUDE.md 129→125줄)
 - `/claude-api prompt-audit` 로 CLAUDE.md·스킬 3개·CHECKS.md 점검. 보고서: 프로젝트 파일 `reports/prompt-audit/보고서.md`.
 - 고친 것(사실 오류 위주): 액션 목록 → `Code.gs` 의 `doGet`/`doPost` 를 보라는 한 줄(문서 19개 vs 실제 34개였음), "수동 재배포해야 반영" 모순 문장, 커밋 방식 설명, 파일 길이(3900→수천 줄), `renderAccountStats` 줄 번호 제거, 작업공간 **세 곳(집·직장 본체·직장 노트북)+원격**.
 - 정리: 영/한 중복 세션 절차 합침, 지난 8/18 부트스트랩 문단·사건 괄호·압박 문구 삭제, ⛔ 2개 해제, 스킬의 "(CLAUDE.md 에서 옮김)" 삭제.
