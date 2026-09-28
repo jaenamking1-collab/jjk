@@ -27,12 +27,16 @@
  */
 
 // ── 설정 ──────────────────────────────────
-// 낮은 것부터 적는다. 각 단을 처음 넘을 때 한 번씩 알린다.
-// 50 하나만 두면, 50이 최근 한 달 고점(49.08)보다 위라 중간의 좋은 자리를 다 놓친다(2026-09-23).
-// 9/28 에 47~50 에서 44~47 로 내렸다 — 비율이 43.30 까지 밀려 47 조차 +8.5% 였다.
-// 단은 '지금 자리에서 볼 만한 곳'에 있어야 쓸모가 있다. 멀면 아무 소식도 안 온다.
-var TARGETS       = [44, 45, 46, 47];
-var REARM_GAP     = 0.01;      // 그 단보다 1% 아래로 내려가야 다시 무장한다(경계에서 떨리는 것 방지)
+// 방향이 둘이다. 섞으면 안 된다 — 41 처럼 **지금보다 낮은 값**을 위로 뚫는 단에 넣으면
+// 이미 지나쳐 있으므로 다음 점검에서 곧장 "41 도달"이 울린다(2026-09-28 지적).
+//
+//   TARGETS : 비율이 이 값 **이상으로 올라올 때** 알린다. 좋은 자리(바꿀 때).
+//   FLOORS  : 비율이 이 값 **이하로 내려갈 때** 알린다. 나빠졌다는 신호.
+//
+// 단이 촘촘하면 알림이 너무 잦다. 사용자가 9/28 에 44~47 을 걷어내고 49·50·41 만 남겼다.
+var TARGETS       = [49, 50];
+var FLOORS        = [41];
+var REARM_GAP     = 0.01;      // 그 단에서 1% 되돌려야 다시 무장한다(경계에서 떨리는 것 방지)
 var BASE_COIN     = 'ripple';  // 파는 것
 var QUOTE_COIN    = 'kaia';    // 사는 것
 var CALENDAR_NAME = '';      // 빈 칸이면 기본 달력. 폰에서 반드시 켜져 있는 유일한 달력이다
@@ -64,8 +68,8 @@ function checkOnce() {
   var ratio = p.base / p.quote;
   var armed = readArmed_(props);
 
-  // 닿은 단 중 가장 높은 것 하나만 알린다. 45에서 50으로 한 번에 뛰어도 알림은 하나다.
-  var hit = null;
+  // 올라가는 단: 닿은 것 중 **가장 높은 것** 하나만 알린다. 45에서 50으로 뛰어도 알림은 하나다.
+  var hit = null, down = false;
   TARGETS.forEach(function (t) {
     if (ratio >= t && armed[t]) { armed[t] = false; hit = t; }
     else if (ratio < t * (1 - REARM_GAP) && !armed[t]) {
@@ -73,10 +77,18 @@ function checkOnce() {
       Logger.log(t + ' 아래로 내려와 다시 무장');
     }
   });
+  // 내려가는 단: 닿은 것 중 **가장 낮은 것** 하나만. 위와 부호만 뒤집은 같은 규칙이다.
+  FLOORS.forEach(function (t) {
+    if (ratio <= t && armed[t]) { armed[t] = false; hit = t; down = true; }
+    else if (ratio > t * (1 + REARM_GAP) && !armed[t]) {
+      armed[t] = true;
+      Logger.log(t + ' 위로 올라와 다시 무장');
+    }
+  });
 
-  Logger.log('비율 ' + ratio.toFixed(2) + ' / 남은 목표 ' + (waiting_(armed).join(', ') || '없음'));
+  Logger.log('비율 ' + ratio.toFixed(2) + ' / 남은 단 ' + (waiting_(armed).join(', ') || '없음'));
 
-  if (hit !== null) createEvent_(getCalendar_(), ratio, p, hit, armed, false);
+  if (hit !== null) createEvent_(getCalendar_(), ratio, p, hit, armed, false, down);
   props.setProperty(STATE_KEY, JSON.stringify(armed));
 }
 
@@ -85,13 +97,18 @@ function readArmed_(props) {
   var saved = {};
   try { saved = JSON.parse(props.getProperty(STATE_KEY) || '{}') || {}; } catch (e) { saved = {}; }
   var armed = {};
-  TARGETS.forEach(function (t) { armed[t] = saved[t] !== false; });
+  allSteps_().forEach(function (t) { armed[t] = saved[t] !== false; });
   return armed;
+}
+
+/** 올라가는 단 + 내려가는 단. 낮은 것부터. */
+function allSteps_() {
+  return TARGETS.concat(FLOORS).sort(function (a, b) { return a - b; });
 }
 
 /** 아직 안 닿은 단들. */
 function waiting_(armed) {
-  return TARGETS.filter(function (t) { return armed[t]; });
+  return allSteps_().filter(function (t) { return armed[t]; });
 }
 
 
@@ -156,19 +173,25 @@ function getCalendar_() {
   return CalendarApp.getDefaultCalendar();
 }
 
-function createEvent_(cal, ratio, p, goal, armed, isTest) {
+function createEvent_(cal, ratio, p, goal, armed, isTest, down) {
   var got  = SAMPLE_XRP * ratio;
-  var left = waiting_(armed);
+  // 올라와서 닿은 것과 떨어져서 닿은 것은 뜻이 정반대다. 같은 문구를 쓰면 안 된다.
+  // '다음'도 **같은 방향**에서만 고른다 — 49를 올라가며 넘었는데 "다음 41" 이라고
+  // 적으면 아무 쓸모가 없다(2026-09-28 시험에서 실제로 그렇게 나왔다).
+  var near = (down ? FLOORS : TARGETS)
+               .filter(function (t) { return armed[t] && (down ? t < goal : t > goal); })
+               .sort(function (a, b) { return down ? b - a : a - b; })[0];
 
-  var title = (isTest ? '🧪 테스트 · ' : '🎯 ')
+  var title = (isTest ? '🧪 테스트 · ' : down ? '⚠️ ' : '🎯 ')
             + p.baseSym + '당 ' + p.quoteSym + ' ' + ratio.toFixed(2)
-            + ' · ' + goal + ' 도달';
+            + ' · ' + goal + (down ? ' 아래로' : ' 도달');
 
   var desc = [
     '비율:   1 ' + p.baseSym + ' = ' + ratio.toFixed(2) + ' ' + p.quoteSym,
-    '도달:   ' + goal + ' 단',
-    '다음:   ' + (left.length
-                  ? left[0] + ' (여기서 ' + ((left[0] / ratio - 1) * 100).toFixed(1) + '% 더)'
+    down ? '하락:   ' + goal + ' 아래로 내려왔습니다'
+         : '도달:   ' + goal + ' 단',
+    '다음:   ' + (near
+                  ? near + ' (여기서 ' + ((near / ratio - 1) * 100).toFixed(1) + '%)'
                   : '없음 — 마지막 단이었습니다'),
     '',
     p.baseSym + ':    ' + num_(p.base) + '원',
@@ -177,8 +200,8 @@ function createEvent_(cal, ratio, p, goal, armed, isTest) {
     p.baseSym + ' ' + num_(SAMPLE_XRP) + '개 → ' + p.quoteSym + ' ' + num_(got) + '개',
     '',
     isTest ? '테스트 발송 — 실제 알림이 아닙니다'
-           : '이 단은 ' + goal + '보다 ' + (REARM_GAP * 100)
-             + '% 아래로 내려가야 다시 알립니다.',
+           : '이 단은 ' + goal + '에서 ' + (REARM_GAP * 100)
+             + '% ' + (down ? '위로 올라가야' : '아래로 내려가야') + ' 다시 알립니다.',
     '',
     '출처: ' + (p.src || '빗썸')
   ].join('\n');
@@ -227,8 +250,12 @@ function testOnce() {
   Logger.log(p.baseSym + ' ' + num_(p.base) + '원 / ' + p.quoteSym + ' ' + p.quote.toFixed(2) + '원');
   Logger.log('비율 ' + ratio.toFixed(2) + ' / 시세 출처: ' + (p.src || '빗썸'));
   TARGETS.forEach(function (t) {
-    Logger.log('  ' + t + ' 까지 ' + ((t / ratio - 1) * 100).toFixed(1) + '%'
+    Logger.log('  ▲ ' + t + ' 까지 ' + ((t / ratio - 1) * 100).toFixed(1) + '%'
                + (ratio >= t ? '  ← 이미 넘었다' : ''));
+  });
+  FLOORS.forEach(function (t) {
+    Logger.log('  ▼ ' + t + ' 까지 ' + ((t / ratio - 1) * 100).toFixed(1) + '%'
+               + (ratio <= t ? '  ← 이미 내려왔다' : ''));
   });
 }
 
@@ -237,11 +264,12 @@ function sendTestEvent() {
   var p = fetchPair_();
   if (!p) { Logger.log('시세를 못 받았다'); return; }
   var ratio = p.base / p.quote;
-  createEvent_(getCalendar_(), ratio, p, TARGETS[0], readArmed_(PropertiesService.getScriptProperties()), true);
+  createEvent_(getCalendar_(), ratio, p, TARGETS[0],
+               readArmed_(PropertiesService.getScriptProperties()), true, false);
 }
 
 /** 목표에 이미 닿아 잠겨 있을 때 다시 알리도록 푼다. */
 function resetState() {
   PropertiesService.getScriptProperties().deleteProperty(STATE_KEY);
-  Logger.log('모든 단을 다시 무장했다: ' + TARGETS.join(', '));
+  Logger.log('모든 단을 다시 무장했다: ' + allSteps_().join(', '));
 }
