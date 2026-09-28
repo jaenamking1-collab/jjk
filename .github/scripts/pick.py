@@ -61,10 +61,11 @@ if path_expr == 'chg':
         rep = v.get('schedule') or {}
         its = v.get('items') or []
         sch = lambda it: it.get('sched') or rep
-        pm = {}
+        pm, pr = {}, {}
         for it in its:
             if it.get('hist') and it.get('amount') is not None and mon(sch(it).get('기준일') or sch(it).get('지급일')) == prev:
                 pm[(it.get('ticker') or it.get('name')) + '|' + cyc(it, rep)] = it['amount']
+                pr[(it.get('ticker') or it.get('name')) + '|' + cyc(it, rep)] = it.get('rate')
         print(f'--- {name} ({sel}월, 지난달 비교 {len(pm)}건) ---')
         for it in its:
             if it.get('hist') or mon(sch(it).get('기준일') or sch(it).get('지급일')) != sel:
@@ -74,8 +75,20 @@ if path_expr == 'chg':
             a = it.get('amount')
             pct = f'{(a - p) / p * 100:+.1f}%' if p and a is not None else '-'
             flag = ' ⚠️' if p and a is not None and abs((a - p) / p) > 0.3 else ''
+            rt = f"  분배율 {it.get('rate')}% / 전달 {pr.get((it.get('ticker') or it.get('name')) + '|' + c)}%" if flag else ''
             print(f'  {c or "?":<3} {it.get("ticker", ""):<7} {str(it.get("name", ""))[:26]:<26} '
-                  f'{a!s:>6} 전달 {p!s:>6} {pct:>8}{flag}  기준 {sch(it).get("기준일", "-")}')
+                  f'{a!s:>6} 전달 {p!s:>6} {pct:>8}{flag}  기준 {sch(it).get("기준일", "-")}{rt}')
+    sys.exit(0)
+# 특수 모드: 'text:<낱말>' — HTML 응답의 태그를 벗기고 그 낱말 앞뒤만 찍는다.
+# 왜: 운용사 공지 원문(TIGER view.do 등)은 수십 KB 라 head 로 자르면 본문까지 닿지 않는다(2026-09-28).
+if path_expr.startswith('text:'):
+    word = path_expr[5:]
+    raw = open(file_path, encoding='utf-8', errors='replace').read()
+    txt = re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', ' ', raw).replace('&nbsp;', ' '))
+    hits = [m.start() for m in re.finditer(re.escape(word), txt)]
+    print(f'"{word}" {len(hits)}곳')
+    for h in hits[:8]:
+        print('  …' + txt[max(0, h - 200):h + 300] + '…')
     sys.exit(0)
 try:
     data = json.load(open(file_path, encoding='utf-8'))
