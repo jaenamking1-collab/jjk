@@ -1,0 +1,39 @@
+# 분배금 예측 A(최근 3회 금액 평균) vs B(최근 3회 1주당 × 지금 수량)를 **실데이터로** 비교한다.
+# 왜 여기서: 클라우드 컨테이너는 script.google.com 으로 못 나간다(probe.yml 주석). Actions 러너는 된다.
+# ⛔ jjk 는 공개 저장소라 이 로그도 공개다. 응답 원문은 절대 찍지 않고 tools/forecast_compare.js 가
+#    합계(월별 총액·종목 개수)만 찍는다. 토큰은 -G --data-urlencode 로 붙여 URL 이 로그에 안 남게 한다.
+name: forecast-compare
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ['m.html', 'portfolio.html', 'tools/forecast_compare.js', '.github/workflows/forecast-compare.yml']
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 원금월별·부팅 데이터 받아 A/B 비교
+        env:
+          TOKEN: ${{ secrets.APP_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TOKEN:-}" ]; then echo "::error::APP_TOKEN Secret 이 없습니다(maint.yml 주석 참고)."; exit 1; fi
+          BASE='https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec'
+          YEAR=$(TZ=Asia/Seoul date +%Y)
+          # /exec 배달 구간이 간헐적으로 404 를 내므로 200 이 올 때까지 3번 친다(maint.yml 과 같은 이유).
+          fetch() {
+            local out=$1; shift
+            for try in 1 2 3; do
+              code=$(curl -sL -o "$out" -w '%{http_code}' --max-time 200 -G "$@" \
+                       --data-urlencode "token=$TOKEN" "$BASE") || code=000
+              echo "$out 시도 $try → HTTP $code · $(wc -c < "$out") bytes"
+              if [ "$code" = "200" ]; then return 0; fi
+              sleep $((try * 5))
+            done
+            return 1
+          }
+          fetch /tmp/boot.json --data-urlencode "action=getBootstrap" --data-urlencode "year=$YEAR"
+          fetch /tmp/cost.json --data-urlencode "action=getCostBasis" --data-urlencode "year=$YEAR"
+          TZ=Asia/Seoul node tools/forecast_compare.js /tmp/boot.json /tmp/cost.json
