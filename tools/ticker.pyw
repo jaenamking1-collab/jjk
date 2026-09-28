@@ -150,6 +150,7 @@ DEFAULT = {
     "coin_mid": {},                      # 코인 -> (날짜, 한국시간 자정의 해외 시세)
     "ratio_band": {},                    # 교환비율 -> (날짜, 30일 최저, 최고)
     "coin_base": {},                     # 코인 -> (날짜, 국내 기준가). 등락률 기준
+    "band_open": {},                     # 교환비율 줄 -> 밑줄을 펼쳐 놨나(클릭으로 토글)
 }
 
 SPARK = "https://query1.finance.yahoo.com/v7/finance/spark?range=1d&interval=1d&symbols="
@@ -235,19 +236,25 @@ def target_of(line):
     """줄 뒤의 @목표를 읽는다. "@50"은 비율 그 자체, "@80%"는 30일 구간의 위치.
     "@47,48,49,50"처럼 쉼표로 여러 단을 둘 수 있다 — 아직 안 닿은 가장 낮은 단을 겨눈다.
     목표 하나만 두면 그게 멀 때 중간의 좋은 자리를 다 놓친다(2026-09-23).
+
+    앞에 v를 붙이면 **하한**이다: "@49,50,v41" = 49·50 을 겨누되 41 아래로 내려가면 경고.
+    올라가는 값과 내려가는 값을 한 목록에 섞으면 안 된다 — 지금보다 낮은 값을 목표에 넣으면
+    이미 지나쳐 있어 곧장 '도달'이 된다(2026-09-28 달력 알림에서 같은 실수를 했다).
+
     XRP를 카이아로 바꿀 때 받는 개수는 비율 하나가 정하므로, 목표도 비율로 잡는다."""
     head, sep, t = line.rpartition("@")
     if not sep:
         return None
     pct = t.strip().endswith("%")
-    goals = []
+    goals, floors = [], []
     for one in t.split(","):
         one = one.strip().rstrip("%")
+        low = one[:1] in ("v", "V")
         try:
-            goals.append(float(one))
+            (floors if low else goals).append(float(one[1:] if low else one))
         except ValueError:
             pass                         # 오타 한 칸 때문에 줄 전체를 잃지는 않는다
-    return (sorted(goals), pct) if goals else None
+    return (sorted(goals), pct, sorted(floors)) if goals or floors else None
 
 
 def cut(name):
@@ -296,22 +303,48 @@ def theme():
 
 
 def band_note(sym):
-    """교환비율 줄 밑에 "최근 30일 42.8~49.1 중 24%" 를 적는다.
+    """교환비율 줄 밑의 흐린 한 줄. **줄을 클릭하면 접었다 폈다** 한다.
+
+    접힘: 최근 30일 42.8~49.1 중 24%
+    펼침: 오늘 -1.20%  ·  최근 30일 42.8~49.1 중 24%  ·  ▲49,50  ▼41
+
     위 칸의 바닥권/고점권이 무엇을 기준으로 한 말인지 눈으로 보이게 하는 것이 전부다.
     구간 위치(%)는 **반드시 이 줄에** 둔다 — 오른쪽 칸에 두면 옆줄들의 '오늘 등락'과
     모양이 같아 마이너스로 읽힌다(2026-09-28, 같은 질문을 세 번 받았다).
     여기서는 바로 왼쪽에 42.8~49.1 이 있어 "무엇의 24%"가 눈으로 이어진다.
-    '중' 한 글자가 '변동'이 아니라 '그 안에서의 자리'임을 말해 준다."""
+    '중' 한 글자가 '변동'이 아니라 '그 안에서의 자리'임을 말해 준다.
+
+    '오늘 등락'은 펼쳤을 때만 보인다. 교환비율 줄에서 그 수치를 아예 빼 버렸더니
+    자세히 볼 길이 없다는 지적을 받았다(2026-09-28). 숨기되 없애지는 않는다."""
     bl = band_row.get(sym)
     if not bl:
         return
+    bits = []
+    if cfg["band_open"].get(sym) and sym in last:
+        bits.append("오늘 %+.2f%%" % last[sym][2])
     _, lo, hi = ratio_band.get(sym) or ("", 0, 0)
-    note = ""
     if hi > lo:
-        note = "최근 %d일 %.1f~%.1f" % (RANGE_DAYS, lo, hi)
+        band = "최근 %d일 %.1f~%.1f" % (RANGE_DAYS, lo, hi)
         if sym in band_pos:
-            note += " 중 %d%%" % round(band_pos[sym])
-    bl.config(text=note, fg=THEME["dim"], bg=panel_bg())
+            band += " 중 %d%%" % round(band_pos[sym])
+        bits.append(band)
+    if cfg["band_open"].get(sym):
+        want = targets.get(sym)
+        if want:
+            if want[0]:
+                bits.append("\u25b2" + ",".join("%g" % g for g in want[0]))
+            if want[2]:
+                bits.append("\u25bc" + ",".join("%g" % g for g in want[2]))
+    bl.config(text="  \u00b7  ".join(bits), fg=THEME["dim"], bg=panel_bg())
+
+
+def band_toggle(sym):
+    """교환비율 줄을 클릭 -> 밑줄을 폈다 접었다. 창 크기가 바뀌므로 배경도 맞춘다."""
+    cfg["band_open"][sym] = not cfg["band_open"].get(sym)
+    save(cfg)
+    band_note(sym)
+    sync_back()
+    place_panel()
 
 
 def repaint(w, old, new):
@@ -708,6 +741,9 @@ def build():
                 band_row[sym] = bl = tk.Label(body, text="", bg=panel_bg(), fg=DIM,
                                               font=("Malgun Gothic", 7))
                 bl.grid(row=r + 1, column=0, columnspan=3, sticky="w")
+                for w in (nm, p, c, bl):     # 줄 아무 데나 눌러도 펴진다
+                    w.bind("<Button-1>", lambda e, k=sym: band_toggle(k))
+                    w.config(cursor="hand2")
                 r += 1
             tk.Frame(body, bg=ROWLINE, height=1).grid(row=r + 1, column=0, columnspan=3,
                                                       sticky="ew")
@@ -762,10 +798,18 @@ def paint(sym, res):
         band_note(sym)
     want = targets.get(sym)
     if want:
-        goals = want[0]
+        goals, floors = want[0], want[2]
         if want[1]:                      # "@80%" 는 30일 구간의 위치 -> 비율로 환산
             _, lo, hi = ratio_band.get(sym) or ("", 0, 0)
-            goals = [lo + (hi - lo) * g / 100 for g in goals] if hi > lo else []
+            conv = (lambda g: lo + (hi - lo) * g / 100) if hi > lo else None
+            goals = [conv(g) for g in goals] if conv else []
+            floors = [conv(g) for g in floors] if conv else []
+        # 하한이 먼저다. 나빠진 것을 알리는 쪽이 늦으면 안 된다.
+        under = [f for f in floors if price <= f]
+        if under:
+            c.config(text="\u25bc%g" % under[-1], fg=THEME["down"])
+            alerts[sym] = THEME["down"]          # 내려가면 반짝인다
+            return
         # 아직 안 닿은 가장 낮은 단을 겨눈다. 다 넘었으면 맨 위 단을 넘은 것이다.
         ahead = [g for g in goals if g > price]
         if goals:
@@ -776,6 +820,10 @@ def paint(sym, res):
                 # 폭이 늘면 위젯이 넓어진다. "★ 도달"과 같은 네 칸을 넘기지 않는다.
                 c.config(text="\u2605%g" % goals[-1], fg=THEME["up"])
                 alerts[sym] = THEME["up"]        # 닿으면 반짝인다
+            return
+        if floors:                       # 하한만 걸어 둔 줄 — 아직 위에 있다
+            c.config(text="\u25b3%.1f%%" % ((price / floors[-1] - 1) * 100), fg=THEME["dim"])
+            alerts.pop(sym, None)
             return
     if sym in band_pos:                  # 교환비율 줄: 하루치 등락 대신 30일 구간 위치
         pos = band_pos[sym]              # 0 = 최근 30일 최저, 100 = 최고
