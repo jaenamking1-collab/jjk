@@ -2351,7 +2351,7 @@ function _solParsePost(logNo) {
   const sched = {};
   const set = (k, v) => { if (v) sched[k] = v; };
   set('공시일',   md(/분배금\s*공시일\s*:?\s*(?:\d+\s*년)?\s*(\d{1,2})월\s*(\d{1,2})일/));
-  set('분배락일', md(/분배락\s*(\d{1,2})월\s*(\d{1,2})일/));
+  set('분배락일', md(/분배락\s*\(?\s*(\d{1,2})월\s*(\d{1,2})일/));   // 9/28 부터 '분배락(9월 29일)'
   set('기준일',   md(/지급\s*기준일\s*(\d{1,2})월\s*(\d{1,2})일/));
   set('지급일',   md(/지급\s*예정일\s*(\d{1,2})월\s*(\d{1,2})일/));
   // '분배금 내역' 표: "1 SOL 코리아고배당 60 0.46" — 종목명에도 숫자가 들어가므로 행 끝을 다음 행 번호(또는 표 끝 ※)로 끊는다.
@@ -2372,15 +2372,21 @@ function _solParsePost(logNo) {
 //   ③ 2026-08-26 월말 공지부터 **금액에 '원'이 붙었다**('160원 0.32'). 이것 때문에 8월 말 회차가
 //      통째로 안 잡혀 화면엔 월중 4건만 남았고, 일정은 다른 운용사 합의로 '예정' 표시가 나갔다
 //      (실제 SOL 지급일은 9/1 인데 예정은 9/2 였다). → % 와 같은 방식으로 '원'도 뗀다.
+//   ④ 2026-09-28 월말 공지부터 **종목명이 법정 명칭**이 됐다: '2 신한 SOL 미국배당다우존스증권상장지수투자신탁[주식] 37 원'.
+//      앞에 '신한'(한 행은 오타로 '한'), 뒤에 '증권상장지수투자신탁[..]', 'SOL미국…'처럼 띄어쓰기 없는 행도 있다.
+//      이름 상한 40자에 걸려 0건 → 8월 글이 월말로 대신 쓰였다(달력 `SOL?`). → 앞말을 허용하고 뒤 꼬리를 떼어
+//      SOL_TICKER 의 짧은 이름으로 맞춘다.
 function _solItems(txt) {
   const seg = (String(txt || '').split(/분배금\s*내역/)[1] || '')
     .replace(/(\d)\s*%/g, '$1')
     .replace(/(\d)\s*원/g, '$1');
   const items = [];
-  const re = /(?:^|\s)\d{1,2}\s+(SOL\s[^※]{1,40}?)\s+([\d,]+)(?:\s+(\d{1,3}\.\d{1,2})|\s+업데이트\s*예정)?(?=\s+\d{1,2}\s+SOL\s|\s*※|\s*$)/g;
+  const re = /(?:^|\s)\d{1,2}\s+(?:신?한\s*)?(SOL\s?[^※]{1,90}?)\s+([\d,]+)(?:\s+(\d{1,3}\.\d{1,2})|\s+업데이트\s*예정)?(?=\s+\d{1,2}\s+(?:신?한\s*)?SOL|\s*※|\s*$)/g;
+  const short = s => s.replace(/\s*(?:증권|특별자산)?상장지수투자신탁/g, '').replace(/\[[^\]]*\]/g, '')
+    .replace(/^SOL\s?/, 'SOL ').replace(/\s+/g, ' ').trim();
   let m;
   while ((m = re.exec(seg)) !== null) {
-    items.push({ name: m[1].trim(), amount: Number(m[2].replace(/,/g, '')), rate: m[3] ? Number(m[3]) : null });
+    items.push({ name: short(m[1]), amount: Number(m[2].replace(/,/g, '')), rate: m[3] ? Number(m[3]) : null });
   }
   return items;
 }
@@ -2411,7 +2417,8 @@ function fetchDist_sol() {
     for (let i = 0; i < notices.length && i < 4; i++) {
       if (found['월중'] && found['월말']) break;
       const p = _solParsePost(notices[i].logNo);
-      if (!p || !p.items.length) continue;
+      // 0건 글을 조용히 넘기면 **한 달 전 글**이 그 회차 자리를 차지한다(2026-09-28: 9월말 글 0건 → 8월말 글이 월말로 쓰였다).
+      if (!p || !p.items.length) { console.log('SOL 분배 글 파싱 0건 — 표기 변경 의심: ' + notices[i].title); continue; }
       const cyc = _solCycle(p.sched, notices[i].title);
       if (!cyc || found[cyc]) continue;        // 최신순이므로 같은 회차는 첫 글(=정정 공지가 이긴다)만 쓴다
       found[cyc] = p;
