@@ -746,8 +746,13 @@ def paint(sym, res):
             return
     if sym in band_pos:                  # 교환비율 줄: 하루치 등락 대신 30일 구간 위치
         pos = band_pos[sym]              # 0 = 최근 30일 최저, 100 = 최고
-        c.config(text="\u2195%d%%" % round(pos),
-                 fg=THEME["up"] if pos >= 50 else THEME["down"])
+        # 옛날엔 "↕24%" 로 적었는데, 옆줄들이 전부 '오늘 몇 % 올랐나'라서
+        # 마이너스 24%로 읽혔다. 사용자가 같은 걸 세 번 물었다(9/07·9/21·9/28) —
+        # 설명이 모자란 게 아니라 표시가 틀린 것이다. 숫자를 지우고 말로 적는다.
+        # 비율이 높을수록 같은 XRP로 더 많이 받으니, 높은 쪽이 좋은 쪽이다.
+        word, tone = (("고점권", "up") if pos >= 66 else
+                      ("바닥권", "down") if pos < 33 else ("중간", "dim"))
+        c.config(text=word, fg=THEME[tone])
     else:
         c.config(text=f"{pct:+.2f}%",
                  fg=THEME["up"] if diff > 0 else THEME["down"] if diff < 0 else THEME["dim"])
