@@ -5935,14 +5935,15 @@ function importSheetBlocks(arg) {
       g.rows.forEach(r => {
         for (let i = s; i <= e; i++) {
           if (tick(all[i - 1][1]) !== tick(r[1])) continue;
-          console.log('고침 ' + g.label + ' ' + r[2] + ' (줄 ' + i + ')');
+          console.log('고침 ' + g.label + ' 줄 ' + i);
           if (!dry) { ws.getRange(i, 4, 1, 2).setValues([[r[3], r[4]]]); if (r[5] !== '') ws.getRange(i, 7, 1, 2).setValues([[r[5], '']]); }
         }
       });
       return;
     }
     const n = g.rows.length, s = next;
-    const blank = ws.getRange(s, 1, n, 14).getValues().every(r => r.every(v => v === ''));
+    // A:F(칸이름·티커·종목명·수량·평단)만 본다. L·M 추세선 수식은 빈 줄에도 미리 깔려 있다(2026-09-29 확인).
+    const blank = ws.getRange(s, 1, n, 6).getValues().every(r => r.every(v => v === ''));
     if (!blank) throw new Error(g.label + ': ' + s + '~' + (s + n - 1) + '줄이 비어 있지 않다 — 멈춘다');
     console.log('새 칸 ' + g.label + ': ' + s + '~' + (s + n - 1) + '줄, ' + n + '종목');
     if (!dry) {
@@ -5961,13 +5962,15 @@ function importSheetBlocks(arg) {
   groups.forEach(g => {
     if (!g.app) return;
     let acc = getAccounts().find(a => norm(a.name) === g.app);
-    if (!acc) { console.log('앱 계좌 만듦: ' + g.app); if (!dry) acc = { id: addAccount({ name: g.app, type: 'IRP' }).id }; }
+    if (!acc) { console.log('앱 계좌 만듦: ' + g.label); if (!dry) acc = { id: addAccount({ name: g.app, type: 'IRP' }).id }; }
+    let added = 0;
     const have = acc ? getHoldings().filter(h => String(h.account_id) === String(acc.id)).map(h => tick(h.ticker)) : [];
     g.rows.forEach(r => {
       if (have.indexOf(tick(r[1])) !== -1) return;
-      console.log('앱 종목 넣음: ' + g.app + ' / ' + r[2]);
+      added++;
       if (!dry) addHolding({ account_id: acc.id, ticker: tick(r[1]), name: r[2], avg_price: r[4], quantity: r[3], currency: 'KRW', div_cycle: '' });
     });
+    console.log('앱 종목 ' + g.label + ': ' + added + '개 넣음');
   });
   if (!dry) { try { CacheService.getScriptCache().remove('sheetData_v1'); } catch (e) {} }
   return { dry, groups: groups.map(g => ({ label: g.label, rows: g.rows.length })) };
