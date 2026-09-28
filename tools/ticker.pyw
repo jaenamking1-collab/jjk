@@ -209,6 +209,7 @@ coin_mid = {}                            # 코인 -> (날짜, 그날 한국시�
 RANGE_DAYS = 30                          # 교환비율 줄에 보여줄 최저~최고 구간(일)
 ratio_band = {}                          # "A/B" -> (날짜, 최저, 최고). 하루 한 번만 잰다
 band_pos = {}                            # "A/B" -> 지금이 그 구간의 몇 %
+band_row = {}                            # "A/B" -> 그 밑에 붙는 "한달 42.8 ~ 49.1" 라벨
 targets = {}                             # 종목 -> (목표값, 구간%인가). 닿으면 반짝인다
 prem_at = [0.0]                          # 환산비를 마지막으로 저장한 시각
 PREM_SAVE = 600                          # 환산비 저장 간격(초)
@@ -282,6 +283,8 @@ def theme():
         back.attributes("-alpha", cfg["bg_op"] / 100.0)         # 바탕만 흐려진다
     else:
         root.attributes("-alpha", cfg["bg_op"] / 100.0)         # 뚫기가 안 되면 예전처럼
+    for sym in band_row:
+        band_note(sym)
     for sym in rows:
         nm, p, c, _ = rows[sym]
         nm.config(fg=THEME["fg"])
@@ -290,6 +293,17 @@ def theme():
             paint(sym, last[sym])
         else:
             c.config(fg=THEME["dim"])
+
+
+def band_note(sym):
+    """교환비율 줄 밑에 "최근 30일  42.8 ~ 49.1" 을 적는다. 위 칸의 바닥권/고점권이
+    무엇을 기준으로 한 말인지 눈으로 보이게 하는 것이 전부다."""
+    bl = band_row.get(sym)
+    if not bl:
+        return
+    _, lo, hi = ratio_band.get(sym) or ("", 0, 0)
+    bl.config(text="최근 %d일  %.1f ~ %.1f" % (RANGE_DAYS, lo, hi) if hi > lo else "",
+              fg=THEME["dim"], bg=panel_bg())
 
 
 def repaint(w, old, new):
@@ -638,6 +652,7 @@ def sync_back(_=None):
 
 
 def build():
+    band_row.clear()
     for w in body.winfo_children():
         w.destroy()
     rows.clear()
@@ -678,6 +693,14 @@ def build():
             p.grid(row=r, column=1, sticky="e")
             c.grid(row=r, column=2, sticky="e", padx=(3, 0))
             rows[sym] = (nm, p, c, given)
+            # 교환비율 줄만, 그 밑에 기준이 되는 구간을 적는다. 숨겨 놓은 두 숫자로
+            # 암산을 시키면 안 된다 — "42.8 의 24%" 를 머릿속으로 푸는 사람은 없다.
+            # 무엇의 몇 달치인지도 화면에 적혀 있어야 한다(2026-09-28 지적).
+            if RATIO in sym:
+                band_row[sym] = bl = tk.Label(body, text="", bg=panel_bg(), fg=DIM,
+                                              font=("Malgun Gothic", 7))
+                bl.grid(row=r + 1, column=0, columnspan=3, sticky="w")
+                r += 1
             tk.Frame(body, bg=ROWLINE, height=1).grid(row=r + 1, column=0, columnspan=3,
                                                       sticky="ew")
             r += 2
@@ -727,6 +750,8 @@ def paint(sym, res):
         c.config(bg=panel_bg())
     text = fmt(price, dec)
     p.config(text=text, font=("Consolas", 7 if len(text) > 9 else 9))   # 자릿수 많으면 축소
+    if sym in band_row:              # 목표를 걸었든 안 걸었든 기준 구간은 늘 보여준다
+        band_note(sym)
     want = targets.get(sym)
     if want:
         goals = want[0]
