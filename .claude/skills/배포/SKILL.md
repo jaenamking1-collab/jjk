@@ -25,9 +25,9 @@ description: jjk 의 Code.gs(Apps Script 백엔드)를 clasp 로 올리고 라�
 1. 변경을 `main` 에 푸시한다.
 2. `deploy.yml` 을 돌린다(`note=<설명>`, 트리거만 쓰는 변경이면 `push_only=true`). 워크플로가 파일 확인 → `clasp push --force` → `clasp deploy -i <라이브 ID>` 를 한다.
 3. `maint.yml` 을 `fn=resetAllTriggers` 로 돌린다.
-- 예비: 컨테이너에서 직접 `clasp login` 을 조립하는 절차(아래 '알아둘 사실'). 9/11 엔 구글이 막았다고 적혀 있고(`deploy.yml` 주석) 9/21 엔 됐다(WORKLOG 172). `deploy.yml` 이 실패할 때만 쓴다. 로그인 확인은 `/root/.clasprc.json` 으로 한다.
+- 예비: 컨테이너에서 직접 `clasp login` 을 조립하는 절차(아래 '알아둘 사실'). `deploy.yml` 이 실패할 때만 쓴다. 로그인 확인은 `/root/.clasprc.json` 으로 한다.
 
-## 알아둘 사실 (CLAUDE.md 에서 옮김, 2026-09-28)
+## 알아둘 사실
 
 - `.clasp.json` → 프로젝트 `포트폴리오관리`(id `1yYeK3W1aHUY…`). `clasp push` 는 **`Code.gs` 만** 올린다 — `.claspignore` 가 나머지를 막는다. `okx_nft_alert.gs`·`public_dist_proxy.gs`·`stock_sheet.gs`·`ticker_ratio_alert.gs` 는 **별개** Apps Script 프로젝트다.
 - `clasp` 가 없으면 **묻지 말고 설치한다**: `npm i -g @google/clasp`(원격 수동 로그인은 `@2.4.2`). PC 마다 한 번: `clasp login`(사용자의 '허용' 클릭) + `script.google.com/home/usersettings` 의 **Apps Script API** 토글(소유자). 자격증명은 `~/.clasprc.json` — **토큰은 저장소에 절대 남기지 않는다.**

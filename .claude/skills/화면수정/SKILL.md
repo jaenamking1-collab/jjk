@@ -23,7 +23,7 @@ description: jjk 의 portfolio.html·m.html·dist_notice.html 화면을 고치�
 - **같아야 하는 건 데이터 해석 규칙뿐:** 회차 판정(기준일의 '일', 20일 이하=월중), 예정 합의 문턱(`roundBest.n >= 3`), `uncertain`→`?` 배지, `fillRakil`·`parseDay`, `pubAfterBase`. 이걸 고치면 두 파일 모두.
 - 표시 관례: KRW 는 기호 없이 숫자, USD 는 `$`. 분배 격자 안에 px 글꼴 크기 금지(`1em`). **회색은 못 받은 값·예정·누락에만** — 살아 있는 값은 작아도 본문색. 국내/해외가 섞인 계좌는 합계 / ㄴ국내 / ㄴ해외 세 줄.
 
-## 공개 페이지 배포 경로 (CLAUDE.md 에서 옮김, 2026-09-28)
+## 공개 페이지 배포 경로
 
 - 공개 주소는 **`https://jjk.distributionjn.workers.dev/` 하나**다(옛 주소는 계정명이 드러나 안 쓴다 — WORKLOG 156·159). **Cloudflare Workers 가 이 저장소의 `dist_notice.html` 을 그대로 서빙**하므로 `main` 에 푸시하면 자동 반영이다(설정 `wrangler.toml`·`.assetsignore`·`_redirects`. `.assetsignore` 가 이 파일 하나만 올린다 — 개인 앱·일지는 그 주소에서 404).
 - 알림·카톡·문서가 가리키는 주소도 위 하나다(`Code.gs` 의 `_NOTICE_PAGE_URL`).

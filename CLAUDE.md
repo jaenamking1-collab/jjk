@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 > 먼저 공용 `일하는_방식.md`(기억 폴더)를 읽어라. 이 파일은 이 프로젝트 고유 정보만 담는다.
 > 작업 절차는 `.claude/skills/`(배포·화면수정·분배금점검), 검증 항목은 `.claude/CHECKS.md`, 도구는 `tools/INDEX.md`.
-> ⚠️ 원격(웹) 세션은 공용 기억을 못 본다(GitHub 접근이 `jjk` 하나로 묶임). 그래서 아래 두 ⛔ 규칙은 여기에도 남긴다.
+> ⚠️ 원격(웹) 세션은 `claude-memory` 를 붙이기 전엔 공용 기억을 못 본다(GitHub 접근이 `jjk` 하나로 묶임). 그래서 아래 두 ⛔ 규칙은 여기에도 남긴다.
 
 ## ⛔ 0. 사용자에게는 **존댓말**로 답한다 — 예외 없다
 
@@ -19,26 +19,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A single-file personal dividend-portfolio tracker (`portfolio.html`) for two people (재남 / 은경) holding mostly monthly-distribution Korean ETFs across several brokerage accounts. It tracks holdings, valuations, and monthly dividend income, and visualizes progress toward a goal (₩10,000,000/month in distributions by 2029-02-28).
 
-There is **no build system, package manager, test suite, or lint config**. The frontend — HTML, CSS (`<style>`), and JS (`<script>`) — lives in `portfolio.html` (~3900 lines). Open the file in a browser to run it; there is nothing to compile. The backend lives in `Code.gs` (Google Apps Script).
+There is **no build system, package manager, test suite, or lint config**. The frontend — HTML, CSS (`<style>`), and JS (`<script>`) — lives in `portfolio.html` (수천 줄). Open the file in a browser to run it; there is nothing to compile. The backend lives in `Code.gs` (Google Apps Script).
 
 ## Working in this repo
 
 - **Editing**: The file is large with inline styles and one big script block. Use Grep to locate a function/section by line before editing rather than reading the whole file. Function definitions are plain `function name()` / `async function name()` at column 0, so `^(async )?function <name>` finds them fast.
 - **Preview**: Just open `portfolio.html` in a browser (the launch preview panel also renders it). No dev server.
 - ⛔ **비밀번호·열쇠 값은 저장소에 절대 적지 않는다.** 일지에도 코드에도 `••••`로만 쓴다. `jjk`는 **공개 저장소**다 — 한 번 커밋하면 지난 기록에 영구히 남고, 나중에 지워도 완전히 안 지워진다. 실제 값은 Apps Script **스크립트 속성**(`APP_TOKEN`)에만 둔다. (2026-08-05에 적힌 진입 비밀번호가 3주간 공개돼 있었다 — WORKLOG 127.)
-- **Commit/push**: History is a linear series of single-file "Update portfolio.html" commits on `main`, pushed to `origin` (GitHub `jaenamking1-collab/jjk`). Git identity is set locally as `jaenamking1-collab <jaenamking1@gmail.com>` (not global — new clones must set it). The owner works across **two PCs (work / home)** and wants every change committed and pushed automatically without asking.
-- **Two-PC routine**: This repo is edited from two machines. **The very first thing in every session — before reading anything, before `git pull`: run `git status`. If the tree is dirty, commit and push it immediately**, before any other action. A dirty tree at session start means *the previous session on this PC ended without committing* and that work is stranded — pulling first can turn it into a conflict, and reading first wastes the chance to rescue it. Then `git pull` so the other PC's work (and `WORKLOG.md` / `CLAUDE.md` rules) is present. **End every session by** adding one entry to the top of `WORKLOG.md`, then `git add .` → `git commit` → `git push`. `WORKLOG.md` is the running cross-PC log; keep it current.
-- **This is also automated — but don't rely on it alone.** `.claude/settings.json` (committed, so both PCs get it) holds two hooks: `SessionStart` rescues a dirty tree then pulls, and `Stop` commits + pushes at the end of every turn. Both are limited to `main` and skip mid-merge/rebase. **A PC that has never pulled since 2026-08-18 does not have them yet** — the hooks arrive via the very pull they are meant to perform, so on that one bootstrap session the rule above is the only thing protecting the work. Do it by hand there. (This gap is exactly how the 2026-08-18 school work was stranded — see WORKLOG 99.)
+- **Commit/push**: `main` on `origin` (GitHub `jaenamking1-collab/jjk`) is the live branch — PC sessions commit there directly; cloud sessions work on their assigned branch and open a PR. Commit messages describe the change in Korean. Git identity is set locally as `jaenamking1-collab <jaenamking1@gmail.com>` (not global — new clones must set it). The owner works across **three Windows PCs (home / work desktop / work laptop)** plus cloud sessions and wants every change committed and pushed automatically without asking.
+- **Multi-PC routine**: This repo is edited from several machines. Session start/end steps are in **세션 연속성** below.
+- **This is also automated — but don't rely on it alone.** `.claude/settings.json` (committed, so both PCs get it) holds two hooks: `SessionStart` rescues a dirty tree then pulls, and `Stop` commits + pushes at the end of every turn. Both are limited to `main` and skip mid-merge/rebase.
 
 ## 세션 연속성 (WORKLOG.md)
 
-이 프로젝트는 두 대의 Windows PC(직장 / 집)에서 Claude Code로 번갈아 작업한다. 대화 맥락이 PC 간에 이어지지 않으므로 `WORKLOG.md`를 Git으로 동기화되는 공유 메모리로 사용한다.
+이 프로젝트는 세 대의 Windows PC(집 / 직장 본체 / 직장 노트북)와 원격 세션에서 Claude Code로 번갈아 작업한다. 대화 맥락이 PC 간에 이어지지 않으므로 `WORKLOG.md`를 Git으로 동기화되는 공유 메모리로 사용한다.
 
 - **세션 시작 시**: ⚠️ **`git status`가 맨 처음이다.** 더러우면 **읽기도 pull도 하기 전에** 먼저 커밋·푸시한다 — 이전 세션이 커밋 없이 끝났다는 뜻이고, 그 작업은 이 PC에만 있다. 그 다음 `git pull`, 그 다음 `WORKLOG.md`를 읽어 맥락과 "다음 할 일"을 파악한다.
-- **다른 PC 대화 이어받기**: "집에서/학교에서 한 거 이어가봐"는 **다른 기기의 세션**을 뜻한다. `list_sessions`는 이 PC만 본다 — 그것만 보고 "없다"고 답하지 마라(2026-08-24 학교에서 그렇게 답했다가 지적받음). 먼저 `git fetch origin`으로 넘어온 커밋을 보고, `~/claude-memory/transcripts/INDEX.md`를 읽는다. 필요하면 `python ~/claude-memory/hooks/index_transcripts.py read <PC>/<파일> [검색어]`로 원문을 확인한다.
-- **지금 있는 PC에서 할 수 있는 것만 안내한다.** 다른 PC에서 해야 할 일은 **`WORKLOG.md`의 "다음 할 일"에만 남기고, 대화에서 시키지 마라.** 사용자는 지금 그 PC 앞에 없다 — 실행할 수 없는 명령을 받으면 할 일 목록이 아니라 잡음이다(2026-08-26 학교에서 집 PC 명령을 세 번 줬다가 지적받음). 다른 PC 차례가 되면 그 PC의 세션이 WORKLOG를 읽고 알아서 꺼낸다.
-- ⚠️ **원격(클라우드) 세션에서 할 일은 하나뿐이다: `add_repo`로 `jaenamking1-collab/claude-memory`를 붙이고 clone.** 원격 세션의 GitHub 접근은 `jjk` 하나로 묶여 있어 `SessionStart` 훅의 clone이 **조용히 실패**하기 때문이다(`>/dev/null`). 붙이기만 하면 **저장·푸시는 훅이 알아서 한다** — 손으로 `save`를 부르거나 `CLAUDE_MEMORY_PC`를 넘길 필요 없다(2026-08-28에 자동화, WORKLOG 128).
-  - 컨테이너는 `USERPROFILE`이 없다는 것으로 자동 판별해 `transcripts/cloud/`에 남는다. 두 PC(윈도우)는 각자 폴더를 쓴다.
+- **다른 PC 대화 이어받기**: "집에서/학교에서 한 거 이어가봐"는 **다른 기기의 세션**을 뜻한다. `list_sessions`는 이 PC만 본다 — 그것만 보고 "없다"고 답하지 마라. 먼저 `git fetch origin`으로 넘어온 커밋을 보고, `~/claude-memory/transcripts/INDEX.md`를 읽는다. 필요하면 `python ~/claude-memory/hooks/index_transcripts.py read <PC>/<파일> [검색어]`로 원문을 확인한다.
+- **지금 있는 PC에서 할 수 있는 것만 안내한다.** 다른 PC에서 해야 할 일은 **`WORKLOG.md`의 "다음 할 일"에만 남기고, 대화에서 시키지 마라.** 사용자는 지금 그 PC 앞에 없다 — 실행할 수 없는 명령을 받으면 할 일 목록이 아니라 잡음이다. 다른 PC 차례가 되면 그 PC의 세션이 WORKLOG를 읽고 알아서 꺼낸다.
+- **원격(클라우드) 세션은 시작할 때 `add_repo`로 `jaenamking1-collab/claude-memory`를 붙이고 clone한다.** 원격 세션의 GitHub 접근은 `jjk` 하나로 묶여 있어 `SessionStart` 훅의 clone이 **조용히 실패**하기 때문이다(`>/dev/null`). 붙이기만 하면 **저장·푸시는 훅이 알아서 한다** — 손으로 `save`를 부르거나 `CLAUDE_MEMORY_PC`를 넘길 필요 없다.
+  - 컨테이너는 `USERPROFILE`이 없다는 것으로 자동 판별해 `transcripts/cloud/`에 남는다. 윈도우 PC는 각자 폴더를 쓴다.
   - **부작용**: 저장소를 하나 더 붙이면 그 세션이 앱 목록에서 `jjk` 아래가 아니라 **'기타'로 잡힌다.** 기록을 남기는 값이 더 크므로 감수한다.
   - 반대 방향(읽기)은 이미 자동이다 — 집·학교 PC는 `SessionStart` 훅의 `index_transcripts.py brief`가 다른 PC 대화 목록을 세션 맥락에 넣어준다. 사용자가 명령어를 칠 필요 없다.
 - **세션 종료 시**: `WORKLOG.md` 맨 위에 새 항목(날짜, 장소(직장/집/원격), 한 일, 다음 할 일)을 추가한다. 과거 항목은 수정하지 않는다.
@@ -67,13 +67,11 @@ There is **no build system, package manager, test suite, or lint config**. The f
 
 ### Backend action contract
 
-Reads (`api`): `getExchangeRate`, `getAccounts`, `getHoldings`, `getDividends`, `getSheetData`, `getDivSheetData`, `getDistribution`, `getDistributionAll`, `getPortfolioLog`, `getPriceLog`, `getStockPrice`, `getEtfScreener`, `getEtfNotices`, `getEtfNoticesAll`, `getStockList`, `getAlerts`, `markAlertRead`, `checkAlerts`, `hitCounter`.
+The authoritative action list is the `switch` in `doGet` (reads, `api`) and `doPost` (writes, `apiPost`) in `Code.gs` — grep `case '` there rather than trusting a copy here.
 
-**공개 액션**(`PUBLIC_ACTIONS`, `APP_TOKEN` 없이 열림 — 공개 분배금공지 페이지가 쓴다): `getDistribution`, `getDistributionAll`, `getEtfNotices`, `getEtfNoticesAll`, `hitCounter`. 나머지는 전부 토큰이 필요하고, 서로 다른 오답 5개가 쌓이면 5분간 잠긴다.
+**공개 액션**(`Code.gs` 맨 위 `PUBLIC_ACTIONS`, `APP_TOKEN` 없이 열림 — 공개 분배금공지 페이지 등이 쓴다). 나머지는 전부 토큰이 필요하고, 서로 다른 오답 5개가 쌓이면 5분간 잠긴다.
 
 `getDistributionAll` 은 6개사를 한 번에 준다(개별 호출 6번 대신 시트 1회 읽기). 운용사별로 `stale`(캐시가 낡음)과 `savedAt`(분배캐시에 쓰인 시각)이 함께 오고, 화면 헤더의 '데이터 기준 시각'이 이 값을 쓴다. ⚠️ `_파서메타`의 `itemCount` 는 **직전 2회차가 병합된** 건수라 분배캐시 행의 건수(이번 회차만)와 다르다.
-
-Writes (`apiPost`): `addAccount` / `updateAccount` / `deleteAccount`, `addHolding` / `updateHolding` / `deleteHolding`, `saveDividend`.
 
 `getSheetData` / `getDivSheetData` return the raw Google Sheet contents used by the **sync** features to diff against app data before applying changes.
 
@@ -92,15 +90,13 @@ Writes (`apiPost`): `addAccount` / `updateAccount` / `deleteAccount`, `addHoldin
 - **Currency display**: KRW amounts are shown as plain numbers (no ₩ symbol); USD amounts keep a `$` prefix. The `USD ? '$' : ''` ternary and bare `toLocaleString()` are intentional — do not reintroduce a ₩ prefix on displayed values. The `₩` still inside the two `replace(/[₩$,↑↓▲▼+\s]/g,'')` regexes is functional (strips symbols before parsing a price) and must stay.
 - **Font sizing**: dividend-grid cells use `font-size:1em` so the "글자" range slider (`applyDivFont`) can scale the whole grid uniformly. Avoid hardcoding px font sizes inside the grid.
 - **CDN dependencies**: SheetJS (`xlsx.full.min.js`) and Pretendard font, both loaded from CDN in `<head>`.
-- ⛔ **회색은 '살아 있지 않은 값' 전용이다.** 회색(`var(--text3)`·`muted`)은 **못 받은 값·아직 안 된 값·누락**에만 쓴다 — 시세없음, 예정(공시 전), 상류 응답 없음 같은 것. **살아 있는 실제 값은 작게 쓰더라도 본문색(`var(--text)`)으로 둔다.** 사용자는 회색을 "죽었거나 아직 안 됐거나 빠진 것"으로 읽는다(2026-09-21 본인 확인: *"회색은 죽은거나 아직 안된거나 누락일때 써"*). 2026-09-21에 계좌 국내/해외 금액을 회색으로 썼다가 지적받았다.
+- **회색은 '살아 있지 않은 값' 전용이다.** 회색(`var(--text3)`·`muted`)은 **못 받은 값·아직 안 된 값·누락**에만 쓴다 — 시세없음, 예정(공시 전), 상류 응답 없음 같은 것. **살아 있는 실제 값은 작게 쓰더라도 본문색(`var(--text)`)으로 둔다.** 사용자는 회색을 "죽었거나 아직 안 됐거나 빠진 것"으로 읽는다(본인 표현: *"회색은 죽은거나 아직 안된거나 누락일때 써"*).
 - **국내/해외는 나눠 보여준다.** 증권사 앱은 '국내 잔고'와 '해외 잔고'를 다른 화면에 둔다. 계좌 표는 **합계 / ㄴ국내 / ㄴ해외 세 줄**이고 수익금·분배금·분배율까지 각 줄의 투자금 기준으로 따로 낸다. 해외가 섞인 계좌만 세 줄이고 국내뿐이면 한 줄이다. 합쳐서만 보여주면 증권사 화면과 대조가 안 돼 **값이 맞는데도 틀린 것처럼 보인다**(2026-09-21).
 
 ## ⛔ 사용자에게 시키기 전에 — 먼저 해보고 말해라
 
-**이 항목이 이 문서에서 제일 자주 어겨진 규칙이다.** 2026-09-03 하루에만 네 번 반복돼 사용자가 화를 냈다.
-
 - **"못 한다 / 해주세요"는 실제로 시도해 본 뒤에만 말한다.** 넘겨짚은 '못 함'은 전부 틀렸다 — 원격 배포(WORKLOG 141), `clasp` 미설치(설치하면 그만), "PC에서 `git pull` 하세요"(2026-09-11 한 세션에 네 번).
-  - ⛔ **사용자는 앱을 웹 주소(GitHub Pages / 공개 페이지는 Cloudflare)로 본다.** 프론트를 고쳐 푸시했으면 사용자가 할 일은 **새로고침뿐**이다. `git pull` 을 부탁해도 되는 건 그 PC에서 작업·배포할 때뿐이다.
+  - **사용자는 앱을 웹 주소(GitHub Pages / 공개 페이지는 Cloudflare)로 본다.** 프론트를 고쳐 푸시했으면 사용자가 할 일은 **새로고침뿐**이다. `git pull` 을 부탁해도 되는 건 그 PC에서 작업·배포할 때뿐이다.
   - 저장소 안 기록끼리 어긋나면 **사용자에게 확인하고 하나로 정리해라.** 한쪽을 골라 시키지 마라.
 - **순서**: ① 직접 해본다 → ② 막히면 *무엇이* 왜 막혔는지 명령·응답 코드로 확인한다 → ③ 그래도 사람만 할 수 있는 것(구글 계정 '허용' 클릭, 브라우저 로그인)만 부탁한다. ③에 해당하는지 스스로 증거를 못 대면 아직 ①이 안 끝난 것이다.
 - **사용자의 되물음("배포가 안 된다고?", "그거 왜 안 돼?")은 점검 지시다.** 그 자리에서 다시 확인하고 답한다 — 앞서 한 말을 반복하지 않는다.
@@ -112,18 +108,18 @@ Adapted from the [Karpathy coding guidelines](https://x.com/karpathy/status/2015
 
 1. **Think before coding.** State assumptions out loud instead of hiding uncertainty. When a request has multiple valid readings (e.g. "remove the ₩" — every page, or just totals?), lay out the options and recommend the simpler one before editing. If something is genuinely ambiguous, stop and ask rather than guess — a wrong guess here ships to a live personal-finance app.
 2. **Simplicity first.** This is a personal two-user tool, not a framework. Write the minimal change that solves the actual request — no speculative features, config toggles, abstractions, or defensive handling for cases that can't occur. Match the existing plain-`function`, inline-style, `api()`/`apiPost()` idiom rather than introducing new patterns. *Self-check: "Would a senior engineer call this overcomplicated?" If 200 lines could be 50, rewrite it.*
-3. **Surgical changes.** Edit only what the task needs. Don't reformat, rename, or "improve" untouched code in the same file — diffs are reviewed by eye against a ~3900-line file, so noise hides real changes. Remove imports/variables/functions that *your* change orphaned, but flag pre-existing dead code (like the stray top-level debug lines that were in `Code.gs`) instead of silently deleting it unless asked. Preserve the documented **Conventions** above. *The test: every changed line should trace directly to the request.*
-4. **Goal-driven execution.** Define how you'll verify before you start, then loop until it holds. Reframe vague tasks as checkable goals: "fix the bug" → reproduce it first — there's no test runner, so reproduce in the browser console or a scratch fetch (e.g. dumping `_distData` to pin down a mis-render), then confirm the reproduction is gone. For multi-step work, state a brief plan with a verify step per line. Remember `Code.gs` only takes effect after a **manual redeploy** — say so explicitly — and state the concrete success criterion ("월합계 셀에 ₩가 사라지고 숫자 크기가 나머지와 같다") and confirm it's met.
+3. **Surgical changes.** Edit only what the task needs. Don't reformat, rename, or "improve" untouched code in the same file — diffs are reviewed by eye against a file of several thousand lines, so noise hides real changes. Remove imports/variables/functions that *your* change orphaned, but flag pre-existing dead code (like the stray top-level debug lines that were in `Code.gs`) instead of silently deleting it unless asked. Preserve the documented **Conventions** above. *The test: every changed line should trace directly to the request.*
+4. **Goal-driven execution.** Define how you'll verify before you start, then loop until it holds. Reframe vague tasks as checkable goals: "fix the bug" → reproduce it first — there's no test runner, so reproduce in the browser console or a scratch fetch (e.g. dumping `_distData` to pin down a mis-render), then confirm the reproduction is gone. `Code.gs` changes reach the web app only after the agent redeploys (`.claude/skills/배포/SKILL.md`) — say which verification you ran — and state the concrete success criterion ("월합계 셀에 ₩가 사라지고 숫자 크기가 나머지와 같다") and confirm it's met.
 
 ## Files
 
 - `portfolio.html` — the entire frontend (desktop). Redirects to `m.html` when the viewport is ≤768px unless `?pc=1` is present; the redirect sits in `<head>` so it runs before the password gate.
 - `m.html` — **phone-only frontend** (bottom tab bar; 홈 / 종목 / 분배금 / 더보기). Same backend, same actions, same origin — so it reuses the `jjk_pw_v1` password fingerprint and needs no separate login. Design: `docs/superpowers/specs/2026-08-13-mobile-view-design.md`.
-  - ⚠️ **The calculation formulas are duplicated here.** The server does *not* return 평가금액/손익 — the browser computes them (`renderAccountStats`, `portfolio.html:1365`). `m.html` has its own copy in a single block marked `⚠️ 계산 블록`. **Change one, change both** — a layout drift is visible, a number drift is not. Verify by feeding both files the same holdings/dividends and comparing the six summary figures.
+  - ⚠️ **The calculation formulas are duplicated here.** The server does *not* return 평가금액/손익 — the browser computes them (`renderAccountStats` in `portfolio.html`). `m.html` has its own copy in a single block marked `⚠️ 계산 블록`. **Change one, change both** — a layout drift is visible, a number drift is not. Verify by feeding both files the same holdings/dividends and comparing the six summary figures.
 - `dist_notice.html` — public standalone copy of the 분배금공지 tab (calendar + 운용사별 일정 + notices). `renderMasterCalendar`·`renderDistGrid`·`renderNotices`·`distIssueNotices` 가 `portfolio.html` 에도 같은 이름으로 있다.
   - ⚠️ 두 파일은 **일부러** 다르다(앱만 보유종목을 안다, 공개만 `shortLabel`). **같아야 하는 건 데이터 해석 규칙뿐** — 회차 판정, `roundBest.n >= 3`, `uncertain`→`?`, `fillRakil`·`parseDay`, `pubAfterBase`. 두 화면이 달라 보이면 **데이터부터 의심해라.**
   - ⭐ 공개 주소는 **`https://jjk.distributionjn.workers.dev/`** — Cloudflare Workers 가 이 파일을 그대로 서빙하므로 `main` 에 푸시하면 자동 반영. 옛 주소(`jjk-dist`)는 30분 자동 미러. **손으로 복사하지 마라.** 세부: `.claude/skills/화면수정/SKILL.md`.
 - `Code.gs` — the Google Apps Script backend (mirror of the deployed script; not auto-deployed).
 - `okx_nft_alert.gs` — unrelated to the portfolio app: an OKX NFT (Kaia) Legendary/Mystic listing watcher that writes Google Calendar alerts. Mirror of a **separate** Apps Script project — do not merge it into `Code.gs` (its 30-min trigger would steal the portfolio backend's execution slots; see WORKLOG 85·86). Also not auto-deployed. Design: `docs/superpowers/specs/2026-08-08-okx-nft-legendary-alert-design.md`.
-- `WORKLOG.md` — running work log for syncing across the two PCs; append a dated entry each session.
+- `WORKLOG.md` — running work log for syncing across PCs; append a dated entry each session.
 - `README.md` — one line (`# jjk`); no other docs.
