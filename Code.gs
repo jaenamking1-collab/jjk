@@ -4375,6 +4375,94 @@ function keepWarm() {
   try { _attachOrphanDivsOnce(); } catch (e) { _fixLog('고아 배당 연결 실패 — ' + e); }
   try { _nameOrphansOnce(); } catch (e) { _fixLog('고아 배당 이름 채우기 실패 — ' + e); }
   try { _refreshImportOnce(); } catch (e) { _fixLog('IMPORTDATA 새로고침 실패 — ' + e); }
+
+  // 평일 아침 섹터 등락표 — 07:30 이후 첫 keepWarm 에서 하루 한 번. 표식은 끝난 뒤에 찍는다.
+  try {
+    const pr = PropertiesService.getScriptProperties();
+    const now = new Date();
+    const today = Utilities.formatDate(now, 'Asia/Seoul', 'yyyy-MM-dd');
+    const dow = Number(Utilities.formatDate(now, 'Asia/Seoul', 'u'));      // 1=월 … 7=일
+    const hm  = Utilities.formatDate(now, 'Asia/Seoul', 'HHmm');
+    if (dow <= 5 && hm >= '0730' && pr.getProperty('sectorDay') !== today) {
+      sectorSnapshot();
+      pr.setProperty('sectorDay', today);
+    }
+  } catch (e) { console.log('섹터 등락표 실패 — ' + e); }
+}
+
+// ── 섹터별 등락표 (아침 보고용) ──────────────────────────────────
+// 왜: 사용자가 "아침에 보유 종목 섹터별로 왜 오르내렸는지" 보고받길 원한다(2026-09-28).
+// 컨테이너(클로드 루틴)는 script.google.com·네이버·야후에 못 닿고, 드라이브 커넥터로 시트는 읽는다.
+// 그래서 여기서 계산해 **작은 별도 스프레드시트**('섹터보고 (자동)')에 쓴다.
+// ⚠️ 드라이브 커넥터는 탭마다 **앞 7행만** 보여 준다 — 그래서 섹터를 행이 아니라 **열**로 펼친다.
+// 섹터는 holdings.div_cycle 의 '|' 뒤(앱의 TICKER_SECTOR 로 채운 값). 가중치는 원화 평가금액.
+// 휴장 판별: 직전 표를 만들 때와 현재가가 같으면 그 종목은 '변동 없음'으로 빼고 계산한다.
+function sectorSnapshot() {
+  const pr = PropertiesService.getScriptProperties();
+  const prices = (getLivePrices() || {}).prices || {};
+  const rate = parseFloat(fetchExchangeRate()) || 1400;
+  let lastPx = {};
+  try { lastPx = JSON.parse(pr.getProperty('sectorLastPx') || '{}'); } catch (e) {}
+
+  const byTk = {};
+  getHoldings().forEach(h => {
+    const qty = parseFloat(h.quantity) || 0;
+    const tk = (h.ticker || '').toString().replace(/^'/, '').trim().toUpperCase();
+    if (!tk || qty <= 0) return;
+    const o = byTk[tk] || (byTk[tk] = { tk: tk, name: h.name, qty: 0,
+      usd: String(h.currency).toUpperCase() !== 'KRW', sector: '' });
+    o.qty += qty;
+    if (!o.sector) o.sector = (String(h.div_cycle || '').split('|')[1] || '').trim();
+  });
+
+  const secs = {}, newPx = {};
+  let total = 0, totalDiff = 0, noPrice = 0, flat = 0;
+  Object.keys(byTk).forEach(tk => {
+    const o = byTk[tk], p = prices[tk];
+    if (!p || !p.current) { noPrice++; return; }
+    newPx[tk] = p.current;
+    const fx = o.usd ? rate : 1;
+    const val = p.current * o.qty * fx;
+    const stale = lastPx[tk] === p.current;          // 휴장 등으로 값이 안 바뀜
+    if (stale) flat++;
+    const chg = stale ? 0 : (p.change || 0);
+    const diff = stale || !p.prev ? 0 : (p.current - p.prev) * o.qty * fx;
+    const s = secs[o.sector || '미분류'] || (secs[o.sector || '미분류'] = { val: 0, diff: 0, items: [] });
+    s.val += val; s.diff += diff; total += val; totalDiff += diff;
+    s.items.push({ name: o.name, tk: tk, chg: chg, val: val, stale: stale, usd: o.usd });
+  });
+
+  const pct = v => (v > 0 ? '+' : '') + v.toFixed(2) + '%';
+  const man = v => (v > 0 ? '+' : '') + Math.round(v / 10000).toLocaleString() + '만원';
+  const names = Object.keys(secs).sort((a, b) => secs[b].val - secs[a].val);
+  const head = ['기준시각', '전체'], sum = [], detail = ['종목별 (등락 큰 순)', ''];
+  const stamp = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm');
+  sum.push(stamp, '등락 ' + pct(total ? totalDiff / (total - totalDiff) * 100 : 0) + ' · ' + man(totalDiff)
+    + ' · 평가 ' + Math.round(total / 1e6) + '백만원 · 시세없음 ' + noPrice + ' · 변동없음(휴장?) ' + flat);
+  names.forEach(n => {
+    const s = secs[n];
+    const base = s.val - s.diff;
+    s.items.sort((a, b) => Math.abs(b.chg) - Math.abs(a.chg));
+    head.push(n);
+    sum.push('비중 ' + (s.val / total * 100).toFixed(1) + '% · 등락 ' + pct(base ? s.diff / base * 100 : 0)
+      + ' · ' + man(s.diff) + ' · ' + s.items.length + '종목');
+    detail.push(s.items.map(i => i.name + '(' + i.tk + (i.usd ? ',미국' : '') + ') '
+      + (i.stale ? '변동없음' : pct(i.chg)) + ' 비중' + (i.val / total * 100).toFixed(1) + '%').join('; ').slice(0, 450));
+  });
+
+  let id = pr.getProperty('sectorSheetId');
+  let ss = null;
+  if (id) { try { ss = SpreadsheetApp.openById(id); } catch (e) { ss = null; } }
+  if (!ss) {
+    ss = SpreadsheetApp.create('섹터보고 (자동)');
+    pr.setProperty('sectorSheetId', ss.getId());
+    _fixLog('섹터보고 시트 새로 만듦: ' + ss.getId());
+  }
+  const sh = ss.getSheets()[0];
+  sh.clear();
+  sh.getRange(1, 1, 3, head.length).setValues([head, sum, detail]);
+  pr.setProperty('sectorLastPx', JSON.stringify(newPx));
+  console.log('섹터 등락표 작성: ' + names.length + '개 섹터, ' + stamp);
 }
 
 // 일회성: 주식상황의 IMPORTDATA(현재가 CSV) 칸을 지웠다 다시 써서 **새로 받게** 한다(2026-09-28).
