@@ -4258,7 +4258,9 @@ async function loadScorecard() {
              buys: ad.buys || 0, sells: ad.sells || 0, ndiv: ad.ndiv || 0,
              flows: (flows || []).filter(f => f.account_id.toString() === id).concat(addFlows) };
   };
-  const rows = state.accounts.map(a => sum.find(x => x.account_id.toString() === a.id.toString()))
+  // 계좌요약에 없는 새 계좌(예: 새로 연 IRP)도 0에서 시작해 굴린다 — 산 만큼이 곧 넣은 돈이다
+  const rows = state.accounts.map(a => sum.find(x => x.account_id.toString() === a.id.toString()) ||
+                                       (state.holdings.some(h => h.account_id === a.id) ? { account_id: a.id, name: a.name } : null))
                              .filter(Boolean).map(line);
   const agg = (label, rs) => {
     const o = { name: label, flows: [] };
