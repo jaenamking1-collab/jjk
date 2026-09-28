@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks'
 ];
 
 function runMaint(name, arg) {
@@ -5902,4 +5902,85 @@ function _fixSpyiPoison() {
   pr.deleteProperty('assetDone');
   pr.setProperty(SPYI_FIX_KEY, 'done');
   _fixLog('④ SPYI 복구 끝. 다음 keepWarm 에서 자산 시트가 다시 채워진다.');
+}
+
+// ── 새 계좌 칸 넣기 (2026-09-29, IRP 두 계좌) ──
+// 원본은 비공개 시트 하나(첫 탭): [칸이름, 티커, 종목명, 수량, 평단가, 수동현재가, 앱계좌명].
+// 금액을 maint 인자로 넘기면 공개 저장소의 Actions 로그에 남으므로 **시트 ID만** 받는다.
+// 주식상황 '아버지' 칸 아래 빈 줄에 칸을 만든다. 서식·수식은 아버지 첫 줄(A:N)을 복사한다.
+//  - 수동현재가가 있는 줄(펀드·예금·채권·현금)은 G 에 값을 박는다 → getLivePrices 시트 폴백이 그 값을 쓴다.
+//  - 같은 칸이 이미 있으면 새로 만들지 않고, 그 칸의 같은 티커 줄의 수량·평단·수동현재가만 고친다.
+//  - 앱: 계좌가 없으면 만들고, 그 계좌에 없는 티커만 종목으로 넣는다.
+// 수량 칸이 'DEL' 인 줄은 시트·앱에서 지운다(없는 종목을 넣었을 때).
+// 인자 끝에 ':dry' 를 붙이면 쓰지 않고 계획만 로그로 보여 준다.
+function importSheetBlocks(arg) {
+  const dry = /:dry$/.test(arg || '');
+  const srcId = (arg || '').replace(/:dry$/, '');
+  const src = SpreadsheetApp.openById(srcId).getSheets()[0].getDataRange().getValues().slice(1)
+    .filter(r => r[0] && r[2]);
+  const ws = SpreadsheetApp.openById('19UsD0Tz6YL2eDoLdocL0ify8NLbUYSHaOOV-jtDqNLU').getSheetByName('주식상황');
+  const all = ws.getDataRange().getValues();
+  const norm = s => String(s).replace(/\s+/g, ' ').trim();
+  const labelRow = {};                       // 칸이름 → 첫 줄(1부터)
+  all.forEach((r, i) => { if (r[0]) labelRow[norm(r[0])] = i + 1; });
+  const blockEnd = start => { let e = start; while (e < all.length && !all[e][0] && (all[e][1] || all[e][2])) e++; return e; };
+  const tmpl = labelRow['아버지'];
+  if (!tmpl) throw new Error('주식상황에 아버지 칸이 없다');
+  let next = blockEnd(tmpl) + 1;             // 아버지 칸 다음 줄(1부터)
+  const groups = [];
+  src.forEach(r => { const g = groups.find(x => x.label === norm(r[0])); g ? g.rows.push(r) : groups.push({ label: norm(r[0]), app: norm(r[6]), rows: [r] }); });
+  const tick = t => { t = String(t || '').trim(); return /^\d{1,5}$/.test(t) ? ('000000' + t).slice(-6) : t; };
+  groups.forEach(g => {
+    if (labelRow[g.label]) {                 // 이미 있다 → 수량·평단·수동현재가만 고친다
+      const s = labelRow[g.label], e = blockEnd(s), del = [];
+      g.rows.forEach(r => {
+        for (let i = s; i <= e; i++) {
+          if (tick(all[i - 1][1]) !== tick(r[1])) continue;
+          if (String(r[3]).trim() === 'DEL') { if (i !== s) del.push(i); continue; }   // 수량 칸 'DEL' = 그 줄을 지운다(칸 첫 줄은 안 지운다)
+          console.log('고침 ' + g.label + ' 줄 ' + i);
+          if (!dry) { ws.getRange(i, 4, 1, 2).setValues([[r[3], r[4]]]); if (r[5] !== '') ws.getRange(i, 7, 1, 2).setValues([[r[5], '']]); }
+        }
+      });
+      del.sort((x, y) => y - x).forEach(i => { console.log('지움 ' + g.label + ' 줄 ' + i); if (!dry) ws.deleteRow(i); });
+      return;
+    }
+    const n = g.rows.length, s = next;
+    // A:F(칸이름·티커·종목명·수량·평단)만 본다. L·M 추세선 수식은 빈 줄에도 미리 깔려 있다(2026-09-29 확인).
+    const blank = ws.getRange(s, 1, n, 6).getValues().every(r => r.every(v => v === ''));
+    if (!blank) throw new Error(g.label + ': ' + s + '~' + (s + n - 1) + '줄이 비어 있지 않다 — 멈춘다');
+    console.log('새 칸 ' + g.label + ': ' + s + '~' + (s + n - 1) + '줄, ' + n + '종목');
+    if (!dry) {
+      g.rows.forEach((r, k) => {
+        const row = s + k;
+        ws.getRange(tmpl, 1, 1, 14).copyTo(ws.getRange(row, 1, 1, 14));
+        ws.getRange(row, 1, 1, 6).setValues([[k ? '' : g.label, "'" + tick(r[1]), r[2], r[3], r[4], '']]);
+        if (r[5] !== '') ws.getRange(row, 7, 1, 2).setValues([[r[5], '']]);
+        ws.getRange(row, 10).setFormula('=I' + row + '/sum($I$' + s + ':$I$' + (s + n - 1) + ')');
+      });
+      if (n > 1) ws.getRange(s, 1, n, 1).merge();
+    }
+    labelRow[g.label] = s; next = s + n;
+  });
+  // 앱 계좌·종목
+  groups.forEach(g => {
+    if (!g.app) return;
+    let acc = getAccounts().find(a => norm(a.name) === g.app);
+    if (!acc) { console.log('앱 계좌 만듦: ' + g.label); if (!dry) acc = { id: addAccount({ name: g.app, type: 'IRP' }).id }; }
+    let added = 0;
+    const have = acc ? getHoldings().filter(h => String(h.account_id) === String(acc.id)).map(h => tick(h.ticker)) : [];
+    g.rows.forEach(r => {
+      if (String(r[3]).trim() === 'DEL') {
+        if (!acc) return;
+        getHoldings().filter(h => String(h.account_id) === String(acc.id) && tick(h.ticker) === tick(r[1]))
+          .forEach(h => { console.log('앱 종목 지움: ' + g.label); if (!dry) deleteHolding(h.id); });
+        return;
+      }
+      if (have.indexOf(tick(r[1])) !== -1) return;
+      added++;
+      if (!dry) addHolding({ account_id: acc.id, ticker: tick(r[1]), name: r[2], avg_price: r[4], quantity: r[3], currency: 'KRW', div_cycle: '' });
+    });
+    console.log('앱 종목 ' + g.label + ': ' + added + '개 넣음');
+  });
+  if (!dry) { try { CacheService.getScriptCache().remove('sheetData_v1'); } catch (e) {} }
+  return { dry, groups: groups.map(g => ({ label: g.label, rows: g.rows.length })) };
 }
