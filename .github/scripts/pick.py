@@ -99,12 +99,16 @@ if path_expr == 'rss':
 # 왜: 운용사 공지 원문(TIGER view.do 등)은 수십 KB 라 head 로 자르면 본문까지 닿지 않는다(2026-09-28).
 if path_expr.startswith('text:'):
     word = path_expr[5:]
+    span = 300
+    if '@' in word:                      # text:낱말@3000 — 뒤로 더 길게 본다(표 전체가 필요할 때)
+        word, span = word.rsplit('@', 1)
+        span = int(span)
     raw = open(file_path, encoding='utf-8', errors='replace').read()
     txt = re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', ' ', raw).replace('&nbsp;', ' '))
     hits = [m.start() for m in re.finditer(re.escape(word), txt)]
     print(f'"{word}" {len(hits)}곳')
     for h in hits[:8]:
-        print('  …' + txt[max(0, h - 200):h + 300] + '…')
+        print('  …' + txt[max(0, h - 200):h + span] + '…')
     sys.exit(0)
 try:
     data = json.load(open(file_path, encoding='utf-8'))
