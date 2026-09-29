@@ -12,6 +12,16 @@
 - **작업 종료**: 맨 위에 새 항목 추가 → `git add .` → `git commit` → `git push`
 
 
+## 2026-09-29 (200) / 원격 — IRP 펀드 현재가 매일 자동 반영
+- 출처: FunETF `api/public/product/view/fundnav?fundCd=<클래스코드>&schNavMode=T` (헤더 `X-Requested-With: XMLHttpRequest` + Referer 필요, 연속 호출 시 429). 컨테이너는 못 닿아 `probe.yml`(`fundq` 입력, `.github/scripts/fundq.py`)로 찾았다.
+- `Code.gs` `FUND_NAV`(가짜티커→클래스코드 7개) + `updateFundNav`: keepWarm 이 **10시 이후 하루 한 번** 돈다. 수량 1 칸은 `G = G × 오늘기준가 / 어제기준가`(기준점은 `fundNavLast` 속성, 첫날은 기록만). **이틀 연속 실패 시 카톡.**
+- 사용자 입력 방식(D=1, E=원금, G=평가) 유지. 추가 입금 시 E·G만 손으로 고치면 다음 날부터 비율로 따라간다.
+- 디폴트옵션 적극투자형 TDF1 = 미래에셋전략배분TDF2050 종류O 100%(DC/IRP 가이드 2025.10).
+- 은경 시트 이름 두 개가 명세서와 다르다: '미국블루칩'→실제 **유럽블루칩 C-P2E**, 'TDF2050'→실제 **TDF2035 C-P2e** (기준가 정확 일치로 확인).
+- 채권(서울도시)·예금(대신저축)은 고정값. 현금 티커 `CASH` 가 두 계좌에서 겹쳐 `getLivePrices` 가 첫 값을 써서 → `CASH-J`/`CASH-E`.
+- `fixIrpRows`(원본 드라이브 시트 → B티커·G값 + 앱 IRP 종목 동기화)를 **keepWarm 한 번 실행(`_fixIrpOnce`, 속성 `irpFix0929`)** 으로 돌렸다 — ⛔ **Apps Script 버전 200개 상한**에 걸려 웹앱 배포가 안 돼 maint 로 못 불렀다. push 만 됐다.
+- 다음 할 일: 웹앱에 새 코드가 필요해지면 사용자에게 버전 일괄 삭제 부탁(CLAUDE.md 절차). 내일 G값이 기준가 비율로 움직였는지 확인.
+
 ## 2026-09-28 (199) / 원격 — IRP 두 계좌를 시트·앱에 넣음
 - 주식상황 '아버지' 아래에 **재남 IRP(70~77줄)·은경 IRP(78~88줄)** 칸을 만들고, 앱에 `재남 미래에셋 IRP`·`은경 미래에셋 IRP` 계좌와 종목을 넣었다. 원본은 사용자가 준 xlsx 두 개.
 - 새 maint 함수 `importSheetBlocks(<원본시트ID>[:dry])`: 원본 표([구분, 티커, 이름, 수량, 평단, 수동가, 앱계좌])대로 '아버지' 첫 줄을 틀로 칸을 만들고 앱 계좌·종목을 넣는다. 수량이 `DEL`이면 그 줄을 시트·앱에서 지운다. **공개 로그에는 건수만 남긴다.**
