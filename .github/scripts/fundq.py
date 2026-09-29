@@ -14,6 +14,26 @@ def nav(cd):
 names = None
 for q in os.environ['FUNDQ'].split('|'):
     q = q.strip()
+    if q.startswith('xl:'):                # 전체 펀드 엑셀(클래스별 코드 포함)에서 이름으로 찾는다
+        global_xl = globals().get('_xl')
+        if global_xl is None:
+            import io, subprocess
+            subprocess.run(['pip', '-q', 'install', 'openpyxl'], capture_output=True)
+            import openpyxl
+            raw = urllib.request.urlopen(urllib.request.Request('https://www.funetf.co.kr/api/public/download/excel/fundFilter', headers=UA), timeout=120).read()
+            print('엑셀', len(raw), raw[:8])
+            try:
+                wb = openpyxl.load_workbook(io.BytesIO(raw), read_only=True)
+                global_xl = [[str(c) for c in r if c is not None] for ws in wb.worksheets for r in ws.iter_rows(values_only=True)]
+            except Exception as e:
+                print('엑셀 못 읽음', e, raw[:300]); global_xl = []
+            globals()['_xl'] = global_xl
+            print('행', len(global_xl), global_xl[:2])
+        keys = q[3:].split(',')
+        hits = [r for r in global_xl if all(any(k in c for c in r) for k in keys)]
+        print('== xl', keys, len(hits))
+        for r in hits[:30]: print('  ', ' | '.join(r)[:200])
+        continue
     q, _, want = q.partition(':')          # '코드:글자' 면 그 글자가 든 클래스만 기준가를 본다(429 방지)
     if re.fullmatch(r'K[R5][0-9A-Z]{10}', q):
         try: html = get('https://www.funetf.co.kr/product/fund/view/' + q)
