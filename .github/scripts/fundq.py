@@ -23,7 +23,7 @@ for q in os.environ['FUNDQ'].split('|'):
             raw = urllib.request.urlopen(urllib.request.Request('https://www.funetf.co.kr/api/public/download/excel/fundFilter', headers=UA), timeout=120).read()
             print('엑셀', len(raw), raw[:8])
             try:
-                wb = openpyxl.load_workbook(io.BytesIO(raw), read_only=True)
+                wb = openpyxl.load_workbook(io.BytesIO(raw))
                 global_xl = [[str(c) for c in r if c is not None] for ws in wb.worksheets for r in ws.iter_rows(values_only=True)]
             except Exception as e:
                 print('엑셀 못 읽음', e, raw[:300]); global_xl = []
