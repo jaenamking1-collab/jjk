@@ -4628,6 +4628,9 @@ function _healImportData(force) {   // maint 로 부를 땐 arg 아무거나 →
       console.log('IMPORTDATA 오류(우리 것 아님, 안 건드림) ' + n + '!R' + r + 'C' + c + ' → ' + (m ? m[1] + (m[2] ? ' ' + m[2] : '') : '주소 없음/참조'));
       return;
     }
+    // 요청 부분만(토큰은 가림) + 셀이 보여주는 오류 문구 — 다시 받아도 안 풀릴 때 원인을 여기서 본다.
+    const q = (f.match(/\?([^"]*)/) || [, ''])[1].replace(/(token=)[^&"]*/i, '$1••••');
+    console.log('  ' + n + '!R' + r + 'C' + c + ' 표시 ' + rg.getDisplayValue() + ' · 요청 ?' + q + ' · 메모 ' + String(rg.getNote() || '').slice(0, 80));
     bad.push([rg, f, n + '!R' + r + 'C' + c]);
   });
   console.log('IMPORTDATA ' + cells.length + '칸 점검 · 오류 ' + bad.length + '칸');
