@@ -4634,16 +4634,24 @@ function _healImportData(force) {   // maint 로 부를 땐 arg 아무거나 →
     bad.push([rg, f, n + '!R' + r + 'C' + c]);
   });
   console.log('IMPORTDATA ' + cells.length + '칸 점검 · 오류 ' + bad.length + '칸');
-  if (!bad.length) { pr.deleteProperty('importHealN'); return; }
+  // 실제 현재가 공급 칸은 '시세' 탭이다. 다른 탭(주식상황 Y10·Y18)에도 같은 수식이 남아 있는데
+  // 다시 받아도 안 풀린다(결과를 펼칠 자리가 겹치는 것으로 보인다 — 2026-09-29). 그 칸은 하루 한 번만 다시 받고
+  // 경보 횟수엔 안 센다 — 안 그러면 멀쩡한 날에도 카톡이 울린다.
+  const today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
+  const sideDone = pr.getProperty('importSideDay') === today;
+  const mainBad = bad.filter(b => b[2].indexOf('시세!') === 0);
+  if (!sideDone && bad.length > mainBad.length) pr.setProperty('importSideDay', today);
+  if (sideDone) bad.splice(0, bad.length, ...mainBad);
+  if (!mainBad.length) pr.deleteProperty('importHealN');
+  if (!bad.length) return;
   bad.forEach(([rg]) => rg.clearContent());
   SpreadsheetApp.flush();
   Utilities.sleep(2000);
   bad.forEach(([rg, f]) => rg.setFormula(f));
   SpreadsheetApp.flush();
-  const n = Number(pr.getProperty('importHealN') || 0) + 1;
-  pr.setProperty('importHealN', String(n));
-  _fixLog('IMPORTDATA 오류로 굳음 → 다시 받기(' + n + '회째): ' + bad.map(b => b[2]).join(', '));
-  const today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
+  const n = mainBad.length ? Number(pr.getProperty('importHealN') || 0) + 1 : 0;
+  if (n) pr.setProperty('importHealN', String(n));
+  _fixLog('IMPORTDATA 오류로 굳음 → 다시 받기' + (n ? '(시세 ' + n + '회째)' : '(보조 칸, 하루 한 번)') + ': ' + bad.map(b => b[2]).join(', '));
   if (n >= 3 && pr.getProperty('importAlertDay') !== today) {
     pr.setProperty('importAlertDay', today);
     try { _notifyKakao(['🚨 자산 시트 현재가(IMPORTDATA)가 45분째 오류 — 다시 받아도 안 풀림, 웹앱 점검 필요']); } catch (e) {}
