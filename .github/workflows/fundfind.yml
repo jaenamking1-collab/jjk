@@ -1,0 +1,29 @@
+# 펀드 이름으로 FunETF 펀드코드를 찾고 최근 기준가를 확인하는 임시 통로 (IRP 펀드 현재가 자동화용).
+name: fundfind
+on:
+  workflow_dispatch:
+    inputs:
+      q:
+        description: '쉼표로 나눈 검색어 (모두 포함하는 이름만)'
+        required: true
+jobs:
+  find:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          Q: ${{ github.event.inputs.q }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          H={'User-Agent':'Mozilla/5.0','X-Requested-With':'XMLHttpRequest','Referer':'https://www.funetf.co.kr/'}
+          def get(u):
+              return json.load(urllib.request.urlopen(urllib.request.Request(u,headers=H),timeout=60))
+          items=get('https://www.funetf.co.kr/api/public/quickSearch/product')
+          print('전체', len(items), '예시', json.dumps(items[0],ensure_ascii=False)[:300])
+          for grp in os.environ['Q'].split('|'):
+              keys=[k.strip() for k in grp.split(',') if k.strip()]
+              hits=[it for it in items if all(k in json.dumps(it,ensure_ascii=False) for k in keys)]
+              print('==', keys, len(hits))
+              for it in hits[:25]:
+                  print(json.dumps(it,ensure_ascii=False)[:260])
+          PY
