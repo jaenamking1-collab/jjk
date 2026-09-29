@@ -3171,6 +3171,9 @@ function getPricesCsv(tickers) {
   Object.keys(p).forEach(t => {
     const c = p[t] && p[t].current;
     if (!c) return;
+    // 공개 액션이다 — 펀드·예금·현금(F-/B-/D-/CASH-) 같은 가짜 티커는 시트 G값(=평가액)이 그대로
+    // 실려 나가므로 뺀다. 시트 쪽 요청식도 이 모양(영숫자 4~7자)만 쓴다(2026-09-29).
+    if (!/^[0-9A-Za-z]{4,7}$/.test(t) || /^CASH/i.test(t)) return;
     rows.push(t + ',' + c);
     seen[t.toUpperCase()] = true;
   });
@@ -4591,7 +4594,7 @@ function sectorSnapshot(tab) {
 // 구글 시트가 그 오류를 붙들고 있어 현재가가 안 나왔다. 같은 수식을 한 번 비웠다 넣으면 다시 받는다.
 // ⚠️ 첫 판은 '주식상황'만 봤는데 현재가가 실제로 읽는 IMPORTDATA 는 **'시세' 탭**에 있다(주식상황 G열 =
 // INDEX('시세'!B:B, …)). 그래서 표식을 바꿔 **모든 탭**을 다시 돈다.
-const IMPORT_REFRESH_KEY = 'import_refresh_20260928b';
+const IMPORT_REFRESH_KEY = 'import_refresh_20260929';   // 9/29 배포 중 #N/A 로 굳음 → 다시
 function _refreshImportOnce() {
   const pr = PropertiesService.getScriptProperties();
   if (pr.getProperty(IMPORT_REFRESH_KEY) === 'done') return;
