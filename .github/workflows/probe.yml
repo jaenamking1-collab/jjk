@@ -24,6 +24,10 @@ on:
         description: 'Referer 헤더'
         required: false
         default: ''
+      fundq:
+        description: 'FunETF 펀드 이름 검색 (쉼표=모두 포함, |=여러 묶음). 주면 나머지는 무시.'
+        required: false
+        default: ''
       grep:
         description: 'HTML 처럼 큰 응답에서 이 정규식이 걸린 곳 앞뒤만 본다 (예: 기준가).'
         required: false
@@ -45,11 +49,16 @@ jobs:
           PICK: ${{ github.event.inputs.pick }}
           GREP: ${{ github.event.inputs.grep }}
           HDR: ${{ github.event.inputs.hdr }}
+          FUNDQ: ${{ github.event.inputs.fundq }}
           REF: ${{ github.event.inputs.ref }}
         run: |
           set -euo pipefail
           BASE='https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec'
           # url 을 주면 그걸 치고, 아니면 웹앱의 공개 액션을 친다.
+          if [ -n "${FUNDQ:-}" ]; then
+            python3 .github/scripts/fundq.py
+            exit 0
+          fi
           TARGET="${URL:-$BASE?action=$ACT}"
           echo "=== $TARGET ==="
           code=$(curl -sL -o /tmp/r.txt -w '%{http_code}' --max-time 120 -A 'Mozilla/5.0' ${HDR:+-H "$HDR"} ${REF:+-e "$REF"} "$TARGET")
