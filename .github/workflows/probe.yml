@@ -16,6 +16,14 @@ on:
         description: '임의 URL 을 직접 칠 때. 외부 API 응답 형식을 확인하는 용도.'
         required: false
         default: ''
+      hdr:
+        description: '추가 요청 헤더 한 줄 (예: X-Requested-With: XMLHttpRequest). 참조 URL 은 ref 로.'
+        required: false
+        default: ''
+      ref:
+        description: 'Referer 헤더'
+        required: false
+        default: ''
       grep:
         description: 'HTML 처럼 큰 응답에서 이 정규식이 걸린 곳 앞뒤만 본다 (예: 기준가).'
         required: false
@@ -36,13 +44,15 @@ jobs:
           URL: ${{ github.event.inputs.url }}
           PICK: ${{ github.event.inputs.pick }}
           GREP: ${{ github.event.inputs.grep }}
+          HDR: ${{ github.event.inputs.hdr }}
+          REF: ${{ github.event.inputs.ref }}
         run: |
           set -euo pipefail
           BASE='https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec'
           # url 을 주면 그걸 치고, 아니면 웹앱의 공개 액션을 친다.
           TARGET="${URL:-$BASE?action=$ACT}"
           echo "=== $TARGET ==="
-          code=$(curl -sL -o /tmp/r.txt -w '%{http_code}' --max-time 120 -A 'Mozilla/5.0' "$TARGET")
+          code=$(curl -sL -o /tmp/r.txt -w '%{http_code}' --max-time 120 -A 'Mozilla/5.0' ${HDR:+-H "$HDR"} ${REF:+-e "$REF"} "$TARGET")
           echo "HTTP $code · $(wc -c < /tmp/r.txt) bytes"
           echo "--- 전체 $(wc -l < /tmp/r.txt)줄 ---"
           # pick 을 주면 그 부분만 판다. getDistributionAll 은 115KB 라 아래 head 로 자르면
