@@ -21,6 +21,8 @@
 - 채권(서울도시)·예금(대신저축)은 고정값. 현금 티커 `CASH` 가 두 계좌에서 겹쳐 `getLivePrices` 가 첫 값을 써서 → `CASH-J`/`CASH-E`.
 - `fixIrpRows`(원본 드라이브 시트 → B티커·G값 + 앱 IRP 종목 동기화)를 **keepWarm 한 번 실행(`_fixIrpOnce`, 속성 `irpFix0929`)** 으로 돌렸다 — ⛔ **Apps Script 버전 200개 상한**에 걸려 웹앱 배포가 안 돼 maint 로 못 불렀다. push 만 됐다.
 - 사용자가 버전을 지워 배포(01:03) + `resetAllTriggers` 완료. 01:04 keepWarm 이 `_fixIrpOnce` 를 돌려 시트 B티커·G값·81줄 수식·CASH-J/E, 앱 IRP 종목까지 정리됨(원본과 G값 대조 일치). **push 만으로는 트리거가 새 코드를 안 돌았다** → CLAUDE.md 정정.
+- 10:2x 시트 현재가가 거의 다 비었다(사용자 지적): '시세'!A1 IMPORTDATA 가 배포 중 #N/A 로 굳음 → `IMPORT_REFRESH_KEY` 바꿔 다시 받기, 배포+`resetAllTriggers` → 72칸 중 71칸 복구 확인. 같이 `getPricesCsv`(공개)가 가짜 티커 평가액을 내보내던 것 막음(PR #20).
+- 서울도시철도 채권 시세: KRX 는 로그인 필요. 매수일 받으면 복리 역산으로 G값 매일 올리는 안을 제안해 둠.
 - 다음 할 일: 내일(9/30) 10시 이후 은경·재남 펀드 G값이 기준가 비율로 움직였는지 확인.
 
 ## 2026-09-28 (199) / 원격 — IRP 두 계좌를 시트·앱에 넣음
