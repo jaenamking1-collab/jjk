@@ -48,7 +48,7 @@ jobs:
           # pick 을 주면 그 부분만 판다. getDistributionAll 은 115KB 라 아래 head 로 자르면
           # 뒤쪽 운용사(plus·rise·sol)를 아예 못 본다 — 그걸 보려고 만들었다(2026-09-15).
           if [ -n "${GREP:-}" ]; then
-            grep -oP ".{0,300}(${GREP}).{0,300}" /tmp/r.txt | head -c 20000 || echo '(없음)'
+            grep -P -B6 -A14 "${GREP}" /tmp/r.txt | cut -c1-400 | head -c 20000 || echo "(없음)"
             exit 0
           fi
           if [ -n "${PICK:-}" ]; then
