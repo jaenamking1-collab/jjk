@@ -4620,7 +4620,15 @@ function _healImportData(force) {   // maint 로 부를 땐 arg 아무거나 →
     if (!rg) return;
     const f = rg.getFormula();
     if (!/IMPORTDATA/i.test(f)) { pr.deleteProperty('importCells'); return; }   // 누가 옮겼다 → 다음에 다시 찾는다
-    if (/^#/.test(String(rg.getDisplayValue()))) bad.push([rg, f, n + '!R' + r + 'C' + c]);
+    if (!/^#/.test(String(rg.getDisplayValue()))) return;
+    // 우리 시세(getPricesCsv)만 고친다. 다른 IMPORTDATA 는 누가 무슨 뜻으로 넣었는지 모르니 건드리지 않고,
+    // 어디를 부르는지(호스트·action 만 — 토큰이 섞여 있을 수 있다) 로그로만 남긴다(2026-09-29 주식상황 Y10·Y18).
+    if (!/getPricesCsv/.test(f)) {
+      const m = f.match(/https?:\/\/([^\/"?]+)[^"]*?(action=\w+)?/);
+      console.log('IMPORTDATA 오류(우리 것 아님, 안 건드림) ' + n + '!R' + r + 'C' + c + ' → ' + (m ? m[1] + (m[2] ? ' ' + m[2] : '') : '주소 없음/참조'));
+      return;
+    }
+    bad.push([rg, f, n + '!R' + r + 'C' + c]);
   });
   console.log('IMPORTDATA ' + cells.length + '칸 점검 · 오류 ' + bad.length + '칸');
   if (!bad.length) { pr.deleteProperty('importHealN'); return; }
