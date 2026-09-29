@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows'
 ];
 
 function runMaint(name, arg) {
@@ -6011,14 +6011,24 @@ function importSheetBlocks(arg) {
 // ── IRP 펀드 현재가(기준가) 자동 채우기 ─────────────────────────────
 // 펀드는 시세가 없어 주식상황 G열(현재가)을 손으로 적어야 했다. FunETF 가 클래스별 일일 기준가를
 // 공개 API 로 준다(2026-09-29 확인 — 9/23 기준가가 증권사 잔고 평가액/좌수와 소수점까지 같다).
-// 그래서 하루 한 번 받아 G열에 '1좌 값'(기준가/1000)을 쓴다. D열은 좌수, E열은 원금/좌수로 둔다.
+// 그래서 하루 한 번 받아 G열(현재가)을 고친다. 줄마다 적는 방식이 둘이다:
+//   · 수량 1(D=1, E=원금, G=평가액) — 사용자가 이렇게 적는다(2026-09-29). 좌수를 몰라도 되도록
+//     G 를 '어제 기준가 대비 오늘 기준가' 비율만큼 늘리거나 줄인다. 처음 본 날은 기준만 남긴다.
+//     입금으로 평가액이 바뀌면 G 만 새로 적으면 거기서부터 다시 따라간다.
+//   · 좌수(D=좌수) — G 에 1좌 값(기준가/1000)을 그대로 쓴다.
 // 디폴트옵션 적극투자형 TDF1 은 미래에셋전략배분TDF2050 종류O 100% 라 그 기준가를 쓴다
 // (미래에셋증권 DC·IRP 투자가이드 2025.10).
 // 새 펀드를 넣으려면 여기에 '시트 티커: FunETF 펀드코드'를 한 줄 더한다
 // (funetf.co.kr/product/fund/view/<코드> 의 클래스 목록에서 계좌에 맞는 클래스를 고른다).
+// 클래스는 9/23 증권사 잔고의 평가액/좌수와 그날 기준가가 소수점까지 같은 것으로 골랐다.
 const FUND_NAV = {
-  'F-EMP2050': 'K55105D32763',   // 삼성글로벌EMP적격TDF2050 Cpe(퇴직연금)
-  'F-DOTDF1':  'K55301DW2175',   // 미래에셋전략배분적격TDF2050 종류O(디폴트옵션)
+  'F-EMP2050':  'K55105D32763',  // 재남 · 삼성글로벌EMP적격TDF2050 Cpe(퇴직연금)
+  'F-DOTDF1':   'K55301DW2175',  // 재남 · 미래에셋전략배분적격TDF2050 종류O(디폴트옵션)
+  'F-BU112':    'K55105BU1120',  // 은경 · 삼성미국S&P500인덱스UH Cpe(퇴직연금)
+  'F-HANHWA':   'K55237BU5569',  // 은경 · 한화천연자원 P-E(퇴직연금)
+  'F-C8386':    'K55301C83862',  // 은경 · 미래에셋유럽블루칩인덱스 C-P2E(퇴직연금)
+  'F-SCHRODER': 'K55230BT8043',  // 은경 · 키움슈로더이머징위너스 C-CPe(퇴직연금)
+  'F-TDF2035':  'K55301BU6139',  // 은경 · 미래에셋전략배분적격TDF2035 C-P2e(퇴직연금)
 };
 
 function _fundNav(code) {
@@ -6035,18 +6045,90 @@ function _fundNav(code) {
 // arg 'dry' 면 쓰지 않고 로그만 남긴다. 공개 로그에는 날짜·기준가만 남긴다(좌수·금액은 안 쓴다).
 function updateFundNav(arg) {
   const dry = arg === 'dry';
+  const pr = PropertiesService.getScriptProperties();
+  const last = JSON.parse(pr.getProperty('fundNavLast') || '{}');   // 펀드코드 → 직전에 반영한 기준가
   const ws = SpreadsheetApp.openById(ASSET_SHEET_ID).getSheetByName('주식상황');
-  const tick = ws.getRange(1, 2, ws.getLastRow(), 1).getValues();
+  const vals = ws.getRange(1, 2, ws.getLastRow(), 6).getValues();    // B~G
   const navs = {};
   let n = 0;
-  tick.forEach((r, i) => {
+  vals.forEach((r, i) => {
     const code = FUND_NAV[String(r[0]).trim()];
     if (!code) return;
-    if (!navs[code]) navs[code] = _fundNav(code);
-    console.log(r[0] + ' 줄 ' + (i + 1) + ': ' + navs[code].ymd + ' 기준가 ' + navs[code].nav);
-    if (!dry) ws.getRange(i + 1, 7).setValue(navs[code].nav / 1000);
+    if (!navs[code]) { Utilities.sleep(500); navs[code] = _fundNav(code); }
+    const nav = navs[code].nav, qty = Number(r[2]), cur = Number(r[5]);
+    let g;
+    if (qty === 1) {
+      if (!(cur > 0)) { console.log(r[0] + ' 줄 ' + (i + 1) + ': G가 비어 건너뜀'); return; }
+      if (!last[code]) { console.log(r[0] + ' 줄 ' + (i + 1) + ': 기준 ' + navs[code].ymd + ' ' + nav + ' (첫날 — 값은 그대로)'); return; }
+      g = Math.round(cur * nav / last[code]);
+    } else {
+      g = nav / 1000;
+    }
+    console.log(r[0] + ' 줄 ' + (i + 1) + ': ' + navs[code].ymd + ' 기준가 ' + nav + (last[code] ? ' (직전 ' + last[code] + ')' : ''));
+    if (!dry) ws.getRange(i + 1, 7).setValue(g);
     n++;
   });
-  if (!dry && n) { try { CacheService.getScriptCache().remove('sheetData_v1'); } catch (e) {} }
+  Object.keys(navs).forEach(c => last[c] = navs[c].nav);
+  if (!dry) {
+    pr.setProperty('fundNavLast', JSON.stringify(last));
+    try { CacheService.getScriptCache().remove('sheetData_v1'); } catch (e) {}
+  }
   return { dry, rows: n };
 }
+
+// 한 번 쓰는 정리: IRP 칸의 빈 티커·어긋난 현재가를 원본 시트대로 고치고, 앱 종목을 시트 칸과 맞춘다.
+// 원본(Drive) 열: [칸이름, 종목명에 든 글자, 티커, G값]. G값이 'COPYUP' 이면 윗줄 G 수식을 복사하고,
+// 'FE' 면 그 줄 E 를 가리키는 수식(=E줄)을 넣는다. 금액은 원본 시트에만 있고 공개 로그엔 줄 번호만 남긴다.
+// arg: '<원본ID>' 또는 '<원본ID>:dry'
+function fixIrpRows(arg) {
+  const dry = /:dry$/.test(arg || '');
+  const src = SpreadsheetApp.openById((arg || '').replace(/:dry$/, '')).getSheets()[0].getDataRange().getValues().slice(1).filter(r => r[0] && r[1]);
+  const ws = SpreadsheetApp.openById(ASSET_SHEET_ID).getSheetByName('주식상황');
+  const all = ws.getDataRange().getValues();
+  const norm = s => String(s).replace(/\s+/g, ' ').trim();
+  const low = s => norm(s).toLowerCase();
+  const start = {};
+  all.forEach((r, i) => { if (r[0]) start[norm(r[0])] = i + 1; });
+  const blockEnd = s => { let e = s; while (e < all.length && !all[e][0] && (all[e][1] || all[e][2])) e++; return e; };
+  src.forEach(r => {
+    const s = start[norm(r[0])];
+    if (!s) throw new Error(r[0] + ' 칸이 없다');
+    const e = blockEnd(s);
+    let row = 0;
+    for (let i = s; i <= e; i++) if (low(all[i - 1][2]).indexOf(low(r[1])) !== -1) { row = i; break; }
+    if (!row) throw new Error(r[0] + ' 칸에 ' + r[1] + ' 줄이 없다');
+    console.log(r[0] + ' 줄 ' + row + ' → ' + r[2]);
+    if (dry) return;
+    ws.getRange(row, 2).setValue("'" + r[2]);
+    if (r[3] === 'COPYUP') ws.getRange(row - 1, 7).copyTo(ws.getRange(row, 7));
+    else if (r[3] === 'FE') ws.getRange(row, 7).setFormula('=E' + row);
+    else if (r[3] !== '') ws.getRange(row, 7).setValue(r[3]);
+  });
+  if (dry) return { dry, rows: src.length };
+  SpreadsheetApp.flush();
+  // 앱 종목을 칸과 맞춘다 — 동기화 버튼과 같은 일(없으면 넣고, 다르면 고치고, 칸에 없으면 지운다).
+  const after = ws.getDataRange().getValues();
+  const tick = t => { t = String(t || '').replace(/^'/, '').trim(); return /^\d{1,5}$/.test(t) ? ('000000' + t).slice(-6) : t; };
+  const labels = {};
+  src.forEach(r => labels[norm(r[0])] = 1);
+  Object.keys(labels).forEach(label => {
+    const acc = getAccounts().find(a => norm(a.name) === norm(SHEET_IRP_ACC[label] || ''));
+    if (!acc) { console.log(label + ': 앱 계좌 없음'); return; }
+    const s = start[label], e = blockEnd(s);
+    const rows = after.slice(s - 1, e).filter(x => tick(x[1]));
+    const hs = getHoldings().filter(h => String(h.account_id) === String(acc.id));
+    let add = 0, upd = 0, del = 0;
+    rows.forEach(x => {
+      const h = hs.find(h => tick(h.ticker) === tick(x[1]));
+      if (!h) { add++; addHolding({ account_id: acc.id, ticker: tick(x[1]), name: x[2], avg_price: x[4], quantity: x[3], currency: 'KRW', div_cycle: '' }); return; }
+      if (Number(h.quantity) !== Number(x[3]) || Number(h.avg_price) !== Number(x[4]) || h.name !== x[2]) {
+        upd++; updateHolding({ id: h.id, ticker: h.ticker, name: x[2], avg_price: x[4], quantity: x[3], currency: h.currency, div_cycle: h.div_cycle });
+      }
+    });
+    hs.filter(h => !rows.some(x => tick(x[1]) === tick(h.ticker))).forEach(h => { del++; deleteHolding(h.id); });
+    console.log(label + ' 앱 종목: 넣음 ' + add + ' · 고침 ' + upd + ' · 지움 ' + del);
+  });
+  try { CacheService.getScriptCache().removeAll(['sheetData_v1', 'liveprices_v1']); } catch (e) {}
+  return { dry, rows: src.length };
+}
+const SHEET_IRP_ACC = { '재남 IRP': '재남 미래에셋 IRP', '은경 IRP': '은경 미래에셋 IRP' };
