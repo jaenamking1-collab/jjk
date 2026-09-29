@@ -18,7 +18,7 @@ for q in os.environ['FUNDQ'].split('|'):
         global_xl = globals().get('_xl')
         if global_xl is None:
             import io, subprocess
-            subprocess.run(['pip', '-q', 'install', 'openpyxl'], capture_output=True)
+            import sys, site; subprocess.run([sys.executable, '-m', 'pip', '-q', 'install', '--user', '--break-system-packages', 'openpyxl'], capture_output=True); sys.path.append(site.getusersitepackages())
             import openpyxl
             raw = urllib.request.urlopen(urllib.request.Request('https://www.funetf.co.kr/api/public/download/excel/fundFilter', headers=UA), timeout=120).read()
             print('엑셀', len(raw), raw[:8])
