@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends'
 ];
 
 function runMaint(name, arg) {
@@ -6092,6 +6092,22 @@ function _fixIrpOnce() {
   fixIrpRows('16GE12cHugoKBk190cAtxVeIxsI3emotMgveM1WuR7eM');
   pr.setProperty('irpFix0929', 'done');
   _fixLog('IRP 칸 정리 완료 (2026-09-29 원본)');
+}
+
+// 분배금을 대신 넣을 때 쓴다(maint). 금액을 공개 로그·저장소에 남기지 않으려고, 값은 드라이브의
+// 비공개 시트([티커, 연, 월, 금액, 통화] 행)에서 읽고 로그에는 티커·연월만 찍는다.
+// 티커로 보유 종목을 찾는다(판 종목도 수량 0 으로 남아 있어 찾힌다). 같은 티커가 여러 계좌면 멈춘다.
+function importDividends(srcId) {
+  const src = SpreadsheetApp.openById(srcId).getSheets()[0].getDataRange().getValues().slice(1).filter(r => r[0]);
+  const hs = getHoldings();
+  src.forEach(r => {
+    const t = String(r[0]).trim().toUpperCase();
+    const m = hs.filter(h => String(h.ticker).trim().toUpperCase() === t);
+    if (m.length !== 1) throw new Error(t + ' 보유 종목이 ' + m.length + '개라 어느 계좌인지 모른다');
+    const res = saveDividend({ holding_id: m[0].id, year: Number(r[1]), month: Number(r[2]), amount: Number(r[3]), currency: String(r[4] || 'KRW').toUpperCase() });
+    console.log(t + ' ' + r[1] + '-' + r[2] + (res.updated ? ' 고침' : ' 넣음'));
+  });
+  return { rows: src.length };
 }
 
 function fixIrpRows(arg) {
