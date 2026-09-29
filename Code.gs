@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', '_healImportData'
 ];
 
 function runMaint(name, arg) {
@@ -4469,6 +4469,7 @@ function keepWarm() {
   try { _attachOrphanDivsOnce(); } catch (e) { _fixLog('고아 배당 연결 실패 — ' + e); }
   try { _nameOrphansOnce(); } catch (e) { _fixLog('고아 배당 이름 채우기 실패 — ' + e); }
   try { _refreshImportOnce(); } catch (e) { _fixLog('IMPORTDATA 새로고침 실패 — ' + e); }
+  try { _healImportData(); } catch (e) { console.log('IMPORTDATA 자가복구 실패 — ' + e); }
   try { _fixIrpOnce(); } catch (e) { _fixLog('IRP 칸 정리 실패 — ' + e); }
 
   // IRP 펀드 기준가 — 전날 기준가가 아침에 나온다. 10시 이후 첫 keepWarm 에서 하루 한 번(updateFundNav 주석).
@@ -4594,6 +4595,50 @@ function sectorSnapshot(tab) {
 // 구글 시트가 그 오류를 붙들고 있어 현재가가 안 나왔다. 같은 수식을 한 번 비웠다 넣으면 다시 받는다.
 // ⚠️ 첫 판은 '주식상황'만 봤는데 현재가가 실제로 읽는 IMPORTDATA 는 **'시세' 탭**에 있다(주식상황 G열 =
 // INDEX('시세'!B:B, …)). 그래서 표식을 바꿔 **모든 탭**을 다시 돈다.
+// ── '시세' IMPORTDATA 자가복구 (keepWarm 이 15분마다) ─────────────────────────
+// 왜: 자산 시트 '시세'!A1 이 IMPORTDATA 로 우리 웹앱(getPricesCsv)을 부른다. **배포하는 몇 초 동안**
+// 웹앱이 오류를 내면 시트가 그 오류(#N/A)를 붙잡고 다시 안 받는다 → 현재가 칸이 통째로 빈다.
+// 9/29 에만 두 번 사람이 발견했다("또 스프레드시트 안 나온다 왜 자주"). 배포는 앞으로도 하니,
+// 굳으면 **스스로** 수식을 지웠다 다시 넣는다. 3번 연속 다시 받아도 오류면 웹앱 자체 문제라 하루 한 번 카톡.
+function _healImportData(force) {   // maint 로 부를 땐 arg 아무거나 → 15분 간격 무시
+  const pr = PropertiesService.getScriptProperties();
+  const now = Date.now();
+  if (!force && now - Number(pr.getProperty('importChkAt') || 0) < 15 * 60000) return;
+  pr.setProperty('importChkAt', String(now));
+  const ss = SpreadsheetApp.openById(ASSET_SHEET_ID);
+  let cells = JSON.parse(pr.getProperty('importCells') || '[]');
+  if (!cells.length) {   // 위치는 한 번만 찾아 둔다(시트 전체 수식 훑기는 무겁다)
+    ss.getSheets().forEach(sh => sh.getDataRange().getFormulas().forEach((row, r) => row.forEach((f, c) => {
+      if (/IMPORTDATA/i.test(f)) cells.push([sh.getName(), r + 1, c + 1]);
+    })));
+    pr.setProperty('importCells', JSON.stringify(cells));
+  }
+  const bad = [];
+  cells.forEach(([n, r, c]) => {
+    const sh = ss.getSheetByName(n);
+    const rg = sh && sh.getRange(r, c);
+    if (!rg) return;
+    const f = rg.getFormula();
+    if (!/IMPORTDATA/i.test(f)) { pr.deleteProperty('importCells'); return; }   // 누가 옮겼다 → 다음에 다시 찾는다
+    if (/^#/.test(String(rg.getDisplayValue()))) bad.push([rg, f, n + '!R' + r + 'C' + c]);
+  });
+  console.log('IMPORTDATA ' + cells.length + '칸 점검 · 오류 ' + bad.length + '칸');
+  if (!bad.length) { pr.deleteProperty('importHealN'); return; }
+  bad.forEach(([rg]) => rg.clearContent());
+  SpreadsheetApp.flush();
+  Utilities.sleep(2000);
+  bad.forEach(([rg, f]) => rg.setFormula(f));
+  SpreadsheetApp.flush();
+  const n = Number(pr.getProperty('importHealN') || 0) + 1;
+  pr.setProperty('importHealN', String(n));
+  _fixLog('IMPORTDATA 오류로 굳음 → 다시 받기(' + n + '회째): ' + bad.map(b => b[2]).join(', '));
+  const today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
+  if (n >= 3 && pr.getProperty('importAlertDay') !== today) {
+    pr.setProperty('importAlertDay', today);
+    try { _notifyKakao(['🚨 자산 시트 현재가(IMPORTDATA)가 45분째 오류 — 다시 받아도 안 풀림, 웹앱 점검 필요']); } catch (e) {}
+  }
+}
+
 const IMPORT_REFRESH_KEY = 'import_refresh_20260929';   // 9/29 배포 중 #N/A 로 굳음 → 다시
 function _refreshImportOnce() {
   const pr = PropertiesService.getScriptProperties();
