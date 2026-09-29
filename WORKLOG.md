@@ -12,6 +12,17 @@
 - **작업 종료**: 맨 위에 새 항목 추가 → `git add .` → `git commit` → `git push`
 
 
+## 2026-09-29 (201) / 원격 — '시세' IMPORTDATA 가 배포 때마다 #N/A 로 굳는 것 **자가복구**
+
+- 사용자: *"또 스프레드시트 안 나온다 왜 자주"*. 원인은 200에 적힌 그대로다 — 자산 시트 `'시세'!A1` 의 IMPORTDATA 가 우리 웹앱을 부르는데,
+  **배포하는 몇 초 동안** 웹앱이 오류를 내면 시트가 그 오류를 붙잡고 안 놓는다. 9/28~29 에 배포가 많았다(내 세션만 8번).
+  200에선 키를 바꿔 **한 번** 다시 받았을 뿐이라 다음 배포 때 또 굳었다.
+- `_healImportData`(keepWarm 에서 15분마다): IMPORTDATA 칸 위치를 한 번 찾아 두고(`importCells`), 값이 `#` 로 시작하면
+  수식을 지웠다 다시 넣는다. **3번 연속(45분) 안 풀리면 하루 한 번 카톡**(그땐 웹앱 자체 문제). maint 로도 부를 수 있다(arg 아무거나 = 간격 무시).
+- 배포해도 최대 15분 안에 저절로 풀린다 → 사람이 발견할 일이 없다.
+
+---
+
 ## 2026-09-29 (200) / 원격 — IRP 펀드 현재가 매일 자동 반영
 - 출처: FunETF `api/public/product/view/fundnav?fundCd=<클래스코드>&schNavMode=T` (헤더 `X-Requested-With: XMLHttpRequest` + Referer 필요, 연속 호출 시 429). 컨테이너는 못 닿아 `probe.yml`(`fundq` 입력, `.github/scripts/fundq.py`)로 찾았다.
 - `Code.gs` `FUND_NAV`(가짜티커→클래스코드 7개) + `updateFundNav`: keepWarm 이 **10시 이후 하루 한 번** 돈다. 수량 1 칸은 `G = G × 오늘기준가 / 어제기준가`(기준점은 `fundNavLast` 속성, 첫날은 기록만). **이틀 연속 실패 시 카톡.**
