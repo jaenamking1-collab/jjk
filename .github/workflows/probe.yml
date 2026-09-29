@@ -16,6 +16,10 @@ on:
         description: '임의 URL 을 직접 칠 때. 외부 API 응답 형식을 확인하는 용도.'
         required: false
         default: ''
+      grep:
+        description: 'HTML 처럼 큰 응답에서 이 정규식이 걸린 곳 앞뒤만 본다 (예: 기준가).'
+        required: false
+        default: ''
       pick:
         description: '응답이 커서 잘릴 때 볼 부분. 점으로 파고든다 (예: sources.plus).'
         required: false
@@ -31,6 +35,7 @@ jobs:
           ACT: ${{ github.event.inputs.action }}
           URL: ${{ github.event.inputs.url }}
           PICK: ${{ github.event.inputs.pick }}
+          GREP: ${{ github.event.inputs.grep }}
         run: |
           set -euo pipefail
           BASE='https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec'
@@ -42,6 +47,10 @@ jobs:
           echo "--- 전체 $(wc -l < /tmp/r.txt)줄 ---"
           # pick 을 주면 그 부분만 판다. getDistributionAll 은 115KB 라 아래 head 로 자르면
           # 뒤쪽 운용사(plus·rise·sol)를 아예 못 본다 — 그걸 보려고 만들었다(2026-09-15).
+          if [ -n "${GREP:-}" ]; then
+            grep -oP ".{0,300}(${GREP}).{0,300}" /tmp/r.txt | head -c 20000 || echo '(없음)'
+            exit 0
+          fi
           if [ -n "${PICK:-}" ]; then
             python3 .github/scripts/pick.py "$PICK" /tmp/r.txt
             exit 0
