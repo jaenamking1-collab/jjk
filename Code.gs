@@ -4466,6 +4466,7 @@ function keepWarm() {
   try { _attachOrphanDivsOnce(); } catch (e) { _fixLog('고아 배당 연결 실패 — ' + e); }
   try { _nameOrphansOnce(); } catch (e) { _fixLog('고아 배당 이름 채우기 실패 — ' + e); }
   try { _refreshImportOnce(); } catch (e) { _fixLog('IMPORTDATA 새로고침 실패 — ' + e); }
+  try { _fixIrpOnce(); } catch (e) { _fixLog('IRP 칸 정리 실패 — ' + e); }
 
   // IRP 펀드 기준가 — 전날 기준가가 아침에 나온다. 10시 이후 첫 keepWarm 에서 하루 한 번(updateFundNav 주석).
   // 이틀 연속 못 받으면 카톡으로 한 번 알린다 — 조용히 멈춘 값을 사람이 화면에서 발견하게 두지 않는다.
@@ -6080,6 +6081,16 @@ function updateFundNav(arg) {
 // 원본(Drive) 열: [칸이름, 종목명에 든 글자, 티커, G값]. G값이 'COPYUP' 이면 윗줄 G 수식을 복사하고,
 // 'FE' 면 그 줄 E 를 가리키는 수식(=E줄)을 넣는다. 금액은 원본 시트에만 있고 공개 로그엔 줄 번호만 남긴다.
 // arg: '<원본ID>' 또는 '<원본ID>:dry'
+// 웹앱이 버전 200개 상한으로 새 배포를 못 받아 maint 로 못 부른다 → keepWarm(저장된 코드)에서 한 번만 돈다.
+// 펀드 기준가 기준점(10시 updateFundNav)보다 먼저 돌아야 해서 같은 keepWarm 안에서 앞에 둔다.
+function _fixIrpOnce() {
+  const pr = PropertiesService.getScriptProperties();
+  if (pr.getProperty('irpFix0929') === 'done') return;
+  fixIrpRows('16GE12cHugoKBk190cAtxVeIxsI3emotMgveM1WuR7eM');
+  pr.setProperty('irpFix0929', 'done');
+  _fixLog('IRP 칸 정리 완료 (2026-09-29 원본)');
+}
+
 function fixIrpRows(arg) {
   const dry = /:dry$/.test(arg || '');
   const src = SpreadsheetApp.openById((arg || '').replace(/:dry$/, '')).getSheets()[0].getDataRange().getValues().slice(1).filter(r => r[0] && r[1]);
