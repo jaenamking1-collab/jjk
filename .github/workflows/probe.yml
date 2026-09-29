@@ -16,6 +16,22 @@ on:
         description: '임의 URL 을 직접 칠 때. 외부 API 응답 형식을 확인하는 용도.'
         required: false
         default: ''
+      hdr:
+        description: '추가 요청 헤더 한 줄 (예: X-Requested-With: XMLHttpRequest). 참조 URL 은 ref 로.'
+        required: false
+        default: ''
+      ref:
+        description: 'Referer 헤더'
+        required: false
+        default: ''
+      fundq:
+        description: 'FunETF 펀드 이름 검색 (쉼표=모두 포함, |=여러 묶음). 주면 나머지는 무시.'
+        required: false
+        default: ''
+      grep:
+        description: 'HTML 처럼 큰 응답에서 이 정규식이 걸린 곳 앞뒤만 본다 (예: 기준가).'
+        required: false
+        default: ''
       pick:
         description: '응답이 커서 잘릴 때 볼 부분. 점으로 파고든다 (예: sources.plus).'
         required: false
@@ -31,17 +47,34 @@ jobs:
           ACT: ${{ github.event.inputs.action }}
           URL: ${{ github.event.inputs.url }}
           PICK: ${{ github.event.inputs.pick }}
+          GREP: ${{ github.event.inputs.grep }}
+          HDR: ${{ github.event.inputs.hdr }}
+          FUNDQ: ${{ github.event.inputs.fundq }}
+          REF: ${{ github.event.inputs.ref }}
         run: |
           set -euo pipefail
           BASE='https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec'
           # url 을 주면 그걸 치고, 아니면 웹앱의 공개 액션을 친다.
+          if [ -n "${FUNDQ:-}" ]; then
+            python3 .github/scripts/fundq.py
+            exit 0
+          fi
           TARGET="${URL:-$BASE?action=$ACT}"
           echo "=== $TARGET ==="
-          code=$(curl -sL -o /tmp/r.txt -w '%{http_code}' --max-time 120 -A 'Mozilla/5.0' "$TARGET")
+          code=$(curl -sL -o /tmp/r.txt -w '%{http_code}' --max-time 120 -A 'Mozilla/5.0' ${HDR:+-H "$HDR"} ${REF:+-e "$REF"} "$TARGET")
           echo "HTTP $code · $(wc -c < /tmp/r.txt) bytes"
           echo "--- 전체 $(wc -l < /tmp/r.txt)줄 ---"
           # pick 을 주면 그 부분만 판다. getDistributionAll 은 115KB 라 아래 head 로 자르면
           # 뒤쪽 운용사(plus·rise·sol)를 아예 못 본다 — 그걸 보려고 만들었다(2026-09-15).
+          if [ -n "${GREP:-}" ] && head -c 5 /tmp/r.txt | grep -q '%PDF'; then
+            pip -q install pypdf >/dev/null 2>&1
+            python3 -c "import pypdf;print('\n'.join(p.extract_text() or '' for p in pypdf.PdfReader('/tmp/r.txt').pages))" > /tmp/r.txt.t
+            mv /tmp/r.txt.t /tmp/r.txt
+          fi
+          if [ -n "${GREP:-}" ]; then
+            grep -P -B6 -A14 "${GREP}" /tmp/r.txt | cut -c1-400 | head -c 20000 || echo "(없음)"
+            exit 0
+          fi
           if [ -n "${PICK:-}" ]; then
             python3 .github/scripts/pick.py "$PICK" /tmp/r.txt
             exit 0
