@@ -16,7 +16,8 @@ for q in os.environ['FUNDQ'].split('|'):
     q = q.strip()
     q, _, want = q.partition(':')          # '코드:글자' 면 그 글자가 든 클래스만 기준가를 본다(429 방지)
     if re.fullmatch(r'K[R5][0-9A-Z]{10}', q):
-        html = get('https://www.funetf.co.kr/product/fund/view/' + q)
+        try: html = get('https://www.funetf.co.kr/product/fund/view/' + q)
+        except Exception as e: print('==', q, 'ERR', e); continue
         t = re.search(r'<title>([^<]*)', html)
         print('==', q, t.group(1).strip() if t else '')
         for cd, title in re.findall(r'class-item" href="/product/fund/view/(\w+)">\s*<p class="class-title">([^<]*)', html):
