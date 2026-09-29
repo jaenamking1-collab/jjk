@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav'
 ];
 
 function runMaint(name, arg) {
@@ -4467,6 +4467,29 @@ function keepWarm() {
   try { _nameOrphansOnce(); } catch (e) { _fixLog('고아 배당 이름 채우기 실패 — ' + e); }
   try { _refreshImportOnce(); } catch (e) { _fixLog('IMPORTDATA 새로고침 실패 — ' + e); }
 
+  // IRP 펀드 기준가 — 전날 기준가가 아침에 나온다. 10시 이후 첫 keepWarm 에서 하루 한 번(updateFundNav 주석).
+  // 이틀 연속 못 받으면 카톡으로 한 번 알린다 — 조용히 멈춘 값을 사람이 화면에서 발견하게 두지 않는다.
+  try {
+    const pr = PropertiesService.getScriptProperties();
+    const now = new Date();
+    const today = Utilities.formatDate(now, 'Asia/Seoul', 'yyyy-MM-dd');
+    if (Number(Utilities.formatDate(now, 'Asia/Seoul', 'H')) >= 10 && pr.getProperty('fundNavDone') !== today) {
+      try {
+        updateFundNav();
+        pr.setProperty('fundNavDone', today);
+        pr.deleteProperty('fundNavFails');
+      } catch (e) {
+        if (pr.getProperty('fundNavFailDay') !== today) {
+          pr.setProperty('fundNavFailDay', today);
+          const fails = Number(pr.getProperty('fundNavFails') || 0) + 1;
+          pr.setProperty('fundNavFails', String(fails));
+          if (fails === 2) sendKakaoMemo('IRP 펀드 기준가를 이틀째 못 받았습니다. 시트 G열 값이 멈춰 있습니다.\n' + e);
+        }
+        throw e;
+      }
+    }
+  } catch (e) { console.log('펀드 기준가 실패 — ' + e); }
+
   // 평일 아침 섹터 등락표 — 07:30 이후 첫 keepWarm 에서 하루 한 번. 표식은 끝난 뒤에 찍는다.
   try {
     const pr = PropertiesService.getScriptProperties();
@@ -5983,4 +6006,47 @@ function importSheetBlocks(arg) {
   });
   if (!dry) { try { CacheService.getScriptCache().remove('sheetData_v1'); } catch (e) {} }
   return { dry, groups: groups.map(g => ({ label: g.label, rows: g.rows.length })) };
+}
+
+// ── IRP 펀드 현재가(기준가) 자동 채우기 ─────────────────────────────
+// 펀드는 시세가 없어 주식상황 G열(현재가)을 손으로 적어야 했다. FunETF 가 클래스별 일일 기준가를
+// 공개 API 로 준다(2026-09-29 확인 — 9/23 기준가가 증권사 잔고 평가액/좌수와 소수점까지 같다).
+// 그래서 하루 한 번 받아 G열에 '1좌 값'(기준가/1000)을 쓴다. D열은 좌수, E열은 원금/좌수로 둔다.
+// 디폴트옵션 적극투자형 TDF1 은 미래에셋전략배분TDF2050 종류O 100% 라 그 기준가를 쓴다
+// (미래에셋증권 DC·IRP 투자가이드 2025.10).
+// 새 펀드를 넣으려면 여기에 '시트 티커: FunETF 펀드코드'를 한 줄 더한다
+// (funetf.co.kr/product/fund/view/<코드> 의 클래스 목록에서 계좌에 맞는 클래스를 고른다).
+const FUND_NAV = {
+  'F-EMP2050': 'K55105D32763',   // 삼성글로벌EMP적격TDF2050 Cpe(퇴직연금)
+  'F-DOTDF1':  'K55301DW2175',   // 미래에셋전략배분적격TDF2050 종류O(디폴트옵션)
+};
+
+function _fundNav(code) {
+  const res = UrlFetchApp.fetch('https://www.funetf.co.kr/api/public/product/view/fundnav?fundCd=' + code + '&schNavMode=T', {
+    headers: { 'X-Requested-With': 'XMLHttpRequest', 'Referer': 'https://www.funetf.co.kr/product/fund/view/' + code },
+    muteHttpExceptions: true,
+  });
+  if (res.getResponseCode() !== 200) throw new Error(code + ' HTTP ' + res.getResponseCode());
+  const rows = JSON.parse(res.getContentText());
+  if (!rows.length || !(rows[0].gijunGa > 0)) throw new Error(code + ' 기준가 없음');
+  return { ymd: rows[0].gijunYmd, nav: rows[0].gijunGa };
+}
+
+// arg 'dry' 면 쓰지 않고 로그만 남긴다. 공개 로그에는 날짜·기준가만 남긴다(좌수·금액은 안 쓴다).
+function updateFundNav(arg) {
+  const dry = arg === 'dry';
+  const ws = SpreadsheetApp.openById(ASSET_SHEET_ID).getSheetByName('주식상황');
+  const tick = ws.getRange(1, 2, ws.getLastRow(), 1).getValues();
+  const navs = {};
+  let n = 0;
+  tick.forEach((r, i) => {
+    const code = FUND_NAV[String(r[0]).trim()];
+    if (!code) return;
+    if (!navs[code]) navs[code] = _fundNav(code);
+    console.log(r[0] + ' 줄 ' + (i + 1) + ': ' + navs[code].ymd + ' 기준가 ' + navs[code].nav);
+    if (!dry) ws.getRange(i + 1, 7).setValue(navs[code].nav / 1000);
+    n++;
+  });
+  if (!dry && n) { try { CacheService.getScriptCache().remove('sheetData_v1'); } catch (e) {} }
+  return { dry, rows: n };
 }
