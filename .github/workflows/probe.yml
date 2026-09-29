@@ -66,6 +66,11 @@ jobs:
           echo "--- 전체 $(wc -l < /tmp/r.txt)줄 ---"
           # pick 을 주면 그 부분만 판다. getDistributionAll 은 115KB 라 아래 head 로 자르면
           # 뒤쪽 운용사(plus·rise·sol)를 아예 못 본다 — 그걸 보려고 만들었다(2026-09-15).
+          if [ -n "${GREP:-}" ] && head -c 5 /tmp/r.txt | grep -q '%PDF'; then
+            pip -q install pypdf >/dev/null 2>&1
+            python3 -c "import pypdf;print('\n'.join(p.extract_text() or '' for p in pypdf.PdfReader('/tmp/r.txt').pages))" > /tmp/r.txt.t
+            mv /tmp/r.txt.t /tmp/r.txt
+          fi
           if [ -n "${GREP:-}" ]; then
             grep -P -B6 -A14 "${GREP}" /tmp/r.txt | cut -c1-400 | head -c 20000 || echo "(없음)"
             exit 0
