@@ -4472,28 +4472,20 @@ function keepWarm() {
   try { _healImportData(); } catch (e) { console.log('IMPORTDATA 자가복구 실패 — ' + e); }
   try { _fixIrpOnce(); } catch (e) { _fixLog('IRP 칸 정리 실패 — ' + e); }
 
-  // IRP 펀드 기준가 — 전날 기준가가 아침에 나온다. 10시 이후 첫 keepWarm 에서 하루 한 번(updateFundNav 주석).
-  // 이틀 연속 못 받으면 카톡으로 한 번 알린다 — 조용히 멈춘 값을 사람이 화면에서 발견하게 두지 않는다.
+  // IRP 펀드 기준가 감시 — 받아오는 건 GitHub Actions(fund_nav.yml)가 한다(FunETF 가 Apps Script 를
+  // 403 으로 막는다, 2026-09-30). 여기서는 평일 15시 이후 마지막 반영이 사흘 넘게 묵었으면 하루 한 번 카톡.
   try {
     const pr = PropertiesService.getScriptProperties();
     const now = new Date();
     const today = Utilities.formatDate(now, 'Asia/Seoul', 'yyyy-MM-dd');
-    if (Number(Utilities.formatDate(now, 'Asia/Seoul', 'H')) >= 10 && pr.getProperty('fundNavDone') !== today) {
-      try {
-        updateFundNav();
-        pr.setProperty('fundNavDone', today);
-        pr.deleteProperty('fundNavFails');
-      } catch (e) {
-        if (pr.getProperty('fundNavFailDay') !== today) {
-          pr.setProperty('fundNavFailDay', today);
-          const fails = Number(pr.getProperty('fundNavFails') || 0) + 1;
-          pr.setProperty('fundNavFails', String(fails));
-          if (fails === 2) sendKakaoMemo('IRP 펀드 기준가를 이틀째 못 받았습니다. 시트 G열 값이 멈춰 있습니다.\n' + e);
-        }
-        throw e;
-      }
+    const dow = Number(Utilities.formatDate(now, 'Asia/Seoul', 'u'));
+    const lastDay = pr.getProperty('fundNavApplied') || '';
+    if (dow <= 5 && Number(Utilities.formatDate(now, 'Asia/Seoul', 'H')) >= 15 && pr.getProperty('fundNavAlertDay') !== today
+        && lastDay && (now - new Date(lastDay + 'T00:00:00+09:00')) > 3 * 86400000) {
+      pr.setProperty('fundNavAlertDay', today);
+      sendKakaoMemo('IRP 펀드 기준가가 ' + lastDay + ' 이후 반영되지 않았습니다. GitHub Actions 의 fund_nav 실행 기록을 확인해야 합니다.');
     }
-  } catch (e) { console.log('펀드 기준가 실패 — ' + e); }
+  } catch (e) { console.log('펀드 기준가 감시 실패 — ' + e); }
 
   // 평일 아침 섹터 등락표 — 07:30 이후 첫 keepWarm 에서 하루 한 번. 표식은 끝난 뒤에 찍는다.
   try {
@@ -6136,10 +6128,18 @@ function _fundNav(code) {
 }
 
 // arg 'dry' 면 쓰지 않고 로그만 남긴다. 공개 로그에는 날짜·기준가만 남긴다(좌수·금액은 안 쓴다).
+// arg: 'code:yyyymmdd:기준가,…' (fund_nav.yml 이 FunETF 에서 받아 넘긴다 — Apps Script 는 403 으로 막힘).
+// 끝에 ':dry' 를 붙이면 쓰지 않는다. 같은 기준일은 두 번 반영하지 않는다(워크플로 재시도·재실행에 안전).
 function updateFundNav(arg) {
-  const dry = arg === 'dry';
+  const dry = /:dry$/.test(arg || '') || arg === 'dry';
+  const given = {};
+  String(arg || '').replace(/:dry$/, '').split(',').forEach(x => {
+    const p = x.trim().split(':');
+    if (p.length === 3 && Number(p[2]) > 0) given[p[0]] = { ymd: p[1], nav: Number(p[2]) };
+  });
   const pr = PropertiesService.getScriptProperties();
   const last = JSON.parse(pr.getProperty('fundNavLast') || '{}');   // 펀드코드 → 직전에 반영한 기준가
+  const lastYmd = JSON.parse(pr.getProperty('fundNavYmd') || '{}'); // 펀드코드 → 그 기준일
   const ws = SpreadsheetApp.openById(ASSET_SHEET_ID).getSheetByName('주식상황');
   const vals = ws.getRange(1, 2, ws.getLastRow(), 6).getValues();    // B~G
   const navs = {};
@@ -6147,7 +6147,8 @@ function updateFundNav(arg) {
   vals.forEach((r, i) => {
     const code = FUND_NAV[String(r[0]).trim()];
     if (!code) return;
-    if (!navs[code]) { Utilities.sleep(500); navs[code] = _fundNav(code); }
+    if (!navs[code]) navs[code] = given[code] || (Utilities.sleep(500), _fundNav(code));
+    if (lastYmd[code] === navs[code].ymd) { console.log(r[0] + ' 줄 ' + (i + 1) + ': ' + navs[code].ymd + ' 이미 반영'); return; }
     const nav = navs[code].nav, qty = Number(r[2]), cur = Number(r[5]);
     let g;
     if (qty === 1) {
@@ -6161,9 +6162,11 @@ function updateFundNav(arg) {
     if (!dry) ws.getRange(i + 1, 7).setValue(g);
     n++;
   });
-  Object.keys(navs).forEach(c => last[c] = navs[c].nav);
+  Object.keys(navs).forEach(c => { last[c] = navs[c].nav; lastYmd[c] = navs[c].ymd; });
   if (!dry) {
     pr.setProperty('fundNavLast', JSON.stringify(last));
+    pr.setProperty('fundNavYmd', JSON.stringify(lastYmd));
+    pr.setProperty('fundNavApplied', Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd'));
     try { CacheService.getScriptCache().remove('sheetData_v1'); } catch (e) {}
   }
   return { dry, rows: n };
