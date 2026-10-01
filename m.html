@@ -616,6 +616,7 @@ function viewDash() {
     .sort((a,b) => (b.c.pl/b.c.invest) - (a.c.pl/a.c.invest));
   const rankRow = x => `<div class="dv" style="grid-template-columns:1fr auto">
       <div style="min-width:0"><b style="font-size:12px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.h.name || x.h.ticker)}</b>
+        <span style="font-size:10px;color:var(--text);display:block">${esc(((D.accounts.find(a => a.id === x.h.account_id) || {}).name) || '')}</span>
         <span class="muted">${won(x.c.value)}</span></div>
       <span class="num ${cls(x.c.pl)}" style="font-size:13px">${pct(x.c.pl, x.c.invest)}</span></div>`;
 

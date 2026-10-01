@@ -2871,7 +2871,8 @@ async function loadDashboard() {
     const valK = (h.currency==='USD'? cur*qty*rate : cur*qty);
     valued += valK; valuedCost += costK;
     const plK = valK - costK, plPct = costK>0? plK/costK*100 : 0;
-    perHolding.push({ name:h.name||h.ticker, plPct, plK });
+    const acc = (state.accounts || []).find(a => a.id === h.account_id);
+    perHolding.push({ name:h.name||h.ticker, acc: acc ? acc.name : '', plPct, plK });
   });
   const pl = valued - valuedCost, plPct = valuedCost>0? pl/valuedCost*100 : 0;
 
@@ -3039,7 +3040,7 @@ async function loadDashboard() {
   perHolding.sort((a,b)=>b.plPct-a.plPct);
   const rank = arr => arr.length ? arr.map(x=>`
     <div style="display:flex;justify-content:space-between;align-items:baseline;padding:5px 2px;border-bottom:1px solid var(--border)">
-      <span style="font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%">${x.name}</span>
+      <span style="font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%" title="${x.acc}">${x.name}${x.acc?`<span style="display:block;font-size:10px;color:var(--text)">${x.acc}</span>`:''}</span>
       <span style="font-family:var(--mono);font-size:12px;font-weight:600;color:${x.plPct>=0?'var(--red)':'var(--accent)'}">${x.plPct>=0?'+':''}${x.plPct.toFixed(1)}% <span style="color:var(--text3);font-weight:400">(${x.plK>=0?'+':''}${Math.round(x.plK).toLocaleString()})</span></span>
     </div>`).join('') : '<div style="padding:12px;color:var(--text3);font-size:12px">현재가 없음 — 종목관리에서 "시세 불러오기"</div>';
   document.getElementById('top5').innerHTML = rank(perHolding.slice(0,5));
