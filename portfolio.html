@@ -5617,6 +5617,9 @@ function renderNoticeBoard() {
   // _alertsCache 를 그대로 재사용한다 — 새 API 호출이 없다.
   const changed = (_alertsCache || [])
     .filter(a => a.kind === '공지변경')
+    // 하루만 보인다(2026-10-01 사용자: "수정됐다는 내용은 오래 둘 필요 없이 하루 정도만") — 공개 페이지와 같은 규칙.
+    .filter(a => { const s = String(a.time || ''); const t = new Date(/^\d{4}-\d\d-\d\d \d\d:\d\d$/.test(s) ? s.replace(' ', 'T') + ':00+09:00' : s);
+                   return !isNaN(t) && Date.now() - t.getTime() < 864e5; })
     .slice(0, 3)
     .map((a, i) => line('변경', '#dc2626',
       (a.message || '').replace(/</g, '&lt;'),
