@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp'
 ];
 
 function runMaint(name, arg) {
@@ -6134,6 +6134,63 @@ function 분배환율채우기() {
 // 판정: 그 날 기록값이 '평단가 × 현재수량'(=원금)과 거의 같으면 오염 의심.
 // ⚠️ 원금은 **현재** 평단가·수량으로 계산하므로, 과거에 수량이 달랐다면 오차가 있다.
 //    정확한 경계보다 '대략 언제부터인지'를 보는 용도다.
+// 일회성: IRP 2계좌를 **1/1부터 있던 것으로** 수익로그 과거 날짜를 채운다(2026-10-01 사용자 지시, WORKLOG 205).
+// 왜: IRP 를 9/29 에야 앱에 넣어 누적 그래프 합계가 그날 0.6억 뛰었다(실제로는 전부터 있던 돈).
+// 사용자 원금 구성: 올해 900만 + 작년 900만 + 나머지는 그 전에 한꺼번에. 로그는 올해치뿐이라
+// 1/1 값 = 9/29 값 − 900만, 그 사이는 날짜 비례로 잇는다(올해 900만은 수익이 아니라 넣은 돈이 늘어난 것).
+// 이미 그 날짜에 행이 있으면 건드리지 않는다. 5번째 칸에 '추정(IRP소급)'을 적어 진짜 기록과 구분한다.
+// ⛔ 공개 로그 — 금액·계좌명은 안 찍고 건수만.
+const IRP_BACKFILL_KEY = 'irp_backfill_20261001';
+function _backfillIrp() {
+  const pr = PropertiesService.getScriptProperties();
+  if (pr.getProperty(IRP_BACKFILL_KEY) === 'done') { console.log('이미 했다'); return; }
+  const log = SpreadsheetApp.openById(SHEET_ID).getSheetByName('수익로그');
+  const rows = log.getDataRange().getValues();
+  const keyOf = d => d instanceof Date ? Utilities.formatDate(d, 'Asia/Seoul', 'yyyy-MM-dd') : String(d).slice(0, 10);
+  const END = '2026-09-29', START = '2026-01-01', YEARLY = 9000000;
+  const dates = {}, have = {}, endVal = {};
+  for (let i = 1; i < rows.length; i++) {
+    const k = keyOf(rows[i][0]), n = String(rows[i][1] || '');
+    if (!k || !n) continue;
+    dates[k] = 1; have[k + '|' + n] = 1;
+    if (k === END && /IRP/i.test(n)) endVal[n] = Math.max(endVal[n] || 0, Number(rows[i][2]) || 0);
+  }
+  const names = Object.keys(endVal);
+  if (!names.length) { console.log('9/29 IRP 행을 못 찾았다 — 중단'); return; }
+  const t0 = new Date(START + 'T00:00:00+09:00').getTime(), t1 = new Date(END + 'T00:00:00+09:00').getTime();
+  const out = [];
+  Object.keys(dates).filter(k => k >= START && k < END).sort().forEach(k => {
+    const f = (new Date(k + 'T00:00:00+09:00').getTime() - t0) / (t1 - t0);
+    names.forEach(n => {
+      if (have[k + '|' + n]) return;
+      out.push([k, n, Math.round(endVal[n] - YEARLY * (1 - f)), 16, '추정(IRP소급)']);
+    });
+  });
+  if (out.length) log.getRange(log.getLastRow() + 1, 1, out.length, 5).setValues(out);
+  pr.setProperty(IRP_BACKFILL_KEY, 'done');
+  console.log('IRP 소급: 계좌 ' + names.length + '개 × 날짜 ' + (out.length / names.length) + '일 = ' + out.length + '행 추가');
+  _plTotalsPct();
+}
+// 그래프 합계(날짜별·계좌별 마지막 슬롯의 합)의 **전날 대비 %** 만 찍는다 — 금액은 안 찍는다.
+function _plTotalsPct() {
+  const rows = SpreadsheetApp.openById(SHEET_ID).getSheetByName('수익로그').getDataRange().getValues();
+  const keyOf = d => d instanceof Date ? Utilities.formatDate(d, 'Asia/Seoul', 'yyyy-MM-dd') : String(d).slice(0, 10);
+  const by = {};
+  for (let i = 1; i < rows.length; i++) {
+    const k = keyOf(rows[i][0]), n = String(rows[i][1] || ''), sl = Number(rows[i][3]) || 16;
+    if (!k || !n) continue;
+    by[k] = by[k] || {};
+    if (!by[k][n] || sl >= by[k][n].sl) by[k][n] = { v: Number(rows[i][2]) || 0, sl: sl };
+  }
+  const ks = Object.keys(by).sort().slice(-8);
+  let prev = 0;
+  ks.forEach(k => {
+    const t = Object.keys(by[k]).reduce((a, n) => a + by[k][n].v, 0);
+    console.log(k + ' 계좌 ' + Object.keys(by[k]).length + '개 · 전날 대비 ' + (prev ? ((t - prev) / prev * 100).toFixed(2) + '%' : '-'));
+    prev = t;
+  });
+}
+
 function _diagPortfolioLog() {
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const log = ss.getSheetByName('수익로그');
@@ -6167,7 +6224,7 @@ function _diagPortfolioLog() {
   console.log('수익로그 ' + dates.length + '일치 (' + dates[0] + ' ~ ' + dates[dates.length - 1] + ')');
   console.log('환율 ' + er + ' 기준 · 최근 30일만 표시');
   console.log('─'.repeat(78));
-  console.log('날짜        계좌                기록값       원금(평단)    차이%   판정');
+  console.log('날짜        계좌   원금대비%  판정');
 
   // ⚠️ 한 계좌만 원금 근처인 날은 오염이 아니다 — 실제 평가금액이 원금을 지나갈 수 있다.
   // 시세를 못 받은 날은 **모든 계좌가 동시에** 원금이 되므로, 과반(전체의 절반 이상)일 때만 오염으로 본다.
@@ -6188,10 +6245,9 @@ function _diagPortfolioLog() {
       const diff = (rec - c) / c * 100;
       const bad = !!badDays[d] && Math.abs(diff) < 0.5;
       if (bad && !firstBad) firstBad = d;
-      console.log(d + '  ' + (n + '                    ').slice(0, 20)
-        + ('            ' + Math.round(rec).toLocaleString()).slice(-12)
-        + ('            ' + Math.round(c).toLocaleString()).slice(-13)
-        + ('      ' + diff.toFixed(2)).slice(-8) + '%  ' + (bad ? '⚠ 원금과 같음(오염)' : ''));
+      // ⛔ 공개 로그 — 계좌명·금액은 안 찍는다(2026-09-30 찍혀서 로그를 지웠다). 계좌 번호와 원금 대비 % 만.
+      const idx = Object.keys(cost).sort().indexOf(n) + 1;
+      console.log(d + '  계좌#' + idx + ('      ' + diff.toFixed(2)).slice(-8) + '%  ' + (bad ? '⚠ 원금과 같음(오염)' : ''));
     });
   });
   console.log('─'.repeat(78));
