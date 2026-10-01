@@ -2580,25 +2580,28 @@ function fetchDist_kiwoom() {
     });
     const items = [];
     let schedule = {}, newest = '';
+    // ⚠️ 키움은 한 달에 월중 회차가 **둘 이상**일 수 있다(2026-09: 9/14 지급분과 9/17 지급분 공지가 따로).
+    // 가장 늦은 기준일만 잡으면 앞 회차 종목이 통째로 빠진다 → 그 달의 같은 회차를 모두 담는다.
+    // 최신 기준일을 앞에 둔다 — 달력은 운용사·회차마다 첫 종목의 일정 하나만 대표로 찍는다.
     ['월중', '월말'].forEach(cycle => {
       const sd = latest[cycle];
       if (!sd) return;
-      let sched = null;
-      rows.filter(r => r.cycle === cycle && r.x.stdDt === sd).forEach(({ p, x }) => {
-        if (!sched) {
-          sched = { '기준일': _mdLabel(x.stdDt), '지급일': _mdLabel(x.payDt || x.cashPayDt), '분배락일': _mdLabel(x.payRockDt) };
-          const lock = ymd(x.payRockDt);
-          if (lock) {                                   // 공시일 = 분배락 전 영업일(키움 공지 게시일과 일치, 2026-09-28 확인)
-            do { lock.setDate(lock.getDate() - 1); } while (_isOffDay(lock));
-            sched['공시일'] = (lock.getMonth() + 1) + '월 ' + lock.getDate() + '일';
-          }
+      const ym = sd.slice(0, 7);
+      rows.filter(r => r.cycle === cycle && r.x.stdDt.slice(0, 7) === ym)
+        .sort((a, b) => b.x.stdDt.localeCompare(a.x.stdDt))
+        .forEach(({ p, x }) => {
+        const sched = { '기준일': _mdLabel(x.stdDt), '지급일': _mdLabel(x.payDt || x.cashPayDt), '분배락일': _mdLabel(x.payRockDt) };
+        const lock = ymd(x.payRockDt);
+        if (lock) {                                     // 공시일 = 분배락 전 영업일(키움 공지 게시일과 일치, 2026-09-28 확인)
+          do { lock.setDate(lock.getDate() - 1); } while (_isOffDay(lock));
+          sched['공시일'] = (lock.getMonth() + 1) + '월 ' + lock.getDate() + '일';
         }
         const amount = Number(String(x.dividendAmt).replace(/,/g, ''));
         if (isNaN(amount)) return;
         const rate = parseFloat(x.dividendRate);
-        items.push({ name: p.name, ticker: p.gcode, amount, rate: isNaN(rate) ? null : rate, cycle, sched: Object.assign({}, sched) });
+        items.push({ name: p.name, ticker: p.gcode, amount, rate: isNaN(rate) ? null : rate, cycle, sched });
+        if (x.stdDt > newest) { newest = x.stdDt; schedule = sched; }
       });
-      if (sched && sd > newest) { newest = sd; schedule = sched; }
     });
     if (!items.length) return { items: [], error: 'KIWOOM: 최근 45일 분배 0건 (종목 ' + prods.length + '개 조회)' };
     return { success: true, items, schedule, title: 'KIWOOM 분배금 (분배금 정보 API)', _source: 'api' };
