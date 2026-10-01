@@ -383,7 +383,7 @@ const esc  = s => (s == null ? '' : String(s)).replace(/[&<>"]/g, c => ({'&':'&a
 // ── 렌더 ──────────────────────────────────────────────
 const NAV = ['home','stocks','divs','dash','screener','more'];
 // 탭바에 자리가 없어 더보기에서 들어가는 화면. 이때 탭바는 '더보기'를 켠 채로 둔다.
-const SUB = { savings:'은경 저축' };
+const SUB = { savings:'은경 저축', perf:'월별 성과' };
 
 function go(v) {
   view = v;
@@ -407,6 +407,7 @@ function render() {
     : view === 'dash'     ? viewDash()
     : view === 'screener' ? viewScreener()
     : view === 'savings'  ? viewSavings()
+    : view === 'perf'     ? viewPerf()
     :                       viewMore());
 }
 
@@ -766,6 +767,67 @@ function viewScreener() {
 }
 
 // ── 더보기 ────────────────────────────────────────────
+// ── 월별 성과 (PC 종목관리 > 월별 성과 와 같은 데이터·같은 표시 규칙) ───────────
+// 서버가 매일 08:20 계산한 걸 읽기만 한다. 36시간 넘게 멈췄으면 한줄평가 자리에 멈춤을 회색으로 쓴다.
+let perf = null;
+const PERF_GC = { '매우양호':'#059669', '양호':'#10b981', '보통':'#d97706', '주의':'#ea580c', '경고':'#dc2626' };
+async function loadPerf() {
+  try { perf = await api({ action:'getPerfScores' }); } catch (e) { perf = { success:false, error:String(e) }; }
+  render();
+}
+function perfT(iso) { if (!iso) return '-'; const d = new Date(iso); return (d.getMonth()+1)+'/'+d.getDate()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
+function perfP(v, u) { if (v == null) return '<span class="muted">-</span>'; const n = Math.round(v*1000)/10; return `<span class="${n>=0?'pos':'neg'}">${n>0?'+':''}${n}${u||'%'}</span>`; }
+function perfSpark(hist) {
+  const pts = (hist||[]).map((h,i)=>[i,h.score]).filter(p=>p[1]!=null);
+  if (pts.length < 2) return '';
+  const W=90,H=24,n=Math.max(hist.length-1,1);
+  return `<svg width="${W}" height="${H}"><polyline points="${pts.map(p=>(p[0]/n*W).toFixed(1)+','+(H-p[1]/100*H).toFixed(1)).join(' ')}" fill="none" stroke="#5b5bf0" stroke-width="1.6"/></svg>`;
+}
+function perfChart(months) {
+  const rows = (months||[]).filter(m=>m.close); if (rows.length < 2) return '';
+  const b = rows[0].close; let cum = 0; const pr=[], tr=[];
+  rows.forEach((m,i)=>{ if (i>0) cum += m.dist||0; pr.push(m.close/b*100); tr.push((m.close+cum)/b*100); });
+  const all=pr.concat(tr), lo=Math.min(...all)-2, hi=Math.max(...all)+2, W=320, H=130, n=rows.length-1;
+  const X=i=>4+i/n*(W-8), Y=v=>6+(hi-v)/(hi-lo)*(H-12);
+  const ln=(a,c)=>`<polyline points="${a.map((v,i)=>X(i).toFixed(1)+','+Y(v).toFixed(1)).join(' ')}" fill="none" stroke="${c}" stroke-width="2"/>`;
+  return `<div style="font-size:12px;margin:6px 0 2px"><b style="color:#2563eb">━ 총수익</b> <b style="color:#dc2626">━ 시장가</b> · ${rows[0].ym}=100</div>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%"><line x1="0" x2="${W}" y1="${Y(100)}" y2="${Y(100)}" stroke="#ddd" stroke-dasharray="3 3"/>${ln(tr,'#2563eb')}${ln(pr,'#dc2626')}</svg>`;
+}
+function viewPerf() {
+  if (perf === null) { loadPerf(); return '<div class="empty">불러오는 중…</div>'; }
+  if (!perf.success) return `<div class="empty">⚠️ ${esc(perf.error || '응답 없음')}</div>`;
+  if (perf.empty) return '<div class="empty">⚠️ 아직 계산 전입니다(매일 08:20)</div>';
+  const meta = perf.meta || {}, last = perfT(meta.lastOk || perf.builtAt);
+  const stale = perf.staleHours == null || perf.staleHours > 36;
+  const items = (perf.items||[]).slice().sort((a,b)=>(a.score==null)-(b.score==null)||(a.score||0)-(b.score||0));
+  const rows = items.map(it => {
+    const id = 'pf-' + it.ticker;
+    const op = it.error ? `<span class="muted">⚠️ ${esc(it.error)} — 마지막 ${last}</span>`
+      : stale ? `<span class="muted">⚠️ ${(Number((perf.nowYm||'').slice(5))-1)||12}월 계산 안 됨 — 마지막 ${last}</span>`
+      : it.young ? `<span class="muted">${esc(it.opinion)}</span>`
+      : `${esc(it.opinion)} <span style="font-size:11px">· ${it.basisYm?Number(it.basisYm.slice(5))+'월분':''} (${last})</span>`;
+    const d = (it.score!=null && it.prevScore!=null) ? it.score-it.prevScore : null;
+    const usd = String(it.currency).toUpperCase()==='USD';
+    const f = v => v==null ? '<span class="muted">-</span>' : (usd ? '$'+(Math.round(v*100)/100) : won(v));
+    const det = open[id] ? `<div class="detail">
+      <div style="font-size:12px">① 원금 ${perfP(it.m1)} · ② 분배 ${it.m2==null?'-':perfP(it.m2-1)} · ③ 기준대비 ${it.bench?perfP(it.m3,'%p'):'<span class="muted">기준 없음</span>'}</div>
+      ${perfChart(it.months)}
+      <table style="width:100%;font-size:11px;border-collapse:collapse"><tr class="muted"><td>월</td><td align="right">시장가</td><td align="right">NAV</td><td align="right">분배</td><td align="right">실질가치</td><td align="right">월수익</td></tr>
+      ${(it.months||[]).slice().reverse().map(m=>`<tr><td>${m.ym.slice(2)}${m.partial?'*':''}</td><td align="right">${f(m.close)}</td><td align="right">${m.nav==null?'<span class="muted">-</span>':f(m.nav)}</td><td align="right">${m.dist?f(m.dist):'0'}</td><td align="right">${f(m.real)}</td><td align="right">${perfP(m.ret)}</td></tr>`).join('')}</table>
+      <div class="muted" style="font-size:11px;margin-top:4px">${it.bench?'기준: '+esc(it.bench.name):'기준 ETF 없음'} · *진행 중인 달</div></div>` : '';
+    return `<button class="row" onclick="toggle('${id}')" style="display:block;text-align:left">
+        <div style="display:flex;gap:6px;align-items:center"><span style="font-size:10px;border:1px solid #888;border-radius:5px;padding:1px 4px">${esc(it.gen)}</span>
+          <b style="flex:1">${esc(it.name)}</b>
+          ${it.score==null?'<span class="muted">-</span>':`<b>${it.score}</b><span style="font-size:10px;color:#fff;background:${PERF_GC[it.grade]||'#64748b'};border-radius:5px;padding:1px 5px">${it.grade}</span>`}
+          ${d==null?'':`<span class="${d>=0?'pos':'neg'}" style="font-size:11px">${d>0?'▲':d<0?'▼':''}${Math.abs(d)||'–'}</span>`}</div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:3px;font-size:12px">${perfSpark(it.hist)}<span style="flex:1">${op}</span></div>
+      </button>${det}`;
+  }).join('');
+  return (stale ? `<div class="card" style="background:#fef2f2;color:#991b1b;padding:10px">🚨 월별 성과 계산이 멈췄습니다 — 마지막 성공 ${last}</div>` : '')
+    + `<div class="muted" style="padding:2px 2px 8px;font-size:12px">점수 = 원금40·분배35·기준대비25 · 마지막 계산 ${last}</div>`
+    + `<div class="card">${rows || '<div class="empty">보유 종목 없음</div>'}</div>`;
+}
+
 function viewMore() {
   const item = (t, d, fn) => `<a href="javascript:void(0)" onclick="${fn}"><span style="color:var(--text)">${t}</span><span>${d} ›</span></a>`;
   const link = (t, d, href) => `<a href="${href}"><span style="color:var(--text)">${t}</span><span>${d} ›</span></a>`;
@@ -773,6 +835,7 @@ function viewMore() {
     <div class="card"><div class="card-hd" style="background:#475569">폰 화면</div>
       <div class="more">
         ${item('은경 저축','예적금',"go('savings')")}
+        ${item('월별 성과','종목 점수·한줄평가',"go('perf')")}
         ${link('분배금공지','일정·달력','dist_notice.html')}
       </div>
     </div>
