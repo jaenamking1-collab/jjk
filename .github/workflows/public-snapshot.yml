@@ -1,0 +1,62 @@
+# 공개 분배금공지의 **예비본**(dist_snapshot.txt)을 만든다.
+# 왜: 처음 오는 방문자는 브라우저 저장본이 없어, Apps Script(/exec)가 늦거나 깨지면 칸이 비었다
+#     (2026-10-01 실화면 점검: 공지 칸이 90초 넘게 '불러오는 중'). 사용자: "안 나오면 안 되고 꼭 이전 버전이라도 보여야 해".
+# 페이지는 이 파일(같은 주소라 즉시)로 먼저 그리고, 서버 최신값으로 덮는다.
+# 안전: 받은 데이터가 정상(분배 6곳 이상에 종목 있음, 공지 6곳 이상)일 때만 덮어쓴다 — 서버가 깨진 순간의 빈 응답으로
+#       예비본을 망치지 않는다. 내용이 그대로면 커밋하지 않는다(시각만 바뀌는 커밋 방지).
+# 파일 이름이 .txt 인 이유: Cloudflare .assetsignore 가 *.json 을 막는다.
+name: public-snapshot
+
+on:
+  schedule:
+    - cron: '7,37 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency: public-snapshot
+
+jobs:
+  snap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: 묶음 받기 (재시도 3회)
+        run: |
+          BASE='https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec'
+          get() { for i in 1 2 3; do
+                    curl -sL --max-time 60 -o "$2" "$BASE?action=$1&r=$RANDOM" && python3 -c "import json,sys;json.load(open('$2'))['sources']" 2>/dev/null && return 0
+                    sleep $((i*5)); done; return 1; }
+          get getDistributionAll /tmp/dist.json || { echo "::warning::분배 묶음 실패 — 예비본 그대로 둠"; exit 0; }
+          get getEtfNoticesAll  /tmp/notices.json || { echo "::warning::공지 묶음 실패 — 예비본 그대로 둠"; exit 0; }
+          python3 - <<'PY'
+          import json, os, datetime
+          d = json.load(open('/tmp/dist.json'))['sources']
+          n = json.load(open('/tmp/notices.json'))['sources']
+          dok = sum(1 for v in d.values() if (v.get('items') or []))
+          nok = sum(1 for v in n.values() if (v.get('items') or []))
+          print(f'분배 {dok}곳 · 공지 {nok}곳')
+          if dok < 6 or nok < 6:
+              print('::warning::정상 아님 — 예비본 그대로 둠'); raise SystemExit(0)
+          body = {'dist': d, 'notices': {k: {'items': v.get('items') or []} for k, v in n.items()}}
+          old = None
+          if os.path.exists('dist_snapshot.txt'):
+              try: old = json.load(open('dist_snapshot.txt', encoding='utf-8'))
+              except Exception: pass
+          if old and {k: old.get(k) for k in body} == body:
+              print('내용 그대로 — 커밋 안 함'); raise SystemExit(0)
+          body['at'] = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+          json.dump(body, open('dist_snapshot.txt', 'w', encoding='utf-8'), ensure_ascii=False, separators=(',', ':'))
+          open('/tmp/changed', 'w').write('1')
+          PY
+      - name: 커밋
+        run: |
+          [ -f /tmp/changed ] || exit 0
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add dist_snapshot.txt
+          git commit -qm "공개 분배금공지 예비본 갱신" || exit 0
+          for i in 1 2 3; do git pull -q --rebase origin main && git push -q origin HEAD:main && break; sleep 5; done
