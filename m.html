@@ -360,9 +360,12 @@ function calcAccount(a, projMap) {
 function calcAll() {
   const projMap = projectAnnualDist(D.holdings, D.divsAll, D.year);
   const per = D.accounts.map(a => calcAccount(a, projMap));
-  const sum = list => list.reduce((s,x) => ({
-    invest:s.invest+x.invest, value:s.value+x.value, div:s.div+x.div, proj:s.proj+x.proj
-  }), {invest:0,value:0,div:0,proj:0});
+  // 합계 분배율은 IRP 를 뺀 몫(yInv·yDiv·yProj)으로 낸다 — portfolio.html renderAccountStats 와 같다(2026-10-01).
+  const sum = list => list.reduce((s,x) => {
+    const y = !/IRP/i.test(x.acct.name || '');
+    return { invest:s.invest+x.invest, value:s.value+x.value, div:s.div+x.div, proj:s.proj+x.proj,
+             yInv:s.yInv+(y?x.invest:0), yDiv:s.yDiv+(y?x.div:0), yProj:s.yProj+(y?x.proj:0) };
+  }, {invest:0,value:0,div:0,proj:0,yInv:0,yDiv:0,yProj:0});
   const wrap = o => ({ ...o, pl:o.value-o.invest });
   return {
     per,
@@ -416,8 +419,8 @@ function statsBlock(s) {
     <div><div class="k">총 평가금</div><div class="v">${won(s.value)}</div></div>
     <div><div class="k">수익금(률)</div><div class="v ${cls(s.pl)}">${sign(s.pl)}<br>(${pct(s.pl, s.invest)})</div></div>
     <div><div class="k">연간 분배금</div><div class="v" style="color:var(--green)">${won(s.div)}</div></div>
-    <div><div class="k">누적 분배율</div><div class="v" style="color:var(--accent)">${pct2(s.div, s.invest)}</div></div>
-    <div><div class="k">환산분배율</div><div class="v" style="color:var(--purple)">${pct2(s.proj, s.invest)}</div></div>
+    <div><div class="k">누적 분배율</div><div class="v" style="color:var(--accent)">${pct2(s.yDiv, s.yInv)}</div></div>
+    <div><div class="k">환산분배율</div><div class="v" style="color:var(--purple)">${pct2(s.yProj, s.yInv)}</div></div>
   </div>`;
 }
 
