@@ -4472,28 +4472,20 @@ function keepWarm() {
   try { _healImportData(); } catch (e) { console.log('IMPORTDATA 자가복구 실패 — ' + e); }
   try { _fixIrpOnce(); } catch (e) { _fixLog('IRP 칸 정리 실패 — ' + e); }
 
-  // IRP 펀드 기준가 — 전날 기준가가 아침에 나온다. 10시 이후 첫 keepWarm 에서 하루 한 번(updateFundNav 주석).
-  // 이틀 연속 못 받으면 카톡으로 한 번 알린다 — 조용히 멈춘 값을 사람이 화면에서 발견하게 두지 않는다.
+  // IRP 펀드 기준가 감시 — 받아오는 건 GitHub Actions(fund_nav.yml)가 한다(FunETF 가 Apps Script 를
+  // 403 으로 막는다, 2026-09-30). 여기서는 평일 15시 이후 마지막 반영이 사흘 넘게 묵었으면 하루 한 번 카톡.
   try {
     const pr = PropertiesService.getScriptProperties();
     const now = new Date();
     const today = Utilities.formatDate(now, 'Asia/Seoul', 'yyyy-MM-dd');
-    if (Number(Utilities.formatDate(now, 'Asia/Seoul', 'H')) >= 10 && pr.getProperty('fundNavDone') !== today) {
-      try {
-        updateFundNav();
-        pr.setProperty('fundNavDone', today);
-        pr.deleteProperty('fundNavFails');
-      } catch (e) {
-        if (pr.getProperty('fundNavFailDay') !== today) {
-          pr.setProperty('fundNavFailDay', today);
-          const fails = Number(pr.getProperty('fundNavFails') || 0) + 1;
-          pr.setProperty('fundNavFails', String(fails));
-          if (fails === 2) sendKakaoMemo('IRP 펀드 기준가를 이틀째 못 받았습니다. 시트 G열 값이 멈춰 있습니다.\n' + e);
-        }
-        throw e;
-      }
+    const dow = Number(Utilities.formatDate(now, 'Asia/Seoul', 'u'));
+    const lastDay = pr.getProperty('fundNavApplied') || '';
+    if (dow <= 5 && Number(Utilities.formatDate(now, 'Asia/Seoul', 'H')) >= 15 && pr.getProperty('fundNavAlertDay') !== today
+        && lastDay && (now - new Date(lastDay + 'T00:00:00+09:00')) > 3 * 86400000) {
+      pr.setProperty('fundNavAlertDay', today);
+      sendKakaoMemo('IRP 펀드 기준가가 ' + lastDay + ' 이후 반영되지 않았습니다. GitHub Actions 의 fund_nav 실행 기록을 확인해야 합니다.');
     }
-  } catch (e) { console.log('펀드 기준가 실패 — ' + e); }
+  } catch (e) { console.log('펀드 기준가 감시 실패 — ' + e); }
 
   // 평일 아침 섹터 등락표 — 07:30 이후 첫 keepWarm 에서 하루 한 번. 표식은 끝난 뒤에 찍는다.
   try {
@@ -4595,6 +4587,24 @@ function sectorSnapshot(tab) {
 // 구글 시트가 그 오류를 붙들고 있어 현재가가 안 나왔다. 같은 수식을 한 번 비웠다 넣으면 다시 받는다.
 // ⚠️ 첫 판은 '주식상황'만 봤는데 현재가가 실제로 읽는 IMPORTDATA 는 **'시세' 탭**에 있다(주식상황 G열 =
 // INDEX('시세'!B:B, …)). 그래서 표식을 바꿔 **모든 탭**을 다시 돈다.
+// 현재가 칸 = '시세' 탭을 참조하는 수식 칸(주식상황 VLOOKUP 등). 위치는 한 번 찾아 두고 값만 센다.
+function _priceFill(ss, pr) {
+  let pos = JSON.parse(pr.getProperty('priceCells') || '[]');
+  if (!pos.length) {
+    ss.getSheets().forEach(sh => { if (sh.getName() === '시세') return;
+      sh.getDataRange().getFormulas().forEach((row, r) => row.forEach((f, c) => { if (/시세!/.test(f)) pos.push([sh.getName(), r, c]); })); });
+    pr.setProperty('priceCells', JSON.stringify(pos));
+  }
+  const vals = {};
+  let ok = 0;
+  pos.forEach(([n, r, c]) => {
+    if (!vals[n]) { const sh = ss.getSheetByName(n); vals[n] = sh ? sh.getDataRange().getDisplayValues() : []; }
+    const v = String(((vals[n][r] || [])[c]) || '');
+    if (v && v[0] !== '#') ok++;
+  });
+  return { total: pos.length, ok: ok };
+}
+
 // ── '시세' IMPORTDATA 자가복구 (keepWarm 이 15분마다) ─────────────────────────
 // 왜: 자산 시트 '시세'!A1 이 IMPORTDATA 로 우리 웹앱(getPricesCsv)을 부른다. **배포하는 몇 초 동안**
 // 웹앱이 오류를 내면 시트가 그 오류(#N/A)를 붙잡고 다시 안 받는다 → 현재가 칸이 통째로 빈다.
@@ -4634,6 +4644,13 @@ function _healImportData(force) {   // maint 로 부를 땐 arg 아무거나 →
     bad.push([rg, f, n + '!R' + r + 'C' + c]);
   });
   console.log('IMPORTDATA ' + cells.length + '칸 점검 · 오류 ' + bad.length + '칸');
+  // ⭐ 수식 칸만 보면 안 된다 — 사용자가 보는 건 **현재가 칸**이다(2026-09-29: 다른 세션이 '72칸 중 71칸'으로
+  // 확인한 방식이 맞았다). '시세' 를 참조하는 칸이 몇 칸 채워졌는지 세고, 80% 밑이면 공급 칸이 멀쩡해 보여도 고장으로 본다.
+  const fill = _priceFill(ss, pr);
+  console.log('현재가 칸 ' + fill.total + '칸 중 ' + fill.ok + '칸 채워짐');
+  if (fill.total && fill.ok / fill.total < 0.8 && !bad.some(b => b[2].indexOf('시세!') === 0)) {
+    cells.filter(x => x[0] === '시세').forEach(([n, r, c]) => { const rg = ss.getSheetByName(n).getRange(r, c); bad.push([rg, rg.getFormula(), n + '!R' + r + 'C' + c + '(현재가 ' + fill.ok + '/' + fill.total + ')']); });
+  }
   // 실제 현재가 공급 칸은 '시세' 탭이다. 다른 탭(주식상황 Y10·Y18)에도 같은 수식이 남아 있는데
   // 다시 받아도 안 풀린다(결과를 펼칠 자리가 겹치는 것으로 보인다 — 2026-09-29). 그 칸은 하루 한 번만 다시 받고
   // 경보 횟수엔 안 센다 — 안 그러면 멀쩡한 날에도 카톡이 울린다.
@@ -6111,10 +6128,18 @@ function _fundNav(code) {
 }
 
 // arg 'dry' 면 쓰지 않고 로그만 남긴다. 공개 로그에는 날짜·기준가만 남긴다(좌수·금액은 안 쓴다).
+// arg: 'code:yyyymmdd:기준가,…' (fund_nav.yml 이 FunETF 에서 받아 넘긴다 — Apps Script 는 403 으로 막힘).
+// 끝에 ':dry' 를 붙이면 쓰지 않는다. 같은 기준일은 두 번 반영하지 않는다(워크플로 재시도·재실행에 안전).
 function updateFundNav(arg) {
-  const dry = arg === 'dry';
+  const dry = /:dry$/.test(arg || '') || arg === 'dry';
+  const given = {};
+  String(arg || '').replace(/:dry$/, '').split(',').forEach(x => {
+    const p = x.trim().split(':');
+    if (p.length === 3 && Number(p[2]) > 0) given[p[0]] = { ymd: p[1], nav: Number(p[2]) };
+  });
   const pr = PropertiesService.getScriptProperties();
   const last = JSON.parse(pr.getProperty('fundNavLast') || '{}');   // 펀드코드 → 직전에 반영한 기준가
+  const lastYmd = JSON.parse(pr.getProperty('fundNavYmd') || '{}'); // 펀드코드 → 그 기준일
   const ws = SpreadsheetApp.openById(ASSET_SHEET_ID).getSheetByName('주식상황');
   const vals = ws.getRange(1, 2, ws.getLastRow(), 6).getValues();    // B~G
   const navs = {};
@@ -6122,7 +6147,8 @@ function updateFundNav(arg) {
   vals.forEach((r, i) => {
     const code = FUND_NAV[String(r[0]).trim()];
     if (!code) return;
-    if (!navs[code]) { Utilities.sleep(500); navs[code] = _fundNav(code); }
+    if (!navs[code]) navs[code] = given[code] || (Utilities.sleep(500), _fundNav(code));
+    if (lastYmd[code] === navs[code].ymd) { console.log(r[0] + ' 줄 ' + (i + 1) + ': ' + navs[code].ymd + ' 이미 반영'); return; }
     const nav = navs[code].nav, qty = Number(r[2]), cur = Number(r[5]);
     let g;
     if (qty === 1) {
@@ -6136,9 +6162,11 @@ function updateFundNav(arg) {
     if (!dry) ws.getRange(i + 1, 7).setValue(g);
     n++;
   });
-  Object.keys(navs).forEach(c => last[c] = navs[c].nav);
+  Object.keys(navs).forEach(c => { last[c] = navs[c].nav; lastYmd[c] = navs[c].ymd; });
   if (!dry) {
     pr.setProperty('fundNavLast', JSON.stringify(last));
+    pr.setProperty('fundNavYmd', JSON.stringify(lastYmd));
+    pr.setProperty('fundNavApplied', Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd'));
     try { CacheService.getScriptCache().remove('sheetData_v1'); } catch (e) {}
   }
   return { dry, rows: n };
