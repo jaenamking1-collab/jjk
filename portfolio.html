@@ -464,11 +464,28 @@ if (!/[?&]pc=1/.test(location.search) && window.innerWidth <= 768) {
 
 <header>
   <div class="logo">PORTFOLIO <span>MGR</span></div>
+  <div style="display:flex;gap:8px;align-items:center">
+  <a id="gasVer" class="rate-badge" style="text-decoration:none;color:var(--text3)" target="_blank" rel="noopener noreferrer"
+     href="https://script.google.com/d/1yYeK3W1aHUYd6ok9N-dvt0YRmbB4pxX7AL0kMmZBS4-qFpRxHNASUJvG/edit"
+     title="Apps Script 버전 수. 200개가 되면 배포가 막힌다 — 편집기 🕐프로젝트 기록에서 지운다">GAS 버전 확인 중</a>
   <div class="rate-badge">
     <div class="rate-dot"></div>
     <span id="rateDisplay">환율 로딩...</span>
   </div>
+  </div>
 </header>
+<script>
+// Apps Script 버전 수 — script-versions 워크플로가 매일·배포 직후 script_versions.json 으로 커밋한다.
+// 190↑ 빨강, 170↑ 주황. 이틀 넘게 안 갱신되면(워크플로가 멈춤) 회색 ⚠ 로 둔다.
+fetch('script_versions.json?' + Date.now()).then(r => r.json()).then(d => {
+  const el = document.getElementById('gasVer'), age = (Date.now() - new Date(d.checkedAt)) / 3600000;
+  const t = new Date(d.checkedAt), when = (t.getMonth() + 1) + '/' + t.getDate();
+  el.textContent = `GAS 버전 ${d.count}/${d.max}` + (age > 48 ? ` ⚠ ${when} 이후 확인 안 됨` : '');
+  el.style.color = age > 48 ? 'var(--text3)' : d.count >= 190 ? 'var(--red)' : d.count >= 170 ? '#d97706' : 'var(--text)';
+  if (d.count >= 190) el.style.fontWeight = '700';
+  el.title += ` · 마지막 확인 ${t.toLocaleString()}`;
+}).catch(() => { document.getElementById('gasVer').textContent = 'GAS 버전 확인 못 함'; });
+</script>
 
 <div class="tabs">
   <button class="tab active" onclick="showTab('accounts')">포트폴리오</button>
