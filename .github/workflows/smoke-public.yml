@@ -44,9 +44,10 @@ jobs:
             const r = await p.evaluate(() => {
               const t = document.body.innerText;
               const m = t.match(/(\d+)곳 최신/);
-              const cards = [...document.querySelectorAll('.notice-card')].map(c => ({
-                name: (c.innerText.split('\n')[0] || '').replace(/[•●]/g, '').trim(),
-                dated: (c.innerText.match(/20\d\d\.\d\d\.\d\d/g) || []).length }));
+              // 공지 표(운용사 행)마다 날짜(MM.DD)가 하나 이상 있어야 한다
+              const cards = [...document.querySelectorAll('.nt-table tbody tr')].filter(r => r.querySelector('.nt-brand')).map(r => ({
+                name: r.querySelector('.nt-brand').innerText.trim(),
+                dated: (r.innerText.match(/\d\d\.\d\d/g) || []).length }));
               const chips = [...document.querySelectorAll('.cal-chip')].filter(x => x.innerText.trim() && !x.innerText.includes('?')).length;
               return { fresh: m ? +m[1] : 0, cards, chips, total: (typeof DIST_SOURCES !== 'undefined') ? DIST_SOURCES.length : 0 };
             });
@@ -54,8 +55,9 @@ jobs:
             const bad = [];
             if (errs.length) bad.push('JS 오류: ' + errs.slice(0, 2).join(' / '));
             if (r.fresh !== r.total) bad.push(`최신 ${r.fresh}/${r.total}곳`);
-            r.cards.filter(c => !c.dated).forEach(c => bad.push(c.name.split(' ')[0] + ' 카드 비어 있음'));
+            r.cards.filter(c => !c.dated).forEach(c => bad.push(c.name + ' 공지 비어 있음'));
             if (!r.chips) bad.push('달력 확정 칩 0개');
+            if (r.cards.length !== r.total) bad.push(`공지 표 ${r.cards.length}/${r.total}행`);
             console.log(JSON.stringify(r));
             console.log(bad.length ? 'FAIL ' + bad.join(' · ') : 'OK');
             require('fs').writeFileSync('result.txt', bad.length ? bad.join(' · ') : '');
