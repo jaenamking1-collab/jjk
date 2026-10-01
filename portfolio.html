@@ -1736,8 +1736,9 @@ function renderPerf() {
       : '<b style="font-size:18px">' + it.score + '</b> <span style="font-size:11px;padding:1px 6px;border-radius:6px;color:#fff;background:' + (PERF_GRADE_COLOR[it.grade] || '#64748b') + '">' + it.grade + '</span>';
     const dlt = (it.score != null && it.prevScore != null) ? (it.score - it.prevScore) : null;
     const dltHtml = dlt == null ? '' : dlt === 0 ? '<span style="font-size:12px">–</span>' : '<span class="' + (dlt > 0 ? 'up' : 'down') + '" style="font-size:12px">' + (dlt > 0 ? '▲' : '▼') + Math.abs(dlt) + '</span>';
+    const noD = '<span style="color:var(--text3)" title="야후에 이력이 없어 네이버 시세만 받았다 — 분배금 이력 없음">분배 이력 없음</span>';
     const win = it.window && it.window < 12 ? ' <span style="font-size:10px;color:var(--text2)">(' + it.window + '개월)</span>' : '';
-    const ind = '<span title="12개월 시장가 변화(연환산)">① 원금 ' + _perfPct(it.m1) + '</span> · <span title="최근 3개월 분배금 ÷ 12개월 평균">② 분배 ' + (it.m2 == null ? '<span style="color:var(--text3)">-</span>' : _perfPct(it.m2 - 1)) + '</span> · <span title="총수익 − 기준 ETF 가격수익' + (it.bench ? ' (기준: ' + it.bench.name + ')' : '') + '">③ 기준대비 ' + (it.bench ? _perfPct(it.m3, '%p') : '<span style="color:var(--text3)">기준 없음</span>') + '</span>' + win;
+    const ind = it.noDist ? '<span>① 원금 ' + _perfPct(it.m1) + '</span> · ' + noD : '<span title="최근 12개월 시장가 변화(상장이 짧으면 그 기간)">① 원금 ' + _perfPct(it.m1) + '</span> · <span title="월배당: 최근 3개월 분배금 ÷ 12개월 평균 / 분기·반기 배당: 최근 12개월 합 ÷ 그 전 12개월 합">② 분배 ' + (it.m2 == null ? '<span style="color:var(--text3)">-</span>' : _perfPct(it.m2 - 1)) + '</span> · <span title="총수익 − 기준 ETF 가격수익' + (it.bench ? ' (기준: ' + it.bench.name + ')' : '') + '">③ 기준대비 ' + (it.bench ? _perfPct(it.m3, '%p') : '<span style="color:var(--text3)">기준 없음</span>') + '</span>' + win;
     return '<div style="border-bottom:1px solid var(--border)">'
       + '<div onclick="togglePerfDetail(' + idx + ')" style="display:grid;grid-template-columns:96px minmax(150px,1.3fr) 110px 120px minmax(230px,1.6fr) minmax(220px,2fr);gap:10px;align-items:center;padding:10px 4px;cursor:pointer">'
       + '<div>' + badge + '</div>'
@@ -1763,11 +1764,11 @@ function togglePerfDetail(idx) {
     const navCell = (m.nav == null && usd) ? '<span style="color:var(--text3)">-</span>' : m.nav == null ? '<span style="color:var(--text3)" title="NAV 이력은 2026-10부터 쌓는다">기록 전</span>'
       : f(m.nav) + (gap != null && Math.abs(gap) > 0.015 ? ' <b style="color:#dc2626" title="괴리율">(' + (gap > 0 ? '+' : '') + (Math.round(gap * 1000) / 10) + '%)</b>' : '');
     return '<tr><td>' + m.ym + (m.partial ? ' <span style="font-size:10px;color:var(--text3)">진행 중</span>' : '') + '</td><td style="text-align:right">' + f(m.close) + '</td><td style="text-align:right">' + navCell
-      + '</td><td style="text-align:right">' + (m.dist ? f(m.dist) : '0') + '</td><td style="text-align:right">' + f(m.real) + '</td><td style="text-align:right">' + _perfPct(m.ret) + '</td></tr>';
+      + '</td><td style="text-align:right">' + (it.noDist ? '<span style="color:var(--text3)">-</span>' : m.dist ? f(m.dist) : '0') + '</td><td style="text-align:right">' + f(m.real) + '</td><td style="text-align:right">' + _perfPct(m.ret) + '</td></tr>';
   }).join('');
   const benchLine = it.bench ? '기준 ETF: ' + it.bench.name + ' (' + it.bench.symbol + ')' : '기준 ETF 없음(③ 제외하고 ①② 로만 점수)';
   el.innerHTML = '<div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start">'
-    + '<table style="font-size:12px;border-collapse:collapse;min-width:440px"><thead><tr style="color:var(--text2)"><th style="text-align:left">월</th><th>월말 시장가</th><th>NAV</th><th>그달 분배금</th><th title="표 첫 달에 1주를 샀다면: 시장가 + 그 뒤 받은 분배금">누적 실질가치</th><th title="(이번 달 시장가 − 지난달 + 이번 달 분배금) ÷ 지난달">월간 실질수익</th></tr></thead><tbody>' + rows + '</tbody></table>'
+    + '<table style="font-size:12px;border-collapse:collapse;width:auto;flex:0 0 auto"><thead><tr style="color:var(--text2)"><th style="text-align:left">월</th><th>월말 시장가</th><th>NAV</th><th>그달 분배금</th><th title="표 첫 달에 1주를 샀다면: 시장가 + 그 뒤 받은 분배금">누적 실질가치</th><th title="(이번 달 시장가 − 지난달 + 이번 달 분배금) ÷ 지난달">월간 실질수익</th></tr></thead><tbody>' + rows + '</tbody></table>'
     + '<div style="flex:1;min-width:320px">' + _perfChart(it.months) + '<div style="font-size:11px;color:var(--text2);margin-top:4px">' + benchLine + ' · 분배금은 분배락일이 속한 달에 붙임' + (it.tr != null ? ' · 12개월 총수익 ' + _perfPct(it.tr) + ' / 분배율 ' + _perfPct(it.dYield) : '') + '</div></div></div>';
   el.style.display = '';
 }

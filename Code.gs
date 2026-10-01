@@ -3936,9 +3936,10 @@ const PERF_GEN = {
   'JEPQ':['해외 커버드콜','ELN'], 'JEPI':['해외 커버드콜','ELN'], 'TSLY':['해외 커버드콜','콜스프레드'], 'SPYI':['해외 커버드콜','콜스프레드']
 };
 // 기준지수 대용(같은 기초자산의 일반 ETF). 없으면 ③ 은 빼고 ①② 로만 점수를 낸다.
+// 498410(금융고배당)은 맞는 기준이 없어 뺐다 — 코스피200 과 비교하니 반도체 랠리 탓에 '−127%p' 가 나왔다.
 const PERF_BENCH = {
-  '475720':'069500.KS', '498400':'069500.KS', '472150':'069500.KS', '498410':'069500.KS',
-  '489030':'161510.KS', '0190G0':'091160.KS',
+  '475720':'069500.KS', '498400':'069500.KS',
+  '489030':'161510.KS', '472150':'161510.KS', '0190G0':'091160.KS',
   '0005A0':'379800.KS', '482730':'379800.KS', '480030':'379800.KS', '441640':'379800.KS',
   '494300':'379810.KS', '486290':'379810.KS', '491620':'379810.KS', '490590':'379810.KS',
   '490600':'458730.KS', '483280':'485540.KS', '480040':'381180.KS', '480020':'465580.KS',
@@ -3968,6 +3969,20 @@ function _perfParseYahoo(body) {
   return { name: (r.meta && (r.meta.shortName || r.meta.longName)) || '', months: months };
 }
 
+// 야후에 이력이 없는 국내 종목(475720 은 2026-10-01 에 하루치만 왔다) → 네이버 월봉으로 시세만 채운다.
+// 분배금은 여기 없으므로 noDist 로 표시하고, ②③ 은 점수에서 뺀다(분배 0 으로 계산하면 총수익이 틀린다).
+function _perfNaverMonthly(ticker) {
+  const now = new Date(), from = new Date(now.getTime() - 3 * 365 * 86400000);
+  const f = d => Utilities.formatDate(d, 'Asia/Seoul', 'yyyyMMdd');
+  const res = UrlFetchApp.fetch('https://fchart.stock.naver.com/siseJson.nhn?symbol=' + ticker + '&requestType=1&startTime=' + f(from)
+    + '&endTime=' + f(now) + '&timeframe=month', { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } });
+  if (res.getResponseCode() !== 200) return null;
+  const months = {}, re = /\["(\d{4})(\d{2})\d{2}",\s*[\d.]+,\s*[\d.]+,\s*[\d.]+,\s*([\d.]+)/g;
+  let m;
+  while ((m = re.exec(res.getContentText())) !== null) months[m[1] + '-' + m[2]] = { close: Number(m[3]), dist: 0 };
+  return Object.keys(months).length ? { name: '', months: months, noDist: true } : null;
+}
+
 function _perfSymbol(ticker, currency) {
   return String(currency).toUpperCase() === 'USD' ? ticker : ticker + '.KS';
 }
@@ -3993,31 +4008,40 @@ function _perfFetch(symbols) {
   return out;
 }
 
-// 끝 달 endYm 기준 창(최대 12개월)으로 점수 하나를 낸다. 6개월 미만이면 null.
-function _perfScoreAt(months, keys, endIdx, bench) {
+// 끝 달 endIdx 기준 창(최대 12개월)으로 점수 하나를 낸다. 6개월 미만이면 null.
+// 연환산은 하지 않는다 — 6개월 창을 ×2 하면 수치가 과장된다(첫 실행에서 '연 127%p' 가 나왔다). 창 길이는 화면에 따로 쓴다.
+function _perfScoreAt(months, keys, endIdx, bench, noDist) {
   const n = Math.min(12, endIdx);
   if (n < 6) return null;
   const p0 = months[keys[endIdx - n]].close, p1 = months[keys[endIdx]].close;
   if (!p0 || !p1) return null;
-  let dN = 0, d3 = 0;
+  let dN = 0, d3 = 0, paid = 0;
   for (let j = endIdx - n + 1; j <= endIdx; j++) {
     const d = months[keys[j]].dist || 0;
-    dN += d; if (j > endIdx - 3) d3 += d;
+    dN += d; if (d > 0) paid++; if (j > endIdx - 3) d3 += d;
   }
-  const ann = 12 / n;
-  const pr = (p1 / p0 - 1) * ann;                       // ① 원금 변화(연환산)
-  const tr = ((p1 + dN) / p0 - 1) * ann;
-  const ratio = dN > 0 ? d3 / (dN * 3 / n) : null;      // ② 최근 3개월 ÷ 창 평균
+  const pr = p1 / p0 - 1;                               // ① 원금 변화
+  const tr = (p1 + dN) / p0 - 1;
+  // ② 분배금 추세. 월배당이면 최근 3개월 ÷ 창 평균. 분기·반기 배당(리츠 등)은 3개월 창에 지급이
+  //    없을 수 있어(첫 실행에서 롯데리츠가 '−100%') 최근 12개월 합 ÷ 그 전 12개월 합으로 본다.
+  let ratio = null;
+  if (noDist) ratio = null;
+  else if (paid >= Math.min(10, n - 1)) ratio = dN > 0 ? d3 / (dN * 3 / n) : null;
+  else if (endIdx >= 24) {
+    let prev = 0, last = 0;
+    for (let j = endIdx - 23; j <= endIdx; j++) { const d = months[keys[j]].dist || 0; if (j > endIdx - 12) last += d; else prev += d; }
+    ratio = prev > 0 ? last / prev : null;
+  }
   let diff = null;                                      // ③ 총수익 − 기준 가격수익
   if (bench) {
     const b0 = bench.months[keys[endIdx - n]], b1 = bench.months[keys[endIdx]];
-    if (b0 && b1 && b0.close && b1.close) diff = tr - (b1.close / b0.close - 1) * ann;
+    if (b0 && b1 && b0.close && b1.close) diff = tr - (b1.close / b0.close - 1);
   }
   const clamp = v => Math.max(0, Math.min(1, v));
   let got = 40 * clamp((pr + 0.20) / 0.20), max = 40;
   if (ratio != null) { got += 35 * clamp((ratio - 0.7) / 0.3); max += 35; }
   if (diff != null)  { got += 25 * clamp((diff + 0.20) / 0.20); max += 25; }
-  return { score: Math.round(got / max * 100), pr: pr, tr: tr, ratio: ratio, diff: diff, n: n, dYield: dN / p0 * ann };
+  return { score: Math.round(got / max * 100), pr: pr, tr: tr, ratio: ratio, diff: diff, n: n, dYield: dN / p0 };
 }
 
 function _perfGrade(s) {
@@ -4029,13 +4053,13 @@ function _perfGrade(s) {
 function _perfOpinion(cur, prev, isCC) {
   const p = v => Math.abs(Math.round(v * 100));
   if (cur.pr <= -0.10 && cur.ratio != null && cur.ratio < 0.9)
-    return '원금(연 −' + p(cur.pr) + '%)과 분배금(−' + p(1 - cur.ratio) + '%)이 함께 줄어드는 중 — 교체 검토';
+    return '원금(−' + p(cur.pr) + '%)과 분배금(−' + p(1 - cur.ratio) + '%)이 함께 줄어드는 중 — 교체 검토';
   if (cur.pr <= -0.10)
-    return (isCC ? '분배는 유지되지만 ' : '') + '원금이 연 ' + p(cur.pr) + '%씩 줄어드는 중 — 추가매수 보류 권장';
+    return (isCC ? '분배는 유지되지만 ' : '') + '원금이 ' + p(cur.pr) + '% 줄어든 상태 — 추가매수 보류 권장';
   if (cur.ratio != null && cur.ratio < 0.85)
     return '원금은 버티지만 분배금이 ' + p(1 - cur.ratio) + '% 줄었음 — 다음 달 분배 확인';
   if (cur.diff != null && cur.diff <= -0.10)
-    return '기준지수보다 연 ' + p(cur.diff) + '%p 뒤처짐 — 같은 지수 다른 ETF와 비교해볼 만';
+    return '기준지수보다 ' + p(cur.diff) + '%p 뒤처짐 — 같은 지수 다른 ETF와 비교해볼 만';
   if (prev != null && cur.score - prev <= -10)
     return '전월보다 ' + (prev - cur.score) + '점 하락 — 추이 주시';
   if (cur.score >= 80) return '원금·분배 모두 안정 — 계속 보유';
@@ -4063,6 +4087,12 @@ function buildPerfScores() {
     const benchSyms = [];
     tickers.forEach(t => { const b = PERF_BENCH[t]; if (b && benchSyms.indexOf(b) < 0) benchSyms.push(b); });
     const data = _perfFetch(syms.concat(benchSyms));
+    tickers.forEach((t, i) => {
+      const d = data[syms[i]];
+      if (/\.KS$/.test(syms[i]) && (!d || Object.keys(d.months).length < 3)) {
+        try { const nv = _perfNaverMonthly(t); if (nv) data[syms[i]] = nv; } catch (e) {}
+      }
+    });
 
     // NAV: 이력이 없어 이번 달 값을 매일 덮어 써 둔다(월말에 마지막 값이 남는다)
     const ss = SpreadsheetApp.openById(SHEET_ID);
@@ -4082,14 +4112,14 @@ function buildPerfScores() {
       const d = data[syms[ti]];
       const gen = PERF_GEN[t] || ['커버드콜 아님', ''];
       const bSym = PERF_BENCH[t] || null, bench = bSym ? data[bSym] : null;
-      const it = { ticker: t, name: hold[t].name, currency: hold[t].currency, gen: gen[0], genType: gen[1],
+      const it = { noDist: !!(data[syms[ti]] && data[syms[ti]].noDist), ticker: t, name: hold[t].name, currency: hold[t].currency, gen: gen[0], genType: gen[1],
                    bench: bSym ? { symbol: bSym, name: bench ? bench.name : '(못 받음)' } : null };
       if (!d) { missing.push(t); it.error = '시세 못 받음'; items.push(it); return; }
       const keys = Object.keys(d.months).sort().filter(k => d.months[k].close != null);
       const done = keys.filter(k => k < nowYm);          // 점수는 끝난 달까지만
       const hist = [];
       for (let e = Math.max(0, done.length - 13); e < done.length; e++) {
-        const s = _perfScoreAt(d.months, done, e, bench);
+        const s = _perfScoreAt(d.months, done, e, d.noDist ? null : bench, d.noDist);
         hist.push({ ym: done[e], s: s });
       }
       const last = hist.length ? hist[hist.length - 1] : null;
@@ -4104,8 +4134,8 @@ function buildPerfScores() {
         const isCC = !/아님/.test(gen[0]);
         it.opinion = _perfOpinion(c, it.prevScore, isCC);
       } else {
-        it.opinion = '상장 ' + done.length + '개월 — 6개월부터 평가';
-        it.young = true;
+        if (!done.length) it.error = '시세 이력 없음(야후)';
+        else { it.opinion = '상장 ' + done.length + '개월 — 6개월부터 평가'; it.young = true; }
       }
       // 월별 표(최근 13개월 + 진행 중인 달). 누적 실질가치 = 표 첫 달 1주를 들고 있었을 때 시장가 + 받은 분배금
       const tk = keys.slice(-14);
