@@ -635,6 +635,7 @@ if (!/[?&]pc=1/.test(location.search) && window.innerWidth <= 768) {
       <div style="display:flex;gap:6px;margin-bottom:14px;border-bottom:1px solid var(--border);padding-bottom:10px">
         <button id="subtab-byacc" class="btn btn-primary" style="font-size:12px;padding:6px 14px" onclick="switchHoldingSub('byacc')">계좌별 종목</button>
         <button id="subtab-byticker" class="btn" style="font-size:12px;padding:6px 14px" onclick="switchHoldingSub('byticker')">티커별 집계</button>
+        <button id="subtab-perf" class="btn" style="font-size:12px;padding:6px 14px" onclick="switchHoldingSub('perf')">월별 성과</button>
         <div style="flex:1"></div>
         <select id="tickerSortSel" onchange="renderTickerSummary()" style="display:none;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px">
           <option value="value">평가금액순</option>
@@ -647,6 +648,7 @@ if (!/[?&]pc=1/.test(location.search) && window.innerWidth <= 768) {
       </div>
       <div id="holdingsTable" class="loading"><span class="spinner"></span>계좌를 선택하세요</div>
       <div id="tickerSummary" style="display:none"></div>
+      <div id="perfPanel" style="display:none"></div>
     </div>
 
     <!-- 동기화 결과 모달 -->
@@ -1646,15 +1648,128 @@ function switchHoldingSub(which) {
   const accBox = document.getElementById('holdingsTable');
   const ticBox = document.getElementById('tickerSummary');
   const sortSel = document.getElementById('tickerSortSel');
-  const isTic = which === 'byticker';
-  acc.className = isTic ? 'btn' : 'btn btn-primary';
+  const isTic = which === 'byticker', isPerf = which === 'perf';
+  acc.className = (isTic || isPerf) ? 'btn' : 'btn btn-primary';
   tic.className = isTic ? 'btn btn-primary' : 'btn';
+  document.getElementById('subtab-perf').className = isPerf ? 'btn btn-primary' : 'btn';
+  document.getElementById('perfPanel').style.display = isPerf ? '' : 'none';
+  if (isPerf) { accBox.style.display = 'none'; ticBox.style.display = 'none'; sortSel.style.display = 'none';
+    const fw0 = document.getElementById('tickerFontWrap'); if (fw0) fw0.style.display = 'none';
+    loadPerf(); return; }
   accBox.style.display = isTic ? 'none' : '';
   ticBox.style.display = isTic ? '' : 'none';
   sortSel.style.display = isTic ? '' : 'none';
   const fw = document.getElementById('tickerFontWrap');
   if (fw) fw.style.display = isTic ? 'inline-flex' : 'none';
   if (isTic) renderTickerSummary();
+}
+
+// ── 월별 성과 (종목관리 > 월별 성과) ─────────────────────────────
+// 서버(buildPerfScores, 매일 08:20)가 계산한 점수를 읽기만 한다. 설계: WORKLOG 202a·204.
+// ⛔ 생존 표시: 계산이 36시간 넘게 멈췄으면 한줄평가 자리에 멈춘 사실을 회색으로 쓴다(사용자 요구 — 고장 감지 장치).
+let _perf = null;
+const PERF_GRADE_COLOR = { '매우양호':'#059669', '양호':'#10b981', '보통':'#d97706', '주의':'#ea580c', '경고':'#dc2626' };
+async function loadPerf() {
+  const box = document.getElementById('perfPanel');
+  if (!_perf) box.innerHTML = '<div class="loading"><span class="spinner"></span>월별 성과 불러오는 중…</div>';
+  try { _perf = await api({ action: 'getPerfScores' }); }
+  catch (e) { box.innerHTML = '<div style="color:var(--text3);padding:12px">⚠️ 월별 성과를 못 불러왔습니다 — ' + e + '</div>'; return; }
+  renderPerf();
+}
+function _perfFmtTime(iso) {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+function _perfPct(v, unit) {
+  if (v == null) return '<span style="color:var(--text3)">-</span>';
+  const n = Math.round(v * 1000) / 10;
+  return '<span class="' + (n > 0 ? 'up' : n < 0 ? 'down' : '') + '">' + (n > 0 ? '+' : '') + n + (unit || '%') + '</span>';
+}
+function _perfSpark(hist) {
+  const pts = (hist || []).map((h, i) => [i, h.score]).filter(p => p[1] != null);
+  if (pts.length < 2) return '<span style="color:var(--text3);font-size:11px">추이 없음</span>';
+  const W = 110, H = 28, n = Math.max(hist.length - 1, 1);
+  const xy = pts.map(p => (p[0] / n * W).toFixed(1) + ',' + (H - p[1] / 100 * H).toFixed(1)).join(' ');
+  return '<svg width="' + W + '" height="' + H + '" style="vertical-align:middle"><line x1="0" x2="' + W + '" y1="' + (H - 0.5 * H) + '" y2="' + (H - 0.5 * H) + '" stroke="var(--border)" stroke-dasharray="2 2"/>'
+    + '<polyline points="' + xy + '" fill="none" stroke="var(--accent)" stroke-width="1.6"/></svg>';
+}
+function _perfChart(months) {
+  const rows = (months || []).filter(m => m.close);
+  if (rows.length < 2) return '';
+  const base = rows[0].close; let cum = 0;
+  const pr = [], tr = [];
+  rows.forEach((m, i) => { if (i > 0) cum += m.dist || 0; pr.push(m.close / base * 100); tr.push((m.close + cum) / base * 100); });
+  const all = pr.concat(tr), lo = Math.min.apply(null, all) - 2, hi = Math.max.apply(null, all) + 2;
+  const W = 520, H = 170, L = 34, n = rows.length - 1;
+  const X = i => L + i / n * (W - L - 8), Y = v => 8 + (hi - v) / (hi - lo) * (H - 30);
+  const line = (arr, c) => '<polyline points="' + arr.map((v, i) => X(i).toFixed(1) + ',' + Y(v).toFixed(1)).join(' ') + '" fill="none" stroke="' + c + '" stroke-width="2"/>';
+  let g = '<line x1="' + L + '" x2="' + (W - 8) + '" y1="' + Y(100) + '" y2="' + Y(100) + '" stroke="var(--border)" stroke-dasharray="3 3"/>'
+    + '<text x="2" y="' + (Y(100) + 4) + '" font-size="10" fill="var(--text2)">100</text>';
+  rows.forEach((m, i) => { if (i % 3 === 0 || i === n) g += '<text x="' + X(i) + '" y="' + (H - 6) + '" font-size="10" text-anchor="middle" fill="var(--text2)">' + m.ym.slice(2).replace('-', '.') + '</text>'; });
+  return '<div style="font-size:12px;margin:4px 0"><b style="color:#2563eb">━ 총수익</b> (시장가+받은 분배금) &nbsp; <b style="color:#dc2626">━ 시장가</b> &nbsp;— 첫 달 1주 = 100</div>'
+    + '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;max-width:560px">' + g + line(tr, '#2563eb') + line(pr, '#dc2626') + '</svg>';
+}
+function renderPerf() {
+  const box = document.getElementById('perfPanel');
+  const r = _perf || {};
+  if (!r.success) { box.innerHTML = '<div style="color:var(--text3);padding:12px">⚠️ ' + (r.error || '월별 성과 응답 없음') + '</div>'; return; }
+  if (r.empty) { box.innerHTML = '<div style="color:var(--text3);padding:12px">⚠️ 아직 한 번도 계산되지 않았습니다(매일 08:20 계산).</div>'; return; }
+  const meta = r.meta || {};
+  const stale = r.staleHours == null || r.staleHours > 36;
+  const lastOk = _perfFmtTime(meta.lastOk || r.builtAt);
+  let head = '<div style="font-size:12px;margin-bottom:10px;display:flex;gap:12px;flex-wrap:wrap;align-items:center">'
+    + '<span>점수 = ① 원금 40 + ② 분배금 추세 35 + ③ 기준지수 대비 25 · 80+ 매우양호 / 65 양호 / 50 보통 / 35 주의 / 그 아래 경고</span>'
+    + '<span style="margin-left:auto">마지막 계산 <b>' + lastOk + '</b></span></div>';
+  if (stale) head = '<div style="background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:13px">🚨 월별 성과 계산이 멈췄습니다 — 마지막 성공 ' + lastOk + (meta.error ? ' · ' + meta.error : '') + '</div>' + head;
+  const items = (r.items || []).slice().sort((a, b) => (a.score == null) - (b.score == null) || (a.score || 0) - (b.score || 0));
+  const rowsHtml = items.map((it, idx) => {
+    const genColor = /1세대/.test(it.gen) ? '#b45309' : /2세대/.test(it.gen) ? '#2563eb' : /3세대/.test(it.gen) ? '#7c3aed' : /아님/.test(it.gen) ? '#475569' : '#0f766e';
+    const badge = '<span style="font-size:11px;padding:2px 6px;border-radius:6px;border:1px solid ' + genColor + ';color:' + genColor + ';white-space:nowrap" title="' + (it.genType || '') + '">' + it.gen + '</span>';
+    const basisM = it.basisYm ? Number(it.basisYm.slice(5)) + '월분' : '';
+    let opinion;
+    if (it.error) opinion = '<span style="color:var(--text3)">⚠️ ' + it.error + ' — 마지막 계산 ' + lastOk + '</span>';
+    else if (stale) opinion = '<span style="color:var(--text3)">⚠️ ' + (Number((r.nowYm || '').slice(5)) - 1 || 12) + '월 계산 안 됨 — 마지막 ' + lastOk + '</span>';
+    else if (it.young) opinion = '<span style="color:var(--text3)">' + it.opinion + '</span>';
+    else opinion = it.opinion + ' <span style="font-size:11px;color:var(--text2)">· ' + basisM + ' (' + lastOk + ')</span>';
+    const sc = it.score == null ? '<span style="color:var(--text3)">-</span>'
+      : '<b style="font-size:18px">' + it.score + '</b> <span style="font-size:11px;padding:1px 6px;border-radius:6px;color:#fff;background:' + (PERF_GRADE_COLOR[it.grade] || '#64748b') + '">' + it.grade + '</span>';
+    const dlt = (it.score != null && it.prevScore != null) ? (it.score - it.prevScore) : null;
+    const dltHtml = dlt == null ? '' : dlt === 0 ? '<span style="font-size:12px">–</span>' : '<span class="' + (dlt > 0 ? 'up' : 'down') + '" style="font-size:12px">' + (dlt > 0 ? '▲' : '▼') + Math.abs(dlt) + '</span>';
+    const win = it.window && it.window < 12 ? ' <span style="font-size:10px;color:var(--text2)">(' + it.window + '개월)</span>' : '';
+    const ind = '<span title="12개월 시장가 변화(연환산)">① 원금 ' + _perfPct(it.m1) + '</span> · <span title="최근 3개월 분배금 ÷ 12개월 평균">② 분배 ' + (it.m2 == null ? '<span style="color:var(--text3)">-</span>' : _perfPct(it.m2 - 1)) + '</span> · <span title="총수익 − 기준 ETF 가격수익' + (it.bench ? ' (기준: ' + it.bench.name + ')' : '') + '">③ 기준대비 ' + (it.bench ? _perfPct(it.m3, '%p') : '<span style="color:var(--text3)">기준 없음</span>') + '</span>' + win;
+    return '<div style="border-bottom:1px solid var(--border)">'
+      + '<div onclick="togglePerfDetail(' + idx + ')" style="display:grid;grid-template-columns:96px minmax(150px,1.3fr) 110px 120px minmax(230px,1.6fr) minmax(220px,2fr);gap:10px;align-items:center;padding:10px 4px;cursor:pointer">'
+      + '<div>' + badge + '</div>'
+      + '<div style="font-weight:600">' + it.name + ' <span style="font-size:11px;color:var(--text2)">' + it.ticker + '</span></div>'
+      + '<div>' + sc + ' ' + dltHtml + '</div>'
+      + '<div>' + _perfSpark(it.hist) + '</div>'
+      + '<div style="font-size:12px">' + ind + '</div>'
+      + '<div style="font-size:13px">' + opinion + '</div></div>'
+      + '<div id="perfDetail-' + idx + '" style="display:none;padding:4px 4px 14px"></div></div>';
+  }).join('');
+  box.innerHTML = head + (rowsHtml || '<div style="color:var(--text3);padding:12px">보유 종목이 없습니다.</div>');
+  box._items = items;
+}
+function togglePerfDetail(idx) {
+  const el = document.getElementById('perfDetail-' + idx);
+  if (!el) return;
+  if (el.style.display !== 'none') { el.style.display = 'none'; return; }
+  const it = document.getElementById('perfPanel')._items[idx];
+  const usd = String(it.currency).toUpperCase() === 'USD';
+  const f = v => v == null ? '<span style="color:var(--text3)">-</span>' : (usd ? '$' + (Math.round(v * 100) / 100).toLocaleString() : Math.round(v).toLocaleString());
+  const rows = (it.months || []).slice().reverse().map(m => {
+    const gap = (m.nav && m.close) ? (m.close / m.nav - 1) : null;
+    const navCell = (m.nav == null && usd) ? '<span style="color:var(--text3)">-</span>' : m.nav == null ? '<span style="color:var(--text3)" title="NAV 이력은 2026-10부터 쌓는다">기록 전</span>'
+      : f(m.nav) + (gap != null && Math.abs(gap) > 0.015 ? ' <b style="color:#dc2626" title="괴리율">(' + (gap > 0 ? '+' : '') + (Math.round(gap * 1000) / 10) + '%)</b>' : '');
+    return '<tr><td>' + m.ym + (m.partial ? ' <span style="font-size:10px;color:var(--text3)">진행 중</span>' : '') + '</td><td style="text-align:right">' + f(m.close) + '</td><td style="text-align:right">' + navCell
+      + '</td><td style="text-align:right">' + (m.dist ? f(m.dist) : '0') + '</td><td style="text-align:right">' + f(m.real) + '</td><td style="text-align:right">' + _perfPct(m.ret) + '</td></tr>';
+  }).join('');
+  const benchLine = it.bench ? '기준 ETF: ' + it.bench.name + ' (' + it.bench.symbol + ')' : '기준 ETF 없음(③ 제외하고 ①② 로만 점수)';
+  el.innerHTML = '<div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start">'
+    + '<table style="font-size:12px;border-collapse:collapse;min-width:440px"><thead><tr style="color:var(--text2)"><th style="text-align:left">월</th><th>월말 시장가</th><th>NAV</th><th>그달 분배금</th><th title="표 첫 달에 1주를 샀다면: 시장가 + 그 뒤 받은 분배금">누적 실질가치</th><th title="(이번 달 시장가 − 지난달 + 이번 달 분배금) ÷ 지난달">월간 실질수익</th></tr></thead><tbody>' + rows + '</tbody></table>'
+    + '<div style="flex:1;min-width:320px">' + _perfChart(it.months) + '<div style="font-size:11px;color:var(--text2);margin-top:4px">' + benchLine + ' · 분배금은 분배락일이 속한 달에 붙임' + (it.tr != null ? ' · 12개월 총수익 ' + _perfPct(it.tr) + ' / 분배율 ' + _perfPct(it.dYield) : '') + '</div></div></div>';
+  el.style.display = '';
 }
 
 function renderTickerSummary() {

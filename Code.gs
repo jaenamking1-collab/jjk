@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores'
 ];
 
 function runMaint(name, arg) {
@@ -162,6 +162,7 @@ function doGet(e) {
       case 'getPriceLog':     result = getPriceLog(); break;
       case 'getEtfScreener':  result = getEtfScreener(); break;
       case 'getNavMap':       result = getNavMap(); break;
+      case 'getPerfScores':   result = getPerfScores(); break;
       case 'getDistribution': result = getDistribution(e.parameter.source, e.parameter.force === '1'); break;
       case 'getDistributionAll': result = getDistributionAll(); break;
       case 'getDivSheetData': result = getDivSheetData(e.parameter.year); break;
@@ -3911,6 +3912,287 @@ function getNavMap() {
   } catch(e) { return { success: false, error: e.toString(), navs: {} }; }
 }
 
+// ═══ 월별 성과 (종목관리 > 월별 성과) ═══════════════════════════════
+// 왜: 커버드콜은 분배락만큼 시장가가 내려간다. "시장가가 오래 우하향하면 원금을 헐어 주는 ETF"라
+// 장기 보유 종목을 매달 점수로 보고, 나빠지면(심각할 때만) 카톡을 보낸다(WORKLOG 202a·204).
+// 원천: 야후 월봉(range=3y, interval=1mo, events=div) — 국내(.KS)도 월말 종가와 분배금(분배락일)이 나온다.
+//   SEIBro 는 GitHub 러너에서 막혀 검증이 안 돼 쓰지 않았다. NAV 이력은 어디에도 없어 이번 달부터 쌓는다.
+// 점수 100 = ① 원금(12개월 가격수익) 40 + ② 분배금 추세(최근 3개월 ÷ 12개월 평균) 35 + ③ 기준지수 대비 25.
+//   ① '분배율 − 총수익률' 은 식을 풀면 정확히 '−가격수익률' 이다(같은 시작가 기준). 그래서 가격수익으로 잰다.
+// 매일 08:20 buildPerfScores 가 계산해 '월별성과' 시트에 결과 JSON 을 쓰고, 화면은 getPerfScores 로 읽기만 한다.
+// ⛔ 생존 표시: 결과에 마지막 계산 시각(perfMeta)을 싣고, 36시간 넘게 못 돌았으면 한줄평가 자리에 멈춤을 쓴다.
+
+// 세대 분류(사용자 엑셀 2026-09-29 + 빠진 12종목은 내가 채움). [표시, 유형]
+const PERF_GEN = {
+  '475720':['1세대','ATM 위클리'], '489030':['1세대','ATM 위클리'],
+  '498400':['2세대','타겟 위클리'], '498410':['2세대','타겟 위클리'], '0190G0':['2세대','타겟 위클리'],
+  '481060':['2세대','타겟 위클리'], '483280':['2세대','타겟 위클리'],
+  '480040':['3세대','데일리 타겟'], '480020':['3세대','데일리 타겟'], '480030':['3세대','데일리 타겟'],
+  '482730':['3세대','데일리 타겟'], '486290':['3세대','데일리 타겟'],
+  '494300':['3세대','데일리 OTM'], '0005A0':['3세대','데일리 OTM'],
+  '490590':['3세대','데일리 10% 고정'], '491620':['3세대','데일리 10% 고정'], '490600':['3세대','데일리 10% 고정'],
+  '441640':['3세대','액티브'], '472150':['3세대','액티브 5% OTM'], '0040Y0':['3세대','OTM 위클리+채권'],
+  '475080':['혼합형','테슬라+채권'],
+  'JEPQ':['해외 커버드콜','ELN'], 'JEPI':['해외 커버드콜','ELN'], 'TSLY':['해외 커버드콜','콜스프레드'], 'SPYI':['해외 커버드콜','콜스프레드']
+};
+// 기준지수 대용(같은 기초자산의 일반 ETF). 없으면 ③ 은 빼고 ①② 로만 점수를 낸다.
+const PERF_BENCH = {
+  '475720':'069500.KS', '498400':'069500.KS', '472150':'069500.KS', '498410':'069500.KS',
+  '489030':'161510.KS', '0190G0':'091160.KS',
+  '0005A0':'379800.KS', '482730':'379800.KS', '480030':'379800.KS', '441640':'379800.KS',
+  '494300':'379810.KS', '486290':'379810.KS', '491620':'379810.KS', '490590':'379810.KS',
+  '490600':'458730.KS', '483280':'485540.KS', '480040':'381180.KS', '480020':'465580.KS',
+  '481060':'TLT', 'JEPQ':'QQQ', 'JEPI':'SPY', 'SPYI':'SPY', 'TSLY':'TSLA'
+};
+const PERF_SHEET = '월별성과';
+const PERF_NAV_SHEET = '월별성과NAV';
+
+function _perfYm(sec, off) { return Utilities.formatDate(new Date((sec + off) * 1000), 'UTC', 'yyyy-MM'); }
+
+// 야후 월봉 → { name, months: { 'yyyy-MM': {close, dist} } }
+function _perfParseYahoo(body) {
+  const r = JSON.parse(body).chart.result[0];
+  const off = (r.meta && r.meta.gmtoffset) || 0;
+  const months = {};
+  const q = (r.indicators && r.indicators.quote && r.indicators.quote[0]) || {};
+  (r.timestamp || []).forEach((t, i) => {
+    const c = q.close && q.close[i];
+    if (c != null) months[_perfYm(t, off)] = { close: c, dist: 0 };
+  });
+  const dv = (r.events && r.events.dividends) || {};
+  Object.keys(dv).forEach(k => {
+    const ym = _perfYm(dv[k].date, off);              // 분배락일이 속한 달에 붙인다(지급월 아님)
+    if (!months[ym]) months[ym] = { close: null, dist: 0 };
+    months[ym].dist += dv[k].amount;
+  });
+  return { name: (r.meta && (r.meta.shortName || r.meta.longName)) || '', months: months };
+}
+
+function _perfSymbol(ticker, currency) {
+  return String(currency).toUpperCase() === 'USD' ? ticker : ticker + '.KS';
+}
+
+function _perfFetch(symbols) {
+  const out = {};
+  const opt = { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } };
+  const url = s => 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(s) + '?range=3y&interval=1mo&events=div';
+  const run = list => {
+    const resps = UrlFetchApp.fetchAll(list.map(s => Object.assign({ url: url(s) }, opt)));
+    resps.forEach((res, i) => {
+      try { if (res.getResponseCode() === 200) out[list[i]] = _perfParseYahoo(res.getContentText()); } catch (e) {}
+    });
+  };
+  for (let i = 0; i < symbols.length; i += 30) run(symbols.slice(i, i + 30));
+  // 코스닥 종목은 .KS 로 안 나온다 → .KQ 로 한 번 더
+  const miss = symbols.filter(s => !out[s] && /\.KS$/.test(s));
+  if (miss.length) {
+    const alt = miss.map(s => s.replace(/\.KS$/, '.KQ'));
+    run(alt);
+    miss.forEach((s, i) => { if (out[alt[i]]) out[s] = out[alt[i]]; });
+  }
+  return out;
+}
+
+// 끝 달 endYm 기준 창(최대 12개월)으로 점수 하나를 낸다. 6개월 미만이면 null.
+function _perfScoreAt(months, keys, endIdx, bench) {
+  const n = Math.min(12, endIdx);
+  if (n < 6) return null;
+  const p0 = months[keys[endIdx - n]].close, p1 = months[keys[endIdx]].close;
+  if (!p0 || !p1) return null;
+  let dN = 0, d3 = 0;
+  for (let j = endIdx - n + 1; j <= endIdx; j++) {
+    const d = months[keys[j]].dist || 0;
+    dN += d; if (j > endIdx - 3) d3 += d;
+  }
+  const ann = 12 / n;
+  const pr = (p1 / p0 - 1) * ann;                       // ① 원금 변화(연환산)
+  const tr = ((p1 + dN) / p0 - 1) * ann;
+  const ratio = dN > 0 ? d3 / (dN * 3 / n) : null;      // ② 최근 3개월 ÷ 창 평균
+  let diff = null;                                      // ③ 총수익 − 기준 가격수익
+  if (bench) {
+    const b0 = bench.months[keys[endIdx - n]], b1 = bench.months[keys[endIdx]];
+    if (b0 && b1 && b0.close && b1.close) diff = tr - (b1.close / b0.close - 1) * ann;
+  }
+  const clamp = v => Math.max(0, Math.min(1, v));
+  let got = 40 * clamp((pr + 0.20) / 0.20), max = 40;
+  if (ratio != null) { got += 35 * clamp((ratio - 0.7) / 0.3); max += 35; }
+  if (diff != null)  { got += 25 * clamp((diff + 0.20) / 0.20); max += 25; }
+  return { score: Math.round(got / max * 100), pr: pr, tr: tr, ratio: ratio, diff: diff, n: n, dYield: dN / p0 * ann };
+}
+
+function _perfGrade(s) {
+  if (s == null) return '';
+  return s >= 80 ? '매우양호' : s >= 65 ? '양호' : s >= 50 ? '보통' : s >= 35 ? '주의' : '경고';
+}
+
+// 한줄평가 — 내 판단 규칙. 앞에서부터 처음 걸리는 것 하나만 쓴다.
+function _perfOpinion(cur, prev, isCC) {
+  const p = v => Math.abs(Math.round(v * 100));
+  if (cur.pr <= -0.10 && cur.ratio != null && cur.ratio < 0.9)
+    return '원금(연 −' + p(cur.pr) + '%)과 분배금(−' + p(1 - cur.ratio) + '%)이 함께 줄어드는 중 — 교체 검토';
+  if (cur.pr <= -0.10)
+    return (isCC ? '분배는 유지되지만 ' : '') + '원금이 연 ' + p(cur.pr) + '%씩 줄어드는 중 — 추가매수 보류 권장';
+  if (cur.ratio != null && cur.ratio < 0.85)
+    return '원금은 버티지만 분배금이 ' + p(1 - cur.ratio) + '% 줄었음 — 다음 달 분배 확인';
+  if (cur.diff != null && cur.diff <= -0.10)
+    return '기준지수보다 연 ' + p(cur.diff) + '%p 뒤처짐 — 같은 지수 다른 ETF와 비교해볼 만';
+  if (prev != null && cur.score - prev <= -10)
+    return '전월보다 ' + (prev - cur.score) + '점 하락 — 추이 주시';
+  if (cur.score >= 80) return '원금·분배 모두 안정 — 계속 보유';
+  if (cur.score >= 65) return '대체로 양호 — 유지';
+  if (cur.score >= 50) return '무난하지만 좋아지는 신호는 없음 — 지켜보기';
+  return '점수가 낮음 — 지표 확인 필요';
+}
+
+// 매일 08:20 (TRIGGER_PLAN — 카톡 허용 시간대 안) + keepWarm 따라잡기. 결과를 '월별성과' 시트에 JSON 으로 둔다.
+function buildPerfScores() {
+  const pr = PropertiesService.getScriptProperties();
+  const meta = JSON.parse(pr.getProperty('perfMeta') || '{}');
+  meta.lastRun = new Date().toISOString();
+  pr.setProperty('perfMeta', JSON.stringify(meta));   // 먼저 찍는다 — 시간초과로 죽어도 keepWarm 이 5분마다 재시도하지 않게
+  try {
+    const nowYm = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM');
+    const hold = {};
+    getHoldings().forEach(h => {
+      const t = String(h.ticker || '').replace(/^'/, '').trim().toUpperCase();
+      if (!/^[0-9A-Z]{4,7}$/.test(t) || /^CASH/.test(t) || !(Number(h.quantity) > 0)) return;
+      if (!hold[t]) hold[t] = { ticker: t, name: h.name, currency: h.currency };
+    });
+    const tickers = Object.keys(hold);
+    const syms = tickers.map(t => _perfSymbol(t, hold[t].currency));
+    const benchSyms = [];
+    tickers.forEach(t => { const b = PERF_BENCH[t]; if (b && benchSyms.indexOf(b) < 0) benchSyms.push(b); });
+    const data = _perfFetch(syms.concat(benchSyms));
+
+    // NAV: 이력이 없어 이번 달 값을 매일 덮어 써 둔다(월말에 마지막 값이 남는다)
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    let navSh = ss.getSheetByName(PERF_NAV_SHEET);
+    if (!navSh) { navSh = ss.insertSheet(PERF_NAV_SHEET); navSh.appendRow(['ticker', 'ym', 'nav']); }
+    const navRows = navSh.getDataRange().getValues().slice(1);
+    const navHist = {};
+    navRows.forEach(r => { navHist[String(r[0]) + '|' + r[1]] = Number(r[2]); });
+    const navNow = (getNavMap() || {}).navs || {};
+    tickers.forEach(t => { if (navNow[t]) navHist[t + '|' + nowYm] = navNow[t]; });
+    const navOut = Object.keys(navHist).sort().map(k => k.split('|').concat([navHist[k]]));
+    navSh.getRange(2, 1, Math.max(navSh.getLastRow() - 1, 1), 3).clearContent();
+    if (navOut.length) navSh.getRange(2, 1, navOut.length, 3).setNumberFormat('@').setValues(navOut);
+
+    const items = [], missing = [];
+    tickers.forEach((t, ti) => {
+      const d = data[syms[ti]];
+      const gen = PERF_GEN[t] || ['커버드콜 아님', ''];
+      const bSym = PERF_BENCH[t] || null, bench = bSym ? data[bSym] : null;
+      const it = { ticker: t, name: hold[t].name, currency: hold[t].currency, gen: gen[0], genType: gen[1],
+                   bench: bSym ? { symbol: bSym, name: bench ? bench.name : '(못 받음)' } : null };
+      if (!d) { missing.push(t); it.error = '시세 못 받음'; items.push(it); return; }
+      const keys = Object.keys(d.months).sort().filter(k => d.months[k].close != null);
+      const done = keys.filter(k => k < nowYm);          // 점수는 끝난 달까지만
+      const hist = [];
+      for (let e = Math.max(0, done.length - 13); e < done.length; e++) {
+        const s = _perfScoreAt(d.months, done, e, bench);
+        hist.push({ ym: done[e], s: s });
+      }
+      const last = hist.length ? hist[hist.length - 1] : null;
+      const prevH = hist.length > 1 ? hist[hist.length - 2] : null;
+      it.basisYm = last ? last.ym : null;
+      it.hist = hist.slice(-12).map(h => ({ ym: h.ym, score: h.s ? h.s.score : null }));
+      if (last && last.s) {
+        const c = last.s;
+        it.score = c.score; it.grade = _perfGrade(c.score);
+        it.prevScore = prevH && prevH.s ? prevH.s.score : null;
+        it.m1 = c.pr; it.m2 = c.ratio; it.m3 = c.diff; it.window = c.n; it.tr = c.tr; it.dYield = c.dYield;
+        const isCC = !/아님/.test(gen[0]);
+        it.opinion = _perfOpinion(c, it.prevScore, isCC);
+      } else {
+        it.opinion = '상장 ' + done.length + '개월 — 6개월부터 평가';
+        it.young = true;
+      }
+      // 월별 표(최근 13개월 + 진행 중인 달). 누적 실질가치 = 표 첫 달 1주를 들고 있었을 때 시장가 + 받은 분배금
+      const tk = keys.slice(-14);
+      let cum = 0;
+      it.months = tk.map((k, i) => {
+        const m = d.months[k], pm = i > 0 ? d.months[tk[i - 1]] : null;
+        if (i > 0) cum += m.dist || 0;
+        return { ym: k, close: m.close, dist: m.dist || 0, nav: navHist[t + '|' + k] || null,
+                 real: i > 0 ? m.close + cum : null,
+                 ret: pm && pm.close ? (m.close - pm.close + (m.dist || 0)) / pm.close : null,
+                 partial: k >= nowYm };
+      }).slice(1);
+      items.push(it);
+    });
+
+    const result = { builtAt: new Date().toISOString(), nowYm: nowYm, items: items, missing: missing };
+    let sh = ss.getSheetByName(PERF_SHEET);
+    if (!sh) sh = ss.insertSheet(PERF_SHEET);
+    const json = JSON.stringify(result), chunks = [];
+    for (let i = 0; i < json.length; i += 40000) chunks.push([json.slice(i, i + 40000)]);
+    sh.clearContents();
+    sh.getRange(1, 1, chunks.length, 1).setNumberFormat('@').setValues(chunks);
+
+    _perfAlerts(items, pr);
+    meta.lastOk = result.builtAt; meta.count = items.length; meta.missing = missing; meta.error = '';
+    items.forEach(it => console.log('  ' + it.ticker + ' ' + (it.score == null ? '-' : it.score + ' ' + it.grade) + ' · ' + (it.error || it.opinion) + (it.bench ? ' · 기준 ' + it.bench.name : '')));
+    console.log('월별 성과 ' + items.length + '종목 계산' + (missing.length ? ' · 시세 못 받음 ' + missing.join(',') : ''));
+  } catch (e) {
+    meta.error = String(e);
+    console.log('buildPerfScores 실패 — ' + e);
+  }
+  pr.setProperty('perfMeta', JSON.stringify(meta));
+  return meta;
+}
+
+// 심각할 때만 카톡: 경고 3개월 연속 / 한 달 20점 이상 급락. 같은 상태가 풀리기 전엔 한 번만.
+function _perfAlerts(items, pr) {
+  const st = JSON.parse(pr.getProperty('perfAlertState') || '{}');
+  const msgs = [];
+  items.forEach(it => {
+    if (!it.hist || it.score == null) return;
+    const h = it.hist.map(x => x.score);
+    const s = st[it.ticker] || {};
+    const warn3 = h.length >= 3 && h.slice(-3).every(v => v != null && v <= 34);
+    if (warn3 && !s.warn) msgs.push('🔴 ' + it.name + ' 3개월 연속 경고(' + it.score + '점) — ' + it.opinion);
+    s.warn = warn3;
+    const drop = it.prevScore != null && it.prevScore - it.score >= 20;
+    if (drop && s.dropYm !== it.basisYm) { msgs.push('📉 ' + it.name + ' ' + it.prevScore + '→' + it.score + '점 급락'); s.dropYm = it.basisYm; }
+    st[it.ticker] = s;
+  });
+  pr.setProperty('perfAlertState', JSON.stringify(st));
+  if (msgs.length) {
+    try { sendKakaoMemo('[월별 성과]\n' + msgs.join('\n')); } catch (e) { console.log('월별 성과 카톡 실패 — ' + e); }
+  }
+}
+
+// keepWarm 에서: 오늘 못 돌았으면 따라잡고, 50시간 넘게 성공이 없으면 카톡 한 번.
+function _perfWatch() {
+  const pr = PropertiesService.getScriptProperties();
+  const meta = JSON.parse(pr.getProperty('perfMeta') || '{}');
+  const now = new Date();
+  const hour = parseInt(Utilities.formatDate(now, 'Asia/Seoul', 'H'), 10);
+  const today = Utilities.formatDate(now, 'Asia/Seoul', 'yyyy-MM-dd');
+  const lastRunDay = meta.lastRun ? Utilities.formatDate(new Date(meta.lastRun), 'Asia/Seoul', 'yyyy-MM-dd') : '';
+  if (hour >= 8 && lastRunDay !== today) buildPerfScores();
+  const m2 = JSON.parse(pr.getProperty('perfMeta') || '{}');
+  const ageH = m2.lastOk ? (now - new Date(m2.lastOk)) / 3600000 : 999;
+  if (ageH > 50 && !m2.staleAlerted) {
+    try { sendKakaoMemo('⚠️ [월별 성과] 계산이 ' + Math.round(ageH) + '시간째 안 됨' + (m2.error ? ' — ' + String(m2.error).slice(0, 80) : '')); } catch (e) {}
+    m2.staleAlerted = true; pr.setProperty('perfMeta', JSON.stringify(m2));
+  } else if (ageH <= 50 && m2.staleAlerted) {
+    m2.staleAlerted = false; pr.setProperty('perfMeta', JSON.stringify(m2));
+  }
+}
+
+// 화면용. 계산은 하지 않고 시트의 결과 + 지금 기준의 생존 상태만 붙인다.
+function getPerfScores() {
+  const sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName(PERF_SHEET);
+  const meta = JSON.parse(PropertiesService.getScriptProperties().getProperty('perfMeta') || '{}');
+  if (!sh || sh.getLastRow() < 1) return { success: true, items: [], meta: meta, empty: true };
+  const json = sh.getRange(1, 1, sh.getLastRow(), 1).getValues().map(r => r[0]).join('');
+  const r = JSON.parse(json);
+  r.success = true; r.meta = meta;
+  r.staleHours = meta.lastOk ? Math.round((Date.now() - new Date(meta.lastOk)) / 3600000) : null;
+  return r;
+}
+
 // 보유 국내 ETF 괴리율이 DEV_ALERT 밑으로 이탈하면 카톡 알림(+앱 알림로그 기록).
 // 크로싱 1회만 발송(DEV_ALERT 밑 진입), DEV_REARM 이상 회복 시 재무장 → 다음 이탈 때 재알림.
 // 히스테리시스(DEV_ALERT~DEV_REARM 유지)로 경계 근처 깜빡임 스팸 방지. 상태는 Script 속성 DEVIATION_STATE(JSON).
@@ -4478,6 +4760,7 @@ function keepWarm() {
   try { _nameOrphansOnce(); } catch (e) { _fixLog('고아 배당 이름 채우기 실패 — ' + e); }
   try { _refreshImportOnce(); } catch (e) { _fixLog('IMPORTDATA 새로고침 실패 — ' + e); }
   try { _healImportData(); } catch (e) { console.log('IMPORTDATA 자가복구 실패 — ' + e); }
+  try { _perfWatch(); } catch (e) { console.log('월별 성과 감시 실패 — ' + e); }
   try { _fixIrpOnce(); } catch (e) { _fixLog('IRP 칸 정리 실패 — ' + e); }
 
   // IRP 펀드 기준가 감시 — 받아오는 건 GitHub Actions(fund_nav.yml)가 한다(FunETF 가 Apps Script 를
@@ -4935,6 +5218,7 @@ const TRIGGER_PLAN = [
   ['snapshotPortfolio',      () => [10, 13, 16].forEach(h => ScriptApp.newTrigger('snapshotPortfolio').timeBased().atHour(h).nearMinute(5).everyDays(1).create())],
   ['snapshotPrices',         () => ScriptApp.newTrigger('snapshotPrices').timeBased().atHour(16).everyDays(1).create()],
   ['pushTrendData',          () => ScriptApp.newTrigger('pushTrendData').timeBased().atHour(16).nearMinute(40).everyDays(1).create()],
+  ['buildPerfScores',        () => ScriptApp.newTrigger('buildPerfScores').timeBased().atHour(8).nearMinute(20).everyDays(1).create()],
   ['compactPriceLog',        () => ScriptApp.newTrigger('compactPriceLog').timeBased().onWeekDay(ScriptApp.WeekDay.SUNDAY).atHour(4).create()]
 ];
 function resetAllTriggers() {
