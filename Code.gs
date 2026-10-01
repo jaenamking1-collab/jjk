@@ -9,7 +9,7 @@ const SHEET_ID = '1iNlOU1YBRyJ6redmVoLDE4q6VfnWqL22s32IQHdSKN8';
 // 그 시트가 공유되는 순간 토큰이 새고, 그러면 계좌·보유·분배금 **쓰기까지** 열린다.
 // 여기로 나가는 건 보유 티커와 공개 시세뿐이고 수량·금액·계좌는 안 나가므로 공개가 더 안전하다
 // (2026-09-11 소유자 확인).
-const PUBLIC_ACTIONS = ['getDistribution', 'getDistributionAll', 'getEtfNotices', 'getEtfNoticesAll', 'hitCounter', 'getPricesCsv', 'getNoticeChanges'];
+const PUBLIC_ACTIONS = ['getDistribution', 'getDistributionAll', 'getDistributionMonth', 'getEtfNotices', 'getEtfNoticesAll', 'hitCounter', 'getPricesCsv', 'getNoticeChanges'];
 // 오답 잠금: 공개 저장소의 지난 기록에 옛 비밀번호가 남아 있어, 값을 하나씩 넣어보는
 // 자동 시도를 막는다. 서로 다른 오답이 5개 쌓이면 5분간 개인 액션을 전부 막는다
 // (그동안은 맞는 비밀번호도 막힌다 — 맞았는지 알려주는 것 자체가 힌트라서).
@@ -166,6 +166,7 @@ function doGet(e) {
       case 'getPerfScores':   result = getPerfScores(); break;
       case 'getDistribution': result = getDistribution(e.parameter.source, e.parameter.force === '1'); break;
       case 'getDistributionAll': result = getDistributionAll(); break;
+      case 'getDistributionMonth': result = getDistributionMonth(e.parameter.m); break;
       case 'getDivSheetData': result = getDivSheetData(e.parameter.year); break;
       case 'getPortfolioLog': result = getPortfolioLog(); break;
       case 'getAlerts':       result = getAlerts(e.parameter.limit ? parseInt(e.parameter.limit) : 30); break;
@@ -1258,8 +1259,84 @@ function attachDistHistory(source, payload, rows) {
       });
     });
     out.items = _dropJunkItems(out.items);   // 옛 회차 캐시에 굳은 쓰레기 행 제거
+    _attachPrevAmount(out, hist.slice(0, 8));
     return out;
   } catch(e) { return payload; }
+}
+// 지난달들(←)을 열 때만 그 달 데이터를 따로 준다. 묶음 응답(getDistributionAll)은 직전 2회차만 실어서
+// 6·7월은 화면에 올 길이 없었다(2026-10-01 요청). 분배캐시 시트엔 24회차(약 1년)가 남아 있다.
+// m = 기준일(없으면 지급일)의 '월'. 같은 종목·회차·기준일은 최신 행 것만(정정 공지가 이긴다).
+function getDistributionMonth(m) {
+  m = parseInt(m, 10);
+  if (!(m >= 1 && m <= 12)) return { success: false, error: 'm(월)을 1~12로' };
+  const rows = _distCacheSheet().getDataRange().getValues();
+  const sources = {};
+  DIST_SOURCE_IDS.forEach(s => {
+    const rs = [];
+    for (let i = 1; i < rows.length; i++) if (rows[i][0] === s) rs.push({ rank: cycleRank(rows[i][3]), raw: rows[i][1] });
+    rs.sort((a, b) => b.rank - a.rank);
+    const items = [], seen = new Set();
+    rs.forEach(h => {
+      let p; try { p = JSON.parse(h.raw); } catch(e) { return; }
+      (p.items || []).forEach(it => {
+        const sched = (it.sched && Object.keys(it.sched).length) ? it.sched : (p.schedule || {});
+        const md = _mdOfSched(sched['기준일'] || sched['지급일']);
+        if (!md || md.m !== m) return;
+        const key = (it.ticker || it.name) + '|' + (md.d <= 20 ? '중' : '말') + '|' + (sched['기준일'] || '');
+        if (seen.has(key)) return;
+        seen.add(key);
+        const copy = JSON.parse(JSON.stringify(it));
+        copy.sched = sched;
+        delete copy.hist;
+        items.push(copy);
+      });
+    });
+    const out = { items: _dropJunkItems(items) };
+    _attachPrevAmount(out, rs);
+    out.items.forEach(it => { it.hist = true; });          // 화면은 지난 회차로 다룬다(현재 공지와 섞이지 않게)
+    sources[s] = out;
+  });
+  return { success: true, month: m, sources };
+}
+
+// 이번 회차 종목마다 '지난달 같은 회차' 분배금을 prevAmount 로 붙인다(화면의 전달·전달비 칸).
+// 왜: hist 는 직전 2회차만 실어 보내서 월중 종목은 지난달 월중이 안 실렸다 → 전달비가 대부분 '-'(2026-10-01 지적).
+// 회차를 통째로 더 보내면 응답이 커진다(묶음 요청이 이미 가끔 깨진다) — 숫자 하나씩만 붙인다.
+// 이미 붙어 있으면(KIWOOM 은 운용사 API 이력으로 직접 채운다) 건드리지 않는다.
+function _mdOfSched(s) {
+  const t = String(s || '');
+  let m = t.match(/(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
+  if (m) return { m: +m[2], d: +m[3] };
+  m = t.match(/(\d{1,2})월\s*(\d{1,2})일/) || t.match(/^(\d{1,2})\/(\d{1,2})/);
+  return m ? { m: +m[1], d: +m[2] } : null;
+}
+function _attachPrevAmount(out, histRows) {
+  try {
+    const keyOf = (it, sched) => {
+      const md = _mdOfSched((sched || {})['기준일'] || (sched || {})['지급일']);
+      return md ? (it.ticker || it.name) + '|' + (md.d <= 20 ? '중' : '말') + '|' + md.m : '';
+    };
+    const amt = {};
+    const add = (it, sched) => {
+      if (it.amount == null || it.amount === '') return;
+      const k = keyOf(it, sched);
+      if (k && amt[k] == null) amt[k] = Number(it.amount);     // 최신 행이 먼저 — 정정 공지가 이긴다
+    };
+    out.items.forEach(it => { if (it.hist) add(it, it.sched); });
+    (histRows || []).forEach(h => {
+      let p; try { p = JSON.parse(h.raw); } catch(e) { return; }
+      (p.items || []).forEach(it => add(it, (it.sched && Object.keys(it.sched).length) ? it.sched : (p.schedule || {})));
+    });
+    out.items.forEach(it => {
+      if (it.hist || it.prevAmount != null) return;
+      const sched = (it.sched && Object.keys(it.sched).length) ? it.sched : (out.schedule || {});
+      const md = _mdOfSched(sched['기준일'] || sched['지급일']);
+      if (!md) return;
+      const pm = md.m === 1 ? 12 : md.m - 1;
+      const v = amt[(it.ticker || it.name) + '|' + (md.d <= 20 ? '중' : '말') + '|' + pm];
+      if (v != null && !isNaN(v)) it.prevAmount = v;
+    });
+  } catch(e) {}
 }
 // 파싱 결과 마무리: 시트캐시(회차별) 저장 → 이력 병합 → 스크립트캐시 → 반환
 function finishDist(source, result, cache, cacheKey) {
@@ -2566,10 +2643,14 @@ function fetchDist_kiwoom() {
       { url: KIWOOM_BASE + '/service/report/KO03020200PSelectAjax?gcode=' + p.gcode }, KIWOOM_OPT)));
     const ymd = s => { const m = String(s || '').match(/(\d{4})\D?(\d{2})\D?(\d{2})/); return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null; };
     const cutoff = Date.now() - 45 * 86400000;
-    const rows = [], latest = {};
+    const rows = [], latest = {}, prevOf = {};   // prevOf[gcode|회차|월] = 그 회차 금액 (전달 분배금용, API 이력 전체)
     res.forEach((r, i) => {
       let list = [];
       try { list = JSON.parse(r.getContentText('UTF-8')).resultList || []; } catch(e) {}
+      list.forEach(x => {
+        const d0 = ymd(x.stdDt);
+        if (d0) prevOf[prods[i].gcode + '|' + (d0.getDate() <= 20 ? '월중' : '월말') + '|' + (d0.getMonth() + 1)] = Number(String(x.dividendAmt).replace(/,/g, ''));
+      });
       list.forEach(x => {
         const d = ymd(x.stdDt);
         if (!d || d.getTime() < cutoff) return;
@@ -2599,7 +2680,10 @@ function fetchDist_kiwoom() {
         const amount = Number(String(x.dividendAmt).replace(/,/g, ''));
         if (isNaN(amount)) return;
         const rate = parseFloat(x.dividendRate);
-        items.push({ name: p.name, ticker: p.gcode, amount, rate: isNaN(rate) ? null : rate, cycle, sched });
+        const it = { name: p.name, ticker: p.gcode, amount, rate: isNaN(rate) ? null : rate, cycle, sched };
+        const sm = ymd(x.stdDt).getMonth() + 1, pv = prevOf[p.gcode + '|' + cycle + '|' + (sm === 1 ? 12 : sm - 1)];
+        if (pv != null && !isNaN(pv)) it.prevAmount = pv;
+        items.push(it);
         if (x.stdDt > newest) { newest = x.stdDt; schedule = sched; }
       });
     });
