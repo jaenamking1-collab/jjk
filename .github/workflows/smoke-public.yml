@@ -44,10 +44,14 @@ jobs:
             const r = await p.evaluate(() => {
               const t = document.body.innerText;
               const m = t.match(/(\d+)곳 최신/);
-              // 공지 표(운용사 행)마다 날짜(MM.DD)가 하나 이상 있어야 한다
-              const cards = [...document.querySelectorAll('.nt-table tbody tr')].filter(r => r.querySelector('.nt-brand')).map(r => ({
-                name: r.querySelector('.nt-brand').innerText.trim(),
-                dated: (r.innerText.match(/\d\d\.\d\d/g) || []).length }));
+              // 공지 표: 운용사 한 칸(rowspan) 아래 줄들까지 묶어서, 운용사마다 날짜(MM.DD)가 하나 이상 있어야 한다.
+              // (첫 줄만 세면 월중이 없는 HANARO 를 '비었다'고 오탐한다 — 2026-10-01)
+              const cards = [];
+              document.querySelectorAll('.nt-table tbody tr').forEach(r => {
+                const b = r.querySelector('.nt-brand');
+                if (b) cards.push({ name: b.querySelector('b') ? b.querySelector('b').innerText.trim() : b.innerText.split('\n')[0].trim(), dated: 0 });
+                if (cards.length) cards[cards.length - 1].dated += (r.innerText.match(/\d\d\.\d\d/g) || []).length;
+              });
               const chips = [...document.querySelectorAll('.cal-chip')].filter(x => x.innerText.trim() && !x.innerText.includes('?')).length;
               return { fresh: m ? +m[1] : 0, cards, chips, total: (typeof DIST_SOURCES !== 'undefined') ? DIST_SOURCES.length : 0 };
             });
