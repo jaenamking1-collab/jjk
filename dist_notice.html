@@ -50,6 +50,13 @@
   /* 데이터가 도착하며 빈 패널이 654px로 부풀어 아래 종목 섹션과 그 ←/→ 버튼을 밀어냈다
      (CLS 0.161~0.236 실측). 로딩 중에도 자리를 잡아둔다. 세로로 쌓이는 모바일은 제외. */
   @media (min-width:821px){ .p-notice, .p-cal, .p-sched{min-height:620px;} }
+  /* 왼쪽 공지는 **달력 높이까지만** — 운용사가 8곳이 되자 카드가 달력보다 길어져 줄 전체를 늘렸다(2026-10-01 요청).
+     contain:size 로 공지 칸이 줄 높이를 정하지 못하게 하고(높이는 달력이 정한다), 넘치는 카드는 칸 안에서 스크롤. */
+  @media (min-width:821px){
+    .p-notice{display:flex; flex-direction:column; contain:size;}
+    #noticeGrid{flex:1 1 auto; min-height:0; overflow-y:auto; padding-right:4px;}
+    #noticeGrid > *{flex-shrink:0;}   /* 카드가 눌려 글자가 잘리지 않게 — 줄이지 말고 스크롤 */
+  }
 
   /* 세 패널 합이 300+792+340+여백 = 1,504px 이라 그보다 좁은 화면(1280·1366·1440 — 흔한
      노트북 폭)에서 '일정'만 둘째 줄에 홀로 가운데 정렬로 떨어지고 달력 옆이 비었다.
