@@ -31,7 +31,7 @@ jobs:
           for u in $URLS; do
             i=$((i+1))
             K=''; [ "$INSECURE" = "true" ] && K='-k'
-            code=$(curl -sL $K -o "out/$i.bin" -D "out/$i.hdr" -w '%{http_code} %{content_type} %{url_effective}' \
+            code=$(curl -sL $K -o "out/$i.bin" -D "out/$i.hdr" -w '%{http_code} %{content_type} %{time_total}s %{url_effective}' \
                    --max-time 60 -A 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' "$u" 2>"out/$i.err") || true
             echo "$i $u → $code" | tee -a out/index.txt
             [ -s "out/$i.err" ] && cat "out/$i.err" >> out/index.txt
