@@ -5391,7 +5391,8 @@ function _fillRowFormulas(dry) {
   for (let c = 0; c < (fs[0] || []).length; c++) {
     const withF = stock.filter(i => fs[i][c]);
     if (withF.length < stock.length * 0.7) continue;   // 종목 줄 대부분이 수식인 열만(손입력 열은 제외)
-    stock.filter(i => !fs[i][c]).forEach(i => {
+    // ⛔ 비어 있는 칸만 채운다 — 손으로 넣은 값(수식 없는 현재가 등)은 절대 덮지 않는다.
+    stock.filter(i => !fs[i][c] && String(vs[i][c]) === '').forEach(i => {
       let src = -1;
       for (let d = 1; d <= 20 && src < 0; d++) {
         if (withF.indexOf(i - d) >= 0) src = i - d; else if (withF.indexOf(i + d) >= 0) src = i + d;
