@@ -1,0 +1,82 @@
+# 공개 분배금공지(https://jjk.distributionjn.workers.dev/)를 **실제 크롬으로 열어** 방문자가 보는 화면을 검사한다.
+# 왜: 2026-10-01 HANARO·KIWOOM 추가 직후 사용자 화면에 9월 말 회차가 통째로 '예정(?)'으로만 나왔다.
+#     백엔드 응답만 보고 '정상'이라 했던 게 문제 — 사람이 보는 결과를 직접 센다(CLAUDE.md 0-1).
+# 판정: JS 오류 0 · 헤더 'N곳 최신'의 N = 운용사 수 · 운용사 카드마다 날짜 붙은(확정) 줄이 1개 이상 · 달력 확정 칩 존재.
+# 실패하면 카톡(runMaint sendKakaoMemo) + 실행 실패 메일. 스크린샷은 probe-out 브랜치 smoke/ 에 남긴다.
+name: smoke-public
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 * * * *'
+  push:
+    branches: [main]
+    paths: ['dist_notice.html']
+
+permissions:
+  contents: write
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 배포 반영 대기 (push 때만)
+        if: ${{ github.event_name == 'push' }}
+        run: sleep 150
+      - name: 크롬 준비
+        run: |
+          npm i playwright@1 >/dev/null 2>&1
+          npx playwright install --with-deps chromium >/dev/null 2>&1
+      - name: 공개 페이지 검사
+        id: chk
+        run: |
+          cat > s.js <<'EOF'
+          const { chromium } = require('playwright');
+          (async () => {
+            const b = await chromium.launch();
+            const p = await b.newPage({ viewport: { width: 1900, height: 1000 } });
+            const errs = [];
+            p.on('pageerror', e => errs.push(e.message));
+            await p.goto('https://jjk.distributionjn.workers.dev/?smoke=' + Date.now(), { waitUntil: 'load', timeout: 60000 });
+            // 데이터가 다 올 때까지(최대 90초) '곳 최신' 문구를 기다린다
+            try { await p.waitForFunction(() => /\d+곳 최신/.test(document.body.innerText), null, { timeout: 90000 }); } catch (e) {}
+            await p.waitForTimeout(3000);
+            const r = await p.evaluate(() => {
+              const t = document.body.innerText;
+              const m = t.match(/(\d+)곳 최신/);
+              const cards = [...document.querySelectorAll('.notice-card')].map(c => ({
+                name: (c.innerText.split('\n')[0] || '').replace(/[•●]/g, '').trim(),
+                dated: (c.innerText.match(/20\d\d\.\d\d\.\d\d/g) || []).length }));
+              const chips = [...document.querySelectorAll('.cal-chip')].filter(x => x.innerText.trim() && !x.innerText.includes('?')).length;
+              return { fresh: m ? +m[1] : 0, cards, chips, total: (typeof DIST_SOURCES !== 'undefined') ? DIST_SOURCES.length : 0 };
+            });
+            await p.screenshot({ path: 'shot.png' });
+            const bad = [];
+            if (errs.length) bad.push('JS 오류: ' + errs.slice(0, 2).join(' / '));
+            if (r.fresh !== r.total) bad.push(`최신 ${r.fresh}/${r.total}곳`);
+            r.cards.filter(c => !c.dated).forEach(c => bad.push(c.name.split(' ')[0] + ' 카드 비어 있음'));
+            if (!r.chips) bad.push('달력 확정 칩 0개');
+            console.log(JSON.stringify(r));
+            console.log(bad.length ? 'FAIL ' + bad.join(' · ') : 'OK');
+            require('fs').writeFileSync('result.txt', bad.length ? bad.join(' · ') : '');
+            await b.close();
+          })();
+          EOF
+          node s.js
+          echo "bad=$(cat result.txt)" >> "$GITHUB_OUTPUT"
+      - name: 스크린샷 보관
+        if: always()
+        run: |
+          mkdir -p o/smoke && cp shot.png o/smoke/ 2>/dev/null; cp result.txt o/smoke/ 2>/dev/null; date -u +%FT%TZ > o/smoke/at.txt
+          cd o && git init -q -b probe-out && git config user.name 'github-actions[bot]' && git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add -A && git commit -qm smoke && git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" probe-out
+      - name: 실패 알림
+        if: ${{ steps.chk.outputs.bad != '' }}
+        env:
+          TOKEN: ${{ secrets.APP_TOKEN }}
+          BAD: ${{ steps.chk.outputs.bad }}
+        run: |
+          curl -sL -o /dev/null -G --max-time 120 --data-urlencode action=runMaint --data-urlencode fn=sendKakaoMemo \
+            --data-urlencode "arg=🚨 공개 분배금공지 화면 이상: $BAD — https://jjk.distributionjn.workers.dev/" --data-urlencode "token=$TOKEN" \
+            'https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec' || true
+          echo "::error::$BAD"; exit 1
