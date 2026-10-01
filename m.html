@@ -139,10 +139,21 @@
 <header>
   <div class="brand">PORTFOLIO MGR</div>
   <div class="hd-right">
+    <a class="rate" id="gasVer" style="text-decoration:none;color:var(--text3)" target="_blank" rel="noopener noreferrer"
+       href="https://script.google.com/d/1yYeK3W1aHUYd6ok9N-dvt0YRmbB4pxX7AL0kMmZBS4-qFpRxHNASUJvG/edit">GAS …</a>
     <span class="rate" id="rate">환율 …</span>
     <button class="icon-btn" onclick="reload()" title="새로고침">⟳</button>
   </div>
 </header>
+<script>
+// Apps Script 버전 수 (portfolio.html 머리글과 같은 것). 190↑ 빨강, 170↑ 주황, 이틀 넘게 미갱신이면 회색 ⚠.
+fetch('script_versions.json?' + Date.now()).then(r => r.json()).then(d => {
+  const el = document.getElementById('gasVer'), age = (Date.now() - new Date(d.checkedAt)) / 3600000;
+  el.textContent = `GAS ${d.count}/${d.max}` + (age > 48 ? ' ⚠' : '');
+  el.style.color = age > 48 ? 'var(--text3)' : d.count >= 190 ? 'var(--red)' : d.count >= 170 ? '#d97706' : 'var(--text)';
+  if (d.count >= 190) el.style.fontWeight = '700';
+}).catch(() => { document.getElementById('gasVer').textContent = 'GAS ?'; });
+</script>
 
 <div id="badge">⟳ 갱신 중…</div>
 <main id="view" class="wrap"></main>
