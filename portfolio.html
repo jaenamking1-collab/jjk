@@ -448,6 +448,18 @@ if (!/[?&]pc=1/.test(location.search) && window.innerWidth <= 768) {
     #jn-accounts-table, #ek-accounts-table { overflow-x:auto !important; }
     #jn-accounts-table table, #ek-accounts-table table { min-width:620px !important; }
   }
+  /* ── 분배금공지 공지 표 (dist_notice.html 과 같은 보기 — 2026-10-01) ── */
+  @media (min-width:821px){ .dist-notice-panel{align-self:flex-start;} }
+  /* 공지 표 — 운용사 8곳을 카드로 쌓으니 달력보다 길고 빈 공간이 많았다(2026-10-01 요청) */
+  .nt-table{width:100%; border-collapse:collapse; font-size:12px; background:#fff; border:2px solid #111827;}   /* 선은 오른쪽 운용사별 일정 표와 같게 */
+  .nt-table th{background:#e2e8f0; color:#111827; font-weight:700; padding:6px 3px; text-align:center; font-size:11px; border:1px solid #111827;}
+  .nt-table td{padding:6px 2px; border:1px solid #64748b; vertical-align:middle;}
+  .nt-table tr.nt-first td{border-top:2px solid #111827;}   /* 운용사 묶음 사이는 굵은 선, 안쪽(월중·월말 사이)은 얇은 선 — 구분이 쉽게(2026-10-01 요청) */
+  .nt-brand{font-size:12px; vertical-align:middle; background:#fafffb; white-space:nowrap;}
+  .nt-label{font-size:10px; color:var(--text2); font-weight:400; margin-top:1px; letter-spacing:-0.3px;}   /* 회사명은 한 줄로 — HANARO 'NH-Amundi자산운용'이 두 줄로 꺾였다(2026-10-01) */
+  .nt-title{color:var(--text); white-space:nowrap;} .nt-date{text-align:right; white-space:nowrap; font-size:11px; color:var(--text2); font-family:var(--mono,monospace);}
+  .nt-link{cursor:pointer;} .nt-link:hover{background:#f0fdf4; text-decoration:underline;}
+  .nt-none{color:var(--text3);}
 </style>
 </head>
 <body>
@@ -909,13 +921,13 @@ fetch('script_versions.json?' + Date.now()).then(r => r.json()).then(d => {
     <div id="distCalendarWrap" style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:20px">
       <div id="distCalTitle" style="display:none"></div>
       <div style="display:flex;gap:14px;align-items:stretch;flex-wrap:wrap;justify-content:center">
-        <div style="width:300px;flex-shrink:0;background:#f0fdf4;border:1px solid #dcfce7;border-radius:10px;padding:14px">
+        <div class="dist-notice-panel" style="width:300px;flex-shrink:0;background:#f0fdf4;border:1px solid #dcfce7;border-radius:10px;padding:14px">
           <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
             <div id="noticeTitle" style="font-size:12px;font-weight:700;color:#16a34a">📢 분배금 공지</div>
             <button onclick="noticeShiftMonth(-1)" title="이전 달" style="width:24px;height:24px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;line-height:1">←</button>
             <button onclick="noticeShiftMonth(1)" title="다음 달" style="width:24px;height:24px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;line-height:1">→</button>
           </div>
-          <div id="noticeGrid" style="display:flex;flex-direction:column;gap:8px">
+          <div id="noticeGrid">
             <div class="notice-loading">불러오는 중...</div>
           </div>
         </div>
@@ -4875,7 +4887,7 @@ function shiftMonth(dir) {
 // 지급일은 6개사 중 **제일 늦은 날**을 쓴다(SOL 9/1, 나머지 9/2 → 9/2 기준 → 9/3까지 8월).
 // 공지 데이터에 그 회차가 없으면 그냥 이번 달(안전 폴백).
 // ←/→ 는 이 달 기준 ±1개월이라, 다음 달은 → 한 번이면 본다.
-function distCursorMonth() {
+function distPrevPayDay() {   // 지난달 월말 회차 중 제일 늦은 지급일(이번 달 '일'). 없으면 0 — dist_notice.html 과 같다
   const now = new Date(), curM = now.getMonth() + 1, prevM = curM === 1 ? 12 : curM - 1;
   let payDay = 0;
   (_distData || []).forEach(c => {
@@ -4888,7 +4900,20 @@ function distCursorMonth() {
       if (pay.d > payDay) payDay = pay.d;                          // 제일 늦게 주는 곳 기준
     });
   });
+  return payDay;
+}
+function distCursorMonth() {
+  const now = new Date(), curM = now.getMonth() + 1, prevM = curM === 1 ? 12 : curM - 1;
+  const payDay = distPrevPayDay();
   return (payDay && now.getDate() <= payDay + 1) ? prevM : curM;
+}
+// 공지사항 상시 안내: 화면이 언제 다음 달로 넘어가는지(distCursorMonth 규칙 그대로 — dist_notice.html 과 같다)
+function monthSwitchNote() {
+  const now = new Date(), curM = now.getMonth() + 1, prevM = curM === 1 ? 12 : curM - 1;
+  const pd = distPrevPayDay(), dow = d => '일월화수목금토'[new Date(now.getFullYear(), curM - 1, d).getDay()];
+  if (pd && now.getDate() <= pd + 1)
+    return `<b>${prevM}월 분배금 공지</b>는 월말 지급일(${curM}/${pd}) <b>다음 날 ${curM}/${pd + 1}(${dow(pd + 1)})까지</b> 보이고, ${curM}/${pd + 2}부터 ${curM}월로 넘어갑니다`;
+  return `지난달 분배금 공지는 <b>월말 지급일 다음 날까지</b> 보이고, 그 다음 날부터 이번 달로 넘어갑니다`;
 }
 
 let _distGridMonthOffset = 0; // 내 보유 종목 분배 내역: 월 단위 이동 (0=이번 달)
@@ -5575,7 +5600,7 @@ function renderMasterCalendar(allData) {
           const nameCell = i === 0
             ? `<td rowspan="${cycles.length}" style="padding:5px 8px;white-space:nowrap;vertical-align:middle"><span style="font-weight:700;color:${r.color}">${r.name}</span></td>`
             : '';
-          return `<tr>
+          return `<tr${cycles.length === 1 ? ' class="nt-single"' : ''}>
             ${nameCell}
             <td style="padding:5px 6px;white-space:nowrap;background:${bg};color:${col};font-weight:700">${monLabel}${noHold}</td>
             ${dateCell(m, '공시일', '#d97706', bg)}
@@ -5587,6 +5612,7 @@ function renderMasterCalendar(allData) {
       }).join('')}</tbody>
     </table>` : `<div style="font-size:12px;color:var(--text3)">${selM}월 일정 정보가 없습니다</div>`;
   document.getElementById('distScheduleList').innerHTML = tableHtml;
+  equalizeSingleRows(document.querySelector('#distScheduleList table'));
 }
 
 // 운용사 카드 하단 '특별 공지' 줄. 좌측 공지 패널이 쓰는 _noticeData를 그대로 재사용한다(새 데이터 소스 0).
@@ -5640,6 +5666,11 @@ function renderNoticeBoard() {
     <div style="display:flex;align-items:center;gap:6px;min-width:0;padding:5px 8px;border-bottom:1px solid #64748b;background:#ecfeff">
       <span style="flex-shrink:0;background:#0891b21a;color:#0891b2;font-size:9px;font-weight:800;padding:1px 5px;border-radius:3px">안내</span>
       <span style="flex:1;min-width:0;font-size:11px;line-height:1.3;color:var(--text)"><b>분배락일 전날</b>까지 사야 받습니다</span>
+      <span style="flex-shrink:0;font-family:var(--mono);font-size:10px;color:var(--text3)">상시</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:6px;min-width:0;padding:5px 8px;border-bottom:1px solid #64748b;background:#ecfeff">
+      <span style="flex-shrink:0;background:#0891b21a;color:#0891b2;font-size:9px;font-weight:800;padding:1px 5px;border-radius:3px">안내</span>
+      <span style="flex:1;min-width:0;font-size:11px;line-height:1.3;color:var(--text)">${monthSwitchNote()}</span>
       <span style="flex-shrink:0;font-family:var(--mono);font-size:10px;color:var(--text3)">상시</span>
     </div>
     <div style="display:flex;align-items:center;gap:6px;min-width:0;padding:5px 8px;border-bottom:1px solid #64748b;background:#ecfeff">
@@ -6623,6 +6654,35 @@ async function loadAllNotices() {
     try { localStorage.setItem(_NSNAP_KEY, JSON.stringify(_noticeData)); } catch(e) {}
 }
 
+// 공지 표 아래끝 = 달력 아래끝(넓은 화면만). 달력이 표보다 짧으면 표 높이 그대로(잘리지 않음).
+function fitNoticeToCal() {
+  const t = document.querySelector('#noticeGrid .nt-table'), c = document.getElementById('distMasterCalendar');
+  if (!t || !c) return;
+  t.style.height = '';
+  equalizeSingleRows(t, true);
+  if (window.innerWidth > 820) {
+    const want = Math.round(c.getBoundingClientRect().bottom - t.getBoundingClientRect().top);
+    if (want > t.offsetHeight) t.style.height = want + 'px';
+  }
+  equalizeSingleRows(t);
+}
+// 한 줄짜리 운용사(HANARO — 월말만)는 다른 운용사 두 줄 높이로 키운다. 반쪽 칸이 눈에 거슬린다(2026-10-01 요청).
+// 두 표(공지·운용사별 일정) 공용. reset=true 면 키운 높이만 지운다(표 높이를 다시 재기 전).
+function equalizeSingleRows(table, reset) {
+  const rows = table && table.tBodies[0] ? [...table.tBodies[0].rows] : [];
+  const single = rows.filter(r => r.classList.contains('nt-single'));
+  single.forEach(r => { r.style.height = ''; });
+  if (reset || !single.length || single.length === rows.length) return;
+  const normal = rows.filter(r => !r.classList.contains('nt-single'));
+  // 표 높이가 고정(달력에 맞춤)이면 키운 만큼 다른 줄이 줄어드니 '표 높이 ÷ (줄 수 + 한 줄짜리 몫)'으로, 아니면 보통 줄 평균으로
+  const h = table.style.height
+    ? table.tBodies[0].getBoundingClientRect().height / (rows.length + single.length)
+    : normal.reduce((a, r) => a + r.getBoundingClientRect().height, 0) / normal.length;
+  if (h) single.forEach(r => { r.style.height = (h * 2) + 'px'; });   // 숨은 탭(높이 0)에선 건너뛴다 — 탭을 열 때 다시 맞춘다
+}
+// 탭이 숨겨진 채 그려지면 높이를 못 재므로, 달력 크기가 바뀔 때(탭을 열 때 포함) 두 표를 다시 맞춘다
+try { new ResizeObserver(() => { fitNoticeToCal(); equalizeSingleRows(document.querySelector('#distScheduleList table')); }).observe(document.getElementById('distMasterCalendar')); } catch(e) {}
+
 function renderNotices() {
   const grid = document.getElementById('noticeGrid');
   if (!grid || !_noticeData) return;
@@ -6636,7 +6696,7 @@ function renderNotices() {
     const m = String(n.date || '').match(/\d{4}[.\-\/](\d{1,2})/);
     return m ? parseInt(m[1]) : 0;
   };
-  grid.innerHTML = _noticeData.map(({ id, name, label, items, ok, fallback, savedAt }) => {
+  grid.innerHTML = `<table class="nt-table"><thead><tr><th>운용사</th><th>공지</th><th>등록일</th></tr></thead><tbody>` + _noticeData.map(({ id, name, label, items, ok, fallback, savedAt }) => {
     const all = (items || []).map(n => ({ ...n, norm: normalizeNoticeTitle(n.title, id) }))
       .filter(n => n.norm.cycle !== '제외');   // ACE 국고채 등 비정기 제거
     const inMonth = all.filter(n => monOf(n) === selM);
@@ -6683,37 +6743,22 @@ function renderNotices() {
     // 그대로 window.open('') 을 걸면 빈 창이나 현재 페이지 복사본이 떠서 '잘못된 사이트'로 보인다
     // (2026-09-12 사용자 보고). 아래 공지사항 게시판은 이미 막고 있었는데 여기만 빠져 있었다.
     // → 링크가 없으면 클릭 자체를 걸지 않는다.
-    const itemHtml = n => {
+    // 한 줄 = 예전 카드의 한 줄 그대로(회차 제목 + NEW + 등록일). 카드 사이 빈 공간만 없앴다(2026-10-01 요청).
+    // 링크 없으면 클릭을 걸지 않는다(2026-09-12 빈 창 사고).
+    const lineHtml = (n, cyc) => {
+      if (!n) return `<td class="nt-title nt-none">${selM}월 ${cyc}배당</td><td class="nt-date nt-none">-</td>`;
       const u = safeUrl(n.url);
-      return `
-          <div class="notice-item">
-            <span class="notice-title"${u ? ` onclick="window.open('${u}','_blank')"` : ' style="cursor:default;text-decoration:none"'} title="${(n.title||'').replace(/"/g,'&quot;')}${u ? '' : ' (링크 없음)'}">${n.norm.label}${isNew(n) ? '<span class="new-badge">NEW</span>' : ''}</span>
-            <span class="notice-date">${n.date}</span>
-          </div>`;
+      return `<td class="nt-title${u ? ' nt-link' : ''}"${u ? ` onclick="window.open('${u}','_blank')"` : ''} title="${(n.title||'').replace(/"/g,'&quot;')}${u ? '' : ' (링크 없음)'}">${n.norm.label}${isNew(n) ? '<span class="new-badge">NEW</span>' : ''}</td><td class="nt-date">${n.date || ''}</td>`;
     };
-    const emptySlot = cyc => `
-          <div class="notice-item">
-            <span style="font-size:12px;color:var(--text3);line-height:1.4">${selM}월 ${cyc}배당</span>
-            <span class="notice-date">-</span>
-          </div>`;
-    const rows = (items && items.length)
-      ? [ picks[0] ? itemHtml(picks[0]) : emptySlot('월중'),
-          picks[1] ? itemHtml(picks[1]) : emptySlot('월말'),
-          picks[2] ? itemHtml(picks[2]) : '',
-          ...extra.map(itemHtml) ].join('')
-      // 응답은 왔는데 이번 달 공지가 아직 없는 것과, 못 받아온 것은 다른 상태다(공지 페이지와 동일).
-      // 둘 다 '불러오기 실패'로 뭉뚱그리면 정상인데도 앱이 고장 난 것처럼 보인다.
-      // '아직 공시가 안 났다'와 '운용사 사이트를 못 읽었다'는 전혀 다른 사실이다.
-      // 후자를 '없음'이라고 쓰면 공시를 낸 운용사를 안 냈다고 알리는 셈이다(2026-09-14 PLUS).
-      : (ok === false ? '<div class="notice-err">운용사 사이트 응답 없음 — 확인 못 했습니다</div>'
-                      : `<div class="notice-empty">${selM}월 공지 아직 없음</div>`);
-    return `
-      <div class="notice-card ${id}">
-        <div class="notice-brand ${id}">● ${name} <span style="font-weight:400;color:var(--text3)">${label}</span></div>
-        ${fallback ? `<div class="notice-stale">⚠️ 지금 운용사 사이트가 응답하지 않습니다 · 아래는 ${savedAt || '이전'} 에 받아둔 내용</div>` : ''}
-        ${rows}
-      </div>`;
-  }).join('');
+    const color = (DIST_SOURCES.find(s => s.id === id) || {}).color || 'var(--text)';
+    const brand = rs => `<td class="nt-brand" rowspan="${rs}" style="box-shadow:inset 3px 0 0 ${color}; padding-left:8px"><b style="color:${color}">${name}</b>${fallback ? ` <span title="운용사 사이트 무응답 · ${savedAt || '이전'} 에 받아둔 내용">⚠️</span>` : ''}<div class="nt-label">${label}</div></td>`;
+    // 응답은 왔는데 이번 달 공지가 아직 없는 것과, 못 받아온 것은 다른 상태다(2026-09-14 PLUS).
+    if (!(items && items.length)) return `<tr class="nt-first">${brand(1)}<td colspan="2" class="${ok === false ? 'notice-err' : 'nt-none'}">${ok === false ? '운용사 사이트 응답 없음 — 확인 못 했습니다' : `${selM}월 공지 아직 없음`}</td></tr>`;
+    const onlyEnd = (DIST_SOURCES.find(x => x.id === id) || {}).onlyEnd;   // HANARO 는 월중이 없다
+    const lines = [...(onlyEnd ? [] : [lineHtml(picks[0], '월중')]), lineHtml(picks[1], '월말'), ...[picks[2], ...extra].filter(Boolean).map(n => lineHtml(n))];
+    return lines.map((l, i) => `<tr${i ? '' : ` class="nt-first${lines.length === 1 ? ' nt-single' : ''}"`}>${i ? '' : brand(lines.length)}${l}</tr>`).join('');
+  }).join('') + '</tbody></table>';
+  fitNoticeToCal();
   renderNoticeBoard();
 }
 
