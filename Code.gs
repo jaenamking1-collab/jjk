@@ -9,7 +9,7 @@ const SHEET_ID = '1iNlOU1YBRyJ6redmVoLDE4q6VfnWqL22s32IQHdSKN8';
 // 그 시트가 공유되는 순간 토큰이 새고, 그러면 계좌·보유·분배금 **쓰기까지** 열린다.
 // 여기로 나가는 건 보유 티커와 공개 시세뿐이고 수량·금액·계좌는 안 나가므로 공개가 더 안전하다
 // (2026-09-11 소유자 확인).
-const PUBLIC_ACTIONS = ['getDistribution', 'getDistributionAll', 'getEtfNotices', 'getEtfNoticesAll', 'hitCounter', 'getPricesCsv'];
+const PUBLIC_ACTIONS = ['getDistribution', 'getDistributionAll', 'getEtfNotices', 'getEtfNoticesAll', 'hitCounter', 'getPricesCsv', 'getNoticeChanges'];
 // 오답 잠금: 공개 저장소의 지난 기록에 옛 비밀번호가 남아 있어, 값을 하나씩 넣어보는
 // 자동 시도를 막는다. 서로 다른 오답이 5개 쌓이면 5분간 개인 액션을 전부 막는다
 // (그동안은 맞는 비밀번호도 막힌다 — 맞았는지 알려주는 것 자체가 힌트라서).
@@ -141,6 +141,7 @@ function doGet(e) {
       case 'getStockHistory': result = getStockHistory(e.parameter.ticker, e.parameter.currency, e.parameter.days); break;
       case 'getEtfNotices':   result = getEtfNotices(e.parameter.source); break;
       case 'getEtfNoticesAll': result = getEtfNoticesAll(); break;
+      case 'getNoticeChanges': result = getNoticeChanges(); break;
       // 공개 페이지 방문자 카운터: bump='1'이면 +1, 아니면 현재 값만 반환.
       // 누적(VISIT_COUNT)과 오늘(VISIT_TODAY, 날짜는 VISIT_TODAY_DATE로 판별해 자정에 리셋)을 함께 반환.
       case 'hitCounter': {
@@ -2762,6 +2763,29 @@ function getAlerts(limit) {
   } catch(e) {
     return { success: false, error: e.toString(), alerts: [] };
   }
+}
+
+// 공개: 최근 24시간의 '공지내용 변경' 알림만 준다(공개 분배금공지 페이지용, 2026-10-01 사용자 요청).
+// ⛔ 알림로그에는 파싱경고·OCR 장애 같은 **내부 알림**도 있다 — 종류 '공지변경' 외에는 절대 내보내지 않는다.
+// 운용사가 공지를 고쳤다는 사실은 운용사가 공개한 정보라 내보내도 된다. 24시간 지나면 안 보낸다(사용자: "하루 정도만").
+function getNoticeChanges() {
+  try {
+    const sh = _getOrCreateSheet('알림로그', ['시각','운용사','종류','메시지','중요도','상태']);
+    const last = sh.getLastRow();
+    if (last <= 1) return { success: true, items: [] };
+    const n = Math.min(80, last - 1);
+    const cut = Date.now() - 24 * 3600 * 1000;
+    const items = sh.getRange(last - n + 1, 1, n, 4).getValues()
+      .filter(r => r[2] === '공지변경')
+      .map(r => {
+        const t = r[0] instanceof Date ? r[0] : new Date(String(r[0]).replace(' ', 'T') + ':00+09:00');
+        return { time: Utilities.formatDate(t, 'Asia/Seoul', 'yyyy-MM-dd HH:mm'), ms: t.getTime(),
+                 source: String(r[1] || ''), message: String(r[3] || '') };
+      })
+      .filter(x => x.ms >= cut)
+      .reverse().slice(0, 5);
+    return { success: true, items: items };
+  } catch (e) { return { success: false, items: [] }; }
 }
 
 // 알림 확인 처리 (상태→확인)
