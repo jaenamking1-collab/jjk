@@ -5407,6 +5407,11 @@ function _fillRowFormulas(dry) {
     console.log(msg);
     if (!dry) _fixLog(msg);
   } else console.log('주식상황: 수식 빠진 종목 줄 없음 (종목 줄 ' + stock.length + '개)');
+  // 결과로 확인한다 — 수식이 있어도 값이 비면 소용없다. 현재가(G열) 칸이 빈 종목 줄을 센다.
+  const dv = rg.getDisplayValues();
+  const blank = stock.filter(i => !String(dv[i][6] || '').trim() || /^#/.test(dv[i][6]));
+  console.log('현재가 칸: 종목 줄 ' + stock.length + '개 중 ' + (stock.length - blank.length) + '개 채워짐'
+    + (blank.length ? ' · 빈 줄 ' + blank.map(i => i + 1).join(',') + '행' : ''));
   return done.length;
 }
 
