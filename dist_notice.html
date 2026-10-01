@@ -57,8 +57,7 @@
   .nt-table{width:100%; border-collapse:collapse; font-size:12px; background:#fff; border:2px solid #111827;}   /* 선은 오른쪽 운용사별 일정 표와 같게 */
   .nt-table th{background:#e2e8f0; color:#111827; font-weight:700; padding:6px 3px; text-align:center; font-size:11px; border:1px solid #111827;}
   .nt-table td{padding:6px 3px; border:1px solid #64748b; vertical-align:middle;}
-  .nt-brand{font-size:12px; vertical-align:middle; background:#fafffb; width:72px;}
-  .nt-label{font-size:10px; color:var(--text2); font-weight:400; margin-top:1px; word-break:keep-all; line-height:1.25;}
+  .nt-brand{font-size:12px; vertical-align:middle; background:#fafffb; white-space:nowrap;}   /* 회사명 줄은 뺐다(HANARO 줄바꿈) — 이름에 올리면 보인다 */
   .nt-title{color:var(--text); white-space:nowrap;} .nt-date{text-align:right; white-space:nowrap; font-size:11px; color:var(--text2); font-family:var(--mono,monospace);}
   .nt-link{cursor:pointer;} .nt-link:hover{background:#f0fdf4; text-decoration:underline;}
   .nt-none{color:var(--text3);}
@@ -1041,7 +1040,7 @@ function renderNotices(){
       return `<td class="nt-title${u ? ' nt-link' : ''}"${u ? ` onclick="window.open('${u}','_blank')"` : ''} title="${(n.title||'').replace(/"/g,'&quot;')}${u ? '' : ' (링크 없음)'}">${n.norm.label}${isNew(n) ? '<span class="new-badge">NEW</span>' : ''}</td><td class="nt-date">${n.date || ''}</td>`;
     };
     const color = (DIST_SOURCES.find(s => s.id === id) || {}).color || 'var(--text)';
-    const brand = rs => `<td class="nt-brand" rowspan="${rs}" style="box-shadow:inset 3px 0 0 ${color}; padding-left:8px"><b style="color:${color}">${name}</b>${fallback ? ` <span title="운용사 사이트 무응답 · ${savedAt || '이전'} 에 받아둔 내용">⚠️</span>` : ''}<div class="nt-label">${label}</div></td>`;
+    const brand = rs => `<td class="nt-brand" rowspan="${rs}" title="${label}" style="box-shadow:inset 3px 0 0 ${color}; padding-left:8px"><b style="color:${color}">${name}</b>${fallback ? ` <span title="운용사 사이트 무응답 · ${savedAt || '이전'} 에 받아둔 내용">⚠️</span>` : ''}</td>`;
     // 응답은 왔는데 이번 달 공지가 아직 없는 것과, 못 받아온 것은 다른 상태다(2026-09-14 PLUS).
     if (!(items && items.length)) return `<tr class="nt-first">${brand(1)}<td colspan="2" class="${ok === false ? 'notice-err' : 'nt-none'}">${ok === false ? '운용사 사이트 응답 없음 — 확인 못 했습니다' : `${selM}월 공지 아직 없음`}</td></tr>`;
     const onlyEnd = (DIST_SOURCES.find(x => x.id === id) || {}).onlyEnd;   // HANARO 는 월중이 없다
