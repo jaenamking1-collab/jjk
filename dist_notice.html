@@ -507,6 +507,9 @@ function distPlanner(allData, parseDay) {
     while (off(base)) base.setDate(base.getDate() - 1);
     const ex = new Date(base); do { ex.setDate(ex.getDate() - 1); } while (off(ex));
     const l = lag[name] && lag[name][cyc];
+    // 다른 회차 기록은 있는데 이 회차만 없다 = 그 회차를 안 하는 운용사다(HANARO 는 월말만 — 2026-10-01).
+    // 여기서 막지 않으면 월중 '예정'을 지어낸다. 데이터가 통째로 없을 때는 예전처럼 기본값으로 만든다.
+    if (!l && lag[name] && Object.keys(lag[name]).length) return null;
     let n = l ? l.n : (name === 'SOL' ? 1 : 2);
     const pay = new Date(base); while (n > 0) { pay.setDate(pay.getDate() + 1); if (!off(pay)) n--; }
     if (pay < today) return null;
