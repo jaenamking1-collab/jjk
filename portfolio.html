@@ -457,12 +457,12 @@ if (!/[?&]pc=1/.test(location.search) && window.innerWidth <= 768) {
   .nt-table tr.nt-first td{border-top:2px solid #111827;}   /* 운용사 묶음 사이는 굵은 선, 안쪽(월중·월말 사이)은 얇은 선 — 구분이 쉽게(2026-10-01 요청) */
   .nt-brand{font-size:12px; vertical-align:middle; background:#fafffb; white-space:nowrap;}
   .nt-label{font-size:9.5px; color:var(--text2); font-weight:400; margin-top:1px; letter-spacing:-0.5px;}   /* 회사명은 한 줄로 — HANARO 'NH-Amundi자산운용'이 두 줄로 꺾였다(2026-10-01) */
-  .nt-title{color:var(--text); white-space:nowrap;} .nt-date{text-align:right; white-space:nowrap; font-size:11px; color:var(--text2); font-family:var(--mono,monospace);}
+  .nt-title{color:var(--text); white-space:nowrap;} .nt-date{text-align:right; white-space:nowrap; font-size:11px; color:var(--text2);}   /* 고정폭 글꼴은 PC마다 폭이 달라 윈도우에서 잘렸다 — 본문 글꼴(Pretendard)로 */
   .nt-link{cursor:pointer;} .nt-link:hover{background:#f0fdf4; text-decoration:underline;}
   .nt-none{color:var(--text3);}
   /* 칸 폭 고정 — NEW 유무·두 자리 달('10월')·공지 없는 달('-')에 따라 표가 출렁였다(2026-10-01 지적) */
   .nt-table{table-layout:fixed;}
-  .nt-table th:nth-child(1){width:33%;} .nt-table th:nth-child(3){width:22%;}
+  .nt-table th:nth-child(1){width:32%;} .nt-table th:nth-child(3){width:24%;}   /* 등록일은 윈도우 고정폭 글꼴 기준으로 넉넉히(22% 일 때 잘렸다, 2026-10-01) */
   /* 보유 종목 분배 표: 카드는 표 내용 폭만큼 — 화면 1/3 을 억지로 채우느라 칸마다 빈 공간이 생겼다(2026-10-01, 공개 페이지와 같게) */
   /* 한 줄에 3개 회사 고정(2026-10-01 요청) — 좁은 화면에선 종목명 칸만 줄어든다(--dg-name) */
   /* 폭 기준은 화면(vw)이 아니라 이 묶음의 실제 폭(cqw) — vw 로 하니 1366px 에서 양쪽 카드가 잘렸다 */
@@ -930,7 +930,7 @@ fetch('script_versions.json?' + Date.now()).then(r => r.json()).then(d => {
     <div id="distCalendarWrap" style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:20px">
       <div id="distCalTitle" style="display:none"></div>
       <div style="display:flex;gap:14px;align-items:stretch;flex-wrap:wrap;justify-content:center">
-        <div class="dist-notice-panel" style="width:300px;flex-shrink:0;background:#f0fdf4;border:1px solid #dcfce7;border-radius:10px;padding:14px">
+        <div class="dist-notice-panel" style="width:320px;flex-shrink:0;background:#f0fdf4;border:1px solid #dcfce7;border-radius:10px;padding:14px">
           <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
             <div id="noticeTitle" style="font-size:12px;font-weight:700;color:#16a34a">📢 분배금 공지</div>
             <button onclick="noticeShiftMonth(-1)" title="이전 달" style="width:24px;height:24px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;line-height:1">←</button>
