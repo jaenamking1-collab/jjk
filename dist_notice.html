@@ -59,10 +59,13 @@
   .nt-table td{padding:6px 2px; border:1px solid #64748b; vertical-align:middle;}
   .nt-table tr.nt-first td{border-top:2px solid #111827;}   /* 운용사 묶음 사이는 굵은 선, 안쪽(월중·월말 사이)은 얇은 선 — 구분이 쉽게(2026-10-01 요청) */
   .nt-brand{font-size:12px; vertical-align:middle; background:#fafffb; white-space:nowrap;}
-  .nt-label{font-size:10px; color:var(--text2); font-weight:400; margin-top:1px; letter-spacing:-0.3px;}   /* 회사명은 한 줄로 — HANARO 'NH-Amundi자산운용'이 두 줄로 꺾였다(2026-10-01) */
+  .nt-label{font-size:9.5px; color:var(--text2); font-weight:400; margin-top:1px; letter-spacing:-0.5px;}   /* 회사명은 한 줄로 — HANARO 'NH-Amundi자산운용'이 두 줄로 꺾였다(2026-10-01) */
   .nt-title{color:var(--text); white-space:nowrap;} .nt-date{text-align:right; white-space:nowrap; font-size:11px; color:var(--text2); font-family:var(--mono,monospace);}
   .nt-link{cursor:pointer;} .nt-link:hover{background:#f0fdf4; text-decoration:underline;}
   .nt-none{color:var(--text3);}
+  /* 칸 폭 고정 — NEW 유무·두 자리 달('10월')·공지 없는 달('-')에 따라 표가 출렁였다(2026-10-01 지적, 앱에서 먼저 확인) */
+  .nt-table{table-layout:fixed;}
+  .nt-table th:nth-child(1){width:33%;} .nt-table th:nth-child(3){width:22%;}
 
   /* 세 패널 합이 300+792+340+여백 = 1,504px 이라 그보다 좁은 화면(1280·1366·1440 — 흔한
      노트북 폭)에서 '일정'만 둘째 줄에 홀로 가운데 정렬로 떨어지고 달력 옆이 비었다.
@@ -105,9 +108,11 @@
   .new-badge{display:inline-block; margin-left:4px; padding:0 5px; height:14px; line-height:14px; border-radius:7px; background:#ef4444; color:#fff; font-size:9px; font-weight:800; vertical-align:1px;}
   /* 공지 카드 하단: 공지에 나온 전체 종목 목록 (펼치기/접기) */
   /* ── 하단 공지 종목 전체 그리드 (포트폴리오 앱의 분배 내역 섹션과 동일 레이아웃) ── */
-  .dist-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:10px;}
+  /* 카드는 표 내용 폭만큼만 — 화면 1/3 을 억지로 채우느라 칸마다 빈 공간이 생겼다(2026-10-01 지적) */
+  .dist-grid{display:flex; flex-wrap:wrap; justify-content:center; gap:10px;}
+  .dist-grid > div{flex:0 0 auto; max-width:100%;}
   .dist-items{max-height:340px; overflow-y:auto;}
-  #distGrid td.dg-name{max-width:160px;}  /* 종목명 열 폭: 데스크톱 기준(모바일은 아래 미디어쿼리에서 축소) */
+  #distGrid td.dg-name > div{width:240px;}  /* 종목명 열 폭(안쪽 상자로 고정 — td 에 걸면 넘쳐서 옆 칸을 덮는다): 데스크톱 기준, 모바일은 아래에서 축소 */
   .notice-loading{font-size:12px; color:var(--text3); text-align:center; padding:16px 0;}
   .notice-err{font-size:12px; color:#b91c1c; text-align:center; padding:16px 0;}
   .notice-empty{font-size:12px; color:var(--text2); text-align:center; padding:16px 0;}
@@ -140,7 +145,7 @@
   /* ── mobile: 세로 스택, 달력은 화면 폭에 맞게 축소, 일정 표만 좌우 스크롤 ── */
   @media (max-width:820px){
     .panels{flex-direction:column; align-items:stretch; gap:8px;}
-    .dist-grid{grid-template-columns:1fr;}
+    .dist-grid{display:grid; grid-template-columns:1fr;}
     .tabbar{display:flex; padding:6px 8px; gap:4px;}
     /* 탭·화살표를 손가락 크기로 — 실측 tab-btn 91x33, 화살표 24x24 였다 */
     .tab-btn{font-size:11px; padding:14px 2px;}
@@ -167,7 +172,7 @@
     #distScheduleList th{padding:5px 2px;}
     /* 공지 종목 표: 390px에서 전달비·✕ 열이 화면 밖으로 64px 밀려 있었다(실측).
        종목명을 줄이는 것만으로는 모자라 '코드' 열을 감춘다 — 종목명이 바로 옆에 있어 잃는 정보가 없다. */
-    #distGrid td.dg-name{max-width:92px;}
+    #distGrid td.dg-name > div{width:92px;}
     #distGrid .dg-code{display:none;}
     .cal-grid{gap:2px;}
     .cal-dow{font-size:11px; padding:4px 0;}
@@ -1098,15 +1103,16 @@ function renderNotices(){
     // 그대로 window.open('') 을 걸면 빈 창이나 현재 페이지 복사본이 떠서 '잘못된 사이트'로 보인다
     // (2026-09-12 사용자 보고). 아래 공지사항 게시판은 이미 막고 있었는데 여기만 빠져 있었다.
     // → 링크가 없으면 클릭 자체를 걸지 않는다. (portfolio.html 과 같은 코드 — 한쪽만 고치지 마라)
+    // NEW 가 없을 때도 같은 크기의 안 보이는 NEW 자리를 둔다 — 달을 넘길 때 NEW 유무로 표 폭이 출렁였다(2026-10-01 지적)
     // 한 줄 = 예전 카드의 한 줄 그대로(회차 제목 + NEW + 등록일). 카드 사이 빈 공간만 없앴다(2026-10-01 요청).
     // 링크 없으면 클릭을 걸지 않는다(2026-09-12 빈 창 사고).
     const lineHtml = (n, cyc) => {
-      if (!n) return `<td class="nt-title nt-none">${selM}월 ${cyc}배당</td><td class="nt-date nt-none">-</td>`;
+      if (!n) return `<td class="nt-title nt-none">${selM}월 ${cyc}배당<span class="new-badge" style="visibility:hidden" aria-hidden="true">NEW</span></td><td class="nt-date nt-none">-</td>`;
       const u = safeUrl(n.url);
-      return `<td class="nt-title${u ? ' nt-link' : ''}"${u ? ` onclick="window.open('${u}','_blank')"` : ''} title="${(n.title||'').replace(/"/g,'&quot;')}${u ? '' : ' (링크 없음)'}">${n.norm.label}${isNew(n) ? '<span class="new-badge">NEW</span>' : ''}</td><td class="nt-date">${n.date || ''}</td>`;
+      return `<td class="nt-title${u ? ' nt-link' : ''}"${u ? ` onclick="window.open('${u}','_blank')"` : ''} title="${(n.title||'').replace(/"/g,'&quot;')}${u ? '' : ' (링크 없음)'}">${n.norm.label}${isNew(n) ? '<span class="new-badge">NEW</span>' : '<span class="new-badge" style="visibility:hidden" aria-hidden="true">NEW</span>'}</td><td class="nt-date">${n.date || ''}</td>`;
     };
     const color = (DIST_SOURCES.find(s => s.id === id) || {}).color || 'var(--text)';
-    const brand = rs => `<td class="nt-brand" rowspan="${rs}" style="box-shadow:inset 3px 0 0 ${color}; padding-left:8px"><b style="color:${color}">${name}</b>${fallback ? ` <span title="운용사 사이트 무응답 · ${savedAt || '이전'} 에 받아둔 내용">⚠️</span>` : ''}<div class="nt-label">${label}</div></td>`;
+    const brand = rs => `<td class="nt-brand" rowspan="${rs}" style="box-shadow:inset 3px 0 0 ${color}; padding-left:5px; padding-right:1px"><b style="color:${color}">${name}</b>${fallback ? ` <span title="운용사 사이트 무응답 · ${savedAt || '이전'} 에 받아둔 내용">⚠️</span>` : ''}<div class="nt-label">${label}</div></td>`;
     // 응답은 왔는데 이번 달 공지가 아직 없는 것과, 못 받아온 것은 다른 상태다(2026-09-14 PLUS).
     if (!(items && items.length)) return `<tr class="nt-first">${brand(1)}<td colspan="2" class="${ok === false ? 'notice-err' : 'nt-none'}">${ok === false ? '운용사 사이트 응답 없음 — 확인 못 했습니다' : `${selM}월 공지 아직 없음`}</td></tr>`;
     const onlyEnd = (DIST_SOURCES.find(x => x.id === id) || {}).onlyEnd;   // HANARO 는 월중이 없다
@@ -1382,7 +1388,7 @@ function renderDistGrid(allData){
     };
     let body;
     if (items.length) {
-      body = `<div class="dist-items"><table style="width:100%;border-collapse:collapse;font-size:12px">
+      body = `<div class="dist-items"><table style="width:auto;min-width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap">
         <thead><tr style="background:var(--bg3)">
           <th style="padding:5px 2px;text-align:center;font-size:10px;color:var(--text);border:1px solid var(--border)" title="별을 눌러 관심 종목으로 담습니다">★</th>
           <th style="padding:4px 3px;text-align:center;font-size:10px;color:var(--text);border:1px solid var(--border)">주기</th>
@@ -1404,7 +1410,7 @@ function renderDistGrid(allData){
           <td onclick="toggleFav('${it.ticker || ''}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleFav('${it.ticker || ''}')}" role="button" tabindex="0" aria-label="관심 종목 담기/빼기" title="관심 종목 담기/빼기" style="padding:5px 2px;text-align:center;cursor:pointer;user-select:none;font-size:13px;line-height:1;color:${on ? '#f59e0b' : 'var(--text3)'};border:1px solid var(--border)">${on ? '★' : '☆'}</td>
           <td style="padding:4px 3px;text-align:center;white-space:nowrap;border:1px solid var(--border)">${cyc ? `<span style="display:inline-block;white-space:nowrap;background:${cycColor}1a;color:${cycColor};font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px">${cyc}</span>` : '-'}</td>
           <td class="dg-code" style="padding:4px 4px;font-size:11px;font-family:var(--mono);border:1px solid var(--border)">${it.ticker || ''}</td>
-          <td class="dg-name" style="padding:4px 4px;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:1px solid var(--border)" title="${esc(it.name)}">${esc(it.name)}</td>
+          <td class="dg-name" style="padding:4px 4px;font-size:11px;border:1px solid var(--border)" title="${esc(it.name)}"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(it.name)}</div></td>
           <td style="padding:4px 4px;font-size:12px;font-weight:600;text-align:right;font-family:var(--mono);border:1px solid var(--border)">${it.amount != null ? Number(it.amount).toLocaleString() : '-'}</td>
           <td style="padding:4px 4px;font-size:11px;font-weight:600;text-align:right;color:${c.color};border:1px solid var(--border)">${it.rate != null && it.rate > 0 ? Number(it.rate).toFixed(2) + '%' : '-'}</td>
           <td style="padding:4px 4px;font-size:11px;text-align:right;font-family:var(--mono);border:1px solid var(--border)">${(p => p ? Number(p).toLocaleString() : '<span style="color:var(--text)">-</span>')(prevOf(it, cyc))}</td>
