@@ -813,10 +813,10 @@ function viewPerf() {
     const usd = String(it.currency).toUpperCase()==='USD';
     const f = v => v==null ? '<span class="muted">-</span>' : (usd ? '$'+(Math.round(v*100)/100) : won(v));
     const det = open[id] ? `<div class="detail">
-      <div style="font-size:12px">① 원금 ${perfP(it.m1)} · ② 분배 ${it.m2==null?'-':perfP(it.m2-1)} · ③ 기준대비 ${it.bench?perfP(it.m3,'%p'):'<span class="muted">기준 없음</span>'}</div>
+      <div style="font-size:12px">${it.noDist?'<span class="muted">분배 이력 없음(시세만)</span> · ':''}① 원금 ${perfP(it.m1)} · ② 분배 ${it.m2==null?'-':perfP(it.m2-1)} · ③ 기준대비 ${it.bench?perfP(it.m3,'%p'):'<span class="muted">기준 없음</span>'}</div>
       ${perfChart(it.months)}
       <table style="width:100%;font-size:11px;border-collapse:collapse"><tr class="muted"><td>월</td><td align="right">시장가</td><td align="right">NAV</td><td align="right">분배</td><td align="right">실질가치</td><td align="right">월수익</td></tr>
-      ${(it.months||[]).slice().reverse().map(m=>`<tr><td>${m.ym.slice(2)}${m.partial?'*':''}</td><td align="right">${f(m.close)}</td><td align="right">${m.nav==null?'<span class="muted">-</span>':f(m.nav)}</td><td align="right">${m.dist?f(m.dist):'0'}</td><td align="right">${f(m.real)}</td><td align="right">${perfP(m.ret)}</td></tr>`).join('')}</table>
+      ${(it.months||[]).slice().reverse().map(m=>`<tr><td>${m.ym.slice(2)}${m.partial?'*':''}</td><td align="right">${f(m.close)}</td><td align="right">${m.nav==null?'<span class="muted">-</span>':f(m.nav)}</td><td align="right">${it.noDist?'<span class="muted">-</span>':m.dist?f(m.dist):'0'}</td><td align="right">${f(m.real)}</td><td align="right">${perfP(m.ret)}</td></tr>`).join('')}</table>
       <div class="muted" style="font-size:11px;margin-top:4px">${it.bench?'기준: '+esc(it.bench.name):'기준 ETF 없음'} · *진행 중인 달</div></div>` : '';
     return `<button class="row" onclick="toggle('${id}')" style="display:block;text-align:left">
         <div style="display:flex;gap:6px;align-items:center"><span style="font-size:10px;border:1px solid #888;border-radius:5px;padding:1px 4px">${esc(it.gen)}</span>
