@@ -464,8 +464,11 @@ if (!/[?&]pc=1/.test(location.search) && window.innerWidth <= 768) {
   .nt-table{table-layout:fixed;}
   .nt-table th:nth-child(1){width:33%;} .nt-table th:nth-child(3){width:22%;}
   /* 보유 종목 분배 표: 카드는 표 내용 폭만큼 — 화면 1/3 을 억지로 채우느라 칸마다 빈 공간이 생겼다(2026-10-01, 공개 페이지와 같게) */
-  .dist-grid-flex{display:flex; flex-wrap:wrap; justify-content:center; gap:10px;}
-  .dist-grid-flex > div{flex:0 0 auto; max-width:100%;}
+  /* 한 줄에 3개 회사 고정(2026-10-01 요청) — 좁은 화면에선 종목명 칸만 줄어든다(--dg-name) */
+  /* 폭 기준은 화면(vw)이 아니라 이 묶음의 실제 폭(cqw) — vw 로 하니 1366px 에서 양쪽 카드가 잘렸다 */
+  .dist-grid-flex{display:grid; grid-template-columns:repeat(3, max-content); justify-content:center; gap:10px; container-type:inline-size;}
+  .dist-grid-flex > div{min-width:0;}
+  .dist-grid-flex{--dg-name:clamp(70px, calc((100cqw - 20px) / 3 - 296px), 240px);}
 </style>
 </head>
 <body>
@@ -5794,7 +5797,7 @@ function renderDistGrid(allData) {
           return `<tr style="${rowBg}">
           <td style="padding:4px 3px;text-align:center;border:1px solid #111827">${cyc?`<span style="display:inline-block;background:${cycColor}1a;color:${cycColor};font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px">${cyc}</span>`:'-'}</td>
           <td style="padding:4px 4px;border:1px solid #111827"><span class="ticker" style="font-size:11px">${it.ticker||''}</span></td>
-          <td style="padding:4px 4px;font-size:11px;border:1px solid #111827" title="${it.name||''}"><div style="width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${it.name||''}</div></td>
+          <td style="padding:4px 4px;font-size:11px;border:1px solid #111827" title="${it.name||''}"><div style="width:var(--dg-name);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${it.name||''}</div></td>
           <td class="num" style="padding:4px 4px;font-size:12px;font-weight:600;border:1px solid #111827">${it.amount!=null?Number(it.amount).toLocaleString():'-'}</td>
           <td style="padding:4px 4px;font-size:11px;font-weight:600;text-align:left;color:${c.color};border:1px solid #111827">${it.rate!=null&&it.rate>0?Number(it.rate).toFixed(2)+'%':'-'}</td>
           <td style="padding:4px 4px;font-size:11px;text-align:right;font-family:var(--mono);border:1px solid #111827">${(p => p ? Number(p).toLocaleString() : '<span style="color:var(--text)">-</span>')(prevOf(it, cyc))}</td>
