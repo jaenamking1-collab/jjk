@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas'
 ];
 
 function runMaint(name, arg) {
@@ -4789,6 +4789,7 @@ function keepWarm() {
   try { _attachOrphanDivsOnce(); } catch (e) { _fixLog('고아 배당 연결 실패 — ' + e); }
   try { _nameOrphansOnce(); } catch (e) { _fixLog('고아 배당 이름 채우기 실패 — ' + e); }
   try { _refreshImportOnce(); } catch (e) { _fixLog('IMPORTDATA 새로고침 실패 — ' + e); }
+  try { _fillRowFormulas(); } catch (e) { console.log('주식상황 수식 채우기 실패 — ' + e); }
   try { _healImportData(); } catch (e) { console.log('IMPORTDATA 자가복구 실패 — ' + e); }
   try { _perfWatch(); } catch (e) { console.log('월별 성과 감시 실패 — ' + e); }
   try { _fixIrpOnce(); } catch (e) { _fixLog('IRP 칸 정리 실패 — ' + e); }
@@ -4934,7 +4935,7 @@ function _priceFill(ss, pr) {
 function _healImportData(force) {   // maint 로 부를 땐 arg 아무거나 → 15분 간격 무시
   const pr = PropertiesService.getScriptProperties();
   const now = Date.now();
-  if (!force && now - Number(pr.getProperty('importChkAt') || 0) < 15 * 60000) return;
+  if (!force && now - Number(pr.getProperty('importChkAt') || 0) < 5 * 60000) return;   // 15→5분(2026-10-01: 줄 추가 직후 오류를 빨리 푼다)
   pr.setProperty('importChkAt', String(now));
   const ss = SpreadsheetApp.openById(ASSET_SHEET_ID);
   let cells = JSON.parse(pr.getProperty('importCells') || '[]');
@@ -4992,7 +4993,7 @@ function _healImportData(force) {   // maint 로 부를 땐 arg 아무거나 →
   _fixLog('IMPORTDATA 오류로 굳음 → 다시 받기' + (n ? '(시세 ' + n + '회째)' : '(보조 칸, 하루 한 번)') + ': ' + bad.map(b => b[2]).join(', '));
   if (n >= 3 && pr.getProperty('importAlertDay') !== today) {
     pr.setProperty('importAlertDay', today);
-    try { _notifyKakao(['🚨 자산 시트 현재가(IMPORTDATA)가 45분째 오류 — 다시 받아도 안 풀림, 웹앱 점검 필요']); } catch (e) {}
+    try { _notifyKakao(['🚨 자산 시트 현재가(IMPORTDATA)가 3번 다시 받아도 오류 — 웹앱 점검 필요']); } catch (e) {}
   }
 }
 
@@ -5367,6 +5368,47 @@ function testCal() {
 // 다른 구글 계정 소유라 편집기를 열 수 없다. 웹앱은 소유자 권한으로 도니 여기서 읽는다.
 // ⛔ jjk 는 공개 저장소고 Actions 로그도 공개다 — 금액·티커·계좌명은 절대 찍지 않는다.
 //    구조(열 이름·건수·수식 모양·색)만 남긴다.
+// ── 주식상황: 새로 넣은 줄에 수식 자동 채우기 (keepWarm 이 5분마다) ─────────────────────
+// 왜: 사용자가 종목을 사서 줄을 하나 넣으면 구글 시트는 위 줄의 수식을 복사해 주지 않는다 →
+// 그 줄의 현재가·평가액·손익 칸이 비고, 합계가 어긋난다(2026-10-01 "줄 하나 늘리자 다 깨졌다, 매번 이럴 텐데").
+// 사람이 수식을 끌어내리게 두지 않는다 — **종목 줄**(티커 모양 + 수량 있음)인데 수식이 빠진 칸은
+// 같은 열의 가장 가까운 위(없으면 아래) 종목 줄 수식을 복사해 넣는다(상대참조라 행 번호가 맞게 바뀐다).
+// 펀드·예금·현금(가짜 티커)·이름만 있는 줄은 사용자가 손으로 값을 넣는 줄이라 건드리지 않는다.
+// dry 가 참이면 무엇을 채울지 행·열만 찍고 쓰지 않는다(공개 로그 — 값·티커는 안 찍는다).
+function _fillRowFormulas(dry) {
+  const pr = PropertiesService.getScriptProperties();
+  if (!dry && Date.now() - Number(pr.getProperty('rowFillAt') || 0) < 5 * 60000) return 0;
+  pr.setProperty('rowFillAt', String(Date.now()));
+  const st = SpreadsheetApp.openById(ASSET_SHEET_ID).getSheetByName('주식상황');
+  if (!st) return 0;
+  const rg = st.getDataRange(), fs = rg.getFormulas(), vs = rg.getValues();
+  const isStock = i => {
+    const t = String(vs[i][1] || '').trim().toUpperCase();
+    return i >= 4 && /^([0-9]{6}|[0-9]{4}[A-Z][0-9]|[A-Z]{1,5}(\.[A-Z])?)$/.test(t) && !/^(CASH)/.test(t) && Number(vs[i][3]) > 0;
+  };
+  const stock = []; vs.forEach((r, i) => { if (isStock(i)) stock.push(i); });
+  const done = [];
+  for (let c = 0; c < (fs[0] || []).length; c++) {
+    const withF = stock.filter(i => fs[i][c]);
+    if (withF.length < stock.length * 0.7) continue;   // 종목 줄 대부분이 수식인 열만(손입력 열은 제외)
+    stock.filter(i => !fs[i][c]).forEach(i => {
+      let src = -1;
+      for (let d = 1; d <= 20 && src < 0; d++) {
+        if (withF.indexOf(i - d) >= 0) src = i - d; else if (withF.indexOf(i + d) >= 0) src = i + d;
+      }
+      if (src < 0) return;
+      done.push((i + 1) + '행 ' + String.fromCharCode(65 + c) + '열');
+      if (!dry) st.getRange(src + 1, c + 1).copyTo(st.getRange(i + 1, c + 1), SpreadsheetApp.CopyPasteType.PASTE_FORMULA, false);
+    });
+  }
+  if (done.length) {
+    const msg = '주식상황 새 줄 수식 ' + (dry ? '(미리보기) ' : '') + done.length + '칸: ' + done.slice(0, 30).join(', ');
+    console.log(msg);
+    if (!dry) _fixLog(msg);
+  } else console.log('주식상황: 수식 빠진 종목 줄 없음 (종목 줄 ' + stock.length + '개)');
+  return done.length;
+}
+
 // 주식상황에 줄을 넣거나 뺐을 때 무엇이 깨지는지 **구조만** 본다(2026-10-01 "줄 하나 늘리자 다 깨졌다").
 // ⛔ 공개 로그다 — 값·티커·금액은 안 찍고, 열 문자·행 번호·수식 모양(참조만)·오류 개수만 찍는다.
 function _diagSheetBreak() {
