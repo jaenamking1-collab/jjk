@@ -318,19 +318,22 @@ let _calWeekOffset = 0;   // 달력 주 단위 이동 (←/→ 버튼)
 let _monthOffset = 0;
 // ←는 6개월 전까지(2026-10-01 요청 — 예전엔 1개월이라 6·7월을 볼 수 없었다). 묶음 응답엔 직전 2회차만 있으니
 // 그보다 앞 달은 열 때 getDistributionMonth 로 그 달만 받아 합친다(묶음 응답을 키우지 않으려고).
-const _monthLoaded = new Set();
+const _monthLoaded = new Set(), _monthNoData = new Set();   // _monthNoData: 서버(분배캐시)에 기록 자체가 없는 달 — 2026-10 기준 7월부터 보관
 async function ensureMonth(m) {
   if (_monthLoaded.has(m) || !_distData.length) return false;
   _monthLoaded.add(m);
   const r = await api({ action:'getDistributionMonth', m }).catch(() => null);
   if (!r || !r.sources) { _monthLoaded.delete(m); return false; }
   const k = it => (it.ticker || it.name) + '|' + ((it.sched || {})['기준일'] || '');
+  if (!Object.values(r.sources).some(v => (v.items || []).length)) _monthNoData.add(m);
   _distData.forEach(c => {
     const add = (r.sources[c.id] || {}).items || [];
     if (!add.length) return;
     const d = c.data || (c.data = { items: [] });
-    const have = new Set((d.items || []).map(k));
-    d.items = (d.items || []).concat(add.filter(it => !have.has(k(it))));
+    // 이미 있는 종목(묶음 응답의 직전 회차)은 새로 붙지 않지만, 서버가 계산한 전달 금액은 옮겨 준다
+    const byKey = new Map((d.items || []).map(it => [k(it), it]));
+    add.forEach(it => { const o = byKey.get(k(it)); if (o && o.prevAmount == null && it.prevAmount != null) o.prevAmount = it.prevAmount; });
+    d.items = (d.items || []).concat(add.filter(it => !byKey.has(k(it))));
   });
   return true;
 }
@@ -1395,7 +1398,7 @@ function renderDistGrid(allData){
     } else if (d.error) {
       body = `<div style="padding:10px 12px;font-size:12px;color:var(--text3)">⚠️ ${d.error}</div>`;
     } else {
-      body = `<div style="padding:10px 12px;font-size:12px;color:var(--text3)">${selM}월 공지 종목 없음</div>`;
+      body = `<div style="padding:10px 12px;font-size:12px;color:var(--text3)">${_monthNoData.has(selM) ? `${selM}월은 저장된 기록이 없습니다` : `${selM}월 공지 종목 없음`}</div>`;
     }
     return `<div style="background:${c.color}0a;border:1px solid ${c.color}33;border-radius:10px;overflow:hidden">
       <div style="padding:8px 12px;border-bottom:1px solid ${c.color}33;display:flex;align-items:center;gap:6px;background:${c.color}1f">
