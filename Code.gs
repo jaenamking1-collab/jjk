@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', '_healImportData'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData'
 ];
 
 function runMaint(name, arg) {
@@ -3394,7 +3394,15 @@ function _payoutCycles() {
       if (mon === 12 && nowM === 1) yy = y - 1;
       else if (mon === 1 && nowM === 12) yy = y + 1;
       const diff = Math.round((new Date(yy, mon - 1, day) - t0) / 86400000);
-      if (Math.abs(diff) <= 2) out[cyc] = { y: yy, m: mon };
+      if (Math.abs(diff) > 2) return;
+      // 칠할 칸은 **지급월이 아니라 기준일의 달**이다. 월말 분배는 9/30 기준 → 10/2 지급이라 지급월로
+      // 칠하면 10월 칸이 노래진다(2026-10-01 지적). 앱도 기준일 달(9월)에 적는다.
+      const b = /(\d{1,2})\s*월\s*(\d{1,2})\s*일|(\d{1,2})\s*[\/.]\s*(\d{1,2})/.exec(String((it.sched || {})['기준일'] || ''));
+      let bm = b ? parseInt(b[1] || b[3], 10) : (cyc === '월말' && day <= 15 ? (mon === 1 ? 12 : mon - 1) : mon);
+      if (!(bm >= 1 && bm <= 12)) bm = mon;
+      let by = yy;
+      if (bm === 12 && mon === 1) by = yy - 1;
+      out[cyc] = { y: by, m: bm };
     });
   });
   return out;
@@ -6200,6 +6208,30 @@ function importDividends(srcId) {
     console.log(t + ' ' + r[1] + '-' + r[2] + (res.updated ? ' 고침' : ' 넣음'));
   });
   return { rows: src.length };
+}
+
+// 분배금 탭 '아버지'·IRP 칸 손질(2026-10-01). 이 칸들은 맨 아래 USD 줄(SPYI)을 틀로 복사해 만들어져
+//  ① S열(올해 합계)이 $B$1(환율)×합계라 원화 분배금이 1,300배로 잡혔고
+//  ② 주식상황의 수익률 색 규칙(0보다 크면 빨강)까지 따라와 월 금액이 빨갛게 보였다.
+// 영문 티커(해외)가 아닌 줄의 S열을 =SUM(G:R) 로 되돌리고, 66행 아래 G~N열에 걸린 색 규칙을 지운다.
+function fixDivSheetIrp(arg) {
+  const dry = arg === 'dry';
+  const sh = SpreadsheetApp.openById(ASSET_SHEET_ID).getSheetByName('분배금');
+  const vals = sh.getDataRange().getValues();
+  const from = vals.findIndex(r => String(r[0]).trim() === '아버지');
+  if (from < 0) throw new Error('아버지 칸이 없다');
+  let fixed = 0;
+  for (let i = from; i < vals.length; i++) {
+    const t = String(vals[i][1] || '').trim();
+    if (!t || /^[A-Z]+$/.test(t)) continue;
+    const f = sh.getRange(i + 1, 19).getFormula();
+    if (/\$B\$1/.test(f)) { fixed++; if (!dry) sh.getRange(i + 1, 19).setFormula('=SUM(G' + (i + 1) + ':R' + (i + 1) + ')'); }
+  }
+  const rules = sh.getConditionalFormatRules();
+  const keep = rules.filter(r => !r.getRanges().some(g => g.getRow() >= from + 1 && g.getColumn() >= 7 && g.getColumn() <= 14));
+  console.log('S열 고침 ' + fixed + '줄 · 색 규칙 ' + (rules.length - keep.length) + '개 지움' + (dry ? ' (dry)' : ''));
+  if (!dry) sh.setConditionalFormatRules(keep);
+  return { fixed, removed: rules.length - keep.length };
 }
 
 function fixIrpRows(arg) {
