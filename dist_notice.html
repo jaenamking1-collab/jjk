@@ -265,7 +265,7 @@ const DIST_SOURCES = [
   { id:'plus',  name:'PLUS',  label:'한화자산운용',   color:'#7c3aed' },
   { id:'rise',  name:'RISE',  label:'KB자산운용',    color:'#dc2626' },
   { id:'sol',   name:'SOL',   label:'신한자산운용',   color:'#0891b2' },
-  { id:'hanaro', name:'HANARO', label:'NH-Amundi자산운용', color:'#65a30d' },
+  { id:'hanaro', name:'HANARO', label:'NH-Amundi자산운용', color:'#65a30d', onlyEnd:true },   // 월말만 분배(월중 없음) — 표에서 월중 줄을 뺀다
   { id:'kiwoom', name:'KIWOOM', label:'키움투자자산운용', color:'#db2777' }
 ];
 // text: 라벨 글자색. 배경은 color 의 10% 틴트라 같은 색 글자로는 대비가 2:1대로 떨어진다
@@ -829,7 +829,7 @@ function renderMasterCalendar(allData){
     const mid = pickCycle('월중'), end = pickCycle('월말');
     // 공지가 없어도 행은 남긴다 — 표·칸의 틀이 사라지면 '아직 안 나온 것'인지 '고장난 것'인지
     // 화면에서 구분이 안 된다(2026-09-04 지적). 날짜 칸만 '·'로 비운다.
-    rowsData.push({ name: c.name, color: c.color, mid, end });
+    rowsData.push({ name: c.name, color: c.color, mid, end, onlyEnd: c.onlyEnd });
   });
 
   // 아직 공지를 안 낸 회차 칸은 달력과 **같은 계산**(distPlanner)으로 채우고 '(예정)'으로 표시한다.
@@ -869,7 +869,7 @@ function renderMasterCalendar(allData){
         <th style="text-align:center;color:#dc2626">지급</th>
       </tr></thead>
       <tbody>${rowsData.map(r => {
-        const cycles = [['월중', r.mid], ['월말', r.end]];
+        const cycles = r.onlyEnd ? [['월말', r.end]] : [['월중', r.mid], ['월말', r.end]];
         return cycles.map(([label, m], i) => {
           const [bg, col] = CYC[label];
           const monLabel = selM + '월 ' + label; // 제목의 달과 항상 일치
@@ -1044,7 +1044,8 @@ function renderNotices(){
     const brand = rs => `<td class="nt-brand" rowspan="${rs}" style="box-shadow:inset 3px 0 0 ${color}; padding-left:8px"><b style="color:${color}">${name}</b>${fallback ? ` <span title="운용사 사이트 무응답 · ${savedAt || '이전'} 에 받아둔 내용">⚠️</span>` : ''}<div class="nt-label">${label}</div></td>`;
     // 응답은 왔는데 이번 달 공지가 아직 없는 것과, 못 받아온 것은 다른 상태다(2026-09-14 PLUS).
     if (!(items && items.length)) return `<tr class="nt-first">${brand(1)}<td colspan="2" class="${ok === false ? 'notice-err' : 'nt-none'}">${ok === false ? '운용사 사이트 응답 없음 — 확인 못 했습니다' : `${selM}월 공지 아직 없음`}</td></tr>`;
-    const lines = [lineHtml(picks[0], '월중'), lineHtml(picks[1], '월말'), ...[picks[2], ...extra].filter(Boolean).map(n => lineHtml(n))];
+    const onlyEnd = (DIST_SOURCES.find(x => x.id === id) || {}).onlyEnd;   // HANARO 는 월중이 없다
+    const lines = [...(onlyEnd ? [] : [lineHtml(picks[0], '월중')]), lineHtml(picks[1], '월말'), ...[picks[2], ...extra].filter(Boolean).map(n => lineHtml(n))];
     return lines.map((l, i) => `<tr${i ? '' : ' class="nt-first"'}>${i ? '' : brand(lines.length)}${l}</tr>`).join('');
   }).join('') + '</tbody></table>';
   fitNoticeToCal();
