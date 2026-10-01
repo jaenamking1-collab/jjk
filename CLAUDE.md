@@ -202,6 +202,10 @@ Adapted from the [Karpathy coding guidelines](https://x.com/karpathy/status/2015
   - ⚠️ **"전부 미러해라"는 틀린 지시다**(2026-09-15 실측으로 정정). 두 파일은 **일부러** 다르다 — `renderMasterCalendar` 만 159줄이 다르고 그게 전부 의도된 것이다: **앱만 보유종목을 안다**(`isHeld`·`보유X`·보유 종목 우선 마킹 — 공개 페이지엔 그 개념 자체가 없다), **공개 페이지만 좁은 칸용 `shortLabel` 을 쓴다.** 이걸 "동기화"한다고 합치면 공개 페이지에 남의 보유내역 개념이 들어간다.
   - ✅ **반드시 같아야 하는 건 '데이터 해석 규칙'뿐이다** — 회차 판정(기준일의 '일', 20일 이하=월중), 예정 합의 문턱(`roundBest.n >= 3`), `uncertain`→`?` 배지, `fillRakil`·`parseDay`. 2026-09-15 확인 시점엔 이 넷이 줄 단위로 같았다. **여기가 갈리면 두 화면이 같은 날짜를 다르게 말한다.**
   - 🔎 두 화면이 달라 보이면 **먼저 데이터를 의심해라.** 2026-09-15 에 `PLUS?`(앱) vs `PLUS`(공개)로 갈린 건 렌더 차이가 아니라 그 순간 받은 분배 데이터가 달랐던 것이고, 뿌리는 PLUS 가 6월 기사를 물고 있던 것이었다(WORKLOG 162).
+  - ⛔ **공개 페이지는 지금도 많은 사람이 본다 — 확인 없이 내보내지 마라**(2026-10-01 사용자: *"먼저 버전은 안전하게 해놓고 업데이트한 게 문제없으면 보내줘야지 … 이게 무슨 망신이야"*).
+    그날 백엔드 응답만 보고 '정상'이라 했는데 방문자 화면엔 9월 말이 통째로 '예정'으로 나왔다(묶음 요청이 33초 끝에 404 → 개별 요청 줄서기 → 한두 곳 빈칸).
+    ① `dist_notice.html` 은 **실제 응답(fetch.yml 로 받은 getDistributionAll·getEtfNoticesAll)을 넣어 로컬 크롬으로 먼저 그려 본다** — 응답을 비워 넣은 테스트는 테스트가 아니다.
+    ② 푸시·배포 뒤엔 **`smoke-public.yml`(실제 공개 주소를 실제 크롬으로 열어 'N곳 최신'·공지 표·달력·JS 오류 검사, 스크린샷은 probe-out/smoke/) 통과를 확인하고서야** 됐다고 말한다. 매시간 자동으로도 돌고, 실패하면 카톡이 온다.
   - ⭐ **공개 주소는 `https://jjk.distributionjn.workers.dev/` 하나다**(2026-09-14에 옮겼다. 옛 주소는 계정명이 드러나서 안 쓰기로 했다 — WORKLOG 156·159). 이 저장소의 `dist_notice.html` 을 **Cloudflare Workers 가 그대로 서빙**하므로 **고쳐서 `main` 에 푸시하면 자동 반영**이고, 미러도 배포도 필요 없다(설정: `wrangler.toml`·`.assetsignore`·`_redirects`. `.assetsignore` 가 이 파일 하나만 올리도록 막는다 — 개인 앱과 일지는 그 주소에서 404).
   - 옛 주소 `https://jaenamking1-collab.github.io/jjk-dist/`(별도 저장소 `jjk-dist` 의 `index.html`)도 **아직 살아 있다** — 아래 미러가 30분마다 돌기 때문이다. 예비로 둔 것이니 굳이 끄지 않지만, **알림·카톡·문서가 가리키는 주소는 위의 것 하나다**(`Code.gs` 의 `_NOTICE_PAGE_URL`).
   - ✅ **미러는 자동이다 — 손으로 복사하지 마라**(2026-09-14). `jjk-dist/.github/workflows/mirror.yml` 이 30분마다 이 파일을 받아 `index.html` 로 커밋한다(비밀값 불필요: `jjk` 가 공개라 raw 로 받고, 쓰기는 그 저장소의 기본 `GITHUB_TOKEN`). 고친 직후 바로 반영하려면 `actions_run_trigger` 로 `jjk-dist` 의 `mirror.yml` 을 돌려라.
