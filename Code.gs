@@ -5387,31 +5387,38 @@ function _fillRowFormulas(dry) {
     return i >= 4 && /^([0-9]{6}|[0-9]{4}[A-Z][0-9]|[A-Z]{1,5}(\.[A-Z])?)$/.test(t) && !/^(CASH)/.test(t) && Number(vs[i][3]) > 0;
   };
   const stock = []; vs.forEach((r, i) => { if (isStock(i)) stock.push(i); });
+  // 국내(숫자 티커)와 해외(영문 티커)는 현재가 칸이 다르다 — 국내는 G열(원), 해외는 H열(달러, 예비시세→GOOGLEFINANCE).
+  // 그래서 **같은 종류 줄끼리만** 비교·복사한다(2026-10-01: 처음엔 섞어서 해외 줄 G열에 국내 수식을 넣었다 — 값은 빈칸이라 해는 없었다).
+  const isFx = i => /^[A-Z]/.test(String(vs[i][1] || '').trim().toUpperCase());
   const done = [];
-  for (let c = 0; c < (fs[0] || []).length; c++) {
-    const withF = stock.filter(i => fs[i][c]);
-    if (withF.length < stock.length * 0.7) continue;   // 종목 줄 대부분이 수식인 열만(손입력 열은 제외)
-    // ⛔ 비어 있는 칸만 채운다 — 손으로 넣은 값(수식 없는 현재가 등)은 절대 덮지 않는다.
-    stock.filter(i => !fs[i][c] && String(vs[i][c]) === '').forEach(i => {
-      let src = -1;
-      for (let d = 1; d <= 20 && src < 0; d++) {
-        if (withF.indexOf(i - d) >= 0) src = i - d; else if (withF.indexOf(i + d) >= 0) src = i + d;
-      }
-      if (src < 0) return;
-      done.push((i + 1) + '행 ' + String.fromCharCode(65 + c) + '열');
-      if (!dry) st.getRange(src + 1, c + 1).copyTo(st.getRange(i + 1, c + 1), SpreadsheetApp.CopyPasteType.PASTE_FORMULA, false);
-    });
-  }
+  [stock.filter(i => !isFx(i)), stock.filter(isFx)].forEach(group => {
+    if (group.length < 2) return;
+    for (let c = 0; c < (fs[0] || []).length; c++) {
+      const withF = group.filter(i => fs[i][c]);
+      if (withF.length < group.length * 0.7) continue;   // 이 종류 줄 대부분이 수식인 열만(손입력 열은 제외)
+      // ⛔ 비어 있는 칸만 채운다 — 손으로 넣은 값은 절대 덮지 않는다.
+      group.filter(i => !fs[i][c] && String(vs[i][c]) === '').forEach(i => {
+        let src = -1;
+        for (let d = 1; d <= 60 && src < 0; d++) {
+          if (withF.indexOf(i - d) >= 0) src = i - d; else if (withF.indexOf(i + d) >= 0) src = i + d;
+        }
+        if (src < 0) return;
+        done.push((i + 1) + '행 ' + String.fromCharCode(65 + c) + '열');
+        if (!dry) st.getRange(src + 1, c + 1).copyTo(st.getRange(i + 1, c + 1), SpreadsheetApp.CopyPasteType.PASTE_FORMULA, false);
+      });
+    }
+  });
   if (done.length) {
     const msg = '주식상황 새 줄 수식 ' + (dry ? '(미리보기) ' : '') + done.length + '칸: ' + done.slice(0, 30).join(', ');
     console.log(msg);
     if (!dry) _fixLog(msg);
   } else console.log('주식상황: 수식 빠진 종목 줄 없음 (종목 줄 ' + stock.length + '개)');
-  // 결과로 확인한다 — 수식이 있어도 값이 비면 소용없다. 현재가(G열) 칸이 빈 종목 줄을 센다.
-  const dv = rg.getDisplayValues();
-  const blank = stock.filter(i => !String(dv[i][6] || '').trim() || /^#/.test(dv[i][6]));
+  // 결과로 확인한다 — 수식이 있어도 값이 비면 소용없다. 국내는 G열, 해외는 H열 현재가가 빈 줄을 센다.
+  if (!dry) SpreadsheetApp.flush();
+  const dv = st.getDataRange().getDisplayValues();
+  const blank = stock.filter(i => { const v = String(dv[i][isFx(i) ? 7 : 6] || '').trim(); return !v || /^#/.test(v); });
   console.log('현재가 칸: 종목 줄 ' + stock.length + '개 중 ' + (stock.length - blank.length) + '개 채워짐'
-    + (blank.length ? ' · 빈 줄 ' + blank.map(i => i + 1).join(',') + '행' : ''));
+    + (blank.length ? ' · 빈 줄 ' + blank.map(i => (i + 1) + (isFx(i) ? '(해외)' : '')).join(',') + '행' : ''));
   return done.length;
 }
 
