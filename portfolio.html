@@ -4825,7 +4825,7 @@ const DIST_SOURCES = [
   { id:'plus',  name:'PLUS',  label:'한화자산운용',   color:'#7c3aed' },
   { id:'rise',  name:'RISE',  label:'KB자산운용',    color:'#dc2626' },
   { id:'sol',   name:'SOL',   label:'신한자산운용',   color:'#0891b2' },
-  { id:'hanaro', name:'HANARO', label:'NH-Amundi자산운용', color:'#65a30d' },
+  { id:'hanaro', name:'HANARO', label:'NH-Amundi자산운용', color:'#65a30d', onlyEnd:true },   // 월말만 분배(월중 없음) — 표에서 월중 줄을 뺀다
   { id:'kiwoom', name:'KIWOOM', label:'키움투자자산운용', color:'#db2777' }
 ];
 
@@ -5522,7 +5522,7 @@ function renderMasterCalendar(allData) {
     const mid = pickCycle('월중'), end = pickCycle('월말');
     // 공지가 없어도 행은 남긴다 — 표·칸의 틀이 사라지면 '아직 안 나온 것'인지 '고장난 것'인지
     // 화면에서 구분이 안 된다(2026-09-04 지적). 날짜 칸만 '·'로 비운다.
-    rowsData.push({ name: c.name, color: c.color, mid, end });
+    rowsData.push({ name: c.name, color: c.color, mid, end, onlyEnd: c.onlyEnd });
   });
 
   // 아직 공지를 안 낸 회차 칸은 달력과 **같은 계산**(distPlanner)으로 채우고 '(예정)'으로 표시한다.
@@ -5563,7 +5563,7 @@ function renderMasterCalendar(allData) {
       </tr></thead>
       <tbody>${rowsData.map(r => {
         // 공지 없는 회차도 줄은 유지(날짜만 비움) — 예: PLUS/RISE 7월 월말 미공지
-        const cycles = [['월중', r.mid], ['월말', r.end]];
+        const cycles = r.onlyEnd ? [['월말', r.end]] : [['월중', r.mid], ['월말', r.end]];
         return cycles.map(([label, m], i) => {
           const [bg, col] = CYC[label];
           const monLabel = selM + '월 ' + label; // 제목의 달과 항상 일치
