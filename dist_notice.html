@@ -1278,8 +1278,13 @@ function renderDistGrid(allData){
   };
   const cards = allData.map(c => {
     const d = c.data || {};
+    // 지난 회차(hist)도 표에 넣는다 — 빼면 ←로 지난달을 열었을 때 표가 통째로 '0종목'이었다(2026-10-01 지적).
+    // 같은 종목·회차·달의 현재 공지가 있으면 그쪽(최신·정정 반영)만 쓴다.
+    const _sk = it => { const s = (it.sched && Object.keys(it.sched).length) ? it.sched : (d.schedule || {});
+      return (it.ticker || it.name) + '|' + cycleOf(it, d.schedule) + '|' + monthOf(s['기준일'] || s['지급일']); };
+    const curKeys = new Set((d.items || []).filter(it => !it.hist).map(_sk));
     const monthItems = (d.items || []).filter(it => {
-      if (it.hist) return false;
+      if (it.hist && curKeys.has(_sk(it))) return false;
       const sch = (it.sched && Object.keys(it.sched).length) ? it.sched : (d.schedule || {});
       return monthOf(sch['기준일'] || sch['지급일']) === selM;   // 선택한 달의 회차만
     });
