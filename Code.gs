@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak'
 ];
 
 function runMaint(name, arg) {
@@ -5367,6 +5367,36 @@ function testCal() {
 // 다른 구글 계정 소유라 편집기를 열 수 없다. 웹앱은 소유자 권한으로 도니 여기서 읽는다.
 // ⛔ jjk 는 공개 저장소고 Actions 로그도 공개다 — 금액·티커·계좌명은 절대 찍지 않는다.
 //    구조(열 이름·건수·수식 모양·색)만 남긴다.
+// 주식상황에 줄을 넣거나 뺐을 때 무엇이 깨지는지 **구조만** 본다(2026-10-01 "줄 하나 늘리자 다 깨졌다").
+// ⛔ 공개 로그다 — 값·티커·금액은 안 찍고, 열 문자·행 번호·수식 모양(참조만)·오류 개수만 찍는다.
+function _diagSheetBreak() {
+  const ss = SpreadsheetApp.openById(ASSET_SHEET_ID);
+  const col = c => { let s = ''; c++; while (c) { s = String.fromCharCode(65 + (c - 1) % 26) + s; c = Math.floor((c - 1) / 26); } return s; };
+  const shape = f => String(f).replace(/"[^"]*"/g, '"…"').replace(/token=[^&"]*/g, 'token=••••').slice(0, 140);
+  const si = ss.getSheetByName('시세');
+  if (si) {
+    const f = si.getRange(1, 1).getFormula();
+    console.log('시세!A1 ' + si.getRange(1, 1).getDisplayValue().slice(0, 12) + ' · 수식 ' + shape(f) + ' · 내려온 줄 ' + si.getLastRow());
+  }
+  const st = ss.getSheetByName('주식상황');
+  const rg = st.getDataRange(), fs = rg.getFormulas(), dv = rg.getDisplayValues();
+  console.log('주식상황 ' + fs.length + '행 × ' + (fs[0] || []).length + '열');
+  // 티커가 있는 줄 = B열이 비지 않은 줄
+  const rows = []; dv.forEach((r, i) => { if (String(r[1] || '').trim() && i >= 3) rows.push(i); });
+  console.log('티커 있는 줄 ' + rows.length + '개: ' + (rows[0] + 1) + '~' + (rows[rows.length - 1] + 1) + '행');
+  for (let c = 0; c < (fs[0] || []).length; c++) {
+    const withF = rows.filter(i => fs[i][c]);
+    if (withF.length < rows.length * 0.5) continue;           // 수식 열만 본다
+    const noF = rows.filter(i => !fs[i][c]);
+    const err = rows.filter(i => /^#/.test(dv[i][c]));
+    if (!noF.length && !err.length) continue;
+    console.log(col(c) + '열: 수식 ' + withF.length + ' · 수식없음 ' + noF.length + (noF.length ? '(' + noF.slice(0, 6).map(i => i + 1).join(',') + '행)' : '')
+      + ' · 오류 ' + err.length + (err.length ? '(' + err.slice(0, 6).map(i => i + 1).join(',') + '행 ' + dv[err[0]][c] + ')' : '')
+      + ' · 정상 줄 수식 예: ' + shape(fs[withF.find(i => err.indexOf(i) < 0) || withF[0]][c])
+      + (err.length ? ' · 오류 줄 수식: ' + shape(fs[err[0]][c]) : ''));
+  }
+}
+
 // 계좌성적표 검산 차이(총자산 − 투자원금 − 총수익)가 **어느 계좌·어느 항목**에서 나는지 찾는다. 읽기만 한다.
 // 차이 = 보유원금 + 예수금 − 투자원금 − 실현손익 − 배당누적 (현재가와 무관 — 평가손익은 양쪽에서 지워진다).
 // 돈이 새지 않았다면 수수료만큼만 음수여야 한다. 두 가지 대조로 원인을 가른다:
