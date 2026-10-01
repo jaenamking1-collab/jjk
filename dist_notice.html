@@ -50,13 +50,17 @@
   /* 데이터가 도착하며 빈 패널이 654px로 부풀어 아래 종목 섹션과 그 ←/→ 버튼을 밀어냈다
      (CLS 0.161~0.236 실측). 로딩 중에도 자리를 잡아둔다. 세로로 쌓이는 모바일은 제외. */
   @media (min-width:821px){ .p-notice, .p-cal, .p-sched{min-height:620px;} }
-  /* 왼쪽 공지는 표 높이에서 끝낸다 — 달력 높이까지 늘이면 표 아래가 통째로 빈 칸이다(2026-10-01 요청). */
-  @media (min-width:821px){ .p-notice{align-self:flex-start; min-height:0;} }
+  /* 왼쪽 공지 표는 **달력 높이에 맞춰 늘어난다** — 패널이 달력과 같은 높이로 늘고, 표가 그 높이를 채워 줄 간격이 벌어진다(2026-10-01 요청).
+     달력이 표보다 짧으면 표 높이가 이긴다(잘리지 않음). 모바일(탭 화면)은 표 높이 그대로. */
+  @media (min-width:821px){
+    .p-notice{display:flex; flex-direction:column;}
+    #noticeGrid{flex:1 1 auto; display:flex; flex-direction:column;}
+    #noticeGrid > .nt-table{flex:1 1 auto; height:100%;}
+  }
   /* 공지 표 — 운용사 8곳을 카드로 쌓으니 달력보다 길고 빈 공간이 많았다(2026-10-01 요청) */
-  .nt-table{width:100%; border-collapse:collapse; font-size:12px; background:#fff; border-radius:8px; overflow:hidden;}
-  .nt-table th{background:#dcfce7; color:#166534; font-weight:700; padding:6px; text-align:center; font-size:11px;}
-  .nt-table td{padding:6px 5px; border-top:1px solid #f0fdf4; vertical-align:middle;}
-  .nt-table tr.nt-first td{border-top:1px solid #bbf7d0;}
+  .nt-table{width:100%; border-collapse:collapse; font-size:12px; background:#fff; border:2px solid #111827;}   /* 선은 오른쪽 운용사별 일정 표와 같게 */
+  .nt-table th{background:#e2e8f0; color:#111827; font-weight:700; padding:6px 3px; text-align:center; font-size:11px; border:1px solid #111827;}
+  .nt-table td{padding:6px 3px; border:1px solid #64748b; vertical-align:middle;}
   .nt-brand{font-size:12px; vertical-align:middle; background:#fafffb; width:72px;}
   .nt-label{font-size:10px; color:var(--text2); font-weight:400; margin-top:1px; word-break:keep-all; line-height:1.25;}
   .nt-title{color:var(--text); white-space:nowrap;} .nt-date{text-align:right; white-space:nowrap; font-size:11px; color:var(--text2); font-family:var(--mono,monospace);}
@@ -1019,7 +1023,7 @@ function renderNotices(){
       return `<td class="nt-title${u ? ' nt-link' : ''}"${u ? ` onclick="window.open('${u}','_blank')"` : ''} title="${(n.title||'').replace(/"/g,'&quot;')}${u ? '' : ' (링크 없음)'}">${n.norm.label}${isNew(n) ? '<span class="new-badge">NEW</span>' : ''}</td><td class="nt-date">${n.date || ''}</td>`;
     };
     const color = (DIST_SOURCES.find(s => s.id === id) || {}).color || 'var(--text)';
-    const brand = rs => `<td class="nt-brand" rowspan="${rs}" style="border-left:3px solid ${color}"><b style="color:${color}">${name}</b>${fallback ? ` <span title="운용사 사이트 무응답 · ${savedAt || '이전'} 에 받아둔 내용">⚠️</span>` : ''}<div class="nt-label">${label}</div></td>`;
+    const brand = rs => `<td class="nt-brand" rowspan="${rs}" style="box-shadow:inset 3px 0 0 ${color}; padding-left:8px"><b style="color:${color}">${name}</b>${fallback ? ` <span title="운용사 사이트 무응답 · ${savedAt || '이전'} 에 받아둔 내용">⚠️</span>` : ''}<div class="nt-label">${label}</div></td>`;
     // 응답은 왔는데 이번 달 공지가 아직 없는 것과, 못 받아온 것은 다른 상태다(2026-09-14 PLUS).
     if (!(items && items.length)) return `<tr class="nt-first">${brand(1)}<td colspan="2" class="${ok === false ? 'notice-err' : 'nt-none'}">${ok === false ? '운용사 사이트 응답 없음 — 확인 못 했습니다' : `${selM}월 공지 아직 없음`}</td></tr>`;
     const lines = [lineHtml(picks[0], '월중'), lineHtml(picks[1], '월말'), ...[picks[2], ...extra].filter(Boolean).map(n => lineHtml(n))];
