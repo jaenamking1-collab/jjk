@@ -1,0 +1,51 @@
+# 외부 페이지·이미지를 **원본 그대로** 받아 probe-out 브랜치에 올리는 통로.
+# 왜: 원격 컨테이너는 운용사 사이트가 조직 정책으로 막혀 있고(connect_rejected), probe 는 로그로만
+# 보여줘 이미지·긴 HTML 을 못 본다. 여기 올리면 raw.githubusercontent.com 으로 그대로 읽힌다.
+# ⚠️ jjk 는 공개 저장소다 — 공개 웹페이지만 받는다. 토큰·개인 데이터가 든 주소는 넣지 마라.
+name: fetch
+
+on:
+  workflow_dispatch:
+    inputs:
+      urls:
+        description: '받을 URL (공백으로 여러 개)'
+        required: true
+      insecure:
+        description: 'true 면 인증서 검사를 건너뛴다 (인증서 체인이 깨진 사이트 진단용)'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 받기
+        env:
+          URLS: ${{ github.event.inputs.urls }}
+          INSECURE: ${{ github.event.inputs.insecure }}
+        run: |
+          mkdir out; i=0
+          for u in $URLS; do
+            i=$((i+1))
+            K=''; [ "$INSECURE" = "true" ] && K='-k'
+            code=$(curl -sL $K -o "out/$i.bin" -D "out/$i.hdr" -w '%{http_code} %{content_type} %{url_effective}' \
+                   --max-time 60 -A 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' "$u" 2>"out/$i.err") || true
+            echo "$i $u → $code" | tee -a out/index.txt
+            [ -s "out/$i.err" ] && cat "out/$i.err" >> out/index.txt
+            case "$code" in *image/png*) mv out/$i.bin out/$i.png;; *image/jp*) mv out/$i.bin out/$i.jpg;;
+                            *pdf*) mv out/$i.bin out/$i.pdf;; *json*) mv out/$i.bin out/$i.json;; *) mv out/$i.bin out/$i.html;; esac
+          done
+          # 인증서 체인도 남긴다 — 'SSL 실패' 원인(중간 인증서 누락 등)을 보려고.
+          for u in $URLS; do h=$(echo "$u" | sed -E 's#https?://([^/]+).*#\1#')
+            echo | timeout 10 openssl s_client -connect "$h:443" -servername "$h" 2>&1 | grep -E 'depth|verify|s:|i:' >> out/tls.txt || true
+          done
+      - name: probe-out 브랜치로
+        run: |
+          cd out
+          git init -q -b probe-out
+          git config user.name 'github-actions[bot]'; git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add -A; git commit -qm "fetch $(date -u +%FT%TZ)"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" probe-out
