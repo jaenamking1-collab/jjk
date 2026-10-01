@@ -11,31 +11,6 @@ def nav(cd):
     ref = 'https://www.funetf.co.kr/product/fund/view/' + cd
     d = json.loads(get('https://www.funetf.co.kr/api/public/product/view/fundnav?fundCd=' + cd + '&schNavMode=T', ref))
     return [(r['gijunYmd'][4:], r['gijunGa']) for r in d[:5]]
-# TEMP-PERFPROBE-START
-if os.environ.get('FUNDQ','').startswith('seibro:'):
-    import sys
-    def isin(t):
-        b='KR7'+t+'00'; d=''.join(str(int(c,36)) for c in b); s=0
-        for i,ch in enumerate(reversed(d)):
-            n=int(ch)*(2 if i%2==0 else 1); s+=n//10+n%10
-        return b+str((10-s%10)%10)
-    for t in os.environ['FUNDQ'][7:].split(','):
-        xml=('<reqParam action="exerInfoDtramtPayStatPlist" task="ksd.safe.bip.cnts.etf.process.EtfExerInfoPTask">'
-          '<etf_sort_cd value=""/><etf_big_sort_cd value=""/><isin value="'+isin(t)+'"/><mngco_custno value=""/>'
-          '<RGT_RSN_DTAIL_SORT_CD value=""/><fromRGT_STD_DT value="20240101"/><toRGT_STD_DT value="20261001"/>'
-          '<START_PAGE value="1"/><END_PAGE value="60"/>'
-          '<MENU_NO value="179"/><CMM_BTN_ABBR_NM value=""/><W2XPATH value="/IPORTAL/user/etf/BIP_CNTS06030V.xml"/></reqParam>')
-        r=urllib.request.Request('https://seibro.or.kr/websquare/engine/proworks/callServletService.jsp',data=xml.encode(),
-          headers={'User-Agent':'Mozilla/5.0','Content-Type':'application/xml','Referer':'https://seibro.or.kr/websquare/control.jsp','submissionid':'submission_exerInfoDtramtPayStatPlist'})
-        body=urllib.request.urlopen(r,timeout=60).read().decode('utf-8','replace')
-        rows=body.split('<result>')[1:]
-        print('==',t,isin(t),len(rows),'rows')
-        for x in rows[:40]:
-            g=lambda k:(re.search('<'+k+' value="([^"]*)"',x) or [None,''])[1]
-            print(g('RGT_STD_DT'),g('ESTM_STDPRC'),g('RGT_RSN_DTAIL_NM'),g('KOR_SECN_NM'))
-        if not rows: print(body[:500])
-    sys.exit(0)
-# TEMP-PERFPROBE-END
 names = None
 for q in os.environ['FUNDQ'].split('|'):
     q = q.strip()
