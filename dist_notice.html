@@ -109,10 +109,12 @@
   /* 공지 카드 하단: 공지에 나온 전체 종목 목록 (펼치기/접기) */
   /* ── 하단 공지 종목 전체 그리드 (포트폴리오 앱의 분배 내역 섹션과 동일 레이아웃) ── */
   /* 카드는 표 내용 폭만큼만 — 화면 1/3 을 억지로 채우느라 칸마다 빈 공간이 생겼다(2026-10-01 지적) */
-  .dist-grid{display:flex; flex-wrap:wrap; justify-content:center; gap:10px;}
-  .dist-grid > div{flex:0 0 auto; max-width:100%;}
+  /* 한 줄에 3개 회사 고정(2026-10-01 요청, 앱에서 먼저 확인) — 좁은 화면은 종목명 칸만 줄어든다. 폭 기준은 묶음 실제 폭(cqw) */
+  .dist-grid{display:grid; grid-template-columns:repeat(3, max-content); justify-content:center; gap:10px; container-type:inline-size;
+             --dg-name:clamp(70px, calc((100cqw - 20px) / 3 - 328px), 240px);}
+  .dist-grid > div{min-width:0;}
   .dist-items{max-height:340px; overflow-y:auto;}
-  #distGrid td.dg-name > div{width:240px;}  /* 종목명 열 폭(안쪽 상자로 고정 — td 에 걸면 넘쳐서 옆 칸을 덮는다): 데스크톱 기준, 모바일은 아래에서 축소 */
+  #distGrid td.dg-name > div{width:var(--dg-name);}  /* 종목명 열 폭(안쪽 상자로 고정 — td 에 걸면 넘쳐서 옆 칸을 덮는다): 데스크톱 기준, 모바일은 아래에서 축소 */
   .notice-loading{font-size:12px; color:var(--text3); text-align:center; padding:16px 0;}
   .notice-err{font-size:12px; color:#b91c1c; text-align:center; padding:16px 0;}
   .notice-empty{font-size:12px; color:var(--text2); text-align:center; padding:16px 0;}
