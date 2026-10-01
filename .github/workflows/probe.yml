@@ -32,6 +32,10 @@ on:
         description: 'HTML 처럼 큰 응답에서 이 정규식이 걸린 곳 앞뒤만 본다 (예: 기준가).'
         required: false
         default: ''
+      width:
+        description: 'grep 결과 한 줄을 몇 자에서 자를지 (긴 HTML 한 줄을 다 볼 때 크게)'
+        required: false
+        default: '400'
       pick:
         description: '응답이 커서 잘릴 때 볼 부분. 점으로 파고든다 (예: sources.plus).'
         required: false
@@ -51,6 +55,7 @@ jobs:
           HDR: ${{ github.event.inputs.hdr }}
           FUNDQ: ${{ github.event.inputs.fundq }}
           REF: ${{ github.event.inputs.ref }}
+          WIDTH: ${{ github.event.inputs.width }}
         run: |
           set -euo pipefail
           BASE='https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec'
@@ -72,7 +77,7 @@ jobs:
             mv /tmp/r.txt.t /tmp/r.txt
           fi
           if [ -n "${GREP:-}" ]; then
-            grep -P -B6 -A14 "${GREP}" /tmp/r.txt | cut -c1-400 | head -c 20000 || echo "(없음)"
+            grep -P -B6 -A14 "${GREP}" /tmp/r.txt | cut -c1-${WIDTH:-400} | head -c 20000 || echo "(없음)"
             exit 0
           fi
           if [ -n "${PICK:-}" ]; then
