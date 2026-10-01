@@ -43,7 +43,7 @@
   .wrap{padding:16px;}
   .panels{display:flex; gap:14px; align-items:stretch; flex-wrap:wrap; justify-content:center;}
   .panel{border-radius:10px; padding:14px;}
-  .p-notice{width:300px; flex-shrink:0; background:#f0fdf4; border:1px solid #dcfce7;}
+  .p-notice{width:320px; flex-shrink:0; background:#f0fdf4; border:1px solid #dcfce7;}
   .p-cal{flex:0 1 792px; min-width:460px; max-width:792px; background:#f8fafc; border:1px solid #e2e8f0;}
   .p-sched{width:340px; flex-shrink:0; background:#fdf4ff; border:1px solid #f0e2f5;}
   .p-title{font-size:12px; font-weight:700; margin-bottom:8px;}
@@ -60,17 +60,17 @@
   .nt-table tr.nt-first td{border-top:2px solid #111827;}   /* 운용사 묶음 사이는 굵은 선, 안쪽(월중·월말 사이)은 얇은 선 — 구분이 쉽게(2026-10-01 요청) */
   .nt-brand{font-size:12px; vertical-align:middle; background:#fafffb; white-space:nowrap;}
   .nt-label{font-size:9.5px; color:var(--text2); font-weight:400; margin-top:1px; letter-spacing:-0.5px;}   /* 회사명은 한 줄로 — HANARO 'NH-Amundi자산운용'이 두 줄로 꺾였다(2026-10-01) */
-  .nt-title{color:var(--text); white-space:nowrap;} .nt-date{text-align:right; white-space:nowrap; font-size:11px; color:var(--text2); font-family:var(--mono,monospace);}
+  .nt-title{color:var(--text); white-space:nowrap;} .nt-date{text-align:right; white-space:nowrap; font-size:11px; color:var(--text2);}   /* 고정폭 글꼴은 PC마다 폭이 달라 윈도우에서 잘렸다 — 본문 글꼴로 */
   .nt-link{cursor:pointer;} .nt-link:hover{background:#f0fdf4; text-decoration:underline;}
   .nt-none{color:var(--text3);}
   /* 칸 폭 고정 — NEW 유무·두 자리 달('10월')·공지 없는 달('-')에 따라 표가 출렁였다(2026-10-01 지적, 앱에서 먼저 확인) */
   .nt-table{table-layout:fixed;}
-  .nt-table th:nth-child(1){width:33%;} .nt-table th:nth-child(3){width:22%;}
+  .nt-table th:nth-child(1){width:32%;} .nt-table th:nth-child(3){width:24%;}   /* 등록일 잘림(2026-10-01) — 패널 320px·본문 글꼴과 함께, 앱에서 먼저 확인 */
 
-  /* 세 패널 합이 300+792+340+여백 = 1,504px 이라 그보다 좁은 화면(1280·1366·1440 — 흔한
+  /* 세 패널 합이 320+792+340+여백 = 1,524px 이라(공지 패널 300→320px, 2026-10-01) 그보다 좁은 화면(1280·1366·1440 — 흔한
      노트북 폭)에서 '일정'만 둘째 줄에 홀로 가운데 정렬로 떨어지고 달력 옆이 비었다.
      그 구간에서는 공지+달력을 한 줄, 일정을 그 아래 전체 폭으로 내린다. */
-  @media (max-width:1503px) and (min-width:821px){
+  @media (max-width:1523px) and (min-width:821px){
     /* 이 구간에선 일정 패널이 혼자 한 줄을 쓴다. 폭을 안 묶으면 표가 1,240px 까지 늘어나
        열 하나가 200px 이 된다(2026-09-14 1280×768·1280×1024 에서 지적). 위 달력과 같은
        792px 로 묶어 가운데 정렬 — 아래 '공지사항' 게시판도 이 패널 안이라 함께 묶인다. */
