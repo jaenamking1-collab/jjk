@@ -377,9 +377,26 @@ function fitNoticeToCal() {
   const t = document.querySelector('#noticeGrid .nt-table'), c = document.getElementById('distMasterCalendar');
   if (!t || !c) return;
   t.style.height = '';
-  if (window.innerWidth <= 820) return;
-  const want = Math.round(c.getBoundingClientRect().bottom - t.getBoundingClientRect().top);
-  if (want > t.offsetHeight) t.style.height = want + 'px';
+  equalizeSingleRows(t, true);
+  if (window.innerWidth > 820) {
+    const want = Math.round(c.getBoundingClientRect().bottom - t.getBoundingClientRect().top);
+    if (want > t.offsetHeight) t.style.height = want + 'px';
+  }
+  equalizeSingleRows(t);
+}
+// 한 줄짜리 운용사(HANARO — 월말만)는 다른 운용사 두 줄 높이로 키운다. 반쪽 칸이 눈에 거슬린다(2026-10-01 요청).
+// 두 표(공지·운용사별 일정) 공용. reset=true 면 키운 높이만 지운다(표 높이를 다시 재기 전).
+function equalizeSingleRows(table, reset) {
+  const rows = table && table.tBodies[0] ? [...table.tBodies[0].rows] : [];
+  const single = rows.filter(r => r.classList.contains('nt-single'));
+  single.forEach(r => { r.style.height = ''; });
+  if (reset || !single.length || single.length === rows.length) return;
+  const normal = rows.filter(r => !r.classList.contains('nt-single'));
+  // 표 높이가 고정(달력에 맞춤)이면 키운 만큼 다른 줄이 줄어드니 '표 높이 ÷ (줄 수 + 한 줄짜리 몫)'으로, 아니면 보통 줄 평균으로
+  const h = table.style.height
+    ? table.tBodies[0].getBoundingClientRect().height / (rows.length + single.length)
+    : normal.reduce((a, r) => a + r.getBoundingClientRect().height, 0) / normal.length;
+  if (h) single.forEach(r => { r.style.height = (h * 2) + 'px'; });   // 숨은 탭(높이 0)에선 건너뛴다 — 탭을 열 때 다시 맞춘다
 }
 try { new ResizeObserver(() => fitNoticeToCal()).observe(document.getElementById('distMasterCalendar')); } catch(e) {}
 
@@ -876,7 +893,7 @@ function renderMasterCalendar(allData){
           const nameCell = i === 0
             ? `<td rowspan="${cycles.length}" style="padding:5px 8px;white-space:nowrap;vertical-align:middle"><span style="font-weight:700;color:${r.color}">${r.name}</span></td>`
             : '';
-          return `<tr>
+          return `<tr${cycles.length === 1 ? ' class="nt-single"' : ''}>
             ${nameCell}
             <td style="padding:5px 6px;white-space:nowrap;background:${bg};color:${col};font-weight:700">${monLabel}${m.planned ? ' <span style="color:#0891b2;font-size:10px;font-weight:700">(예정)</span>' : ''}</td>
             ${dateCell(m, '공시일', '#d97706', bg)}
@@ -888,6 +905,7 @@ function renderMasterCalendar(allData){
       }).join('')}</tbody>
     </table>` : `<div style="font-size:12px;color:var(--text3)">${selM}월 일정 정보가 없습니다</div>`;
   document.getElementById('distScheduleList').innerHTML = tableHtml;
+  equalizeSingleRows(document.querySelector('#distScheduleList table'));
 }
 
 // ── 공지 제목 → 통일 형식 ──
@@ -1046,7 +1064,7 @@ function renderNotices(){
     if (!(items && items.length)) return `<tr class="nt-first">${brand(1)}<td colspan="2" class="${ok === false ? 'notice-err' : 'nt-none'}">${ok === false ? '운용사 사이트 응답 없음 — 확인 못 했습니다' : `${selM}월 공지 아직 없음`}</td></tr>`;
     const onlyEnd = (DIST_SOURCES.find(x => x.id === id) || {}).onlyEnd;   // HANARO 는 월중이 없다
     const lines = [...(onlyEnd ? [] : [lineHtml(picks[0], '월중')]), lineHtml(picks[1], '월말'), ...[picks[2], ...extra].filter(Boolean).map(n => lineHtml(n))];
-    return lines.map((l, i) => `<tr${i ? '' : ' class="nt-first"'}>${i ? '' : brand(lines.length)}${l}</tr>`).join('');
+    return lines.map((l, i) => `<tr${i ? '' : ` class="nt-first${lines.length === 1 ? ' nt-single' : ''}"`}>${i ? '' : brand(lines.length)}${l}</tr>`).join('');
   }).join('') + '</tbody></table>';
   fitNoticeToCal();
   renderNoticeBoard();
@@ -1398,6 +1416,9 @@ function showSection(name){
   });
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.sec === name));
   window.scrollTo(0, 0);
+  // 숨겨진 채 그려진 표는 높이를 못 재서 한 줄짜리 운용사(HANARO)가 반쪽으로 남는다 — 보이게 된 지금 다시 맞춘다
+  fitNoticeToCal();
+  equalizeSingleRows(document.querySelector('#distScheduleList table'));
 }
 showSection('cal');
 
