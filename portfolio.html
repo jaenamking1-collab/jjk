@@ -309,6 +309,8 @@ if (!/[?&]pc=1/.test(location.search) && window.innerWidth <= 768) {
   .notice-card.plus::before  { background:#7c3aed; }
   .notice-card.rise::before  { background:#dc2626; }
   .notice-card.sol::before   { background:#0891b2; }
+  .notice-card.hanaro::before { background:#65a30d; }
+  .notice-card.kiwoom::before { background:#db2777; }
   .notice-brand {
     font-size:11px; font-weight:700; letter-spacing:.5px;
     margin-bottom:6px; display:flex; align-items:center; gap:6px;
@@ -4822,7 +4824,9 @@ const DIST_SOURCES = [
   { id:'ace',   name:'ACE',   label:'한국투자신탁운용', color:'#059669' },
   { id:'plus',  name:'PLUS',  label:'한화자산운용',   color:'#7c3aed' },
   { id:'rise',  name:'RISE',  label:'KB자산운용',    color:'#dc2626' },
-  { id:'sol',   name:'SOL',   label:'신한자산운용',   color:'#0891b2' }
+  { id:'sol',   name:'SOL',   label:'신한자산운용',   color:'#0891b2' },
+  { id:'hanaro', name:'HANARO', label:'NH-Amundi자산운용', color:'#65a30d' },
+  { id:'kiwoom', name:'KIWOOM', label:'키움투자자산운용', color:'#db2777' }
 ];
 
 // text: 라벨 글자색. 배경이 color 의 10% 틴트라 같은 색 글자로는 대비가 2:1대까지 떨어진다.
@@ -5585,7 +5589,7 @@ function renderMasterCalendar(allData) {
 // 운용사 카드 하단 '특별 공지' 줄. 좌측 공지 패널이 쓰는 _noticeData를 그대로 재사용한다(새 데이터 소스 0).
 // 정기 월중·월말 회차는 위 표와 좌측 패널에 이미 있으니 빼고, **비정기 사건만** 최근 90일 최대 3건.
 // 제목 키워드로만 판정한다 — normalizeNoticeTitle의 cycle은 ACE 분기에서 특별 공지도 '월말'로 떨어진다.
-const NOTICE_COLOR = { kodex:'#2563eb', tiger:'#f97316', ace:'#059669', plus:'#7c3aed', rise:'#dc2626', sol:'#0891b2' };
+const NOTICE_COLOR = { kodex:'#2563eb', tiger:'#f97316', ace:'#059669', plus:'#7c3aed', rise:'#dc2626', sol:'#0891b2', hanaro:'#65a30d', kiwoom:'#db2777' };
 // ⚠️ 이 집합은 NOTICE_EVENT_RE 의 **상위집합**이어야 한다. 그래야 왼쪽 카드에서 빠진 공지가
 // 반드시 여기 뜬다 — 둘이 어긋나면 '왼쪽에도 없고 오른쪽에도 없는' 공지가 생긴다(2026-09-04).
 const DIST_ISSUE_RE = /특별|임시|추가분배|결산|상장폐지|해지|청산|합병|분할|병합|정정|변경|중단|조정|전환|투자유의|괴리/;
@@ -6434,7 +6438,9 @@ const ISSUER_NOTICE_URL = {
   ace:   'https://www.aceetf.co.kr/cs/notice',
   plus:  'https://www.plusetf.co.kr/customer/notice/list',
   rise:  'https://kbam.co.kr/support/notice/category/1',
-  sol:   'https://blog.naver.com/soletf'
+  sol:   'https://blog.naver.com/soletf',
+  hanaro: 'https://www.hanaroetf.com/customer/notice',
+  kiwoom: 'https://www.kiwoometf.com/service/notice/KO05020101T'
 };
 const NOTICE_SOURCES = [
   {
@@ -6508,7 +6514,11 @@ const NOTICE_SOURCES = [
       const data = await api({ action:'getEtfNotices', source:'sol' });
       return data.items || [];
     }
-  }
+  },
+  { id: 'hanaro', name: 'HANARO', label: 'NH-Amundi자산운용',
+    fetch: async () => (await api({ action:'getEtfNotices', source:'hanaro' })).items || [] },
+  { id: 'kiwoom', name: 'KIWOOM', label: '키움투자자산운용',
+    fetch: async () => (await api({ action:'getEtfNotices', source:'kiwoom' })).items || [] }
 ];
 
 // 공지 원문 제목 → 통일 형식 "6월 월말배당" 추출
@@ -6537,6 +6547,16 @@ function normalizeNoticeTitle(title, source) {
     return { label: (mon?mon+'월 ':'') + '월말배당', cycle: '월말', mon };
   }
 
+  // KIWOOM 전용: 제목에 회차가 없고 '(2026년 10월 02일 지급 예정)'처럼 **지급일**만 있다.
+  // 지급일 10일 이하 = 전월 월말 회차(9/30 기준 → 10/2 지급), 그 외 = 그달 월중 회차.
+  if (source === 'kiwoom') {
+    const p = title.match(/(\d{1,2})월\s*(\d{1,2})일\s*지급/);
+    if (p) {
+      const pm = parseInt(p[1]), early = parseInt(p[2]) <= 10;
+      const m2 = early ? (pm === 1 ? 12 : pm - 1) : pm;
+      return { label: m2 + '월 ' + (early ? '월말배당' : '월중배당'), cycle: early ? '월말' : '월중', mon: m2 };
+    }
+  }
   let cycle, label;
   if (NOTICE_CYCLE_CHANGE_RE.test(title)) { cycle = '안내'; label = '⚠️ ' + title; }
   else if (/월말|말\s*분배|②|안내\s*②/.test(title)) { cycle = '월말'; label = (mon?mon+'월 ':'') + '월말배당'; }
@@ -6552,7 +6572,7 @@ function noticeShiftMonth(dir) { shiftMonth(dir); }
 // 공지를 GAS 프록시로 받는 운용사 = 6개사 전부. 공개 페이지(dist_notice.html:230)와 같은 방식으로 통일했다.
 // 서버 벌크 캐시엔 이미 6개사가 다 들어 있는데 TIGER·PLUS만 브라우저가 운용사 사이트를 또 긁고 있었다.
 // 벌크에 없으면(stale) 아래 각 소스의 fetch로 자동 폴백하므로 예전 경로는 그대로 살아 있다.
-const NOTICE_VIA_GAS = ['kodex', 'tiger', 'ace', 'plus', 'rise', 'sol'];
+const NOTICE_VIA_GAS = ['kodex', 'tiger', 'ace', 'plus', 'rise', 'sol', 'hanaro', 'kiwoom'];
 
 // 공지 스냅샷: 백엔드 응답이 평소 1.6초인데 5회에 1번꼴로 6~19초까지 튄다. 이 패널은 6개사가
 // 다 모여야 한 번에 그리므로 그동안 통째로 "불러오는 중…"에 멈춘다. 지난번 공지를 즉시 그려두고

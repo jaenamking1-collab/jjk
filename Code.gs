@@ -797,6 +797,17 @@ function getEtfNotices(source) {
         date: String(n.date).slice(0, 10).replace(/-/g, '.'),
         url: n.logNo ? 'https://blog.naver.com/soletf/' + n.logNo : 'https://blog.naver.com/soletf'
       }));
+    } else if (source === 'hanaro') {
+      _hanaroNotices().filter(n => NOTICE_KEEP_RE.test(n.title)).slice(0, NOTICE_MAX).forEach(n => items.push({
+        title: n.title, date: n.date.replace(/-/g, '.'), url: HANARO_BASE + '/customer/notice/' + n.id
+      }));
+    } else if (source === 'kiwoom') {
+      const html = UrlFetchApp.fetch(KIWOOM_BASE + '/service/notice/KO05020101T', KIWOOM_OPT).getContentText('UTF-8');
+      for (const m of html.matchAll(/fnDetail\('(\d+)'\);">([\s\S]*?)<\/a>\s*<\/td>\s*<td>([\d.]+)<\/td>/g)) {
+        const title = m[2].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+        if (items.length >= NOTICE_MAX || !NOTICE_KEEP_RE.test(title)) continue;
+        items.push({ title, date: m[3], url: KIWOOM_BASE + '/service/notice/KO05020102T?noticeNo=' + m[1] });
+      }
     } else if (source === 'tiger') {
       // 서버측 파싱(브라우저 CORS 회피). 공개 프록시가 이 액션을 중계한다.
       const fd = 'firstIndex=0&listCnt=20&pageIndex=1&detailsKey=&q=';
@@ -1064,6 +1075,11 @@ function getDistribution(source, force) {
       }
       return finishDist(source, result, cache, cacheKey);
     }
+    // HANARO·KIWOOM 은 smarttoday 기사에 안 실린다 — 자사 파서만 쓴다.
+    if (source === 'hanaro' || source === 'kiwoom') {
+      result = source === 'hanaro' ? fetchDist_hanaro() : fetchDist_kiwoom();
+      return finishDist(source, result, cache, cacheKey);
+    }
     const all = fetchDist_smarttoday(force);
     result = all[source];
     if (!result || !result.items || result.items.length === 0) {
@@ -1263,7 +1279,7 @@ function finishDist(source, result, cache, cacheKey) {
 // 12회 발생해 3~20초씩 걸렸다. 여기선 시트를 1회만 읽고 6개사를 메모리에서 처리한다.
 // 캐시가 없거나 오래된 source는 stale:true로 표시만 한다 — 한 실행에서 6개사를 스크랩하면
 // 실행시간 제한에 걸리므로, 프론트가 그 source만 기존 getDistribution으로 개별 재요청한다.
-const DIST_SOURCE_IDS = ['kodex', 'tiger', 'ace', 'plus', 'rise', 'sol'];
+const DIST_SOURCE_IDS = ['kodex', 'tiger', 'ace', 'plus', 'rise', 'sol', 'hanaro', 'kiwoom'];
 function getDistributionAll() {
   let rows;
   try { rows = _distCacheSheet().getDataRange().getValues(); } catch(e) { rows = []; }
@@ -1307,6 +1323,8 @@ function fetchDist_fallback(source) {
     case 'plus':  return fetchDist_plus();
     case 'rise':  return fetchDist_rise();
     case 'sol':   return fetchDist_sol();
+    case 'hanaro': return fetchDist_hanaro();
+    case 'kiwoom': return fetchDist_kiwoom();
     default: return null;
   }
 }
@@ -2465,6 +2483,130 @@ function fetchDist_sol() {
   }
 }
 
+// ===== HANARO · KIWOOM (2026-10-01 추가 — 공개 페이지 방문자 요청) =====
+// '9월 30일 (수)' / '2026.09.30' / '20260930' → '9월 30일'
+function _mdLabel(s) {
+  s = String(s || '');
+  let m = s.match(/(\d{1,2})월\s*(\d{1,2})일/);
+  if (m) return parseInt(m[1]) + '월 ' + parseInt(m[2]) + '일';
+  m = s.match(/\d{4}[.\-]?(\d{2})[.\-]?(\d{2})/);
+  return m ? parseInt(m[1]) + '월 ' + parseInt(m[2]) + '일' : '';
+}
+function _rowCells(tr) {
+  return [...tr.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/g)]
+    .map(x => x[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim());
+}
+
+// HANARO(NH-Amundi): 공지 '…월 말 분배금 공지' 본문에 **일정 표와 종목 표가 HTML 로** 있다.
+// 위의 달력 그림은 장식이라 OCR 이 필요 없다. 2026-10 기준 분배금 공지 14건이 전부 '월 말'이다(월중 없음).
+const HANARO_BASE = 'https://www.hanaroetf.com';
+function _hanaroNotices() {
+  const html = UrlFetchApp.fetch(HANARO_BASE + '/customer/notice-list-ajax?currentPage=1&pageListSize=10&searchWord=' + encodeURIComponent('분배금'),
+    { headers: { 'User-Agent': 'Mozilla/5.0' }, muteHttpExceptions: true }).getContentText('UTF-8');
+  const out = [];
+  const re = /href="\/customer\/notice\/([0-9a-f]+)[^"]*"[\s\S]*?<strong>([\s\S]*?)<\/strong>[\s\S]*?<span>([\d-]+)<\/span>/g;
+  let m;
+  while ((m = re.exec(html))) out.push({ id: m[1], title: m[2].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim(), date: m[3] });
+  return out;
+}
+function fetchDist_hanaro() {
+  try {
+    const notices = _hanaroNotices().filter(n => /분배금\s*공지/.test(n.title));
+    if (!notices.length) return { items: [], error: 'HANARO: 분배금 공지 목록 0건' };
+    // 최신 글이 0건이면 표기가 바뀐 것 — 한 달 전 글로 조용히 대신하지 않도록 1건만 본다(SOL 2026-09-28 교훈).
+    const n = notices[0];
+    const html = UrlFetchApp.fetch(HANARO_BASE + '/customer/notice/' + n.id,
+      { headers: { 'User-Agent': 'Mozilla/5.0' }, muteHttpExceptions: true }).getContentText('UTF-8');
+    const body = html.slice(Math.max(0, html.indexOf('fr-view')));
+    const sched = {}, items = [];
+    (body.match(/<tr[^>]*>[\s\S]*?<\/tr>/g) || []).forEach(tr => {
+      const c = _rowCells(tr);
+      if (c.length < 2) return;
+      if (/공시일/.test(c[0])) sched['공시일'] = _mdLabel(c[1]);
+      else if (/분배락/.test(c[0])) sched['분배락일'] = _mdLabel(c[1]);
+      else if (/기준일/.test(c[0])) sched['기준일'] = _mdLabel(c[1]);       // '지급 기준일' — 지급일보다 먼저 본다
+      else if (/지급/.test(c[0])) sched['지급일'] = _mdLabel(c[1]);
+      else if (/^[0-9][0-9A-Z]{5}$/.test(c[0]) && c.length >= 3) {
+        const amount = Number(c[2].replace(/,/g, ''));
+        if (isNaN(amount)) return;
+        const rate = parseFloat(c[3]);
+        items.push({ name: c[1], ticker: c[0], amount, rate: isNaN(rate) ? null : rate });
+      }
+    });
+    if (!items.length) {
+      console.log('HANARO 분배 글 파싱 0건 — 표기 변경 의심: ' + n.title);
+      return { items: [], error: 'HANARO: 공지 본문 파싱 0건 (' + n.title + ')' };
+    }
+    const bd = (sched['기준일'] || '').match(/(\d+)일/);
+    const cycle = bd && parseInt(bd[1]) <= 20 ? '월중' : '월말';
+    items.forEach(it => { it.cycle = cycle; it.sched = Object.assign({}, sched); });
+    return { success: true, items, schedule: sched, title: 'HANARO 분배금 (자사 공지 파싱)' };
+  } catch(e) {
+    return { items: [], error: 'HANARO: ' + e.toString() };
+  }
+}
+
+// KIWOOM(키움): 공지 본문은 base64 그림뿐이라 못 읽는다. 대신 '분배금 정보' 화면이 쓰는
+// 종목별 API(KO03020200PSelectAjax?gcode=)가 기준일·지급일·분배락일·금액·분배율을 JSON 으로 준다.
+// 공시되면 바로 들어온다(2026-10-01 확인: 9/28 공시분 9/30 기준이 이미 있었다).
+// ⚠️ 서버가 중간 인증서를 안 보낸다(openssl verify error 21) → 인증서 검사를 끈다. 공개 데이터 읽기 전용이다.
+const KIWOOM_BASE = 'https://www.kiwoometf.com';
+const KIWOOM_OPT = { headers: { 'User-Agent': 'Mozilla/5.0' }, muteHttpExceptions: true, validateHttpsCertificates: false };
+function fetchDist_kiwoom() {
+  try {
+    const list = UrlFetchApp.fetch(KIWOOM_BASE + '/service/report/KO03020000M', KIWOOM_OPT).getContentText('UTF-8');
+    const prods = [], seen = {};
+    for (const m of list.matchAll(/data-gcode="([0-9A-Z]{6})"\s+data-goodsNm="([^"]*)"/gi)) {
+      if (seen[m[1]]) continue;
+      seen[m[1]] = 1;
+      prods.push({ gcode: m[1], name: m[2].replace(/&amp;/g, '&').trim() });
+    }
+    if (!prods.length) return { items: [], error: 'KIWOOM: 분배금 정보 종목 목록 0건 — 화면 구조 변경 의심' };
+    const res = UrlFetchApp.fetchAll(prods.map(p => Object.assign(
+      { url: KIWOOM_BASE + '/service/report/KO03020200PSelectAjax?gcode=' + p.gcode }, KIWOOM_OPT)));
+    const ymd = s => { const m = String(s || '').match(/(\d{4})\D?(\d{2})\D?(\d{2})/); return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null; };
+    const cutoff = Date.now() - 45 * 86400000;
+    const rows = [], latest = {};
+    res.forEach((r, i) => {
+      let list = [];
+      try { list = JSON.parse(r.getContentText('UTF-8')).resultList || []; } catch(e) {}
+      list.forEach(x => {
+        const d = ymd(x.stdDt);
+        if (!d || d.getTime() < cutoff) return;
+        const cycle = d.getDate() <= 20 ? '월중' : '월말';
+        rows.push({ p: prods[i], x, cycle });
+        if (!latest[cycle] || x.stdDt > latest[cycle]) latest[cycle] = x.stdDt;
+      });
+    });
+    const items = [];
+    let schedule = {}, newest = '';
+    ['월중', '월말'].forEach(cycle => {
+      const sd = latest[cycle];
+      if (!sd) return;
+      let sched = null;
+      rows.filter(r => r.cycle === cycle && r.x.stdDt === sd).forEach(({ p, x }) => {
+        if (!sched) {
+          sched = { '기준일': _mdLabel(x.stdDt), '지급일': _mdLabel(x.payDt || x.cashPayDt), '분배락일': _mdLabel(x.payRockDt) };
+          const lock = ymd(x.payRockDt);
+          if (lock) {                                   // 공시일 = 분배락 전 영업일(키움 공지 게시일과 일치, 2026-09-28 확인)
+            do { lock.setDate(lock.getDate() - 1); } while (_isOffDay(lock));
+            sched['공시일'] = (lock.getMonth() + 1) + '월 ' + lock.getDate() + '일';
+          }
+        }
+        const amount = Number(String(x.dividendAmt).replace(/,/g, ''));
+        if (isNaN(amount)) return;
+        const rate = parseFloat(x.dividendRate);
+        items.push({ name: p.name, ticker: p.gcode, amount, rate: isNaN(rate) ? null : rate, cycle, sched: Object.assign({}, sched) });
+      });
+      if (sched && sd > newest) { newest = sd; schedule = sched; }
+    });
+    if (!items.length) return { items: [], error: 'KIWOOM: 최근 45일 분배 0건 (종목 ' + prods.length + '개 조회)' };
+    return { success: true, items, schedule, title: 'KIWOOM 분배금 (분배금 정보 API)', _source: 'api' };
+  } catch(e) {
+    return { items: [], error: 'KIWOOM: ' + e.toString() };
+  }
+}
+
 // ===== 알림 엔진 =====
 // 시트: '알림로그'(이력 누적), '_파서메타'(직전 상태 저장→변경 감지)
 const ALERT_SHEET_ID = '1iNlOU1YBRyJ6redmVoLDE4q6VfnWqL22s32IQHdSKN8';
@@ -2598,7 +2740,7 @@ function _alertStaleCycle(logSheet, kakaoMsgs) {
     const s = String(rows[i][0] || '');
     if (s) (have[s] = have[s] || {})[String(rows[i][3] || '')] = 1;
   }
-  const SRC_LABEL = { kodex:'KODEX', tiger:'TIGER', ace:'ACE', rise:'RISE', plus:'PLUS', sol:'SOL' };
+  const SRC_LABEL = { kodex:'KODEX', tiger:'TIGER', ace:'ACE', rise:'RISE', plus:'PLUS', sol:'SOL', hanaro:'HANARO', kiwoom:'KIWOOM' };
   Object.keys(SRC_LABEL).forEach(s => {
     const h = have[s] || {};
     if (!h[prevKey] || h[need]) return;      // 지난달에도 없던 회차거나, 이번 회차가 이미 들어왔다
@@ -2621,11 +2763,11 @@ function checkAndLogAlerts() {
   const prevMeta = {};
   metaRows.forEach(r => { prevMeta[r[0]] = { source:r[1], isOcr:r[2]===true||r[2]==='TRUE'||r[2]===true, itemCount:r[3], cycles:r[4], pubDate:_normPubDate(r[5]), updated:r[6], contentHash:String(r[7]||'') }; });
 
-  const SRC_LABEL = { kodex:'KODEX', tiger:'TIGER', ace:'ACE', rise:'RISE', plus:'PLUS', sol:'SOL' };
+  const SRC_LABEL = { kodex:'KODEX', tiger:'TIGER', ace:'ACE', rise:'RISE', plus:'PLUS', sol:'SOL', hanaro:'HANARO', kiwoom:'KIWOOM' };
   const newMeta = [];
   const kakaoMsgs = [];  // 이번 실행에서 새로 감지된 공지 → 카톡 발송용
 
-  ['kodex','tiger','ace','rise','plus','sol'].forEach(source => {
+  ['kodex','tiger','ace','rise','plus','sol','hanaro','kiwoom'].forEach(source => {
     let result;
     try { result = getDistribution(source, true); } catch(e) { result = { items:[], error:e.toString() }; }
     const fp = _fingerprint(source, result);
@@ -2832,7 +2974,9 @@ const ISSUER_NOTICE_URL = {
   ace:   'https://www.aceetf.co.kr/cs/notice',
   plus:  'https://www.plusetf.co.kr/customer/notice/list',
   rise:  'https://kbam.co.kr/support/notice/category/1',
-  sol:   'https://blog.naver.com/soletf'
+  sol:   'https://blog.naver.com/soletf',
+  hanaro: 'https://www.hanaroetf.com/customer/notice',
+  kiwoom: 'https://www.kiwoometf.com/service/notice/KO05020101T'
 };
 
 // 리프레시 토큰으로 액세스 토큰 발급. 회전된 리프레시 토큰이 오면 저장.
@@ -3789,7 +3933,7 @@ function applyDistAmounts(items) {
   // 폴백: 운용사 공지 (Seibro에 아직 안 뜬 이번 회차 공지 포함)
   const norm = s => (s || '').toString().toUpperCase().replace(/\s+/g, '');
   const byT = {}, byN = {};
-  ['kodex','tiger','ace','rise','sol','plus'].forEach(src => {
+  ['kodex','tiger','ace','rise','sol','plus','hanaro','kiwoom'].forEach(src => {
     let its = [];
     try { const r = getDistribution(src, false); its = (r && r.items) || []; } catch(e) {}
     its.forEach(d => {
@@ -4365,7 +4509,7 @@ function etfCategory(n) {
 }
 
 function testDistribution() {
-  ['kodex','ace','rise','sol','tiger','plus'].forEach(s => {
+  ['kodex','ace','rise','sol','tiger','plus','hanaro','kiwoom'].forEach(s => {
     const r = getDistribution(s, true);
     console.log('[' + s + '] items:' + (r.items?r.items.length:0) + ' err:' + (r.error||''));
     if (r.items && r.items[0]) console.log('  샘플:', JSON.stringify(r.items[0]));
@@ -6051,7 +6195,7 @@ function _diagDistAlert() {
   console.log('④ 저장된 메타 ' + rows.length + '행 (운용사 / 직전 공시일 / 갱신시각)');
   rows.forEach(r => console.log('   ' + String(r[0]).padEnd(6) + ' prev=' + _normPubDate(r[5]) + '  updated=' + r[6]));
   console.log('   지금 캐시로 파싱되는 공시일(force 안 씀 — 여기서 6개사 스크랩하면 오래 걸린다):');
-  ['kodex','tiger','ace','rise','plus','sol'].forEach(s => {
+  ['kodex','tiger','ace','rise','plus','sol','hanaro','kiwoom'].forEach(s => {
     let fp;
     try { fp = _fingerprint(s, getDistribution(s, false)); } catch(e) { console.log('   ' + s + ' 오류 ' + e); return; }
     const prev = rows.filter(r => r[0] === s)[0];
