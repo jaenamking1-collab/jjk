@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors'
 ];
 
 function runMaint(name, arg) {
@@ -4956,8 +4956,9 @@ function setupInputMarkTrigger() {
   ScriptApp.getProjectTriggers()
     .filter(t => t.getHandlerFunction() === 'markInputCells')
     .forEach(t => ScriptApp.deleteTrigger(t));
-  ScriptApp.newTrigger('markInputCells').timeBased().atHour(6).nearMinute(0).everyDays(1).create();
-  console.log('markInputCells 트리거(매일 06시) 설치 완료');
+  // 08:30 — 시트에 붙은 스크립트(markDivInputCells, 07시대)가 **지급월**(월말은 다음 달) 칸을 칠한 뒤에 돌아 그 표시를 지운다(2026-10-02 10월 노랑).
+  ScriptApp.newTrigger('markInputCells').timeBased().atHour(8).nearMinute(30).everyDays(1).create();
+  console.log('markInputCells 트리거(매일 08:30) 설치 완료');
 }
 
 // 분배캐시 선갱신 트리거: 매일 새벽 5시 1회. 6개사를 force로 다시 긁어 캐시를 채우므로 실행이 길다
@@ -5503,7 +5504,7 @@ const TRIGGER_PLAN = [
   ['keepWarm',               () => ScriptApp.newTrigger('keepWarm').timeBased().everyMinutes(5).create()],
   ['refreshAllDistributions',() => ScriptApp.newTrigger('refreshAllDistributions').timeBased().atHour(5).nearMinute(0).everyDays(1).create()],
   ['clearOldYellowCells',    () => ScriptApp.newTrigger('clearOldYellowCells').timeBased().atHour(6).nearMinute(0).everyDays(1).create()],
-  ['markInputCells',         () => ScriptApp.newTrigger('markInputCells').timeBased().atHour(6).nearMinute(0).everyDays(1).create()],
+  ['markInputCells',         () => ScriptApp.newTrigger('markInputCells').timeBased().atHour(8).nearMinute(30).everyDays(1).create()],   // 시트 스크립트(07시대) 뒤
   ['sendMaturityAlerts',     () => ScriptApp.newTrigger('sendMaturityAlerts').timeBased().atHour(8).everyDays(1).create()],
   ['flushKakaoPending',      () => ScriptApp.newTrigger('flushKakaoPending').timeBased().atHour(8).nearMinute(10).everyDays(1).create()],
   ['flushCalPending',        () => ScriptApp.newTrigger('flushCalPending').timeBased().atHour(8).nearMinute(10).everyDays(1).create()],
@@ -7095,6 +7096,32 @@ function importDividends(srcId) {
   return { rows: src.length };
 }
 
+// 분배금 탭 월별칸을 D열 배당구분(월중/월말)에 따라 색칠하는 조건부서식(2026-10-02 복구).
+// 10/1 fixDivSheetIrp 가 사용자의 월중/월말 색 규칙까지 통째로 지웠다(범위 하나만 걸려도 규칙 전체 삭제).
+// 원래 색값은 남은 기록이 없어 앱 화면과 같은 계열로 다시 만든다: 월중 = 연한 청록, 월말 = 연한 보라.
+// D열을 보고 칠하므로 줄을 더해도 따라간다. 값이 든 칸만 칠한다(빈 칸의 '입력할 곳' 노랑은 그대로 보인다).
+// 여러 번 돌려도 같다 — 이 함수가 만든 규칙(수식에 $D)을 지우고 다시 넣는다.
+const DIV_CYC_COLORS = { 월중: '#d0f0ee', 월말: '#e6dcf7' };
+function restoreDivCycleColors() {
+  const sh = SpreadsheetApp.openById(ASSET_SHEET_ID).getSheetByName('분배금');
+  const v = sh.getDataRange().getValues(), last = sh.getLastRow();
+  const starts = []; for (let hr = 0; hr < 3; hr++) (v[hr] || []).forEach((x, c) => { if (/^\d{4}년$/.test(String(x).replace(/\s/g, ''))) starts.push(c + 1); });
+  const mine = r => { try { const b = r.getBooleanCondition(); return b && b.getCriteriaType() === SpreadsheetApp.BooleanCriteria.CUSTOM_FORMULA && /\$D5="월(중|말)"/.test(b.getCriteriaValues()[0]); } catch (e) { return false; } };
+  const rules = sh.getConditionalFormatRules().filter(r => !mine(r));
+  const added = [];
+  starts.forEach(c => {
+    const a1 = sh.getRange(5, c).getA1Notation().replace(/\d+$/, '');
+    Object.keys(DIV_CYC_COLORS).forEach(cyc => {
+      rules.push(SpreadsheetApp.newConditionalFormatRule()
+        .whenFormulaSatisfied('=AND(' + a1 + '5<>"",$D5="' + cyc + '")')
+        .setBackground(DIV_CYC_COLORS[cyc]).setRanges([sh.getRange(5, c, last - 4, 12)]).build());
+      added.push(sh.getRange(5, c, last - 4, 12).getA1Notation() + ' ' + cyc);
+    });
+  });
+  sh.setConditionalFormatRules(rules);
+  console.log('월중/월말 색 규칙 ' + added.length + '개: ' + added.join(' · ') + ' · 전체 규칙 ' + rules.length + '개');
+}
+
 // 분배금 탭 '아버지'·IRP 칸 손질(2026-10-01). 이 칸들은 맨 아래 USD 줄(SPYI)을 틀로 복사해 만들어져
 //  ① S열(올해 합계)이 $B$1(환율)×합계라 원화 분배금이 1,300배로 잡혔고
 //  ② 주식상황의 수익률 색 규칙(0보다 크면 빨강)까지 따라와 월 금액이 빨갛게 보였다.
@@ -7112,11 +7139,21 @@ function fixDivSheetIrp(arg) {
     const f = sh.getRange(i + 1, 19).getFormula();
     if (/\$B\$1/.test(f)) { fixed++; if (!dry) sh.getRange(i + 1, 19).setFormula('=SUM(G' + (i + 1) + ':R' + (i + 1) + ')'); }
   }
+  // ⛔ 예전엔 범위 하나라도 걸리면 **규칙을 통째로** 지웠다 — 위쪽 줄까지 덮던 사용자의 월중/월말 색 규칙이 같이
+  //    사라졌다(2026-10-02 "색이 하나도 없다"). 이제 걸린 범위만 빼고, 남는 범위가 없을 때만 규칙을 지운다.
   const rules = sh.getConditionalFormatRules();
-  const keep = rules.filter(r => !r.getRanges().some(g => g.getRow() >= from + 1 && g.getColumn() >= 7 && g.getColumn() <= 14));
-  console.log('S열 고침 ' + fixed + '줄 · 색 규칙 ' + (rules.length - keep.length) + '개 지움' + (dry ? ' (dry)' : ''));
+  const hit = g => g.getRow() >= from + 1 && g.getColumn() >= 7 && g.getColumn() <= 14;
+  let removed = 0;
+  const keep = [];
+  rules.forEach(r => {
+    const rs = r.getRanges(), left = rs.filter(g => !hit(g));
+    if (left.length === rs.length) { keep.push(r); return; }
+    removed++;
+    if (left.length) keep.push(r.copy().setRanges(left).build());
+  });
+  console.log('S열 고침 ' + fixed + '줄 · 색 규칙 ' + removed + '개에서 아래 칸 범위 뺌' + (dry ? ' (dry)' : ''));
   if (!dry) sh.setConditionalFormatRules(keep);
-  return { fixed, removed: rules.length - keep.length };
+  return { fixed, removed };
 }
 
 function fixIrpRows(arg) {
