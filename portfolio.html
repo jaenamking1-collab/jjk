@@ -4401,7 +4401,7 @@ function xirr(flows, endValue, endDate) {
 // 그래서 앱에서 고친 것이 트리거를 기다리지 않고 바로 반영된다.
 // ⚠️ 거래내역을 새로 받아 두 시트를 다시 만들면 이 날짜를 그 거래내역의 마지막 날로 바꾼다.
 const SCORECARD_ASOF = '2026-09-28';
-function rollScorecard(log, divs, priceMap, er) {
+function rollScorecard(log, divs, priceMap, er, lateTk) {
   const toKrw = (v, cur, rate) => cur === 'USD' ? v * (rate || er) : v;
   const at = {}, ev = [], adj = {};
   const A = id => adj[id] = adj[id] || { realized: 0, div: 0, buys: 0, sells: 0, ndiv: 0 };
@@ -4444,13 +4444,15 @@ function rollScorecard(log, divs, priceMap, er) {
     const p = at[id];
     if (!seen[id] && p.qty) step(id, p.acc, p.cur, p.ticker, 0, p.avg, today, 'gone');
   });
-  // 분배금: 기준일이 든 달은 거래내역에 이미 들어 있으므로 **다음 달부터**
+  // 분배금: 기준일이 든 달은 거래내역에 이미 들어 있으므로 **다음 달부터**.
+  // 단 그 달의 **월말 회차**는 다음 달 초에 들어와 기준일 거래내역에 없다 → lateTk(그 달 기준일 20일 넘는 종목)는 더한다.
   const asofYm = SCORECARD_ASOF.slice(0, 7);
   (divs || []).forEach(d => {
     const ym = d.year + '-' + String(d.month).padStart(2, '0');
     const amt = parseFloat(d.amount) || 0;
-    if (ym <= asofYm || !amt) return;
     const h = (state.holdings || []).find(x => x.id.toString() === d.holding_id.toString());
+    const tk = ((h ? h.ticker : (at[d.holding_id] || {}).ticker) || '').toString().trim().toUpperCase();
+    if (ym < asofYm || !amt || (ym === asofYm && !(lateTk && lateTk.has(tk)))) return;
     const acc = h ? h.account_id.toString() : at[d.holding_id] && at[d.holding_id].acc;
     if (!acc) return;
     const krw = toKrw(amt, d.currency, parseFloat(d.rate));
@@ -4464,12 +4466,13 @@ function rollScorecard(log, divs, priceMap, er) {
 async function loadScorecard() {
   const box = document.getElementById('scorecardBox');
   box.innerHTML = '<div class="loading"><span class="spinner"></span>불러오는 중...</div>';
-  const [sum, flows, sheet, hlog, divs] = await Promise.all([
+  const [sum, flows, sheet, hlog, divs, distM] = await Promise.all([
     api({ action: 'getAccountSummary' }).catch(() => []),
     api({ action: 'getAccountFlows' }).catch(() => []),
     fetchPriceItems(),
     api({ action: 'getHoldingLog' }).catch(() => ({})),
-    api({ action: 'getDividends' }).catch(() => [])
+    api({ action: 'getDividends' }).catch(() => []),
+    api({ action: 'getDistributionMonth', m: +SCORECARD_ASOF.slice(5, 7) }).catch(() => ({}))
   ]);
   if (!sum || !sum.length) {
     box.innerHTML = '<div class="empty"><p>계좌요약 시트를 읽지 못했습니다.</p></div>';
@@ -4482,7 +4485,13 @@ async function loadScorecard() {
   });
   const er = state.exchangeRate || 1400;
   const today = new Date().toISOString().slice(0, 10);
-  const roll = rollScorecard((hlog && hlog.items) || [], divs, priceMap, er);
+  const lateTk = new Set();
+  Object.values((distM && distM.sources) || {}).forEach(v => (v.items || []).forEach(it => {
+    const t = String((it.sched || {})['기준일'] || '');       // Code.gs _mdOfSched 와 같은 해석
+    const m = t.match(/\d{4}[.\-\/]\d{1,2}[.\-\/](\d{1,2})/) || t.match(/\d{1,2}월\s*(\d{1,2})일/) || t.match(/^\d{1,2}\/(\d{1,2})/);
+    if (m && +m[1] > 20) lateTk.add(String(it.ticker || '').trim().toUpperCase());
+  }));
+  const roll = rollScorecard((hlog && hlog.items) || [], divs, priceMap, er, lateTk);
 
   const n = v => Math.round(v).toLocaleString();
   const col = v => v > 0 ? '#dc2626' : v < 0 ? '#2563eb' : '#111827';
