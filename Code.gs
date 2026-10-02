@@ -5786,7 +5786,10 @@ function _diagScoreRoll() {
     else if (qty < pq) { const pr = px(t) || pa, sold = pq - qty; ev.push({ date, acc, amt: k(sold * pr, cur) });
       C(acc).realized += k((pr - pa) * sold, cur); C(acc).sell++; if (kind === 'gone') C(acc).gone++; C(acc).dates[date] = 1; }
   };
-  log.slice().sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0)
+  const srt = log.slice().sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0), lastOf = {};
+  srt.forEach((r, i) => lastOf[r.holding_id + '|' + r.date.slice(0, 10)] = i);   // 같은 날 같은 종목 = 입력 수정 → 마지막 값만
+  console.log('같은날 수정으로 합친 기록 ' + (srt.length - Object.keys(lastOf).length) + '줄');
+  srt.filter((r, i) => lastOf[r.holding_id + '|' + r.date.slice(0, 10)] === i)
      .forEach(r => step(r.holding_id, r.account_id, r.currency, r.ticker, r.quantity, r.avg_price, r.date.slice(0, 10), r.kind));
   const today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd'), seen = {};
   hs.forEach(h => { const id = String(h.id); seen[id] = 1; const p = at[id], q = +h.quantity || 0, a = +h.avg_price || 0;
@@ -5806,7 +5809,9 @@ function _diagScoreRoll() {
       const id = String(s.account_id), c = cnt[id] || C(id);
       let cash = (+s.cash || 0) + (+s.cash_usd || 0) * er, added = 0;
       ev.filter(e => e.acc === id).forEach(e => { cash += e.amt; if (cash < 0) { added -= cash; cash = 0; } });
-      const dep = (+s.deposit || 0) + (+s.transfer || 0) + (+s.inkind || 0);
+      // 요약 없는 새 계좌는 넣은 돈 칸이 없으니 지금 평가액을 분모로 쓴다
+      const dep = (+s.deposit || 0) + (+s.transfer || 0) + (+s.inkind || 0)
+        || hs.filter(h => String(h.account_id) === id).reduce((t, h) => t + k((+h.quantity || 0) * (px(h.ticker) || +h.avg_price || 0), h.currency), 0);
       console.log(String(s.name || '').slice(0, 2) + '#' + id.slice(-3) + ' | 매수 ' + c.buy + '(새종목 ' + c.neu + ') 매도 ' + c.sell + '(사라짐 ' + c.gone + ') 분배 ' + c.div
         + ' | 새로넣은돈 ' + pct(added, dep) + ' 추정실현 ' + pct(c.realized, dep) + ' 추가분배 ' + pct(c.divAmt, dep)
         + ' 예수금(굴린뒤) ' + pct(cash, dep) + ' | 변동일 ' + Object.keys(c.dates).sort().join(','));
