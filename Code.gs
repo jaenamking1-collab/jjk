@@ -4656,7 +4656,9 @@ function getHoldingLog() {
   const rows = log.getDataRange().getValues();
   if (rows.length <= 1) return { success: true, items: [] };
   return { success: true, items: rows.slice(1).filter(r => r[0] && r[1]).map(r => ({
-    date: r[0].toString(), holding_id: r[1].toString(), account_id: r[2].toString(),
+    // 날짜 칸이 Date 로 읽히면 toString() 이 'Sun Sep 27 …' 이 되어 화면의 날짜 비교('<= 2026-09-28')가 전부 틀렸다(2026-10-02 계좌성적표)
+    date: r[0] instanceof Date ? Utilities.formatDate(r[0], 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss') : r[0].toString(),
+    holding_id: r[1].toString(), account_id: r[2].toString(),
     ticker: _padTicker(r[3]), name: r[4], quantity: parseFloat(r[5]) || 0,
     avg_price: parseFloat(r[6]) || 0, currency: r[7], kind: r[8]
   })) };
