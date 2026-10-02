@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows'
 ];
 
 function runMaint(name, arg) {
@@ -3695,7 +3695,8 @@ function markInputCells() {
   const cycles = Object.keys(due);
   if (!cycles.length) { console.log('지급일 ±2일인 회차 없음 — 표시 없음 (묵은 표시 ' + cleared + '개 제거)');
     try { autoFillIrpDivs(); } catch (e) { console.log('IRP 자동 입력 실패 — ' + e); }
-    try { fillMissingDivCycles(); } catch (e) { console.log('배당주기 채우기 실패 — ' + e); } return; }
+    try { fillMissingDivCycles(); } catch (e) { console.log('배당주기 채우기 실패 — ' + e); }
+    try { hideSoldDivRows(); } catch (e) { console.log('판 종목 숨김 실패 — ' + e); } return; }
 
   // 2) 지급이 임박한 회차의 달 칸만 칠한다.
   let marked = 0;
@@ -3716,6 +3717,7 @@ function markInputCells() {
   console.log(done.join(' · ') + ' : ' + marked + '칸 표시 (묵은 표시 ' + cleared + '개 제거)');
   try { autoFillIrpDivs(); } catch (e) { console.log('IRP 자동 입력 실패 — ' + e); }   // 매일 08:30 함께
   try { fillMissingDivCycles(); } catch (e) { console.log('배당주기 채우기 실패 — ' + e); }
+  try { hideSoldDivRows(); } catch (e) { console.log('판 종목 숨김 실패 — ' + e); }
 }
 
 // 'yyyy-MM-dd' 문자열 또는 Date → 'yyyy-MM-dd'
@@ -7284,6 +7286,28 @@ function fixWeeklyYieldFormula() {
     n++; console.log(c.getA1Notation() + ' 주배당 → 지난달 기준으로 고침');
   }
   console.log('고친 줄 ' + n);
+}
+
+// 분배금 탭에서 **다 판 종목(주식상황 같은 줄 수량 0) 줄을 숨긴다**(2026-10-02 사용자: "없는 주식은 숨김처리").
+// 마지막 배당까지 들어온 뒤에만: 지난달이나 이번 달 칸에 값이 있거나, 최근 두 달이 모두 비어 있으면(더 올 게 없음).
+// 지우지 않고 숨기기만 한다. 매일 08:30 markInputCells 끝에서도 돈다. 다시 산 종목 줄을 펼치는 건 사람 몫으로 둔다(직접 숨긴 줄과 구분 못 함).
+function hideSoldDivRows() {
+  const ss = SpreadsheetApp.openById(ASSET_SHEET_ID), dv = ss.getSheetByName('분배금'), st = ss.getSheetByName('주식상황');
+  const v = dv.getDataRange().getValues(), q = st.getDataRange().getValues();
+  const y = +Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy'), m = +Utilities.formatDate(new Date(), 'Asia/Seoul', 'M');
+  const b0 = _yearBlockStart(false, v, y); if (b0 < 0) return;
+  const cell = (i, mm) => mm >= 1 ? String(v[i][b0 + mm - 1] == null ? '' : v[i][b0 + mm - 1]).trim() : '';
+  let n = 0;
+  for (let i = 4; i < v.length; i++) {
+    const t = String(v[i][1] || '').trim(); if (!t || !q[i]) continue;
+    if (String(q[i][1] || '').replace(/^'/, '').trim() !== t) continue;          // 같은 줄이 같은 종목일 때만
+    if (String(q[i][3]).trim() === '' || +q[i][3] !== 0) continue;               // 수량 0 만
+    if (dv.isRowHiddenByUser(i + 1)) continue;
+    const done = cell(i, m) || cell(i, m - 1) || (!cell(i, m - 1) && !cell(i, m - 2));
+    if (!done) continue;
+    dv.hideRows(i + 1); n++; console.log((i + 1) + '행 숨김 (' + t + ')');
+  }
+  console.log('판 종목 줄 숨김 ' + n);
 }
 
 // 분배금 탭 '아버지'·IRP 칸 손질(2026-10-01). 이 칸들은 맨 아래 USD 줄(SPYI)을 틀로 복사해 만들어져
