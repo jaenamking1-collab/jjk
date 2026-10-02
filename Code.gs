@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek'
 ];
 
 function runMaint(name, arg) {
@@ -5816,6 +5816,33 @@ function _diagScoreRoll() {
         + ' | 새로넣은돈 ' + pct(added, dep) + ' 추정실현 ' + pct(c.realized, dep) + ' 추가분배 ' + pct(c.divAmt, dep)
         + ' 예수금(굴린뒤) ' + pct(cash, dep) + ' | 변동일 ' + Object.keys(c.dates).sort().join(','));
     });
+}
+
+// 계좌성적표 '이번 주 입력이 반영됐나' 점검 — 금액은 안 찍고 건수·비율만(Actions 로그는 공개다).
+// 분배금: 월별 입력 건수 + 성적표에 들어가는지(기준일 달 다음부터만 더한다).
+// 기준일 계좌요약의 분배금(div) 대비 앱 입력 합계 비율로, 9월분이 요약에 이미 있는지 가늠한다.
+function _diagScoreWeek() {
+  const ASOF = '2026-09-28';
+  const hs = getHoldings(), divs = getDividends(), sum = getAccountSummary(), log = (getHoldingLog() || {}).items || [];
+  const er = fetchExchangeRate() || 1400;
+  const accOf = {}; hs.forEach(h => accOf[String(h.id)] = String(h.account_id));
+  log.forEach(r => { if (!accOf[r.holding_id]) accOf[r.holding_id] = String(r.account_id); });
+  const by = {};
+  const B = a => by[a] = by[a] || { m: {}, amt: {}, wk: [] };
+  divs.forEach(d => { const a = accOf[String(d.holding_id)], v = +d.amount || 0; if (!a || !v) return;
+    const ym = d.year + '-' + String(d.month).padStart(2, '0'), o = B(a);
+    o.m[ym] = (o.m[ym] || 0) + 1; o.amt[ym] = (o.amt[ym] || 0) + (d.currency === 'USD' ? v * (+d.rate || er) : v); });
+  log.filter(r => r.date.slice(0, 10) > ASOF).forEach(r => B(String(r.account_id)).wk.push(r.date.slice(5, 10) + ' ' + r.kind));
+  Object.keys(by).forEach(a => {
+    const o = by[a], s = sum.find(x => String(x.account_id) === a) || {}, sd = (+s.div || 0) + (+s.interest || 0);
+    const upto = Object.keys(o.amt).filter(k => k <= '2026-09').reduce((t, k) => t + o.amt[k], 0);
+    const pct = (x, y) => y ? (x / y * 100).toFixed(1) + '%' : '-';
+    console.log(String(s.name || '(요약없음)').slice(0, 2) + '#' + a.slice(-3)
+      + ' | 분배 입력건수 7월 ' + (o.m['2026-07'] || 0) + ' 8월 ' + (o.m['2026-08'] || 0) + ' 9월 ' + (o.m['2026-09'] || 0) + ' 10월 ' + (o.m['2026-10'] || 0)
+      + ' | 9월분÷8월분 ' + pct(o.amt['2026-09'] || 0, o.amt['2026-08'] || 0)
+      + ' | 앱입력(~9월)÷요약분배 ' + pct(upto, sd)
+      + ' | 9/29~ 보유변동 ' + (o.wk.length ? o.wk.join(', ') : '없음'));
+  });
 }
 
 // 운용사 파서를 캐시 없이 한 번 돌려 **회차별 건수와 일정**을 찍는다. 아무것도 쓰지 않는다.
