@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal'
 ];
 
 function runMaint(name, arg) {
@@ -5896,6 +5896,20 @@ function _diagAccDay(arg) {
     console.log(d1.slice(5) + '(' + snap[d1].slot + '시) 그래프 ' + f(v1 - v0) + ' = 시세 ' + f(pe) + ' + 매매 ' + f(te) + ' + 그 밖 ' + f(v1 - v0 - pe - te)
       + (nChg ? ' · 수량 바뀐 종목 ' + nChg + '(새 ' + nNew + '·전량 ' + nGone + ')' : '') + (miss ? ' · 시세 빈칸 ' + miss : ''));
   }
+}
+
+// 대시보드 총합계 그래프의 날짜별 계좌 구성을 % 로(금액 없이). 기준 = 첫 날 합계.
+function _diagPlTotal() {
+  const rows = SpreadsheetApp.openById(SHEET_ID).getSheetByName('수익로그').getDataRange().getValues().slice(1);
+  const by = {};                                   // day → acc → {v, slot}
+  rows.forEach(r => { const d = _logDay(r[0]), n = String(r[1] || ''), sl = (r[3] === '' || r[3] == null) ? 16 : +r[3];
+    if (!d || !n) return; by[d] = by[d] || {}; if (!by[d][n] || sl >= by[d][n].slot) by[d][n] = { v: +r[2] || 0, slot: sl }; });
+  const days = Object.keys(by).sort().slice(-6), accs = [...new Set(days.flatMap(d => Object.keys(by[d])))];
+  const base = Object.values(by[days[0]]).reduce((t, x) => t + x.v, 0);
+  console.log('날짜별 계좌 값 ÷ ' + days[0] + ' 합계(%) · 빈칸=그날 기록 없음');
+  console.log('계좌 | ' + days.map(d => d.slice(5)).join(' | '));
+  accs.forEach(a => console.log(a + ' | ' + days.map(d => by[d][a] ? (by[d][a].v / base * 100).toFixed(1) : '·').join(' | ')));
+  console.log('합계 | ' + days.map(d => (Object.values(by[d]).reduce((t, x) => t + x.v, 0) / base * 100).toFixed(1)).join(' | '));
 }
 
 // 운용사 파서를 캐시 없이 한 번 돌려 **회차별 건수와 일정**을 찍는다. 아무것도 쓰지 않는다.
