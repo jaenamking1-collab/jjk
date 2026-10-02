@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles'
 ];
 
 function runMaint(name, arg) {
@@ -3694,7 +3694,8 @@ function markInputCells() {
 
   const cycles = Object.keys(due);
   if (!cycles.length) { console.log('지급일 ±2일인 회차 없음 — 표시 없음 (묵은 표시 ' + cleared + '개 제거)');
-    try { autoFillIrpDivs(); } catch (e) { console.log('IRP 자동 입력 실패 — ' + e); } return; }
+    try { autoFillIrpDivs(); } catch (e) { console.log('IRP 자동 입력 실패 — ' + e); }
+    try { fillMissingDivCycles(); } catch (e) { console.log('배당주기 채우기 실패 — ' + e); } return; }
 
   // 2) 지급이 임박한 회차의 달 칸만 칠한다.
   let marked = 0;
@@ -3714,6 +3715,7 @@ function markInputCells() {
   });
   console.log(done.join(' · ') + ' : ' + marked + '칸 표시 (묵은 표시 ' + cleared + '개 제거)');
   try { autoFillIrpDivs(); } catch (e) { console.log('IRP 자동 입력 실패 — ' + e); }   // 매일 08:30 함께
+  try { fillMissingDivCycles(); } catch (e) { console.log('배당주기 채우기 실패 — ' + e); }
 }
 
 // 'yyyy-MM-dd' 문자열 또는 Date → 'yyyy-MM-dd'
@@ -7233,6 +7235,26 @@ function autoFillIrpDivs() {
     });
   }
   console.log('IRP 자동 입력 ' + filled + '칸 · 이미 값 있음 ' + skipped + ' · 수량 기록 없음 ' + noQty);
+}
+
+// 앱 종목에 **배당주기가 비어 있으면** 분배금 탭 D열(같은 티커)에서 채운다. 비어 있으면 환산분배율이
+// '입력한 달 수'로 연환산돼 크게 틀린다(2026-10-02: 9/29 등록한 IRP 종목 전부 빈칸 → TIGER 리츠 1.6%).
+// 빈 칸만 채우고(손으로 넣은 값은 그대로), '디폴트'는 주기가 아니라 건너뛴다. 매일 08:30 markInputCells 끝에서도 돈다.
+function fillMissingDivCycles() {
+  const v = SpreadsheetApp.openById(ASSET_SHEET_ID).getSheetByName('분배금').getDataRange().getValues();
+  const cyc = {};
+  for (let i = 4; i < v.length; i++) {
+    const t = _padTicker(v[i][1]), c = String(v[i][3] || '').trim();
+    if (t && c && c !== '디폴트' && !cyc[t]) cyc[t] = c;
+  }
+  const sh = getSheet('holdings'), rows = sh.getDataRange().getValues();
+  let n = 0;
+  for (let i = 1; i < rows.length; i++) {
+    if (!rows[i][0] || String(rows[i][7] || '').split('|')[0].trim()) continue;
+    const c = cyc[_padTicker(rows[i][2])]; if (!c) continue;
+    sh.getRange(i + 1, 8).setValue(c); n++;
+  }
+  console.log('배당주기 빈 종목 채움 ' + n + '개');
 }
 
 // 분배금 탭 '아버지'·IRP 칸 손질(2026-10-01). 이 칸들은 맨 아래 USD 줄(SPYI)을 틀로 복사해 만들어져
