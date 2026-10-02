@@ -7148,7 +7148,6 @@ function importDividends(srcId) {
 // D열을 보고 칠하므로 줄을 더해도 따라간다. 값이 든 칸만 칠한다(빈 칸의 '입력할 곳' 노랑은 그대로 보인다).
 // 여러 번 돌려도 같다 — 이 함수가 만든 규칙(수식에 $D)을 지우고 다시 넣는다.
 const DIV_CYC_COLORS = { 월중: '#d0f0ee', 월말: '#e6dcf7', 분기배당: '#d9f2d9', 반기배당: '#fdf0cc' };   // 분기·반기는 2026-10-02 추가 요청(앱 표와 같은 초록·노랑 계열)
-const DIV_CYC_D_COLORS = { 월중: '#00ffff', 월말: '#ff0000' };   // D열 글자칸: 깨지기 전 사용자 규칙의 두 색 그대로
 function restoreDivCycleColors() {
   const sh = SpreadsheetApp.openById(ASSET_SHEET_ID).getSheetByName('분배금');
   const v = sh.getDataRange().getValues(), last = sh.getLastRow();
@@ -7162,8 +7161,9 @@ function restoreDivCycleColors() {
     && r.getRanges().every(g => g.getColumn() === 4 && g.getNumColumns() === 1); } catch (e) { return false; } };
   const rules = sh.getConditionalFormatRules().filter(r => !mine(r) && !brokenD(r) && !mineD(r));
   const added = [];
-  Object.keys(DIV_CYC_D_COLORS).forEach(cyc => {
-    rules.push(SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo(cyc).setBackground(DIV_CYC_D_COLORS[cyc])
+  // D열 글자칸도 숫자칸과 **같은 색**(2026-10-02 사용자: 빨강이 너무 진하다 · 왼쪽 월중 글자에 오른쪽 숫자칸 색을 맞추자)
+  Object.keys(DIV_CYC_COLORS).forEach(cyc => {
+    rules.push(SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo(cyc).setBackground(DIV_CYC_COLORS[cyc])
       .setRanges([sh.getRange(5, 4, last - 4, 1)]).build());
     added.push('D5:D' + last + ' ' + cyc);
   });
