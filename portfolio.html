@@ -2245,8 +2245,19 @@ async function loadDividendGrid() {
   const curYear = parseInt(year) === new Date().getFullYear();
   // 올해 화면은 '배당을 받았거나 지금 보유 중'만. 올해 중에 팔았고 배당도 없는 종목까지
   // 넣으면 빈 줄만 쏟아진다. 지난 연도는 그때 보유했으면 기록으로 남긴다.
-  holdings = holdings.filter(h => paidThisYear.has(h.id.toString())
-                                  || (curYear ? (parseFloat(h.quantity) || 0) > 0 : heldThatYear(h.id)));
+  // 올해 화면의 판 종목(수량 0)은 **마지막 배당까지 입력되면 숨긴다**(2026-10-02 사용자: "매도한 거나 없어진 건 배당금 입력하면 그다음에 숨김").
+  // 마지막 보유 달 = 원금월별(costMap)에서 수량이 있던 가장 늦은 달. 그 달 이후 배당이 들어와 있으면 끝난 것으로 본다.
+  // 보유 달 기록이 없으면(오래전에 판 종목) 바로 숨긴다. 기록은 지우지 않는다 — 지난 연도 화면엔 그대로 보인다.
+  const soldDone = id => {
+    let lastHeld = 0, lastDiv = 0;
+    for (let m = 1; m <= 12; m++) { const cb = (costMap || {})[`${id}_${m}`]; if (cb && (parseFloat(cb.qty) || 0) > 0) lastHeld = m; }
+    (allDivs || []).forEach(d => { if (String(d.holding_id) === String(id) && String(d.year) === String(year) && parseFloat(d.amount) > 0) lastDiv = Math.max(lastDiv, +d.month); });
+    // 판 지 두 달이 넘었으면 마지막 배당도 이미 지났다 — 입력이 빠졌어도 숨긴다
+    return !lastHeld || lastDiv >= lastHeld || (new Date().getMonth() + 1) - lastHeld >= 2;
+  };
+  holdings = holdings.filter(h => curYear
+    ? ((parseFloat(h.quantity) || 0) > 0 || (paidThisYear.has(h.id.toString()) && !soldDone(h.id)))
+    : (paidThisYear.has(h.id.toString()) || heldThatYear(h.id)));
   holdings = sortHoldings(holdings);
 
   const divMap = {};
@@ -2466,8 +2477,19 @@ async function loadDivRateGrid() {
   const curYear = parseInt(year) === new Date().getFullYear();
   // 올해 화면은 '배당을 받았거나 지금 보유 중'만. 올해 중에 팔았고 배당도 없는 종목까지
   // 넣으면 빈 줄만 쏟아진다. 지난 연도는 그때 보유했으면 기록으로 남긴다.
-  holdings = holdings.filter(h => paidThisYear.has(h.id.toString())
-                                  || (curYear ? (parseFloat(h.quantity) || 0) > 0 : heldThatYear(h.id)));
+  // 올해 화면의 판 종목(수량 0)은 **마지막 배당까지 입력되면 숨긴다**(2026-10-02 사용자: "매도한 거나 없어진 건 배당금 입력하면 그다음에 숨김").
+  // 마지막 보유 달 = 원금월별(costMap)에서 수량이 있던 가장 늦은 달. 그 달 이후 배당이 들어와 있으면 끝난 것으로 본다.
+  // 보유 달 기록이 없으면(오래전에 판 종목) 바로 숨긴다. 기록은 지우지 않는다 — 지난 연도 화면엔 그대로 보인다.
+  const soldDone = id => {
+    let lastHeld = 0, lastDiv = 0;
+    for (let m = 1; m <= 12; m++) { const cb = (costMap || {})[`${id}_${m}`]; if (cb && (parseFloat(cb.qty) || 0) > 0) lastHeld = m; }
+    (allDivs || []).forEach(d => { if (String(d.holding_id) === String(id) && String(d.year) === String(year) && parseFloat(d.amount) > 0) lastDiv = Math.max(lastDiv, +d.month); });
+    // 판 지 두 달이 넘었으면 마지막 배당도 이미 지났다 — 입력이 빠졌어도 숨긴다
+    return !lastHeld || lastDiv >= lastHeld || (new Date().getMonth() + 1) - lastHeld >= 2;
+  };
+  holdings = holdings.filter(h => curYear
+    ? ((parseFloat(h.quantity) || 0) > 0 || (paidThisYear.has(h.id.toString()) && !soldDone(h.id)))
+    : (paidThisYear.has(h.id.toString()) || heldThatYear(h.id)));
   holdings = sortHoldings(holdings);
 
   const divMap = {};
