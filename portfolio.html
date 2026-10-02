@@ -2914,7 +2914,7 @@ async function loadDashboard() {
 
   // 자산 / 수익률
   let costAll = 0, valued = 0, valuedCost = 0;
-  const perHolding = [];
+  const perHolding = [], perAcc = {};   // 계좌별 원금·평가 — 계좌 그래프 머리글을 포트폴리오 탭 손익과 같게(2026-10-02)
   holdings.forEach(h => {
     const qty = parseFloat(h.quantity)||0, avg = parseFloat(h.avg_price)||0;
     const costK = (h.currency==='USD'? avg*qty*rate : avg*qty);
@@ -2926,6 +2926,7 @@ async function loadDashboard() {
     const plK = valK - costK, plPct = costK>0? plK/costK*100 : 0;
     const acc = (state.accounts || []).find(a => a.id === h.account_id);
     perHolding.push({ name:h.name||h.ticker, acc: acc ? acc.name : '', plPct, plK });
+    if (acc) { const o = perAcc[acc.name] = perAcc[acc.name] || { v: 0, c: 0 }; o.v += valK; o.c += costK; }
   });
   const pl = valued - valuedCost, plPct = valuedCost>0? pl/valuedCost*100 : 0;
 
@@ -3044,6 +3045,7 @@ async function loadDashboard() {
   plEl.style.color = pl>=0? 'var(--red)':'var(--accent)';
   // 누적수익률 차트 헤더를 대시보드 손익(원금 대비)과 통일하기 위해 저장
   window._dashV = valued; window._dashPl = pl; window._dashPlPct = plPct;
+  window._dashAcc = priceCount ? perAcc : null;
   document.getElementById('ds-annual').textContent = Math.round(annualActual).toLocaleString();
   document.getElementById('ds-aftertax').textContent = '확정 입력분';
   document.getElementById('ds-projected').textContent = Math.round(annualProj).toLocaleString();
@@ -3129,7 +3131,7 @@ async function loadPortfolioLog() {
       _plLog = data;
       renderPlChart();
     } else {
-      if (el) el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:20px;text-align:center">데이터 없음 — GAS 트리거 실행 후 확인 (매일 10·13·16시 자동 저장, 16시 확정)</div>';
+      if (el) el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:20px;text-align:center">데이터 없음 — GAS 트리거 실행 후 확인 (매일 10·12·14시·종가 자동 저장, 종가 확정)</div>';
     }
   } catch(e) {
     if (el) el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:20px;text-align:center">로드 실패</div>';
@@ -3223,8 +3225,8 @@ function renderPlChart() {
     return k;
   };
 
-  // 하루 3회(10·13·16시) 스냅샷 중 가장 늦은 슬롯이 그 날의 값. 16시가 확정값이고
-  // 10·13시 값은 당일 중 임시로 쓰이다 16시 값으로 덮인다.
+  // 하루 4회(10·12·14시·종가) 스냅샷 중 가장 늦은 슬롯이 그 날의 값. 종가(slot 16)가 확정값이고
+  // 그 전 값은 당일 중 임시로 쓰인다(옛 기록엔 13 슬롯도 있다).
   const byAcc = {};
   _plLog.items.forEach(it => {
     const acc = it.account_name || it.account_id;
@@ -3311,19 +3313,28 @@ function renderPlChart() {
     if(seg.length>1)path+=`<polyline points="${seg.join(' ')}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linejoin="round"/>`;
     const li=pts.reduceRight((f,v,i)=>f!=null?f:(v!=null?i:null),null);
     const lv=pts.reduceRight((f,v)=>f??v,null);
-    // 16시 확정 전(10·13시 슬롯)이면 마지막 점을 속 빈 원으로 그려 미확정임을 표시
+    // 종가 확정 전(10·12·14시 슬롯)이면 마지막 점을 속 빈 원으로 그려 미확정임을 표시
     const prov = _plMode==='day' && li!=null && ((dataMap[keys[li]]||{})._slot||16) < 16;
     if(li!=null)path+=`<circle cx="${toX(li).toFixed(1)}" cy="${toY(lv).toFixed(1)}" r="3" fill="${prov?'var(--bg2)':color}" stroke="${color}" stroke-width="${prov?1.5:0}"/>`;
     // 이어 붙인 날은 속 빈 원 — 실제 기록과 구분한다(총합 차트와 같은 표시).
     path+=[...estIdx].map(i=>`<circle cx="${toX(i).toFixed(1)}" cy="${toY(pts[i]).toFixed(1)}" r="2.5" fill="var(--bg2)" stroke="${color}" stroke-width="1.2"/>`).join('');
-    const diff=lv-valid[0], dc=diff>=0?'var(--red)':'var(--accent)';
+    const diff=lv-valid[0];
+    // 머리글은 포트폴리오 탭과 같은 **지금 평가액·원금 대비 손익**. 예전엔 '그래프 첫날 대비 변동'을 손익 자리에 써서
+    // 포트폴리오 탭(+64만)과 부호까지 달라 보였다(2026-10-02 사용자 지적). 기간 변동은 작게 따로 적는다.
+    const da=(window._dashAcc||{})[acc];
+    const hv=da?da.v:lv, hp=da?da.v-da.c:null;
+    const pc=v=>v>=0?'var(--red)':'var(--accent)', sg=v=>(v>=0?'+':'')+Math.round(v).toLocaleString();
     const label=acc.replace('재남 ','').replace('은경 ','');
+    const from=fmtX(keys[0])+(_plMode==='day'?'일':'');
     return `<div style="background:${bgColor};border:1px solid ${color}33;border-radius:8px;padding:10px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:1px">
         <span style="font-size:10px;font-weight:600;color:${color};white-space:nowrap">${label}</span>
-        <span style="font-family:var(--mono);font-size:12px;font-weight:700;color:var(--text)">${fmt억(lv)}</span>
+        <span style="font-family:var(--mono);font-size:12px;font-weight:700;color:var(--text)">${fmt억(hv)}</span>
       </div>
-      <div style="font-size:9px;color:${dc};margin-bottom:4px;font-family:var(--mono)">${diff>=0?'+':''}${fmt억(diff)}</div>
+      <div style="font-size:9px;margin-bottom:4px;font-family:var(--mono);display:flex;justify-content:space-between;gap:6px">
+        ${hp!=null?`<span style="color:${pc(hp)}" title="지금 평가액 − 매입원금 (포트폴리오 탭과 같은 값)">손익 ${sg(hp)}</span>`:'<span></span>'}
+        <span style="color:${pc(diff)}" title="그래프 첫 시점(${from}) 대비 평가액 변동 — 입금·매수도 여기 섞인다">${from} 대비 ${diff>=0?'+':''}${fmt억(diff)}</span>
+      </div>
       <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;overflow:visible">${yWm}${mWm}${yLines}${mSep}${xSvg}${path}</svg>
     </div>`;
   };
@@ -3468,12 +3479,12 @@ function renderPlChart() {
       </div>`);
   }
 
-  // 마지막 날짜가 16시 확정 전이면(10·13시 슬롯) 안내를 붙인다.
+  // 마지막 날짜가 종가 확정 전이면(10·12·14시 슬롯) 안내를 붙인다.
   const lastKey = keys[keys.length-1];
   let lastSlot = 0;
   Object.values(byAcc).forEach(m => { if (m[lastKey]) lastSlot = Math.max(lastSlot, m[lastKey]._slot||16); });
   const slotNote = (_plMode==='day' && lastSlot && lastSlot < 16)
-    ? `<span style="font-size:11px;font-weight:600;color:#d97706;margin-left:8px">${fmtX(lastKey)}일 ${lastSlot}:00 기준 · 16:00 확정 전</span>`
+    ? `<span style="font-size:11px;font-weight:600;color:#d97706;margin-left:8px">${fmtX(lastKey)}일 ${lastSlot}:00 기준 · 종가(15:30) 확정 전</span>`
     : '';
 
   // 이어 붙인 날이 보이는 구간에 있으면 그 사실을 적는다. 표시 없이 이으면
@@ -5637,7 +5648,7 @@ function renderMasterCalendar(allData) {
       }).join('')}</tbody>
     </table>` : `<div style="font-size:12px;color:var(--text3)">${selM}월 일정 정보가 없습니다</div>`;
   document.getElementById('distScheduleList').innerHTML = tableHtml;
-  equalizeSingleRows(document.querySelector('#distScheduleList table'));
+  // 운용사별 일정 표의 HANARO(월말 한 줄)는 키우지 않는다 — 두 줄 높이로 키운 빈 칸이 오히려 거슬린다(2026-10-02 요청). 공지 표만 맞춘다.
 }
 
 // 운용사 카드 하단 '특별 공지' 줄. 좌측 공지 패널이 쓰는 _noticeData를 그대로 재사용한다(새 데이터 소스 0).
@@ -6706,7 +6717,7 @@ function equalizeSingleRows(table, reset) {
   if (h) single.forEach(r => { r.style.height = (h * 2) + 'px'; });   // 숨은 탭(높이 0)에선 건너뛴다 — 탭을 열 때 다시 맞춘다
 }
 // 탭이 숨겨진 채 그려지면 높이를 못 재므로, 달력 크기가 바뀔 때(탭을 열 때 포함) 두 표를 다시 맞춘다
-try { new ResizeObserver(() => { fitNoticeToCal(); equalizeSingleRows(document.querySelector('#distScheduleList table')); }).observe(document.getElementById('distMasterCalendar')); } catch(e) {}
+try { new ResizeObserver(() => { fitNoticeToCal(); }).observe(document.getElementById('distMasterCalendar')); } catch(e) {}
 
 function renderNotices() {
   const grid = document.getElementById('noticeGrid');
