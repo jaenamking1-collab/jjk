@@ -3159,6 +3159,25 @@ async function loadPlCash() {
     if (q > pq) add(r.account_id, r.day, -krw(q * a - pq * pa, r.currency), 'buy');
     else if (q < pq) add(r.account_id, r.day, krw((pq - q) * (px[tkOf[r.holding_id]] || pa), r.currency), 'sell');
   });
+  // ⚠️ 보유변동에 잡혔어도 **실제 매매가 아닌 것**(동기화로 종목을 다시 등록·옛 기록 채워 넣기)이 있다. 2026-10-02: IRP 두 계좌를
+  //    9/29 에 다시 등록한 기록이 '매수 6천만'으로 잡혀 총합계가 6.43억→5.79억으로 꺼졌다(수익로그 값은 그대로였다).
+  //    그래서 그날 그 계좌의 **수익로그 값이 매매만큼 실제로 움직였을 때만** 매매로 친다(같은 방향, 매매액의 40% 이상).
+  const dayVal = {};
+  ((_plLog && _plLog.items) || []).forEach(it => { const n = it.account_name, d = iso(it.date), sl = Number(it.slot) || 16;
+    const o = (dayVal[n] = dayVal[n] || {}); if (!o[d] || sl >= o[d].sl) o[d] = { v: +it.value || 0, sl }; });
+  const skipped = {};
+  Object.keys(ev).forEach(n => {
+    const byDay = {}; ev[n].forEach(e => { byDay[e.date] = (byDay[e.date] || 0) + e.amt; });
+    const dv = dayVal[n] || {}, ds = Object.keys(dv).sort();
+    const bad = new Set(Object.keys(byDay).filter(d => {
+      const prev = ds.filter(x => x < d).pop(), cur = ds.filter(x => x <= d).pop();
+      if (!prev || !cur || cur === prev) return true;                 // 비교할 값이 없으면 매매로 단정하지 않는다
+      const moved = dv[cur].v - dv[prev].v, trade = -byDay[d];        // 매수면 trade > 0, 평가액도 올라야 한다
+      return !(Math.sign(moved) === Math.sign(trade) && Math.abs(moved) >= 0.4 * Math.abs(trade));
+    }));
+    skipped[n] = ev[n].filter(e => bad.has(e.date)).length;
+    ev[n] = ev[n].filter(e => !bad.has(e.date));
+  });
   // 분배금 — 지급일로
   const pay = {};                                     // 'M|티커' → {m, d}
   months.forEach((m, i) => Object.values((dms[i] && dms[i].sources) || {}).forEach(v => (v.items || []).forEach(it => {
@@ -3183,7 +3202,7 @@ async function loadPlCash() {
     // 같은 날이면 분배금 먼저(들어온 돈으로 산다)
     ev[n].sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : (a.kind === 'div' ? 0 : 1) - (b.kind === 'div' ? 0 : 1));
     let c = 0, lo = 0; ev[n].forEach(e => { c += e.amt; lo = Math.min(lo, (startCash[n] || 0) + c); });
-    info[n] = { cum: c, short: lo < 0 ? -lo : 0, div: ev[n].filter(e => e.kind === 'div').reduce((t, e) => t + e.amt, 0) };
+    info[n] = { cum: c, short: lo < 0 ? -lo : 0, div: ev[n].filter(e => e.kind === 'div').reduce((t, e) => t + e.amt, 0), skip: skipped[n] || 0 };
   });
   return { ev, info, start: START };
 }
@@ -3409,7 +3428,7 @@ function renderPlChart() {
       </div>
       ${(()=>{const ci=_plCash&&_plCash.info[acc]; if(!ci) return '';
         const s2=_plCash.start.slice(5).replace('-','/');
-        return `<div style="font-size:9px;margin-bottom:4px;font-family:var(--mono);color:var(--text)" title="${s2} 뒤 들어온 분배금(지급일 기준)·매매로 생긴 현금을 그래프에 더했다">${s2} 뒤 분배금 +${Math.round(ci.div).toLocaleString()} · 현금 ${sg(ci.cum)}</div>`
+        return `<div style="font-size:9px;margin-bottom:4px;font-family:var(--mono);color:var(--text)" title="${s2} 뒤 들어온 분배금(지급일 기준)·매매로 생긴 현금을 그래프에 더했다">${s2} 뒤 분배금 +${Math.round(ci.div).toLocaleString()} · 현금 ${sg(ci.cum)}${ci.skip?` · 다시 등록으로 보인 변동 ${ci.skip}건 제외`:''}</div>`
           + (ci.short ? `<div style="font-size:9px;margin-bottom:4px;color:#b45309" title="기준일 예수금과 그 뒤 분배금보다 더 샀다. 다른 데서 입금했거나 분배금을 아직 안 넣은 것">⚠ 예수금보다 ${Math.round(ci.short).toLocaleString()} 더 매수 — 외부 입금이면 알려 주세요</div>` : '');})()}
       <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;overflow:visible">${yWm}${mWm}${yLines}${mSep}${xSvg}${path}</svg>
     </div>`;
