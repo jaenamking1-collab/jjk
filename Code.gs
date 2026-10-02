@@ -5825,12 +5825,19 @@ function _diagScoreWeek() {
   const ASOF = '2026-09-28';
   const hs = getHoldings(), divs = getDividends(), sum = getAccountSummary(), log = (getHoldingLog() || {}).items || [];
   const er = fetchExchangeRate() || 1400;
-  const accOf = {}; hs.forEach(h => accOf[String(h.id)] = String(h.account_id));
+  const accOf = {}, tkOf = {}; hs.forEach(h => { accOf[String(h.id)] = String(h.account_id); tkOf[String(h.id)] = String(h.ticker || '').trim().toUpperCase(); });
+  log.forEach(r => { if (!tkOf[r.holding_id]) tkOf[r.holding_id] = String(r.ticker || '').trim().toUpperCase(); });
+  const cyc = {};                                     // 9월 분배 종목 → '중'(기준일 20일 이하) / '말'
+  Object.values((getDistributionMonth(9) || {}).sources || {}).forEach(v => (v.items || []).forEach(it => {
+    const md = _mdOfSched((it.sched || {})['기준일'] || (it.sched || {})['지급일']); if (!md) return;
+    const t = String(it.ticker || '').trim().toUpperCase(); if (t) cyc[t] = (cyc[t] === '말' ? '말' : (md.d <= 20 ? '중' : '말')); }));
   log.forEach(r => { if (!accOf[r.holding_id]) accOf[r.holding_id] = String(r.account_id); });
   const by = {};
   const B = a => by[a] = by[a] || { m: {}, amt: {}, wk: [] };
   divs.forEach(d => { const a = accOf[String(d.holding_id)], v = +d.amount || 0; if (!a || !v) return;
     const ym = d.year + '-' + String(d.month).padStart(2, '0'), o = B(a);
+    if (ym === '2026-09') { const c = cyc[tkOf[String(d.holding_id)]] || '?'; o.c = o.c || { 중: 0, 말: 0, '?': 0 }; o.c[c]++;
+      if (c === '말') o.late = (o.late || 0) + (d.currency === 'USD' ? v * (+d.rate || er) : v); }
     o.m[ym] = (o.m[ym] || 0) + 1; o.amt[ym] = (o.amt[ym] || 0) + (d.currency === 'USD' ? v * (+d.rate || er) : v); });
   log.filter(r => r.date.slice(0, 10) > ASOF).forEach(r => B(String(r.account_id)).wk.push(r.date.slice(5, 10) + ' ' + r.kind));
   Object.keys(by).forEach(a => {
@@ -5841,6 +5848,7 @@ function _diagScoreWeek() {
       + ' | 분배 입력건수 7월 ' + (o.m['2026-07'] || 0) + ' 8월 ' + (o.m['2026-08'] || 0) + ' 9월 ' + (o.m['2026-09'] || 0) + ' 10월 ' + (o.m['2026-10'] || 0)
       + ' | 9월분÷8월분 ' + pct(o.amt['2026-09'] || 0, o.amt['2026-08'] || 0)
       + ' | 앱입력(~9월)÷요약분배 ' + pct(upto, sd)
+      + ' | 9월 회차 중/말/모름 ' + (o.c ? o.c['중'] + '/' + o.c['말'] + '/' + o.c['?'] : '-') + ' 9월말분÷요약분배 ' + pct(o.late || 0, sd)
       + ' | 9/29~ 보유변동 ' + (o.wk.length ? o.wk.join(', ') : '없음'));
   });
 }
