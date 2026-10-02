@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices'
 ];
 
 function runMaint(name, arg) {
@@ -5984,6 +5984,30 @@ function _diagDivRate(arg) {
       + ' · 원금월별 달 ' + Object.keys(cm).filter(x => x.indexOf(h.id + '_') === 0).map(x => x.split('_').pop()).join(','));
   });
   console.log('배당 있는 종목 ' + total + '개 중 표시 ' + shown + '개');
+}
+
+// IRP 종목 가격이 제대로 들어오나 — 종목마다 앱 시세(getLivePrices)·시세로그 마지막 기록일·주식상황 G값을 나란히 찍고,
+// 오늘 수익로그 16시(종가) 값이 '수량 × 시세' 합과 맞는지 %로 본다. 금액·수량은 찍지 않는다(1주 가격은 공개 정보).
+function _diagIrpPrices() {
+  const ss = SpreadsheetApp.openById(SHEET_ID), today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
+  const live = (getLivePrices() || {}).prices || {};
+  const plog = {}; (ss.getSheetByName('시세로그').getDataRange().getValues()).slice(1).forEach(r => { const t = String(r[1] || '').trim().toUpperCase(), d = _logDay(r[0]); if (t && d && (!plog[t] || d >= plog[t].d)) plog[t] = { d, p: +r[2] }; });
+  const st = SpreadsheetApp.openById(ASSET_SHEET_ID).getSheetByName('주식상황').getDataRange().getValues(), sg = {};
+  st.forEach(r => { const t = String(r[1] || '').replace(/^'/, '').trim().toUpperCase(); if (t) sg[t] = r[6]; });
+  const snap = {}; ss.getSheetByName('수익로그').getDataRange().getValues().slice(1).forEach(r => { if (_logDay(r[0]) === today && (+r[3] || 16) === 16) snap[String(r[1])] = +r[2]; });
+  const er = fetchExchangeRate() || 1400, hs = getHoldings();
+  getAccounts().filter(a => /IRP/i.test(a.name)).forEach(a => {
+    let sum = 0, miss = 0;
+    console.log('■ ' + a.name);
+    hs.filter(h => h.account_id === a.id && (+h.quantity || 0) > 0).forEach(h => {
+      const t = String(h.ticker).trim().toUpperCase(), lp = live[t] || {}, pl = plog[t];
+      const cur = +lp.current || 0; if (!cur) miss++; else sum += (h.currency === 'USD' ? er : 1) * cur * (+h.quantity);
+      console.log('  ' + t + ' ' + String(h.name || '').slice(0, 14) + ' | 앱시세 ' + (cur || '없음') + (lp.date ? ' (' + lp.date + ')' : '')
+        + ' | 시세로그 ' + (pl ? pl.d + ' ' + pl.p : '없음') + ' | 주식상황G ' + (sg[t] === undefined ? '줄없음' : sg[t]));
+    });
+    const sv = snap[a.name];
+    console.log('  → 오늘 종가 기록 ' + (sv ? '있음, 수량×앱시세 합 대비 ' + (sum ? (sv / sum * 100).toFixed(1) + '%' : '-') : '없음') + (miss ? ' · 시세 없는 종목 ' + miss : ''));
+  });
 }
 
 // 운용사 파서를 캐시 없이 한 번 돌려 **회차별 건수와 일정**을 찍는다. 아무것도 쓰지 않는다.
