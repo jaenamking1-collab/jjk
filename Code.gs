@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs'
 ];
 
 function runMaint(name, arg) {
@@ -3693,7 +3693,8 @@ function markInputCells() {
   }
 
   const cycles = Object.keys(due);
-  if (!cycles.length) { console.log('지급일 ±2일인 회차 없음 — 표시 없음 (묵은 표시 ' + cleared + '개 제거)'); return; }
+  if (!cycles.length) { console.log('지급일 ±2일인 회차 없음 — 표시 없음 (묵은 표시 ' + cleared + '개 제거)');
+    try { autoFillIrpDivs(); } catch (e) { console.log('IRP 자동 입력 실패 — ' + e); } return; }
 
   // 2) 지급이 임박한 회차의 달 칸만 칠한다.
   let marked = 0;
@@ -3712,6 +3713,7 @@ function markInputCells() {
     done.push(cyc + '→' + due[cyc].y + '년 ' + due[cyc].m + '월');
   });
   console.log(done.join(' · ') + ' : ' + marked + '칸 표시 (묵은 표시 ' + cleared + '개 제거)');
+  try { autoFillIrpDivs(); } catch (e) { console.log('IRP 자동 입력 실패 — ' + e); }   // 매일 08:30 함께
 }
 
 // 'yyyy-MM-dd' 문자열 또는 Date → 'yyyy-MM-dd'
@@ -7129,11 +7131,62 @@ function applyDivFixes(srcId) {
   const sh = SpreadsheetApp.openById(ASSET_SHEET_ID).getSheetByName('분배금');
   let ok = 0, skip = 0;
   src.forEach(r => {
-    const c = sh.getRange(+r[0], +r[1]), cur = +c.getValue() || 0;
-    if (Math.abs(cur - (+r[2] || 0)) > 0.5) { skip++; console.log(c.getA1Notation() + ' 건너뜀 — 지금 값이 예상과 다름'); return; }
-    c.setValue(+r[3]); ok++; console.log(c.getA1Notation() + ' 고침');
+    const c = sh.getRange(+r[0], +r[1]), cur = c.getValue();
+    const same = (x, y) => (String(y).trim() !== '' && !isNaN(+y)) ? Math.abs((+x || 0) - +y) <= 0.5 : String(x).trim() === String(y).trim();
+    if (!same(cur, r[2])) { skip++; console.log(c.getA1Notation() + ' 건너뜀 — 지금 값이 예상과 다름'); return; }
+    if (String(r[3]).trim() === '') c.clearContent(); else c.setValue(+r[3]);
+    ok++; console.log(c.getA1Notation() + ' 고침');
   });
   console.log('고침 ' + ok + ' · 건너뜀 ' + skip);
+}
+
+// ── IRP 분배금 자동 입력 (2026-10-02 사용자 결정) ──────────────────
+// IRP 는 세금을 떼지 않으므로 입금액 = **분배락 전날 보유 수량 × 좌당 분배금** 이 원 단위까지 맞는다
+// (확인: 재남 IRP TIGER 리츠부동산인프라 9월 = 767주 × 33원 = 25,311원 = 카카오 입금 알림).
+// 은경 IRP 입금 알림은 재남에게 오지 않아 확인할 길이 없었다 → 계산으로 채운다.
+// 규칙: 분배금 탭에서 '재남 IRP'·'은경 IRP' 칸의 ETF 줄 · 지급일이 지난 회차만 · **빈 칸만**(손으로 넣은 값은 안 건드림)
+//       · 칸 = 기준일의 달 · 수량 = 앱 보유변동에서 분배락일 **전** 마지막 기록(없으면 지금 수량을 쓰지 않고 건너뜀).
+// 채운 칸엔 메모('자동: N주 × M원')를 단다. 로그엔 금액을 안 찍는다(공개 로그).
+function autoFillIrpDivs() {
+  const today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd'), y = +today.slice(0, 4);
+  const md = s => { const m = /(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})|(\d{1,2})\s*월\s*(\d{1,2})\s*일|(\d{1,2})\s*[\/.]\s*(\d{1,2})/.exec(String(s || ''));
+    return m ? { m: +(m[2] || m[4] || m[6]), d: +(m[3] || m[5] || m[7]) } : null; };
+  const ymd = (yy, o) => yy + '-' + ('0' + o.m).slice(-2) + '-' + ('0' + o.d).slice(-2);
+  // 회차 모으기: 이번 회차 + 지난 두 달(늦게 돌아도 놓치지 않게)
+  const rounds = [];                                           // {t, amt, base, pay, rakil}
+  const take = it => { const sc = it.sched || {}, b = md(sc['기준일']), p = md(sc['지급일']); const amt0 = parseFloat(String(it.amount || '').replace(/,/g, '')); if (!b || !p || !(amt0 > 0)) return;
+    const by = (b.m > +today.slice(5, 7) + 1) ? y - 1 : y, py = (p.m < b.m) ? by + 1 : by;
+    const rk = md(sc['분배락일']);
+    rounds.push({ t: String(it.ticker || '').trim().toUpperCase(), amt: amt0, bm: b.m, by, pay: ymd(py, p), base: ymd(by, b), rakil: rk ? ymd(by, rk) : null }); };
+  Object.values((getDistributionAll() || {}).sources || {}).forEach(v => (v.items || []).forEach(take));
+  const nowM = +today.slice(5, 7);
+  [nowM - 1, nowM - 2].map(m => m < 1 ? m + 12 : m).forEach(m => Object.values((getDistributionMonth(m) || {}).sources || {}).forEach(v => (v.items || []).forEach(take)));
+  // 보유변동(앱) — IRP 계좌의 종목별 수량 이력
+  const accs = getAccounts().filter(a => /IRP/i.test(a.name));
+  const accOf = n => accs.find(a => String(a.name).indexOf(n.slice(0, 2)) === 0);
+  const log = ((getHoldingLog() || {}).items || []).map(r => Object.assign({}, r, { day: r.date.slice(0, 10) })).sort((a, b) => a.date < b.date ? -1 : 1);
+  const qtyBefore = (accId, t, day) => { let q = null; log.forEach(r => { if (String(r.account_id) === String(accId) && String(r.ticker).toUpperCase() === t && r.day < day) q = +r.quantity; }); return q; };
+  const sh = SpreadsheetApp.openById(ASSET_SHEET_ID).getSheetByName('분배금');
+  const v = sh.getDataRange().getValues();
+  let block = '', filled = 0, skipped = 0, noQty = 0;
+  for (let i = 4; i < v.length; i++) {
+    if (String(v[i][0] || '').trim()) block = String(v[i][0]).trim();
+    if (!/IRP/i.test(block)) continue;
+    const t = String(v[i][1] || '').trim().toUpperCase(); if (!t) continue;
+    const acc = accOf(block); if (!acc) continue;
+    rounds.filter(r => r.t === t && r.pay <= today).forEach(r => {
+      const st = _yearBlockStart(false, v, r.by); if (st < 0) return;
+      const col = st + r.bm - 1;
+      if (String(v[i][col] == null ? '' : v[i][col]).trim() !== '') { skipped++; return; }   // 이미 값 있음
+      const q = qtyBefore(acc.id, t, r.rakil || r.base);
+      if (!q) { noQty++; return; }
+      const amt = Math.round(q * r.amt);
+      sh.getRange(i + 1, col + 1).setValue(amt).setNote('자동: ' + q + '주 × ' + r.amt + '원 (' + r.base + ' 기준, ' + r.pay + ' 지급)');
+      v[i][col] = amt; filled++;
+      console.log(sh.getRange(i + 1, col + 1).getA1Notation() + ' 자동 입력 (' + block + ' ' + t + ' ' + r.bm + '월)');
+    });
+  }
+  console.log('IRP 자동 입력 ' + filled + '칸 · 이미 값 있음 ' + skipped + ' · 수량 기록 없음 ' + noQty);
 }
 
 // 분배금 탭 '아버지'·IRP 칸 손질(2026-10-01). 이 칸들은 맨 아래 USD 줄(SPYI)을 틀로 복사해 만들어져
