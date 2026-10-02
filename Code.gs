@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay'
 ];
 
 function runMaint(name, arg) {
@@ -5856,6 +5856,46 @@ function _diagScoreWeek() {
       + ' | 9월 회차 중/말/모름 ' + (o.c ? o.c['중'] + '/' + o.c['말'] + '/' + o.c['?'] : '-') + ' 9월말분÷요약분배 ' + pct(o.late || 0, sd)
       + ' | 9/29~ 보유변동 ' + (o.wk.length ? o.wk.join(', ') : '없음'));
   });
+}
+
+// 계좌 그래프의 하루하루 오르내림을 **시세 때문 / 매매(수량 변화) 때문**으로 나눠 찍는다. 금액은 안 찍고 % 만.
+// 왜: 그래프는 '보유 종목 평가액'이라 팔면(현금으로 빠지면) 손실이 아닌데도 선이 떨어진다(2026-10-02 "이 그래프가 맞냐").
+// arg = 계좌 이름 일부(예: '은경 키움 일반').
+function _diagAccDay(arg) {
+  const ss = SpreadsheetApp.openById(SHEET_ID), er = fetchExchangeRate() || 1400;
+  const acc = getAccounts().find(a => String(a.name).indexOf(arg || '은경 키움 일반') >= 0);
+  if (!acc) { console.log('계좌 없음: ' + arg); return; }
+  const snap = {};                                                   // day → {v, slot}
+  ss.getSheetByName('수익로그').getDataRange().getValues().slice(1).forEach(r => {
+    if (String(r[1]) !== String(acc.name)) return;
+    const d = _logDay(r[0]), sl = (r[3] === '' || r[3] == null) ? 16 : +r[3];
+    if (d && (!snap[d] || sl >= snap[d].slot)) snap[d] = { v: +r[2] || 0, slot: sl };
+  });
+  const px = {};                                                     // day|ticker → price
+  ss.getSheetByName('시세로그').getDataRange().getValues().slice(1).forEach(r => {
+    const d = _logDay(r[0]), t = String(r[1] || '').trim().toUpperCase(); if (d && t && +r[2] > 0) px[d + '|' + t] = +r[2]; });
+  const live = (getLivePrices() || {}).prices || {}, today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
+  const price = (d, t) => px[d + '|' + t] || (d === today && live[t] && +live[t].current) || 0;
+  const log = ((getHoldingLog() || {}).items || []).filter(r => String(r.account_id) === String(acc.id))
+    .map(r => Object.assign({}, r, { day: r.date.slice(0, 10) })).sort((a, b) => a.date < b.date ? -1 : 1);
+  const qtyAt = d => { const q = {}; log.forEach(r => { if (r.day <= d) q[r.holding_id] = { q: r.quantity, t: String(r.ticker || '').trim().toUpperCase(), usd: r.currency === 'USD' }; }); return q; };
+  const days = Object.keys(snap).sort().slice(-9);
+  console.log(acc.name + ' — 마지막 9개 기록일(슬롯) · 그래프 변동 = 시세 효과 + 매매 효과 + 그 밖(환율·시세 빈칸) · 전부 전날 평가액 대비 %');
+  for (let i = 1; i < days.length; i++) {
+    const d0 = days[i - 1], d1 = days[i], v0 = snap[d0].v, v1 = snap[d1].v, q0 = qtyAt(d0), q1 = qtyAt(d1);
+    let pe = 0, te = 0, miss = 0, nNew = 0, nGone = 0, nChg = 0;
+    Object.keys(Object.assign({}, q0, q1)).forEach(id => {
+      const a = q0[id] || { q: 0 }, b = q1[id] || { q: 0, t: a.t, usd: a.usd }, t = b.t || a.t, k = (b.usd || a.usd) ? er : 1;
+      const p0 = price(d0, t), p1 = price(d1, t);
+      if (a.q !== b.q) { nChg++; if (!a.q) nNew++; if (!b.q) nGone++; }
+      if (!p1 || (a.q && !p0)) { if (a.q || b.q) miss++; return; }
+      if (a.q) pe += a.q * (p1 - p0) * k;
+      te += (b.q - a.q) * p1 * k;
+    });
+    const f = x => (x >= 0 ? '+' : '') + (x / v0 * 100).toFixed(2) + '%';
+    console.log(d1.slice(5) + '(' + snap[d1].slot + '시) 그래프 ' + f(v1 - v0) + ' = 시세 ' + f(pe) + ' + 매매 ' + f(te) + ' + 그 밖 ' + f(v1 - v0 - pe - te)
+      + (nChg ? ' · 수량 바뀐 종목 ' + nChg + '(새 ' + nNew + '·전량 ' + nGone + ')' : '') + (miss ? ' · 시세 빈칸 ' + miss : ''));
+  }
 }
 
 // 운용사 파서를 캐시 없이 한 번 돌려 **회차별 건수와 일정**을 찍는다. 아무것도 쓰지 않는다.
