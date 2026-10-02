@@ -7134,7 +7134,7 @@ function applyDivFixes(srcId) {
     const c = sh.getRange(+r[0], +r[1]), cur = c.getValue();
     const same = (x, y) => (String(y).trim() !== '' && !isNaN(+y)) ? Math.abs((+x || 0) - +y) <= 0.5 : String(x).trim() === String(y).trim();
     if (!same(cur, r[2])) { skip++; console.log(c.getA1Notation() + ' 건너뜀 — 지금 값이 예상과 다름'); return; }
-    if (String(r[3]).trim() === '') c.clearContent(); else c.setValue(+r[3]);
+    if (String(r[3]).trim() === '') c.clearContent().clearNote(); else c.setValue(+r[3]);
     ok++; console.log(c.getA1Notation() + ' 고침');
   });
   console.log('고침 ' + ok + ' · 건너뜀 ' + skip);
@@ -7176,14 +7176,18 @@ function autoFillIrpDivs() {
     const acc = accOf(block); if (!acc) continue;
     rounds.filter(r => r.t === t && r.pay <= today).forEach(r => {
       const st = _yearBlockStart(false, v, r.by); if (st < 0) return;
-      const col = st + r.bm - 1;
+      // 칸의 달: 월배당(월중·월말)은 **기준일의 달**, 분기·반기 등은 **지급일의 달** — 사용자가 시트에 적어 온 방식 그대로
+      // (은경 IRP RISE 미국나스닥100 분기: 1·4·7월 칸 = 1/2·4/2·7/2 지급. 9/30 기준 → 10월 칸).
+      const cyc = String(v[i][3] || '').replace(/\s/g, ''), mon = (cyc === '월말' || cyc === '월중') ? r.bm : +r.pay.slice(5, 7);
+      const st2 = (cyc === '월말' || cyc === '월중') ? st : _yearBlockStart(false, v, +r.pay.slice(0, 4)); if (st2 < 0) return;
+      const col = st2 + mon - 1;
       if (String(v[i][col] == null ? '' : v[i][col]).trim() !== '') { skipped++; return; }   // 이미 값 있음
       const q = qtyBefore(acc.id, t, r.rakil || r.base);
       if (!q) { noQty++; return; }
       const amt = Math.round(q * r.amt);
       sh.getRange(i + 1, col + 1).setValue(amt).setNote('자동: ' + q + '주 × ' + r.amt + '원 (' + r.base + ' 기준, ' + r.pay + ' 지급)');
       v[i][col] = amt; filled++;
-      console.log(sh.getRange(i + 1, col + 1).getA1Notation() + ' 자동 입력 (' + block + ' ' + t + ' ' + r.bm + '월)');
+      console.log(sh.getRange(i + 1, col + 1).getA1Notation() + ' 자동 입력 (' + block + ' ' + t + ' ' + mon + '월 칸)');
     });
   }
   console.log('IRP 자동 입력 ' + filled + '칸 · 이미 값 있음 ' + skipped + ' · 수량 기록 없음 ' + noQty);
