@@ -953,7 +953,7 @@ function renderMasterCalendar(allData){
       }).join('')}</tbody>
     </table>` : `<div style="font-size:12px;color:var(--text3)">${selM}월 일정 정보가 없습니다</div>`;
   document.getElementById('distScheduleList').innerHTML = tableHtml;
-  equalizeSingleRows(document.querySelector('#distScheduleList table'));
+  // 운용사별 일정 표의 HANARO(월말 한 줄)는 키우지 않는다(2026-10-02 요청, 앱과 같음). 공지 표만 맞춘다.
 }
 
 // ── 공지 제목 → 통일 형식 ──
@@ -1478,7 +1478,6 @@ function showSection(name){
   window.scrollTo(0, 0);
   // 숨겨진 채 그려진 표는 높이를 못 재서 한 줄짜리 운용사(HANARO)가 반쪽으로 남는다 — 보이게 된 지금 다시 맞춘다
   fitNoticeToCal();
-  equalizeSingleRows(document.querySelector('#distScheduleList table'));
 }
 showSection('cal');
 
