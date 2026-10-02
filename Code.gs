@@ -7147,13 +7147,13 @@ function importDividends(srcId) {
 // 원래 색값은 남은 기록이 없어 앱 화면과 같은 계열로 다시 만든다: 월중 = 연한 청록, 월말 = 연한 보라.
 // D열을 보고 칠하므로 줄을 더해도 따라간다. 값이 든 칸만 칠한다(빈 칸의 '입력할 곳' 노랑은 그대로 보인다).
 // 여러 번 돌려도 같다 — 이 함수가 만든 규칙(수식에 $D)을 지우고 다시 넣는다.
-const DIV_CYC_COLORS = { 월중: '#d0f0ee', 월말: '#e6dcf7' };
+const DIV_CYC_COLORS = { 월중: '#d0f0ee', 월말: '#e6dcf7', 분기배당: '#d9f2d9', 반기배당: '#fdf0cc' };   // 분기·반기는 2026-10-02 추가 요청(앱 표와 같은 초록·노랑 계열)
 const DIV_CYC_D_COLORS = { 월중: '#00ffff', 월말: '#ff0000' };   // D열 글자칸: 깨지기 전 사용자 규칙의 두 색 그대로
 function restoreDivCycleColors() {
   const sh = SpreadsheetApp.openById(ASSET_SHEET_ID).getSheetByName('분배금');
   const v = sh.getDataRange().getValues(), last = sh.getLastRow();
   const starts = []; for (let hr = 0; hr < 3; hr++) (v[hr] || []).forEach((x, c) => { if (/^\d{4}년$/.test(String(x).replace(/\s/g, ''))) starts.push(c + 1); });
-  const mine = r => { try { const b = r.getBooleanCondition(); return b && b.getCriteriaType() === SpreadsheetApp.BooleanCriteria.CUSTOM_FORMULA && /\$D5="월(중|말)"/.test(b.getCriteriaValues()[0]); } catch (e) { return false; } };
+  const mine = r => { try { const b = r.getBooleanCondition(); return b && b.getCriteriaType() === SpreadsheetApp.BooleanCriteria.CUSTOM_FORMULA && /\$D5="(월중|월말|분기배당|반기배당)"/.test(b.getCriteriaValues()[0]); } catch (e) { return false; } };
   // D열(배당구분) 글자 색 규칙: 원래 사용자 규칙 2개(빨강·청록)가 10/1 규칙 재설정 때 조건이 'NUMBER_EQUAL_TO 0' 으로
   // 깨져 아무 칸에도 안 맞았다(2026-10-02 "월중 월말 표기 부분 색이 안 변해"). 깨진 둘을 지우고 글자 일치 규칙으로 다시 넣는다.
   const brokenD = r => { try { const b = r.getBooleanCondition(); return b && b.getCriteriaType() === SpreadsheetApp.BooleanCriteria.NUMBER_EQUAL_TO
