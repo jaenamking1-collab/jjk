@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes'
 ];
 
 function runMaint(name, arg) {
@@ -7120,6 +7120,20 @@ function restoreDivCycleColors() {
   });
   sh.setConditionalFormatRules(rules);
   console.log('월중/월말 색 규칙 ' + added.length + '개: ' + added.join(' · ') + ' · 전체 규칙 ' + rules.length + '개');
+}
+
+// 분배금 탭 칸 고치기. 금액은 저장소·로그에 남기지 않으려고 **비공개 시트(srcId)** 에서 읽는다: [행, 열, 지금값, 새값, 메모].
+// 지금 칸 값이 '지금값'과 다르면 건드리지 않는다(그 사이 사용자가 고쳤을 수 있다). 로그엔 행·열·결과만.
+function applyDivFixes(srcId) {
+  const src = SpreadsheetApp.openById(srcId).getSheets()[0].getDataRange().getValues().slice(1).filter(r => r[0]);
+  const sh = SpreadsheetApp.openById(ASSET_SHEET_ID).getSheetByName('분배금');
+  let ok = 0, skip = 0;
+  src.forEach(r => {
+    const c = sh.getRange(+r[0], +r[1]), cur = +c.getValue() || 0;
+    if (Math.abs(cur - (+r[2] || 0)) > 0.5) { skip++; console.log(c.getA1Notation() + ' 건너뜀 — 지금 값이 예상과 다름'); return; }
+    c.setValue(+r[3]); ok++; console.log(c.getA1Notation() + ' 고침');
+  });
+  console.log('고침 ' + ok + ' · 건너뜀 ' + skip);
 }
 
 // 분배금 탭 '아버지'·IRP 칸 손질(2026-10-01). 이 칸들은 맨 아래 USD 줄(SPYI)을 틀로 복사해 만들어져
