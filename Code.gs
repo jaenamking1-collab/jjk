@@ -4665,6 +4665,8 @@ function getHoldingLog() {
 }
 
 // ── 수익로그 ──────────────────────────────
+// [시, 분] — 10·12·14시와 종가. 종가는 15:50 ±15분(트리거 오차)이라 빨라도 15:35, 장 마감(15:30) 뒤다.
+const SNAPSHOT_TIMES = [[10, 5], [12, 5], [14, 5], [15, 50]];
 function snapshotPortfolio() {
   // 보유변동은 주말에도 남긴다(앱에서 수량을 고칠 수 있다). 실패해도 수익로그는 계속 찍혀야 한다.
   try { snapshotHoldingChanges(); } catch (e) { console.log('보유변동 기록 실패: ' + e); }
@@ -4673,16 +4675,19 @@ function snapshotPortfolio() {
   const ss = SpreadsheetApp.openById(SHEET_ID);
   let log = ss.getSheetByName('수익로그');
   if (!log) { log = ss.insertSheet('수익로그'); log.appendRow(['date','account_name','value','slot']); }
-  // 하루 3회(10·13·16시) 스냅샷. 슬롯은 실제 실행 시각(KST)으로 판정하며 16시가 그날 확정값.
-  const hour = parseInt(Utilities.formatDate(new Date(), 'Asia/Seoul', 'HH'), 10);
-  const slot = hour < 12 ? 10 : hour < 15 ? 13 : 16;
+  // 하루 4회(10·12·14시 + 장 마감 15:30 뒤) 스냅샷(2026-10-02 요청). 슬롯은 실제 실행 시각(KST)으로 판정하며 16(종가)이 그날 확정값.
+  // 트리거는 지정 분 ±15분에 돈다 — 14:05 트리거가 13:50 에 돌아도 14 슬롯이 되게 경계를 정시 1시간 앞에 둔다.
+  const hm = parseInt(Utilities.formatDate(new Date(), 'Asia/Seoul', 'HHmm'), 10);
+  const slot = hm < 1100 ? 10 : hm < 1300 ? 12 : hm < 1500 ? 14 : 16;
   const today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
   if (log.getRange(1, 4).getValue() !== 'slot') log.getRange(1, 4).setValue('slot');
   const existing = log.getDataRange().getValues();
   // 같은 날짜의 '같은 슬롯'만 교체 → 다른 슬롯 값은 보존.
   // slot이 빈 과거 행(구 1회/일 트리거)은 확정값으로 보고 16으로 간주한다.
   for (let i = existing.length - 1; i >= 1; i--) {
-    if (!existing[i][0] || existing[i][0].toString() !== today) continue;
+    // 날짜 칸은 Date 로 읽힌다 — toString() 비교는 늘 달라 같은 슬롯이 교체되지 않고 쌓였다
+    const d0 = existing[i][0] instanceof Date ? Utilities.formatDate(existing[i][0], 'Asia/Seoul', 'yyyy-MM-dd') : String(existing[i][0] || '');
+    if (d0 !== today) continue;
     const rowSlot = (existing[i][3] === '' || existing[i][3] == null) ? 16 : Number(existing[i][3]);
     if (rowSlot === slot) log.deleteRow(i + 1);
   }
@@ -4748,7 +4753,7 @@ function snapshotPortfolio() {
   if (out.length) log.getRange(log.getLastRow() + 1, 1, out.length, 4).setValues(out);
 }
 
-// 수익로그 스냅샷 트리거를 10·13·16시 3개로 재설정. 스크립트 편집기에서 1회만 실행하면 된다.
+// 수익로그 스냅샷 트리거를 10·12·14시·종가 4개로 재설정. 스크립트 편집기에서 1회만 실행하면 된다.
 // setupPortfolioTriggers()는 파일 맨 아래 '수동 실행' 섹션으로 옮김.
 
 function getPortfolioLog() {
@@ -4914,15 +4919,15 @@ function setupDistTriggers() {
   console.log('checkDistNotices 트리거 30분 간격 재설정 완료(창 날·09~18시만 통과)');
 }
 
-// 수익로그 스냅샷 트리거: 매일 10·13·16시.
+// 수익로그 스냅샷 트리거: 매일 10·12·14시 + 종가(15:50±15분 → 장 마감 15:30 뒤).
 function setupPortfolioTriggers() {
   ScriptApp.getProjectTriggers()
     .filter(t => t.getHandlerFunction() === 'snapshotPortfolio')
     .forEach(t => ScriptApp.deleteTrigger(t));
-  [10, 13, 16].forEach(h => {
-    ScriptApp.newTrigger('snapshotPortfolio').timeBased().atHour(h).nearMinute(5).everyDays(1).create();
+  SNAPSHOT_TIMES.forEach(([h, m]) => {
+    ScriptApp.newTrigger('snapshotPortfolio').timeBased().atHour(h).nearMinute(m).everyDays(1).create();
   });
-  console.log('snapshotPortfolio 트리거 3개(10·13·16시) 재설정 완료');
+  console.log('snapshotPortfolio 트리거 4개(10·12·14시·종가) 재설정 완료');
 }
 
 // 시세로그 압축 트리거: 매주 일요일 새벽 4시. compactPriceLog가 30일 이내만 일별 유지,
@@ -5503,7 +5508,7 @@ const TRIGGER_PLAN = [
   ['flushKakaoPending',      () => ScriptApp.newTrigger('flushKakaoPending').timeBased().atHour(8).nearMinute(10).everyDays(1).create()],
   ['flushCalPending',        () => ScriptApp.newTrigger('flushCalPending').timeBased().atHour(8).nearMinute(10).everyDays(1).create()],
   ['distWatchdog',           () => ScriptApp.newTrigger('distWatchdog').timeBased().atHour(8).nearMinute(30).everyDays(1).create()],
-  ['snapshotPortfolio',      () => [10, 13, 16].forEach(h => ScriptApp.newTrigger('snapshotPortfolio').timeBased().atHour(h).nearMinute(5).everyDays(1).create())],
+  ['snapshotPortfolio',      () => SNAPSHOT_TIMES.forEach(([h, m]) => ScriptApp.newTrigger('snapshotPortfolio').timeBased().atHour(h).nearMinute(m).everyDays(1).create())],
   ['snapshotPrices',         () => ScriptApp.newTrigger('snapshotPrices').timeBased().atHour(16).everyDays(1).create()],
   ['pushTrendData',          () => ScriptApp.newTrigger('pushTrendData').timeBased().atHour(16).nearMinute(40).everyDays(1).create()],
   ['buildPerfScores',        () => ScriptApp.newTrigger('buildPerfScores').timeBased().atHour(8).nearMinute(20).everyDays(1).create()],
