@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors'
 ];
 
 function runMaint(name, arg) {
@@ -5910,6 +5910,31 @@ function _diagPlTotal() {
   console.log('계좌 | ' + days.map(d => d.slice(5)).join(' | '));
   accs.forEach(a => console.log(a + ' | ' + days.map(d => by[d][a] ? (by[d][a].v / base * 100).toFixed(1) : '·').join(' | ')));
   console.log('합계 | ' + days.map(d => (Object.values(by[d]).reduce((t, x) => t + x.v, 0) / base * 100).toFixed(1)).join(' | '));
+}
+
+// 분배금 탭의 색 현황(금액 없이): 월별칸(G~R, 각 연도 블록) 배경색별 칸 수 · D열 회차별 줄 수 · 조건부서식 규칙 목록.
+function _diagDivColors() {
+  const sh = SpreadsheetApp.openById(ASSET_SHEET_ID).getSheetByName('분배금');
+  const rg = sh.getDataRange(), v = rg.getValues(), bg = rg.getBackgrounds(), cols = _monthCols(false, v);
+  const hdr = []; for (let hr = 0; hr < 3; hr++) (v[hr] || []).forEach((x, c) => { if (/^\d{4}년$/.test(String(x).replace(/\s/g, ''))) hdr.push(String(x).trim() + '@' + c); });
+  console.log('연도 블록: ' + hdr.join(', ') + ' · 행 ' + v.length);
+  const byColor = {}, byCyc = {};
+  for (let i = 4; i < v.length; i++) {
+    const cyc = String(v[i][3] || '').trim() || '(빈)'; byCyc[cyc] = (byCyc[cyc] || 0) + 1;
+    cols.forEach(c => { const k = String(bg[i][c]).toLowerCase(); const y = Math.floor(cols.indexOf(c) / 12);
+      const key = (hdr[y] || '?').split('@')[0] + ' ' + k + (String(v[i][c]).trim() === '' ? ' 빈칸' : ' 값'); byColor[key] = (byColor[key] || 0) + 1; });
+  }
+  console.log('D열 회차별 줄: ' + JSON.stringify(byCyc));
+  Object.keys(byColor).sort().forEach(k => console.log('  ' + k + ': ' + byColor[k]));
+  // 올해 블록 월별 노랑(#ffff00) 칸 위치
+  const yellow = [];
+  for (let i = 4; i < v.length; i++) cols.forEach((c, j) => { if (String(bg[i][c]).toLowerCase() === '#ffff00') yellow.push((hdr[Math.floor(j / 12)] || '?').split('@')[0] + ' ' + (j % 12 + 1) + '월 ' + (i + 1) + '행 ' + (String(v[i][c]).trim() === '' ? '빈칸' : '값') + ' ' + String(v[i][3] || '').trim()); });
+  console.log('노랑 칸 ' + yellow.length + ': ' + yellow.slice(0, 40).join(' / '));
+  const rules = sh.getConditionalFormatRules();
+  console.log('조건부서식 ' + rules.length + '개');
+  rules.forEach((r, k) => { let cond = ''; try { const b = r.getBooleanCondition(); if (b) cond = b.getCriteriaType() + ' ' + JSON.stringify(b.getCriteriaValues()) + ' 배경 ' + b.getBackground(); } catch (e) {}
+    try { if (!cond && r.getGradientCondition()) cond = '그라데이션'; } catch (e) {}
+    console.log('  #' + k + ' ' + r.getRanges().map(g => g.getA1Notation()).join(',') + ' · ' + cond); });
 }
 
 // 운용사 파서를 캐시 없이 한 번 돌려 **회차별 건수와 일정**을 찍는다. 아무것도 쓰지 않는다.
