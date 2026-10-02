@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate'
 ];
 
 function runMaint(name, arg) {
@@ -5947,6 +5947,26 @@ function _diagSnapSlots() {
   rows.forEach(r => { const d = _logDay(r[0]); if (!d) return; const sl = (r[3] === '' || r[3] == null) ? 16 : +r[3];
     by[d] = by[d] || {}; by[d][sl] = (by[d][sl] || 0) + 1; });
   Object.keys(by).sort().slice(-3).forEach(d => console.log(d + ' | ' + Object.keys(by[d]).sort((a, b) => a - b).map(k => k + '시 ' + by[d][k] + '계좌').join(' · ')));
+}
+
+// 분배금 표의 실분배율·환산분배율을 종목 하나로 재현한다(금액 없이 %·건수만). arg = 티커.
+function _diagDivRate(arg) {
+  const t = String(arg || '329200').trim().toUpperCase(), y = new Date().getFullYear(), er = fetchExchangeRate() || 1400;
+  const accs = {}; getAccounts().forEach(a => accs[String(a.id)] = a.name);
+  const cm = getCostBasis(y), divs = getDividends(y), lp = (getLivePrices() || {}).prices || {};
+  getHoldings().filter(h => String(h.ticker).trim().toUpperCase() === t).forEach(h => {
+    const k = v => h.currency === 'USD' ? v * er : v;
+    const investKrw = k((+h.avg_price || 0) * (+h.quantity || 0));
+    const ds = divs.filter(d => String(d.holding_id) === String(h.id) && +d.amount > 0);
+    let tot = 0, invSum = 0, invN = 0; const ms = [];
+    ds.forEach(d => { tot += k(+d.amount); ms.push(d.month); const cb = cm[h.id + '_' + d.month];
+      const invM = cb ? k(+cb.cost) : investKrw; if (invM > 0) { invSum += invM; invN++; } });
+    const avg = invN ? invSum / invN : investKrw, cur = +((lp[t] || {}).current) || 0;
+    console.log((accs[String(h.account_id)] || '?') + ' | 수량 ' + (+h.quantity > 0 ? '있음' : '0') + ' · 평단÷현재가 ' + (cur ? (100 * h.avg_price / cur).toFixed(0) + '%' : '-')
+      + ' · 배당 입력 달 ' + ms.sort((a, b) => a - b).join(',') + ' · 분모(평균원금)÷지금원금 ' + (investKrw ? (100 * avg / investKrw).toFixed(0) + '%' : '-')
+      + ' · 실분배율 ' + (avg ? (tot / avg * 100).toFixed(2) : '-') + '% · 환산(×12) ' + (avg && ms.length ? (tot / ms.length * 12 / avg * 100).toFixed(2) : '-') + '%'
+      + ' · 원금월별 달 ' + Object.keys(cm).filter(x => x.indexOf(h.id + '_') === 0).map(x => x.split('_').pop()).join(','));
+  });
 }
 
 // 운용사 파서를 캐시 없이 한 번 돌려 **회차별 건수와 일정**을 찍는다. 아무것도 쓰지 않는다.
