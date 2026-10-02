@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula'
 ];
 
 function runMaint(name, arg) {
@@ -7267,6 +7267,23 @@ function fillMissingDivCycles() {
     sh.getRange(i + 1, 8).setValue(c); n++;
   }
   console.log('배당주기 빈 종목 채움 ' + n + '개');
+}
+
+// 분배금 탭 U열(연배당률) 은 **마지막으로 입력된 달 × 12** 로 연환산한다. 주배당(TSLY)은 이번 달이 아직 1~2주치뿐이라
+// 그 달 값으로 환산하면 크게 낮게 나온다(2026-10-02: 10월 첫 주 $7.43 × 12 → 0.84%, 실제 약 50%).
+// 주배당 줄만 '지난달(다 받은 달)' 값을 쓰도록 수식의 pDiv 한 줄을 바꾼다. 다른 줄·다른 부분은 안 건드린다.
+function fixWeeklyYieldFormula() {
+  const sh = SpreadsheetApp.openById(ASSET_SHEET_ID).getSheetByName('분배금'), v = sh.getDataRange().getValues();
+  let n = 0;
+  for (let i = 4; i < v.length; i++) {
+    if (String(v[i][3] || '').trim() !== '주배당') continue;
+    const c = sh.getRange(i + 1, 21), f = c.getFormula(), r = i + 1;
+    const re = new RegExp('pDiv,\\s*LOOKUP\\(9\\^99,G' + r + ':R' + r + '\\),');
+    if (!re.test(f)) { console.log(c.getA1Notation() + ' 수식 모양이 달라 건너뜀'); continue; }
+    c.setFormula(f.replace(re, 'pDiv,  IF(MONTH(TODAY())>1, INDEX(G' + r + ':R' + r + ', MONTH(TODAY())-1), LOOKUP(9^99,G' + r + ':R' + r + ')),'));
+    n++; console.log(c.getA1Notation() + ' 주배당 → 지난달 기준으로 고침');
+  }
+  console.log('고친 줄 ' + n);
 }
 
 // 분배금 탭 '아버지'·IRP 칸 손질(2026-10-01). 이 칸들은 맨 아래 USD 줄(SPYI)을 틀로 복사해 만들어져
