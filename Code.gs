@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots'
 ];
 
 function runMaint(name, arg) {
@@ -5938,6 +5938,15 @@ function _diagDivColors() {
   rules.forEach((r, k) => { let cond = ''; try { const b = r.getBooleanCondition(); if (b) cond = b.getCriteriaType() + ' ' + JSON.stringify(b.getCriteriaValues()) + ' 배경 ' + b.getBackground(); } catch (e) {}
     try { if (!cond && r.getGradientCondition()) cond = '그라데이션'; } catch (e) {}
     console.log('  #' + k + ' ' + r.getRanges().map(g => g.getA1Notation()).join(',') + ' · ' + cond); });
+}
+
+// 수익로그 최근 3일의 슬롯(10·12·13·14·16)별 계좌 수 — 금액 없이. 하루 4회 기록이 실제로 찍히는지 확인용(2026-10-02).
+function _diagSnapSlots() {
+  const rows = SpreadsheetApp.openById(SHEET_ID).getSheetByName('수익로그').getDataRange().getValues().slice(1);
+  const by = {};
+  rows.forEach(r => { const d = _logDay(r[0]); if (!d) return; const sl = (r[3] === '' || r[3] == null) ? 16 : +r[3];
+    by[d] = by[d] || {}; by[d][sl] = (by[d][sl] || 0) + 1; });
+  Object.keys(by).sort().slice(-3).forEach(d => console.log(d + ' | ' + Object.keys(by[d]).sort((a, b) => a - b).map(k => k + '시 ' + by[d][k] + '계좌').join(' · ')));
 }
 
 // 운용사 파서를 캐시 없이 한 번 돌려 **회차별 건수와 일정**을 찍는다. 아무것도 쓰지 않는다.
