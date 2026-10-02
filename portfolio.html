@@ -2049,8 +2049,8 @@ async function renderHoldingsTable(holdings) {
     });
     // 배당주기 기반 연간 회수 (filledM 개수로만 나누면 반기/분기 과대평가)
     const cycStr = (h.div_cycle||'').split('|')[0];
-    const annualCount = /주배당/.test(cycStr) ? 52
-      : /월/.test(cycStr) ? 12
+    // 주배당도 12 — 분배금 기록은 **한 달에 한 건(그 달 합계)**이다. 52 를 곱하면 4.3배 부푼다(2026-10-02 TSLY 125.58%).
+    const annualCount = /주배당|월/.test(cycStr) ? 12
       : /분기/.test(cycStr) ? 4
       : /반기/.test(cycStr) ? 2
       : filledM.size > 0 ? (12/filledM.size) : 0;
@@ -2357,7 +2357,8 @@ async function loadDividendGrid() {
     const realRate = (investAvgKrw > 0 && rowTotalKrw > 0) ? (rowTotalKrw / investAvgKrw * 100).toFixed(2) : '-';
     const filledMonths = months.filter(m => { const key=`${h.id}_${m}`; return divMap[key] && parseFloat(divMap[key].amount) > 0; }).length;
     const cycStr2 = (h.div_cycle||'').split('|')[0];
-    const ac2 = /주배당/.test(cycStr2) ? 52 : /월/.test(cycStr2) ? 12 : /분기/.test(cycStr2) ? 4 : /반기/.test(cycStr2) ? 2 : filledMonths > 0 ? (12/filledMonths) : 0;
+    // 주배당도 ×12 — 표의 칸은 **한 달 합계**다(주 4~5회분을 더한 값). ×52 로 하면 4.3배 부풀었다(2026-10-02 TSLY 125.58%).
+    const ac2 = /주배당|월/.test(cycStr2) ? 12 : /분기/.test(cycStr2) ? 4 : /반기/.test(cycStr2) ? 2 : filledMonths > 0 ? (12/filledMonths) : 0;
     const annualRate = (investAvgKrw > 0 && filledMonths > 0 && rowTotalKrw > 0 && ac2 > 0) ? (rowTotalKrw / filledMonths * ac2 / investAvgKrw * 100).toFixed(2) : '-';
     const divRowBg = h.currency === 'USD' ? '#fffbeb' : getAccColor(h.account_id);
     const acctCell = isGroupStart
@@ -2627,7 +2628,8 @@ async function loadDivRateGrid() {
     const realRate = (investAvgKrw > 0 && rowTotalKrw > 0) ? (rowTotalKrw / investAvgKrw * 100).toFixed(2) : '-';
     const filledMonths = months.filter(m => amtArr[m-1] > 0).length;
     const cycStr2 = (h.div_cycle||'').split('|')[0];
-    const ac2 = /주배당/.test(cycStr2) ? 52 : /월/.test(cycStr2) ? 12 : /분기/.test(cycStr2) ? 4 : /반기/.test(cycStr2) ? 2 : filledMonths > 0 ? (12/filledMonths) : 0;
+    // 주배당도 ×12 — 표의 칸은 **한 달 합계**다(주 4~5회분을 더한 값). ×52 로 하면 4.3배 부풀었다(2026-10-02 TSLY 125.58%).
+    const ac2 = /주배당|월/.test(cycStr2) ? 12 : /분기/.test(cycStr2) ? 4 : /반기/.test(cycStr2) ? 2 : filledMonths > 0 ? (12/filledMonths) : 0;
     const annualRate = (investAvgKrw > 0 && filledMonths > 0 && rowTotalKrw > 0 && ac2 > 0) ? (rowTotalKrw / filledMonths * ac2 / investAvgKrw * 100).toFixed(2) : '-';
     const divRowBg = h.currency === 'USD' ? '#fffbeb' : getAccColor(h.account_id);
     const acctCell = isGroupStart
