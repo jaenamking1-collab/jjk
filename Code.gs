@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll'
 ];
 
 function runMaint(name, arg) {
@@ -5760,6 +5760,55 @@ function _diagScorecard() {
   const noSum = {};
   hs.forEach(h => { if (!getAccountSummary().some(s => String(s.account_id) === String(h.account_id))) noSum[h.account_id] = 1; });
   console.log('전체 검산차이 ' + pct(tot.gap, tot.dep) + ' · 계좌요약에 없는 앱 계좌 ' + Object.keys(noSum).length + '개');
+}
+
+// 계좌 성적표의 '기준일 뒤 굴리기'(portfolio.html rollScorecard)를 서버에서 그대로 재현해 **계좌마다 무엇이 숫자를 움직였는지** 찍는다.
+// ⛔ 공개 저장소의 Actions 로그로 나가므로 **금액은 찍지 않는다** — 투자원금 대비 % · 건수 · 날짜만. 아무것도 쓰지 않는다.
+// 왜: 2026-10-02 "계좌성적표 수치가 매우 잘못" — 보유 종목이 새 id 로 다시 만들어지면 '전량 매도 + 새 매수'로 읽혀
+// 실현손익·투자원금이 부푼다는 의심을 데이터로 확인하려고.
+function _diagScoreRoll() {
+  const ASOF = '2026-09-28';                       // portfolio.html SCORECARD_ASOF 와 같아야 한다
+  const er = fetchExchangeRate() || 1400;
+  const lp = (getLivePrices() || {}).prices || {};
+  const px = t => ((lp[String(t || '').trim().toUpperCase()] || {}).current) || 0;
+  const k = (v, cur, rate) => cur === 'USD' ? v * (rate || er) : v;
+  const hs = getHoldings(), log = (getHoldingLog() || {}).items || [], divs = getDividends();
+  const at = {}, ev = [], cnt = {};
+  const C = a => cnt[a] = cnt[a] || { buy: 0, sell: 0, gone: 0, neu: 0, div: 0, realized: 0, divAmt: 0, dates: {} };
+  const step = (id, acc, cur, t, qty, avg, date, kind) => {
+    const p = at[id];
+    at[id] = { qty, avg, acc, cur, t };
+    if (date <= ASOF || kind === 'base') return;
+    const pq = p ? p.qty : 0, pa = p ? p.avg : 0;
+    if (qty > pq) { const cost = k(qty * avg - pq * pa, cur); if (cost > 0) { ev.push({ date, acc, amt: -cost }); C(acc).buy++; if (kind === 'new') C(acc).neu++; C(acc).dates[date] = 1; } }
+    else if (qty < pq) { const pr = px(t) || pa, sold = pq - qty; ev.push({ date, acc, amt: k(sold * pr, cur) });
+      C(acc).realized += k((pr - pa) * sold, cur); C(acc).sell++; if (kind === 'gone') C(acc).gone++; C(acc).dates[date] = 1; }
+  };
+  log.slice().sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0)
+     .forEach(r => step(r.holding_id, r.account_id, r.currency, r.ticker, r.quantity, r.avg_price, r.date.slice(0, 10), r.kind));
+  const today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd'), seen = {};
+  hs.forEach(h => { const id = String(h.id); seen[id] = 1; const p = at[id], q = +h.quantity || 0, a = +h.avg_price || 0;
+    if (p && p.qty === q && p.avg === a) return;
+    step(id, String(h.account_id), h.currency, h.ticker, q, a, today, p ? '' : (log.length ? 'new' : 'base')); });
+  Object.keys(at).forEach(id => { const p = at[id]; if (!seen[id] && p.qty) step(id, p.acc, p.cur, p.t, 0, p.avg, today, 'gone'); });
+  divs.forEach(d => { const ym = d.year + '-' + String(d.month).padStart(2, '0'), amt = +d.amount || 0;
+    if (ym <= ASOF.slice(0, 7) || !amt) return;
+    const h = hs.find(x => String(x.id) === String(d.holding_id)); const acc = h ? String(h.account_id) : at[d.holding_id] && at[d.holding_id].acc;
+    if (!acc) return; const v = k(amt, d.currency, +d.rate); ev.push({ date: ym + '-01', acc, amt: v }); C(acc).div++; C(acc).divAmt += v; });
+  ev.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+  console.log('보유변동 ' + log.length + '줄 · 마지막 기록일 ' + (log.length ? log.map(r => r.date.slice(0, 10)).sort().pop() : '-') + ' · 오늘 ' + today);
+  const pct = (a, b) => b ? (a / b * 100).toFixed(1) + '%' : '-';
+  getAccountSummary().concat(hs.filter(h => !getAccountSummary().some(s => String(s.account_id) === String(h.account_id)))
+      .map(h => ({ account_id: h.account_id, name: '(요약없음)' })).filter((x, i, a) => a.findIndex(y => String(y.account_id) === String(x.account_id)) === i))
+    .forEach(s => {
+      const id = String(s.account_id), c = cnt[id] || C(id);
+      let cash = (+s.cash || 0) + (+s.cash_usd || 0) * er, added = 0;
+      ev.filter(e => e.acc === id).forEach(e => { cash += e.amt; if (cash < 0) { added -= cash; cash = 0; } });
+      const dep = (+s.deposit || 0) + (+s.transfer || 0) + (+s.inkind || 0);
+      console.log(String(s.name || '').slice(0, 2) + '#' + id.slice(-3) + ' | 매수 ' + c.buy + '(새종목 ' + c.neu + ') 매도 ' + c.sell + '(사라짐 ' + c.gone + ') 분배 ' + c.div
+        + ' | 새로넣은돈 ' + pct(added, dep) + ' 추정실현 ' + pct(c.realized, dep) + ' 추가분배 ' + pct(c.divAmt, dep)
+        + ' 예수금(굴린뒤) ' + pct(cash, dep) + ' | 변동일 ' + Object.keys(c.dates).sort().join(','));
+    });
 }
 
 // 운용사 파서를 캐시 없이 한 번 돌려 **회차별 건수와 일정**을 찍는다. 아무것도 쓰지 않는다.
