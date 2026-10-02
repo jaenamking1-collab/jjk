@@ -5951,22 +5951,35 @@ function _diagSnapSlots() {
 
 // 분배금 표의 실분배율·환산분배율을 종목 하나로 재현한다(금액 없이 %·건수만). arg = 티커.
 function _diagDivRate(arg) {
-  const t = String(arg || '329200').trim().toUpperCase(), y = new Date().getFullYear(), er = fetchExchangeRate() || 1400;
+  // arg 없으면 **전 종목 점검** — 연환산이 2% 미만·40% 초과이거나 평단이 현재가와 크게 다르면 표시(사용자가 하나씩 찾지 않게).
+  const t = String(arg || '').trim().toUpperCase(), y = new Date().getFullYear(), er = fetchExchangeRate() || 1400;
   const accs = {}; getAccounts().forEach(a => accs[String(a.id)] = a.name);
   const cm = getCostBasis(y), divs = getDividends(y), lp = (getLivePrices() || {}).prices || {};
-  getHoldings().filter(h => String(h.ticker).trim().toUpperCase() === t).forEach(h => {
+  let shown = 0, total = 0;
+  getHoldings().filter(h => !t || String(h.ticker).trim().toUpperCase() === t).forEach(h => {
     const k = v => h.currency === 'USD' ? v * er : v;
     const investKrw = k((+h.avg_price || 0) * (+h.quantity || 0));
     const ds = divs.filter(d => String(d.holding_id) === String(h.id) && +d.amount > 0);
     let tot = 0, invSum = 0, invN = 0; const ms = [];
     ds.forEach(d => { tot += k(+d.amount); ms.push(d.month); const cb = cm[h.id + '_' + d.month];
       const invM = cb ? k(+cb.cost) : investKrw; if (invM > 0) { invSum += invM; invN++; } });
-    const avg = invN ? invSum / invN : investKrw, cur = +((lp[t] || {}).current) || 0;
-    console.log((accs[String(h.account_id)] || '?') + ' | 수량 ' + (+h.quantity > 0 ? '있음' : '0') + ' · 평단÷현재가 ' + (cur ? (100 * h.avg_price / cur).toFixed(0) + '%' : '-')
+    const tk = String(h.ticker).trim().toUpperCase();
+    const avg = invN ? invSum / invN : investKrw, cur = +((lp[tk] || {}).current) || 0;
+    if (!ms.length) return;
+    total++;
+    const cyc = String(h.div_cycle || '').split('|')[0], ac = /주|월/.test(cyc) ? 12 : /분기/.test(cyc) ? 4 : /반기/.test(cyc) ? 2 : 12 / ms.length;
+    const ann = avg ? tot / ms.length * ac / avg * 100 : 0, pr = cur ? 100 * h.avg_price / cur : 100;
+    const why = [];
+    if (!(ann >= 2 && ann <= 40)) why.push('연환산 ' + ann.toFixed(1) + '%');
+    if (+h.quantity > 0 && (pr < 50 || pr > 200)) why.push('평단÷현재가 ' + pr.toFixed(0) + '%');
+    if (!t && !why.length) return;
+    shown++;
+    console.log((why.length ? '⚠ ' + why.join(' · ') + ' — ' : '') + tk + ' ' + String(h.name || '').slice(0, 14) + ' (' + cyc + ') @ ' + (accs[String(h.account_id)] || '?') + ' | 수량 ' + (+h.quantity > 0 ? '있음' : '0') + ' · 평단÷현재가 ' + (cur ? (100 * h.avg_price / cur).toFixed(0) + '%' : '-')
       + ' · 배당 입력 달 ' + ms.sort((a, b) => a - b).join(',') + ' · 분모(평균원금)÷지금원금 ' + (investKrw ? (100 * avg / investKrw).toFixed(0) + '%' : '-')
       + ' · 실분배율 ' + (avg ? (tot / avg * 100).toFixed(2) : '-') + '% · 환산(×12) ' + (avg && ms.length ? (tot / ms.length * 12 / avg * 100).toFixed(2) : '-') + '%'
       + ' · 원금월별 달 ' + Object.keys(cm).filter(x => x.indexOf(h.id + '_') === 0).map(x => x.split('_').pop()).join(','));
   });
+  console.log('배당 있는 종목 ' + total + '개 중 표시 ' + shown + '개');
 }
 
 // 운용사 파서를 캐시 없이 한 번 돌려 **회차별 건수와 일정**을 찍는다. 아무것도 쓰지 않는다.
