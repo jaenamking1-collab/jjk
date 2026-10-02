@@ -4422,7 +4422,10 @@ function rollScorecard(log, divs, priceMap, er) {
       A(acc).sells++;
     }
   };
-  (log || []).slice().sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0).forEach(r =>
+  // 날짜가 'Sun Sep 27 2026 …' 꼴로 오면 문자열 비교가 전부 틀린다 → YYYY-MM-DD 로 맞춘 뒤 비교·정렬
+  const iso = d => { d = String(d || ''); if (/^\d{4}-\d\d-\d\d/.test(d)) return d;
+    const t = new Date(d); return isNaN(t) ? d : t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0'); };
+  (log || []).map(r => Object.assign({}, r, { date: iso(r.date) })).sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0).forEach(r =>
     step(r.holding_id, r.account_id, r.currency, r.ticker, r.quantity, r.avg_price, r.date.slice(0, 10), r.kind));
   const today = new Date().toISOString().slice(0, 10);
   const seen = {};
