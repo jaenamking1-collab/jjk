@@ -43,11 +43,17 @@ body.detail .amt{display:block}
 .up{color:var(--up)} .down{color:var(--down)} .dim{color:var(--dim)}
 .flash-up{animation:fu 1s steps(1) infinite} .flash-down{animation:fd 1s steps(1) infinite}
 @keyframes fu{50%{background:rgba(255,59,71,.28)}} @keyframes fd{50%{background:rgba(61,155,255,.28)}}
-#notice{margin-top:10px;border-top:1px solid var(--line);padding-top:6px}
-#notice a{display:block;color:var(--dim);font-size:12px;line-height:1.9;text-decoration:none;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-radius:4px;padding:0 4px}
-#notice a.new{color:var(--up);animation:nb 1.4s steps(1) infinite}
-@keyframes nb{50%{background:rgba(255,59,71,.18)}}
+#notice{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
+.brow{display:flex;align-items:center;gap:5px;margin:4px 0}
+.brow .cy{font-weight:700;font-size:15px;color:#3a404a;width:38px}
+.brow .cy.on{color:var(--fg)}
+.chip{font-weight:700;font-size:13px;color:#3a404a;border:1px solid #2a3038;border-radius:5px;
+  min-width:30px;text-align:center;padding:3px 0}
+.chip.lit{background:#7db3ff;color:#111418;border-color:#7db3ff}
+.chip.new{animation:cb .9s steps(1) infinite}
+@keyframes cb{50%{background:transparent;color:#7db3ff}}
+#bline{font-size:15px;color:var(--dim);margin-top:6px}
+#bline.on{color:var(--fg)}
 #edit{display:none;margin-top:10px}
 #edit textarea{width:100%;height:46vh;background:#0b0d10;color:var(--fg);border:1px solid var(--line);
   border-radius:6px;font:13px/1.5 Consolas,monospace;padding:8px}
@@ -260,39 +266,82 @@ function stamp(){
 setInterval(stamp, 5000);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') load(); else clearTimeout(timer); });
 
-// ── 분배금 공지 3줄 ── PC 위젯과 같은 출처(공개 예비본 dist_snapshot.txt, 같은 사이트라 바로 읽힌다).
-// 안 본 공지는 ● 빨강으로 깜박이고, 누르면 원문이 열리며 '본 것'이 된다. 처음 연 날은 지난 공지를 새것으로 치지 않는다.
+// ── 분배금 공지판 ── PC 위젯과 같은 규칙(tools/ticker.pyw 의 board_of 설명 참고).
+//   월중 │ K T A P R S H KW   공지가 뜬 회사 칸에 불, 지급일이 지나면 꺼짐, 새로 켜진 칸은 누를 때까지 깜박임
+//   월말 │ …
+//   09.28 KODEX 9월 월말배당    가장 최근 공지 한 줄
+// 출처: 같은 사이트의 공개 예비본 dist_snapshot.txt(포트폴리오의 새 공지 카톡과 같은 출처).
 const ISSUER = {kodex:'KODEX',tiger:'TIGER',ace:'ACE',plus:'PLUS',rise:'RISE',sol:'SOL',hanaro:'HANARO',kiwoom:'KIWOOM'};
-function shortTitle(iss, t){
-  const d = document.createElement('textarea'); d.innerHTML = t; t = d.value;     // &#39; 같은 것 풀기
-  t = t.replace(/^\d+\s+/, '').replace(new RegExp(iss, 'ig'), '').replace(/\bETF\b/g, '')
-       .replace(/\d{4}년\s*|'\d{2}\.|분배금|지급\s*안내|안내|공지/g, '')
-       .replace(/\[\s*\]|\(\s*\)/g, '').replace(/\(\s+/g, '(');
-  return t.replace(/\s+/g, ' ').trim().replace(/^[-·\s]+|[-·\s]+$/g, '');
+const CHIP = {kodex:'K',tiger:'T',ace:'A',plus:'P',rise:'R',sol:'S',hanaro:'H',kiwoom:'KW'};
+const CYCLES = ['월중','월말'];
+function kstToday(){ const d = new Date(Date.now() + 9*3600e3); return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())); }
+function mdDate(s, today){
+  const m = String(s || '').match(/(\d{1,2})\s*[월/.]\s*(\d{1,2})/); if (!m) return null;
+  let best = null;
+  for (const y of [today.getUTCFullYear()-1, today.getUTCFullYear(), today.getUTCFullYear()+1]){
+    const c = new Date(Date.UTC(y, +m[1]-1, +m[2]));
+    if (c.getUTCMonth() !== +m[1]-1) continue;
+    if (!best || Math.abs(c - today) < Math.abs(best - today)) best = c;
+  }
+  return best;
+}
+const ymd = d => d.toISOString().slice(0, 10);
+function boardOf(j, today){
+  const out = {};
+  Object.keys(ISSUER).forEach(k => {
+    const v = (j.dist || {})[k] || {}; if (v.success === false) return;
+    const nts = (((j.notices || {})[k] || {}).items) || [];
+    (v.items || []).forEach(it => {
+      const cyc = it.cycle, sc = it.sched || {}, id = k + '|' + cyc;
+      if (!CYCLES.includes(cyc) || out[id]) return;
+      const pub = mdDate(sc['공시일'], today), pay = mdDate(sc['지급일'], today), base = mdDate(sc['기준일'], today);
+      if (!pay) return;
+      const ds = pub ? ymd(pub).replace(/-/g, '.') : '';
+      const hit = nts.find(n => n.date === ds) || nts[0] || {};
+      out[id] = {k, cyc, pub, pay, base, url: hit.url || '', key: `${k}|${cyc}|${ymd(pay)}`,
+                 lit: (!pub || pub <= today) && today <= pay};
+    });
+  });
+  return out;
+}
+let board = {};
+function drawBoard(stale){
+  const N = document.getElementById('notice');
+  let seen = store.get('tk_seen2', null);
+  if (!seen){ seen = Object.values(board).filter(b => b.lit).map(b => b.key); store.set('tk_seen2', seen); }
+  N.innerHTML = '';
+  CYCLES.forEach(c => {
+    const row = document.createElement('div'); row.className = 'brow';
+    const any = Object.values(board).some(b => b.cyc === c && b.lit);
+    row.innerHTML = `<span class="cy${any ? ' on' : ''}">${c}</span>`;
+    Object.entries(CHIP).forEach(([k, t]) => {
+      const b = board[k + '|' + c], ch = document.createElement('span');
+      ch.className = 'chip' + (b && b.lit ? ' lit' + (seen.includes(b.key) ? '' : ' new') : '');
+      ch.textContent = t; ch.title = ISSUER[k];
+      ch.onclick = () => { if (!b || !b.lit) return;
+        seen = [b.key, ...seen.filter(x => x !== b.key)].slice(0, 100); store.set('tk_seen2', seen);
+        ch.classList.remove('new'); if (b.url) window.open(b.url, '_blank', 'noopener'); };
+      row.appendChild(ch);
+    });
+    N.appendChild(row);
+  });
+  const t = kstToday();
+  const pool = Object.values(board).filter(b => (b.pub || b.pay) <= t);
+  const line = document.createElement('div'); line.id = 'bline';
+  if (pool.length){
+    const lit = pool.filter(b => b.lit), pick = (lit.length ? lit : pool)
+      .sort((a, b) => ((b.pub||b.pay) - (a.pub||a.pay)) || b.k.localeCompare(a.k))[0];
+    const p = pick.pub || pick.pay;
+    line.textContent = `${ymd(p).slice(5).replace('-', '.')} ${ISSUER[pick.k]} ${(pick.base || pick.pay).getUTCMonth()+1}월 ${pick.cyc}배당` + (stale ? ' · 못 받음' : '');
+    if (lit.length) line.className = 'on';
+  } else line.textContent = stale ? '공지: 못 받음' : '';
+  N.appendChild(line);
 }
 async function loadNotices(){
   try{
     const j = await (await fetch('dist_snapshot.txt', {cache:'no-store'})).json();
-    const all = [];
-    Object.entries(j.notices || {}).forEach(([k, v]) => (v.items || []).forEach(it => {
-      if (/^\d{4}\.\d\d\.\d\d$/.test(it.date || '') && it.title)
-        all.push({key: it.date + '|' + (ISSUER[k] || k) + '|' + it.title, d: it.date, iss: ISSUER[k] || k.toUpperCase(),
-                  t: shortTitle(ISSUER[k] || k, it.title), url: it.url || ''});
-    }));
-    all.sort((a, b) => (b.d + b.iss).localeCompare(a.d + a.iss));
-    let seen = store.get('tk_seen', null);
-    if (!seen){ seen = all.slice(0, 100).map(x => x.key); store.set('tk_seen', seen); }
-    const N = document.getElementById('notice'); N.innerHTML = '';
-    all.slice(0, 3).forEach(x => {
-      const a = document.createElement('a'), isNew = !seen.includes(x.key);
-      a.href = x.url; a.target = '_blank'; a.rel = 'noopener';
-      a.textContent = (isNew ? '● ' : '') + `${x.d.slice(5)} ${x.iss} ${x.t}`;
-      if (isNew) a.className = 'new';
-      a.onclick = () => { seen = [x.key, ...seen.filter(k => k !== x.key)].slice(0, 100); store.set('tk_seen', seen); a.className = '';
-                          a.textContent = a.textContent.replace(/^● /, ''); };
-      N.appendChild(a);
-    });
-  }catch(e){ if (!document.getElementById('notice').textContent) document.getElementById('notice').textContent = '공지: 못 받음'; }
+    board = boardOf(j, kstToday()); drawBoard(false);
+  }catch(e){ drawBoard(true); }
 }
 loadNotices(); setInterval(loadNotices, 600000);
 

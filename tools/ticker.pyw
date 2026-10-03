@@ -216,8 +216,9 @@ NOTICE_SRC = (("https://raw.githubusercontent.com/%s/main/%s" % (REPO, NOTICE_PA
               ("https://api.github.com/repos/%s/contents/%s?ref=main" % (REPO, NOTICE_PATH), "api"),
               ("https://cdn.jsdelivr.net/gh/%s@main/%s" % (REPO, NOTICE_PATH), "jsdelivr"))
 NOTICE_SEC = 600                         # 10분마다. 예비본 자체가 30분 간격이라 이보다 자주 볼 이유가 없다
-NOTICE_N = 3
-NOTICE_W = 36                            # 한 줄 최대 폭(한글 2, 영문 1)
+CYCLES = ("월중", "월말")
+CHIP = {"kodex": "K", "tiger": "T", "ace": "A", "plus": "P", "rise": "R", "sol": "S",
+        "hanaro": "H", "kiwoom": "KW"}          # 위젯 이름 약칭(BRAND)과 같은 글자
 ISSUER = {"kodex": "KODEX", "tiger": "TIGER", "ace": "ACE", "plus": "PLUS", "rise": "RISE",
           "sol": "SOL", "hanaro": "HANARO", "kiwoom": "KIWOOM"}
 RANGE_DAYS = 30                          # 교환비율 줄에 보여줄 최저~최고 구간(일)
@@ -308,7 +309,7 @@ def theme():
         band_note(sym)
     for sym in amt_lbl:
         amt_note(sym)
-    draw_notice()
+    draw_board()
     for sym in rows:
         nm, p, c, _ = rows[sym]
         nm.config(fg=THEME["fg"])
@@ -372,56 +373,75 @@ def band_toggle(sym=None):
     place_panel()
 
 
-# ── 분배금 공지 3줄 ─────────────────────────────────────────
-notices = []                             # [(키, 날짜, 운용사, 제목, 주소)] 최신순, 화면에 그릴 것만
-notice_new = set()                       # 아직 안 본 공지의 키 — 강조하고 반짝인다
-notice_lbl = []                          # 줄 라벨 3개(창을 만든 뒤 채운다)
-notice_on = [False]
+# ── 분배금 공지판 ─────────────────────────────────────────
+# 처음엔 최근 공지 3줄이었는데, SOL 이 먼저 올리고 나머지가 하루 안에 몰려 나오면 줄이 밀려
+# 못 보는 게 생겼다. 그래서 '불 켜지는 판'으로 바꿨다(2026-10-03 사용자 설계):
+#   월중 │ K T A P R S H KW     공지가 뜬 회사 칸에 불이 켜지고, 그 줄 이름(월중/월말)도 켜진다.
+#   월말 │ K T A P R S H KW     불은 **지급일이 지나면** 꺼진다. 새로 켜진 칸은 누를 때까지 깜박인다.
+#   09.28 KODEX 9월 월말배당     가장 최근 공지 한 줄(공시일·회사·몇 월 무슨 배당까지만).
+board = {}                               # (회사, 회차) -> {pub, pay, base, url, key, lit}
+board_new = set()                        # 새로 켜졌는데 아직 안 누른 칸의 키
+chips = {}                               # (회사, 회차) -> 라벨
+cyc_lbl = {}                             # 회차 -> 줄 이름 라벨
+board_line = []                          # 맨 아래 한 줄 라벨
+board_on = [False]
 
 
-def short_title(issuer, title):
-    """운용사 이름은 앞에 따로 붙이므로 제목에서 뺀다. '159 PLUS ETF …' 의 앞 번호·'ETF' 도 뺀다."""
-    t = html.unescape(title)
-    t = re.sub(r"^\d+\s+", "", t)
-    t = re.sub(re.escape(issuer), "", t, flags=re.I)
-    t = re.sub(r"\bETF\b", "", t)
-    # 전부 분배금 공지라 '분배금·지급 안내·공지'와 연도는 정보가 없다. 3줄짜리 칸이라 남는 칸이 귀하다.
-    t = re.sub(r"\d{4}년\s*|'\d{2}\.|분배금|지급\s*안내|안내|공지", "", t)
-    t = re.sub(r"\[\s*\]|\(\s*\)", "", t)
-    t = re.sub(r"\(\s+", "(", t)
-    return re.sub(r"\s+", " ", t).strip(" -·")
+def md_date(s, today):
+    """'9월 28일'·'9/28'·'10월 02일' -> 날짜. 연도는 오늘에 가장 가까운 해(12월→1월 넘어감 대비)."""
+    m = re.search(r"(\d{1,2})\s*[월/.]\s*(\d{1,2})", str(s or ""))
+    if not m:
+        return None
+    best = None
+    for y in (today.year - 1, today.year, today.year + 1):
+        try:
+            c = datetime.date(y, int(m.group(1)), int(m.group(2)))
+        except ValueError:
+            continue
+        if best is None or abs((c - today).days) < abs((best - today).days):
+            best = c
+    return best
 
 
-def fit(text, w):
-    """한글 2칸·영문 1칸으로 세어 w 칸을 넘으면 자른다(cut() 과 같은 셈)."""
-    n = 0
-    for i, ch in enumerate(text):
-        n += 2 if ord(ch) > 0x2E80 else 1
-        if n > w:
-            return text[:i] + "…"
-    return text
+def kst_today():
+    return datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9))).date()
 
 
-def fetch_notices():
-    """공개 예비본에서 운용사 공지를 모아 최신순으로. 위젯 코드 갱신과 같은 우회 순서(raw→api→jsdelivr).
-    못 받으면 None — 화면은 직전 공지를 그대로 두고 '못 받음'만 알린다."""
+def board_of(j, today):
+    """예비본에서 회사·회차별 최신 공지를 뽑는다. 불은 '공시일 ≤ 오늘 ≤ 지급일' 동안만 켜진다."""
+    out = {}
+    for k in ISSUER:
+        v = (j.get("dist") or {}).get(k) or {}
+        if not v.get("success", True):
+            continue
+        nts = ((j.get("notices") or {}).get(k) or {}).get("items") or []
+        for it in v.get("items") or []:
+            cyc, sc = it.get("cycle"), it.get("sched") or {}
+            if cyc not in CYCLES or (k, cyc) in out:
+                continue
+            pub, pay = md_date(sc.get("공시일"), today), md_date(sc.get("지급일"), today)
+            base = md_date(sc.get("기준일"), today)
+            if not pay:
+                continue
+            # 원문 주소: 공시일과 같은 날짜의 공지, 없으면 맨 위 공지
+            ds = pub.strftime("%Y.%m.%d") if pub else ""
+            url = next((n.get("url") for n in nts if n.get("date") == ds), (nts[0].get("url") if nts else ""))
+            out[(k, cyc)] = {"pub": pub, "pay": pay, "base": base, "url": url or "",
+                             "key": "%s|%s|%s" % (k, cyc, pay.isoformat()),
+                             "lit": (pub is None or pub <= today) and today <= pay}
+    return out
+
+
+def fetch_snapshot():
+    """공개 예비본. 위젯 코드 갱신과 같은 우회 순서(raw→api→jsdelivr). 못 받으면 None."""
     for url, name in NOTICE_SRC:
         try:
             raw = urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=10).read()
             if name == "api":
                 raw = base64.b64decode(json.loads(raw)["content"])
             j = json.loads(raw.decode("utf-8"))
-            out = []
-            for k, v in (j.get("notices") or {}).items():
-                iss = ISSUER.get(k, k.upper())
-                for it in (v.get("items") or []):
-                    d, title = str(it.get("date", "")), str(it.get("title", ""))
-                    if re.match(r"\d{4}\.\d\d\.\d\d$", d) and title:
-                        out.append((d + "|" + iss + "|" + title, d, iss, short_title(iss, title),
-                                    str(it.get("url", ""))))
-            if out:
-                out.sort(key=lambda x: (x[1], x[2]), reverse=True)
-                return out
+            if j.get("dist"):
+                return j
         except Exception:
             continue
     return None
@@ -429,67 +449,86 @@ def fetch_notices():
 
 def notice_loop():
     def work():
-        got = fetch_notices()
-        root.after(0, notice_paint, got)
+        j = fetch_snapshot()
+        root.after(0, board_paint, j)
     Thread(target=work, daemon=True).start()
     root.after(NOTICE_SEC * 1000, notice_loop)
 
 
-def notice_paint(got):
-    """새로 받은 목록을 반영한다. 처음 켠 PC 에서는 지난 공지를 '새것'으로 터뜨리지 않는다."""
-    global notices
-    if got is None:
-        if not notices:
-            notices = [("", "", "", "공지: 못 받음", "")]
-        draw_notice()
+def board_paint(j):
+    """새로 받은 판을 반영한다. 처음 켠 PC 는 이미 켜져 있던 칸을 깜박이지 않는다(조용히 켜 둔다)."""
+    global board
+    if j is not None:
+        board = board_of(j, kst_today())
+        seen = cfg.get("notice_seen") if isinstance(cfg.get("notice_seen"), list) else []
+        # 처음 켰거나 3줄 시절의 옛 기록뿐이면, **지금 켜져 있는 칸만** '본 것'으로 시작한다.
+        # (아직 안 뜬 공지까지 넣으면 나중에 떠도 안 깜박인다 — 시험에서 RISE 9/14 가 그랬다.)
+        # 'v2' 표식: 켜진 칸이 하나도 없는 날 처음 켜도 매번 초기화되지 않게.
+        if "v2" not in seen:
+            seen = ["v2"] + [b["key"] for b in board.values() if b["lit"]]
+            cfg["notice_seen"] = seen
+            save(cfg)
+        board_new.clear()
+        board_new.update(b["key"] for b in board.values() if b["lit"] and b["key"] not in seen)
+    else:
+        # 못 받았어도 날짜는 흐른다 — 지급일이 지난 칸은 끈다
+        t = kst_today()
+        for b in board.values():
+            b["lit"] = (b["pub"] is None or b["pub"] <= t) and t <= b["pay"]
+    draw_board(j is None)
+
+
+def board_text(stale=False):
+    """맨 아래 한 줄: 가장 최근 공지 '09.28 KODEX 9월 월말배당'."""
+    t = kst_today()                      # 아직 공시 전인 것(미래 날짜)은 빼고
+    pool = [(b["pub"] or b["pay"], k, c, b) for (k, c), b in board.items() if (b["pub"] or b["pay"]) <= t]
+    if not pool:
+        return "공지: 못 받음" if stale else "", False
+    lit = [x for x in pool if x[3]["lit"]]
+    pub, k, c, b = max(lit or pool, key=lambda x: (x[0], x[1]))
+    mon = (b["base"] or b["pay"]).month
+    text = "%s %s %d월 %s배당" % (pub.strftime("%m.%d"), ISSUER[k], mon, c)
+    return text + (" · 못 받음" if stale else ""), bool(lit)
+
+
+def draw_board(stale=False):
+    if not chips:
         return
-    seen = set(cfg.get("notice_seen") or [])
-    if not seen:
-        cfg["notice_seen"] = [x[0] for x in got[:100]]
+    on = board_on[0]
+    for (k, c), lbl in chips.items():
+        b = board.get((k, c))
+        lit = bool(b and b["lit"])
+        blink = lit and b["key"] in board_new and on
+        lbl.config(bg=panel_bg() if (not lit or blink) else ACC,
+                   fg=(BG if lit and not blink else (ACC if lit else LINE)))
+    for c, lbl in cyc_lbl.items():
+        any_lit = any(b["lit"] for (k, cc), b in board.items() if cc == c)
+        lbl.config(fg=THEME["fg"] if any_lit else LINE, bg=panel_bg())
+    text, lit = board_text(stale)
+    if board_line:
+        board_line[0].config(text=text, fg=THEME["fg"] if lit else THEME["dim"], bg=panel_bg())
+
+
+def chip_click(k, c):
+    """켜진 칸을 누르면 그 공지 원문을 열고, 깜박임을 멈춘다."""
+    b = board.get((k, c))
+    if not b:
+        return
+    if b["key"] in board_new:
+        board_new.discard(b["key"])
+        cfg["notice_seen"] = ["v2", b["key"]] + [x for x in (cfg.get("notice_seen") or [])
+                                                 if x not in ("v2", b["key"])][:100]
         save(cfg)
-        seen = set(cfg["notice_seen"])
-    notice_new.clear()
-    notice_new.update(x[0] for x in got[:NOTICE_N] if x[0] not in seen)
-    notices = got[:NOTICE_N]
-    draw_notice()
-
-
-def draw_notice():
-    if not notice_lbl:
-        return
-    for i, lbl in enumerate(notice_lbl):
-        if i >= len(notices):
-            lbl.config(text="")
-            continue
-        key, d, iss, title, url = notices[i]
-        new = key in notice_new
-        text = ("%s %s %s" % (d[5:], iss, title)) if d else title
-        lbl.config(text=fit(("● " if new else "") + text, NOTICE_W),
-                   fg=THEME["up"] if new else THEME["dim"], bg=panel_bg())
-    sync_back()
-
-
-def notice_click(i):
-    """공지 줄을 누르면 원문을 열고, 그 공지는 '본 것'으로 친다."""
-    if i >= len(notices) or not notices[i][0]:
-        return
-    key, url = notices[i][0], notices[i][4]
-    if key in notice_new:
-        notice_new.discard(key)
-        cfg["notice_seen"] = ([key] + [k for k in (cfg.get("notice_seen") or []) if k != key])[:100]
-        save(cfg)
-        draw_notice()
-    if url:
-        webbrowser.open(url)
+    draw_board()
+    if b["url"]:
+        webbrowser.open(b["url"])
 
 
 def notice_blink():
-    """안 본 공지 줄만 바탕을 깜박인다 — '알림이 오면 위젯으로 오게'(2026-10-03 요청)."""
-    notice_on[0] = not notice_on[0]
-    for i, lbl in enumerate(notice_lbl):
-        new = i < len(notices) and notices[i][0] in notice_new
-        lbl.config(bg=(LINE if notice_on[0] else panel_bg()) if new else panel_bg())
-    root.after(700, notice_blink)
+    board_on[0] = not board_on[0]
+    if board_new:
+        draw_board()
+    root.after(600, notice_blink)
 
 
 def repaint(w, old, new):
@@ -810,17 +849,23 @@ gear = tk.Label(head, text="⚙", bg=panel_bg(), fg=ACC, font=("Segoe UI Symbol"
 gear.pack(side="right", padx=(8, 0))
 body = tk.Frame(root, bg=panel_bg())
 body.pack(fill="both", padx=6, pady=(0, 4))
-# 시세 아래 분배금 공지 3줄(포트폴리오 앱의 새 공지 알림과 같은 출처). 안 본 공지는 ● 빨강·깜박임,
-# 누르면 원문이 열리고 '본 것'이 된다.
+# 시세 아래 분배금 공지판(포트폴리오 앱의 새 공지 알림과 같은 출처). 위 board_of() 설명 참고.
 notice = tk.Frame(root, bg=panel_bg())
 notice.pack(fill="x", padx=6, pady=(0, 4))
-tk.Frame(notice, bg=LINE, height=1).pack(fill="x", pady=(0, 2))
-for _i in range(NOTICE_N):
-    _l = tk.Label(notice, text="", bg=panel_bg(), fg=DIM, font=("Malgun Gothic", 7),
-                  anchor="w", cursor="hand2")
-    _l.pack(fill="x")
-    _l.bind("<Button-1>", lambda e, i=_i: notice_click(i))
-    notice_lbl.append(_l)
+tk.Frame(notice, bg=LINE, height=1).pack(fill="x", pady=(0, 3))
+for _c in CYCLES:
+    _row = tk.Frame(notice, bg=panel_bg())
+    _row.pack(fill="x", pady=1)
+    cyc_lbl[_c] = tk.Label(_row, text=_c, bg=panel_bg(), fg=LINE, font=("Malgun Gothic", 8, "bold"))
+    cyc_lbl[_c].pack(side="left", padx=(0, 4))
+    for _k, _t in CHIP.items():
+        _l = tk.Label(_row, text=_t, bg=panel_bg(), fg=LINE, font=("Malgun Gothic", 8, "bold"),
+                      padx=3, cursor="hand2")
+        _l.pack(side="left", padx=1)
+        _l.bind("<Button-1>", lambda e, k=_k, c=_c: chip_click(k, c))
+        chips[(_k, _c)] = _l
+board_line.append(tk.Label(notice, text="", bg=panel_bg(), fg=DIM, font=("Malgun Gothic", 8), anchor="w"))
+board_line[0].pack(fill="x", pady=(2, 0))
 
 
 def sync_back(_=None):
