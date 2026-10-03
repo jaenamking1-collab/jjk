@@ -8,6 +8,8 @@ skills-lock.json
 # 이게 로컬 전용(.claude/settings.local.json)에만 있었던 탓에 학교 PC에는 훅이 없었고,
 # 2026-08-18 학교 작업이 커밋 안 된 채 남았다. settings.local.json 은 계속 무시한다(머신별 권한 목록).
 !.claude/settings.json
+# 출력 모드(/brief 등) — 두 PC·원격이 같은 명령을 쓰도록 저장소에 둔다(CLAUDE.md 0-2)
+!.claude/skills/
 
 # ⚠️ 개인 금융자료(거래내역·잔고 엑셀 등)는 절대 커밋하지 않는다.
 # 이 저장소는 GitHub에 **public**으로 공개돼 있고, Stop 훅이 매 턴 `git add -A`로 자동 커밋·푸시한다.
