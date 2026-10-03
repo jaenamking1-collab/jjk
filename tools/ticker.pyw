@@ -1,7 +1,7 @@
 # 바탕화면 실시간 시세 위젯. 드래그로 이동, 톱니로 설정.
 # 목록 한 줄에 하나: "심볼" 또는 "심볼=표시이름", "---" 는 구분선.
 # 국내(6자리 코드, KOSPI/KOSDAQ)는 네이버 실시간, 해외/코인/환율은 야후.
-import base64, ctypes, ctypes.wintypes, datetime, json, os, re, shutil, subprocess, sys, time
+import base64, ctypes, ctypes.wintypes, datetime, html, json, os, re, shutil, subprocess, sys, time, webbrowser
 import tkinter as tk
 import urllib.error, urllib.parse, urllib.request
 from threading import Thread
@@ -150,7 +150,8 @@ DEFAULT = {
     "coin_mid": {},                      # 코인 -> (날짜, 한국시간 자정의 해외 시세)
     "ratio_band": {},                    # 교환비율 -> (날짜, 30일 최저, 최고)
     "coin_base": {},                     # 코인 -> (날짜, 국내 기준가). 등락률 기준
-    "detail_open": False,                # 밑줄(오늘 금액·전일값)을 펼쳐 놨나. 전 종목 한꺼번에
+    "detail_open": False,
+    "notice_seen": [],                   # 이미 본 분배금 공지(날짜|운용사|제목). 새것만 강조한다                # 밑줄(오늘 금액·전일값)을 펼쳐 놨나. 전 종목 한꺼번에
 }
 
 SPARK = "https://query1.finance.yahoo.com/v7/finance/spark?range=1d&interval=1d&symbols="
@@ -207,6 +208,18 @@ band_at = [0.0]                          # 30일 구간을 마지막으로 시�
 gecko_key = [""]                         # 그때 물어본 코인 구성. 달라지면 잠금 없이 다시 묻는다
 syncing = [False]                        # sync_back 재진입 막이
 coin_mid = {}                            # 코인 -> (날짜, 그날 한국시간 자정의 해외 시세)
+# ── 분배금 공지(위젯 아래 3줄) ──
+# 포트폴리오 앱이 '새 분배금 공지' 카톡을 보낼 때와 같은 출처: 공개 예비본 dist_snapshot.txt
+# (public-snapshot.yml 이 30분마다 갱신). 포트폴리오 백엔드(Code.gs)를 건드리지 않고, 공개 파일만 읽는다.
+NOTICE_PATH = "dist_snapshot.txt"
+NOTICE_SRC = (("https://raw.githubusercontent.com/%s/main/%s" % (REPO, NOTICE_PATH), "raw"),
+              ("https://api.github.com/repos/%s/contents/%s?ref=main" % (REPO, NOTICE_PATH), "api"),
+              ("https://cdn.jsdelivr.net/gh/%s@main/%s" % (REPO, NOTICE_PATH), "jsdelivr"))
+NOTICE_SEC = 600                         # 10분마다. 예비본 자체가 30분 간격이라 이보다 자주 볼 이유가 없다
+NOTICE_N = 3
+NOTICE_W = 36                            # 한 줄 최대 폭(한글 2, 영문 1)
+ISSUER = {"kodex": "KODEX", "tiger": "TIGER", "ace": "ACE", "plus": "PLUS", "rise": "RISE",
+          "sol": "SOL", "hanaro": "HANARO", "kiwoom": "KIWOOM"}
 RANGE_DAYS = 30                          # 교환비율 줄에 보여줄 최저~최고 구간(일)
 ratio_band = {}                          # "A/B" -> (날짜, 최저, 최고). 하루 한 번만 잰다
 band_pos = {}                            # "A/B" -> 지금이 그 구간의 몇 %
@@ -295,6 +308,7 @@ def theme():
         band_note(sym)
     for sym in amt_lbl:
         amt_note(sym)
+    draw_notice()
     for sym in rows:
         nm, p, c, _ = rows[sym]
         nm.config(fg=THEME["fg"])
@@ -356,6 +370,126 @@ def band_toggle(sym=None):
         amt_note(k)
     sync_back()
     place_panel()
+
+
+# ── 분배금 공지 3줄 ─────────────────────────────────────────
+notices = []                             # [(키, 날짜, 운용사, 제목, 주소)] 최신순, 화면에 그릴 것만
+notice_new = set()                       # 아직 안 본 공지의 키 — 강조하고 반짝인다
+notice_lbl = []                          # 줄 라벨 3개(창을 만든 뒤 채운다)
+notice_on = [False]
+
+
+def short_title(issuer, title):
+    """운용사 이름은 앞에 따로 붙이므로 제목에서 뺀다. '159 PLUS ETF …' 의 앞 번호·'ETF' 도 뺀다."""
+    t = html.unescape(title)
+    t = re.sub(r"^\d+\s+", "", t)
+    t = re.sub(re.escape(issuer), "", t, flags=re.I)
+    t = re.sub(r"\bETF\b", "", t)
+    # 전부 분배금 공지라 '분배금·지급 안내·공지'와 연도는 정보가 없다. 3줄짜리 칸이라 남는 칸이 귀하다.
+    t = re.sub(r"\d{4}년\s*|'\d{2}\.|분배금|지급\s*안내|안내|공지", "", t)
+    t = re.sub(r"\[\s*\]|\(\s*\)", "", t)
+    t = re.sub(r"\(\s+", "(", t)
+    return re.sub(r"\s+", " ", t).strip(" -·")
+
+
+def fit(text, w):
+    """한글 2칸·영문 1칸으로 세어 w 칸을 넘으면 자른다(cut() 과 같은 셈)."""
+    n = 0
+    for i, ch in enumerate(text):
+        n += 2 if ord(ch) > 0x2E80 else 1
+        if n > w:
+            return text[:i] + "…"
+    return text
+
+
+def fetch_notices():
+    """공개 예비본에서 운용사 공지를 모아 최신순으로. 위젯 코드 갱신과 같은 우회 순서(raw→api→jsdelivr).
+    못 받으면 None — 화면은 직전 공지를 그대로 두고 '못 받음'만 알린다."""
+    for url, name in NOTICE_SRC:
+        try:
+            raw = urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=10).read()
+            if name == "api":
+                raw = base64.b64decode(json.loads(raw)["content"])
+            j = json.loads(raw.decode("utf-8"))
+            out = []
+            for k, v in (j.get("notices") or {}).items():
+                iss = ISSUER.get(k, k.upper())
+                for it in (v.get("items") or []):
+                    d, title = str(it.get("date", "")), str(it.get("title", ""))
+                    if re.match(r"\d{4}\.\d\d\.\d\d$", d) and title:
+                        out.append((d + "|" + iss + "|" + title, d, iss, short_title(iss, title),
+                                    str(it.get("url", ""))))
+            if out:
+                out.sort(key=lambda x: (x[1], x[2]), reverse=True)
+                return out
+        except Exception:
+            continue
+    return None
+
+
+def notice_loop():
+    def work():
+        got = fetch_notices()
+        root.after(0, notice_paint, got)
+    Thread(target=work, daemon=True).start()
+    root.after(NOTICE_SEC * 1000, notice_loop)
+
+
+def notice_paint(got):
+    """새로 받은 목록을 반영한다. 처음 켠 PC 에서는 지난 공지를 '새것'으로 터뜨리지 않는다."""
+    global notices
+    if got is None:
+        if not notices:
+            notices = [("", "", "", "공지: 못 받음", "")]
+        draw_notice()
+        return
+    seen = set(cfg.get("notice_seen") or [])
+    if not seen:
+        cfg["notice_seen"] = [x[0] for x in got[:100]]
+        save(cfg)
+        seen = set(cfg["notice_seen"])
+    notice_new.clear()
+    notice_new.update(x[0] for x in got[:NOTICE_N] if x[0] not in seen)
+    notices = got[:NOTICE_N]
+    draw_notice()
+
+
+def draw_notice():
+    if not notice_lbl:
+        return
+    for i, lbl in enumerate(notice_lbl):
+        if i >= len(notices):
+            lbl.config(text="")
+            continue
+        key, d, iss, title, url = notices[i]
+        new = key in notice_new
+        text = ("%s %s %s" % (d[5:], iss, title)) if d else title
+        lbl.config(text=fit(("● " if new else "") + text, NOTICE_W),
+                   fg=THEME["up"] if new else THEME["dim"], bg=panel_bg())
+    sync_back()
+
+
+def notice_click(i):
+    """공지 줄을 누르면 원문을 열고, 그 공지는 '본 것'으로 친다."""
+    if i >= len(notices) or not notices[i][0]:
+        return
+    key, url = notices[i][0], notices[i][4]
+    if key in notice_new:
+        notice_new.discard(key)
+        cfg["notice_seen"] = ([key] + [k for k in (cfg.get("notice_seen") or []) if k != key])[:100]
+        save(cfg)
+        draw_notice()
+    if url:
+        webbrowser.open(url)
+
+
+def notice_blink():
+    """안 본 공지 줄만 바탕을 깜박인다 — '알림이 오면 위젯으로 오게'(2026-10-03 요청)."""
+    notice_on[0] = not notice_on[0]
+    for i, lbl in enumerate(notice_lbl):
+        new = i < len(notices) and notices[i][0] in notice_new
+        lbl.config(bg=(LINE if notice_on[0] else panel_bg()) if new else panel_bg())
+    root.after(700, notice_blink)
 
 
 def repaint(w, old, new):
@@ -676,6 +810,17 @@ gear = tk.Label(head, text="⚙", bg=panel_bg(), fg=ACC, font=("Segoe UI Symbol"
 gear.pack(side="right", padx=(8, 0))
 body = tk.Frame(root, bg=panel_bg())
 body.pack(fill="both", padx=6, pady=(0, 4))
+# 시세 아래 분배금 공지 3줄(포트폴리오 앱의 새 공지 알림과 같은 출처). 안 본 공지는 ● 빨강·깜박임,
+# 누르면 원문이 열리고 '본 것'이 된다.
+notice = tk.Frame(root, bg=panel_bg())
+notice.pack(fill="x", padx=6, pady=(0, 4))
+tk.Frame(notice, bg=LINE, height=1).pack(fill="x", pady=(0, 2))
+for _i in range(NOTICE_N):
+    _l = tk.Label(notice, text="", bg=panel_bg(), fg=DIM, font=("Malgun Gothic", 7),
+                  anchor="w", cursor="hand2")
+    _l.pack(fill="x")
+    _l.bind("<Button-1>", lambda e, i=_i: notice_click(i))
+    notice_lbl.append(_l)
 
 
 def sync_back(_=None):
@@ -1341,6 +1486,8 @@ for _ev in ("<Button-1>", "<ButtonRelease-1>", "<Button-3>"):
 build()
 refresh()
 blink()
+notice_loop()
+notice_blink()
 if cfg["hidden"]:
     root.withdraw()
 tab_btn.config(text="◀" if cfg["hidden"] else "▶")
