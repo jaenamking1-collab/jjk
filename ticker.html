@@ -87,7 +87,33 @@ const store = {
 };
 let tickers = store.get('tk_list', DEFAULT);
 let detail  = store.get('tk_detail', false);
-let last = {}, band = {}, okAt = 0, timer = null;
+let last = {}, band = {}, okAt = 0, timer = null, imported = 0;
+
+// 집 PC 목록 가져오기: ticker.html#import=<base64url(JSON 배열)>.
+// 목록엔 보유 종목이 들어 있어 공개 저장소인 이 파일엔 못 적는다. 주소의 # 뒤는 서버로 가지 않고,
+// 이 브라우저에 저장한 뒤 주소에서 지운다(새로고침해도 다시 덮어쓰지 않게).
+(function(){
+  const m = location.hash.match(/^#import=([A-Za-z0-9_-]+)$/);
+  if (!m) return;
+  try{
+    const bin = atob(m[1].replace(/-/g, '+').replace(/_/g, '/'));
+    const arr = JSON.parse(new TextDecoder().decode(Uint8Array.from(bin, c => c.charCodeAt(0))));
+    if (Array.isArray(arr) && arr.length && arr.every(x => typeof x === 'string')){
+      tickers = arr; store.set('tk_list', arr); imported = arr.filter(x => !x.startsWith('---')).length;
+    }
+  }catch(e){}
+  history.replaceState(null, '', location.pathname);
+})();
+
+// 위젯 cut() 과 같은 브랜드 약칭. 이름을 직접 안 준 종목(코드만 적은 줄)에만 쓴다.
+const BRAND = {KODEX:'K',TIGER:'T',RISE:'R',KBSTAR:'R',PLUS:'P',ARIRANG:'P',SOL:'S',ACE:'A',KINDEX:'A',
+  HANARO:'H',KOSEF:'KF',TIMEFOLIO:'TF',WOORI:'W',FOCUS:'F',UNICORN:'U',TREX:'TX',BNK:'B',
+  '히어로즈':'HR','마이티':'MT','마이다스':'MD','파워':'PW','에셋플러스':'EP'};
+function cut(name){
+  for (const [full, short] of Object.entries(BRAND))
+    if (name.startsWith(full + ' ')) return short + ' ' + name.slice(full.length + 1);
+  return name;
+}
 
 // ── 위젯 split()/target_of() 와 같은 규칙 ──
 function split(line){
@@ -153,7 +179,7 @@ function paint(r){
   const bd = r.querySelector('.band');
   if (!q){ ch.textContent = okAt ? '없음' : ''; ch.className = 'ch dim'; return; }
   const [price, diff, pct, dec, sname] = q;
-  if (sname && nm.textContent === sym) nm.textContent = sname;
+  if (sname && nm.textContent === sym) nm.textContent = cut(sname);
   px.textContent = fmt(price, dec);
   amt.textContent = (diff > 0 ? '+' : '') + fmt(diff, dec);
   amt.className = 'amt ' + (diff > 0 ? 'up' : diff < 0 ? 'down' : 'dim');
@@ -239,6 +265,7 @@ document.getElementById('saveBtn').onclick = () => {
 };
 
 build(); load();
+if (imported) document.getElementById('hint').textContent = `집 PC 목록 ${imported}종목으로 맞췄습니다`;
 </script>
 </body>
 </html>
