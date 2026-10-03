@@ -49,9 +49,10 @@ body.detail .amt{display:block}
 .brow .cy.on{color:var(--fg)}
 .chip{font-weight:700;font-size:13px;color:#3a404a;border:1px solid #2a3038;border-radius:5px;
   min-width:30px;text-align:center;padding:3px 0}
-.chip.lit{background:#7db3ff;color:#111418;border-color:#7db3ff}
+/* 켜짐 = 회사 색(포트폴리오 앱 DIST_SOURCES 와 같은 색)으로 꽉 찬 아이콘, 깜박일 땐 바탕만 빠진다 */
+.chip.lit{background:var(--c);color:#fff;border-color:var(--c)}
 .chip.new{animation:cb .9s steps(1) infinite}
-@keyframes cb{50%{background:transparent;color:#7db3ff}}
+@keyframes cb{50%{background:transparent;color:var(--c)}}
 #bline{font-size:15px;color:var(--dim);margin-top:6px}
 #bline.on{color:var(--fg)}
 #edit{display:none;margin-top:10px}
@@ -274,6 +275,7 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 const ISSUER = {kodex:'KODEX',tiger:'TIGER',ace:'ACE',plus:'PLUS',rise:'RISE',sol:'SOL',hanaro:'HANARO',kiwoom:'KIWOOM'};
 const CHIP = {kodex:'K',tiger:'T',ace:'A',plus:'P',rise:'R',sol:'S',hanaro:'H',kiwoom:'KW'};
 const CYCLES = ['월중','월말'];
+const CHIP_COLOR = {kodex:'#2563eb',tiger:'#f59e0b',ace:'#059669',plus:'#7c3aed',rise:'#dc2626',sol:'#0891b2',hanaro:'#65a30d',kiwoom:'#db2777'};
 function kstToday(){ const d = new Date(Date.now() + 9*3600e3); return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())); }
 function mdDate(s, today){
   const m = String(s || '').match(/(\d{1,2})\s*[월/.]\s*(\d{1,2})/); if (!m) return null;
@@ -317,7 +319,7 @@ function drawBoard(stale){
     Object.entries(CHIP).forEach(([k, t]) => {
       const b = board[k + '|' + c], ch = document.createElement('span');
       ch.className = 'chip' + (b && b.lit ? ' lit' + (seen.includes(b.key) ? '' : ' new') : '');
-      ch.textContent = t; ch.title = ISSUER[k];
+      ch.textContent = t; ch.title = ISSUER[k]; ch.style.setProperty('--c', CHIP_COLOR[k]);
       ch.onclick = () => { if (!b || !b.lit) return;
         seen = [b.key, ...seen.filter(x => x !== b.key)].slice(0, 100); store.set('tk_seen2', seen);
         ch.classList.remove('new'); if (b.url) window.open(b.url, '_blank', 'noopener'); };
