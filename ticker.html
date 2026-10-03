@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111418">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="시세">
+<link rel="manifest" href="ticker.webmanifest">
+<link rel="icon" href="ticker-192.png">
+<link rel="apple-touch-icon" href="ticker-192.png">
+<title>시세</title>
+<!--
+  휴대폰용 시세 화면. PC 위젯(tools/ticker.pyw)의 모양과 규칙을 그대로 옮겼다.
+  시세는 Apps Script 중계(ticker_relay.gs)가 받아 준다 — 휴대폰 브라우저는 빗썸·야후·네이버에
+  직접 못 묻는다(CORS). 종목 목록은 이 휴대폰 브라우저에만 저장된다(공개 저장소라 목록을 못 둔다).
+-->
+<style>
+:root{--bg:#111418;--line:#262b33;--row:#1d2127;--fg:#e8eaed;--dim:#8a919c;--up:#ff3b47;--down:#3d9bff;}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--fg);
+  font-family:-apple-system,"Malgun Gothic","Apple SD Gothic Neo",sans-serif;-webkit-tap-highlight-color:transparent}
+body{padding:calc(10px + env(safe-area-inset-top)) 14px calc(24px + env(safe-area-inset-bottom))}
+#top{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dim);margin-bottom:6px}
+#top b{color:var(--fg);font-size:15px;margin-right:auto}
+#alive{display:inline-block;width:8px;height:8px;border-radius:50%;background:#2ecc71}
+#alive.stale{background:#777}
+#top button{background:none;border:1px solid var(--line);color:var(--dim);border-radius:6px;padding:3px 8px;font-size:12px}
+#warn{display:none;background:#3a2f12;color:#f4c35a;border-radius:6px;padding:6px 8px;font-size:12px;margin-bottom:6px}
+.sep{height:1px;background:var(--line);margin:8px 0}
+/* 칸 폭을 고정해 줄마다 숫자 끝이 같은 세로선에 서게 한다(자동 폭이면 비트코인 줄만 어긋났다) */
+.row{display:grid;grid-template-columns:minmax(0,1fr) auto 66px;align-items:center;column-gap:8px;
+  padding:9px 2px;border-bottom:1px solid var(--row)}
+body.detail .row{grid-template-columns:minmax(0,1fr) auto 66px 78px}
+.nm{font-weight:700;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.px{font-family:Consolas,"SF Mono",Menlo,monospace;font-size:16px;text-align:right}
+.ch,.amt{font-family:Consolas,"SF Mono",Menlo,monospace;font-size:13px;text-align:right;
+  padding:2px 4px;border-radius:4px}
+.amt{display:none}
+body.detail .amt{display:block}
+.band{grid-column:1/-1;font-size:11px;color:var(--dim);margin-top:2px}
+.up{color:var(--up)} .down{color:var(--down)} .dim{color:var(--dim)}
+.flash-up{animation:fu 1s steps(1) infinite} .flash-down{animation:fd 1s steps(1) infinite}
+@keyframes fu{50%{background:rgba(255,59,71,.28)}} @keyframes fd{50%{background:rgba(61,155,255,.28)}}
+#edit{display:none;margin-top:10px}
+#edit textarea{width:100%;height:46vh;background:#0b0d10;color:var(--fg);border:1px solid var(--line);
+  border-radius:6px;font:13px/1.5 Consolas,monospace;padding:8px}
+#edit .help{font-size:11px;color:var(--dim);line-height:1.6;margin:6px 0}
+#edit button{background:#2a6df4;color:#fff;border:0;border-radius:6px;padding:8px 14px;font-size:14px;margin-right:6px}
+#edit button.ghost{background:none;border:1px solid var(--line);color:var(--dim)}
+#hint{font-size:11px;color:var(--dim);text-align:center;margin-top:12px}
+</style>
+</head>
+<body>
+<div id="top"><b>시세</b><span id="alive" class="stale"></span><span id="stamp">불러오는 중…</span>
+  <button id="editBtn">편집</button></div>
+<div id="warn"></div>
+<div id="list"></div>
+<div id="hint">줄을 누르면 전 종목에 ±금액이 보였다 숨었다 합니다</div>
+<div id="edit">
+  <textarea id="ta" spellcheck="false"></textarea>
+  <div class="help">
+    한 줄에 하나. PC 위젯 환경설정과 같은 형식입니다.<br>
+    <code>코드=보일이름</code> · 그룹 나누기 <code>---</code><br>
+    국내지수 <code>KOSPI</code> · 국내종목 <code>069500</code> · 코인 <code>XRP-KRW</code> ·
+    해외 <code>AAPL</code> <code>^IXIC</code> · 환율 <code>USDKRW=X</code><br>
+    교환비율 <code>XRP-KRW/KAIA-KRW=이름 @49,50,v41</code> (v=하한)
+  </div>
+  <button id="saveBtn">저장</button><button class="ghost" id="cancelBtn">취소</button>
+  <button class="ghost" id="resetBtn">기본값</button>
+</div>
+<script>
+// Apps Script 중계(ticker_relay.gs, 'XRP-카이아 비율 알림' 프로젝트의 웹앱 배포).
+const RELAY = 'https://script.google.com/macros/s/AKfycbwjjzNI_BpGyvJ_-3j2b-6VxQB2m5HXmQhiOkvGBrmPYx7hvs9xIL4KjoblZzjEiOph/exec';
+const REFRESH = 10000;        // ms. 중계가 15초 캐시하므로 이보다 자주 물어도 같은 값이다
+const STALE = 60000;          // 이만큼 못 받으면 회색 경고 — 멈춘 줄 모르고 보는 일이 없게
+const ALERT = 5.0;            // 등락률 이 이상이면 반짝임(위젯과 같다)
+const RATIO = '/';
+const DEFAULT = ['KOSPI=코스피','069500=코덱스200','USDKRW=X=환율','---',
+  'BTC-KRW=비트코인','XRP-KRW=XRP','KAIA-KRW=카이아','XRP-KRW/KAIA-KRW=XRP당 카이아 @49,50,v41','---',
+  '^IXIC=나스닥','^GSPC=S&P500'];
+
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+};
+let tickers = store.get('tk_list', DEFAULT);
+let detail  = store.get('tk_detail', false);
+let last = {}, band = {}, okAt = 0, timer = null;
+
+// ── 위젯 split()/target_of() 와 같은 규칙 ──
+function split(line){
+  const s = line.split('@')[0].trimEnd();
+  const i = s.lastIndexOf('=');
+  if (i > 0 && s.length - i - 1 > 1) return [s.slice(0, i), s.slice(i + 1)];
+  return [s, null];
+}
+function targetOf(line){
+  const i = line.lastIndexOf('@');
+  if (i < 0) return null;
+  const t = line.slice(i + 1), pct = t.trim().endsWith('%');
+  const goals = [], floors = [];
+  t.split(',').forEach(x => {
+    x = x.trim().replace(/%$/, '');
+    const low = /^[vV]/.test(x), n = parseFloat(low ? x.slice(1) : x);
+    if (!isNaN(n)) (low ? floors : goals).push(n);
+  });
+  goals.sort((a,b)=>a-b); floors.sort((a,b)=>a-b);
+  return (goals.length || floors.length) ? {goals, floors, pct} : null;
+}
+function groups(){
+  const gs = [[]];
+  tickers.forEach(l => l.trim().startsWith('---') ? gs.push([]) : l.trim() && gs[gs.length-1].push(l.trim()));
+  return gs.filter(g => g.length);
+}
+const fmt = (v, d) => Number(v).toLocaleString('ko-KR', {minimumFractionDigits:d, maximumFractionDigits:d});
+
+// ── 화면 ──
+function build(){
+  document.body.classList.toggle('detail', !!detail);
+  const L = document.getElementById('list'); L.innerHTML = '';
+  groups().forEach((g, gi) => {
+    if (gi) L.insertAdjacentHTML('beforeend', '<div class="sep"></div>');
+    g.forEach(line => {
+      const [sym, name] = split(line);
+      const r = document.createElement('div'); r.className = 'row'; r.dataset.sym = sym; r.dataset.line = line;
+      r.innerHTML = `<div class="nm">${esc(name || sym)}</div><div class="px">…</div>` +
+                    `<div class="ch dim"></div><div class="amt"></div>` +
+                    (sym.includes(RATIO) ? '<div class="band"></div>' : '');
+      r.onclick = () => { detail = !detail; store.set('tk_detail', detail); document.body.classList.toggle('detail', detail); };
+      L.appendChild(r);
+    });
+  });
+  paintAll();
+}
+function esc(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function quote(sym){
+  if (!sym.includes(RATIO)) return last[sym] || null;
+  const [a, b] = sym.split(RATIO), qa = last[a], qb = last[b];
+  if (!qa || !qb || !qb[0]) return null;
+  const now = qa[0] / qb[0], was = (qb[0]-qb[1]) ? (qa[0]-qa[1]) / (qb[0]-qb[1]) : 0, gap = now - was;
+  return [now, gap, was ? gap / was * 100 : 0, now < 100 ? 2 : 0, null];
+}
+
+function paintAll(){
+  document.querySelectorAll('.row').forEach(r => paint(r));
+}
+function paint(r){
+  const sym = r.dataset.sym, q = quote(sym);
+  const [nm, px, ch, amt] = r.children;
+  const bd = r.querySelector('.band');
+  if (!q){ ch.textContent = okAt ? '없음' : ''; ch.className = 'ch dim'; return; }
+  const [price, diff, pct, dec, sname] = q;
+  if (sname && nm.textContent === sym) nm.textContent = sname;
+  px.textContent = fmt(price, dec);
+  amt.textContent = (diff > 0 ? '+' : '') + fmt(diff, dec);
+  amt.className = 'amt ' + (diff > 0 ? 'up' : diff < 0 ? 'down' : 'dim');
+  ch.className = 'ch'; let flash = '';
+
+  // 교환비율 줄: 밑에 기준 구간을 늘 적는다. 오른쪽 칸엔 % 대신 말/목표를 쓴다(위젯 9/28 결정).
+  let pos = null;
+  if (bd){
+    const b = band[sym];
+    if (b && b[1] > b[0]){
+      pos = Math.max(0, Math.min(100, (price - b[0]) / (b[1] - b[0]) * 100));
+      bd.textContent = `최근 30일 ${b[0].toFixed(1)}~${b[1].toFixed(1)} 중 ${Math.round(pos)}%`;
+    } else bd.textContent = '';
+  }
+  const t = targetOf(r.dataset.line);
+  if (t){
+    let goals = t.goals, floors = t.floors;
+    if (t.pct){ const b = band[sym]; const cv = g => b ? b[0] + (b[1]-b[0]) * g / 100 : null;
+      goals = goals.map(cv).filter(x=>x!=null); floors = floors.map(cv).filter(x=>x!=null); }
+    const under = floors.filter(f => price <= f);
+    const ahead = goals.filter(g => g > price);
+    if (under.length){ ch.textContent = '▼' + under[under.length-1]; ch.classList.add('down'); flash = 'down'; }
+    else if (goals.length && ahead.length){ ch.textContent = '↗' + ((ahead[0]/price-1)*100).toFixed(1) + '%'; ch.classList.add('dim'); }
+    else if (goals.length){ ch.textContent = '★' + goals[goals.length-1]; ch.classList.add('up'); flash = 'up'; }
+    else { ch.textContent = '△' + ((price/floors[floors.length-1]-1)*100).toFixed(1) + '%'; ch.classList.add('dim'); }
+  } else if (pos != null){
+    const [w, c] = pos >= 66 ? ['고점권','up'] : pos < 33 ? ['바닥권','down'] : ['중간','dim'];
+    ch.textContent = w; ch.classList.add(c);
+  } else {
+    ch.textContent = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
+    ch.classList.add(diff > 0 ? 'up' : diff < 0 ? 'down' : 'dim');
+    if (Math.abs(pct) >= ALERT) flash = diff > 0 ? 'up' : 'down';
+  }
+  if (flash) ch.classList.add('flash-' + flash);
+}
+
+// ── 시세 받기 ──
+function wanted(){
+  const s = new Set(), bands = [];
+  tickers.forEach(l => { l = l.trim(); if (!l || l.startsWith('---')) return;
+    const sym = split(l)[0];
+    if (sym.includes(RATIO)){ sym.split(RATIO).forEach(x => s.add(x)); bands.push(sym); } else s.add(sym); });
+  return [[...s], bands];
+}
+async function load(){
+  clearTimeout(timer);
+  const [syms, bands] = wanted();
+  try{
+    const u = RELAY + '?s=' + encodeURIComponent(syms.join(',')) + (bands.length ? '&band=' + encodeURIComponent(bands.join(',')) : '');
+    const res = await fetch(u, {cache:'no-store'});
+    const j = await res.json();
+    Object.assign(last, j.q || {}); Object.assign(band, j.band || {});
+    okAt = Date.now();
+    const errs = Object.entries(j.err || {});
+    const w = document.getElementById('warn');
+    w.style.display = errs.length ? 'block' : 'none';
+    w.textContent = errs.map(([k, v]) => `${k}: ${v}`).join(' · ');
+    paintAll();
+  }catch(e){ /* 네트워크 실패 — 아래 생존 표시가 회색으로 바뀌어 알려 준다 */ }
+  stamp();
+  if (document.visibilityState === 'visible') timer = setTimeout(load, REFRESH);
+}
+// 생존 표시: 마지막으로 받은 시각. 1분 넘게 못 받으면 회색 + 몇 분째인지.
+function stamp(){
+  const a = document.getElementById('alive'), s = document.getElementById('stamp');
+  if (!okAt){ a.className = 'stale'; s.textContent = '아직 못 받음'; return; }
+  const age = Date.now() - okAt, t = new Date(okAt).toTimeString().slice(0, 8);
+  const stale = age > STALE;
+  a.className = stale ? 'stale' : '';
+  s.textContent = stale ? `${Math.floor(age/60000)}분째 갱신 안 됨 (${t})` : `${t} 갱신`;
+}
+setInterval(stamp, 5000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') load(); else clearTimeout(timer); });
+
+// ── 편집 ──
+const ta = document.getElementById('ta'), ed = document.getElementById('edit');
+document.getElementById('editBtn').onclick = () => { ta.value = tickers.join('\n'); ed.style.display = ed.style.display === 'block' ? 'none' : 'block'; };
+document.getElementById('cancelBtn').onclick = () => { ed.style.display = 'none'; };
+document.getElementById('resetBtn').onclick = () => { ta.value = DEFAULT.join('\n'); };
+document.getElementById('saveBtn').onclick = () => {
+  tickers = ta.value.split('\n').map(x => x.trim()).filter(Boolean);
+  store.set('tk_list', tickers); ed.style.display = 'none'; build(); load();
+};
+
+build(); load();
+</script>
+</body>
+</html>

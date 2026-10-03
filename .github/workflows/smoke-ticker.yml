@@ -1,0 +1,80 @@
+# 휴대폰 시세 화면(https://jaenamking1-collab.github.io/jjk/ticker.html)을 **실제 크롬으로 열어** 검사한다.
+# 왜: 이 화면은 Apps Script 중계(ticker_relay.gs)에 기대고, 원격 컨테이너에선 script.google.com 이
+#     막혀 내가 직접 열어 볼 수 없다. 사람이 보는 결과(채워진 줄 수)를 직접 센다(CLAUDE.md 0-1).
+# 판정: JS 오류 0 · 종목 줄이 전부 값으로 채워짐 · 상단 생존 표시가 '갱신'.
+# 실패하면(2분 뒤 재확인 후에도) 카톡. 스크린샷은 probe-out 브랜치 smoke-ticker/ 에 남긴다.
+name: smoke-ticker
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '47 */3 * * *'
+  push:
+    branches: [main]
+    paths: ['ticker.html', 'ticker_relay.gs']
+
+permissions:
+  contents: write
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pages 반영 대기 (push 때만)
+        if: ${{ github.event_name == 'push' }}
+        run: sleep 100
+      - name: 크롬 준비
+        run: |
+          npm i playwright@1 >/dev/null 2>&1
+          npx playwright install --with-deps chromium >/dev/null 2>&1
+      - name: 시세 화면 검사
+        id: chk
+        run: |
+          cat > s.js <<'EOF'
+          const { chromium } = require('playwright');
+          (async () => {
+            const b = await chromium.launch();
+            const p = await b.newPage({ viewport: { width: 390, height: 800 }, deviceScaleFactor: 2, isMobile: true });
+            const errs = [];
+            p.on('pageerror', e => errs.push(e.message));
+            await p.goto('https://jaenamking1-collab.github.io/jjk/ticker.html?smoke=' + Date.now(), { waitUntil: 'load', timeout: 60000 });
+            try { await p.waitForFunction(() => /갱신$/.test(document.getElementById('stamp').textContent), null, { timeout: 60000 }); } catch (e) {}
+            await p.waitForTimeout(1500);
+            const r = await p.evaluate(() => {
+              const rows = [...document.querySelectorAll('.row')];
+              const empty = rows.filter(x => { const t = x.children[1].textContent; return t === '…' || x.children[2].textContent === '없음'; })
+                                .map(x => x.children[0].textContent);
+              return { rows: rows.length, empty, stamp: document.getElementById('stamp').textContent,
+                       warn: document.getElementById('warn').textContent };
+            });
+            await p.screenshot({ path: 'shot.png' });
+            const bad = [];
+            if (errs.length) bad.push('JS 오류: ' + errs.slice(0, 2).join(' / '));
+            if (!/갱신$/.test(r.stamp)) bad.push('상단: ' + r.stamp);
+            if (r.empty.length) bad.push(`${r.rows}줄 중 ${r.empty.length}줄 빈칸(${r.empty.join(',')})`);
+            if (r.warn) bad.push('중계 경고: ' + r.warn);
+            console.log(JSON.stringify(r));
+            console.log(bad.length ? 'FAIL ' + bad.join(' · ') : `OK ${r.rows}줄 전부 채워짐`);
+            require('fs').writeFileSync('result.txt', bad.length ? bad.join(' · ') : '');
+            await b.close();
+          })();
+          EOF
+          node s.js
+          if [ -s result.txt ]; then echo "1차 이상: $(cat result.txt) — 2분 뒤 재확인"; sleep 120; node s.js; fi
+          echo "bad=$(cat result.txt)" >> "$GITHUB_OUTPUT"
+      - name: 스크린샷 보관
+        if: always()
+        run: |
+          mkdir -p o/smoke-ticker && cp shot.png o/smoke-ticker/ 2>/dev/null; cp result.txt o/smoke-ticker/ 2>/dev/null; date -u +%FT%TZ > o/smoke-ticker/at.txt
+          cd o && git init -q -b probe-out && git config user.name 'github-actions[bot]' && git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add -A && git commit -qm smoke-ticker && git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" probe-out
+      - name: 실패 알림
+        if: ${{ steps.chk.outputs.bad != '' }}
+        env:
+          TOKEN: ${{ secrets.APP_TOKEN }}
+          BAD: ${{ steps.chk.outputs.bad }}
+        run: |
+          curl -sL -o /dev/null -G --max-time 120 --data-urlencode action=runMaint --data-urlencode fn=sendKakaoMemo \
+            --data-urlencode "arg=🚨 휴대폰 시세 화면 이상: $BAD — https://jaenamking1-collab.github.io/jjk/ticker.html" --data-urlencode "token=$TOKEN" \
+            'https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec' || true
+          echo "::error::$BAD"; exit 1
