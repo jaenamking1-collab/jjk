@@ -44,11 +44,13 @@ body.detail .amt{display:block}
 .flash-up{animation:fu 1s steps(1) infinite} .flash-down{animation:fd 1s steps(1) infinite}
 @keyframes fu{50%{background:rgba(255,59,71,.28)}} @keyframes fd{50%{background:rgba(61,155,255,.28)}}
 #notice{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
-.brow{display:flex;align-items:center;gap:5px;margin:4px 0}
-.brow .cy{font-weight:700;font-size:15px;color:#3a404a;width:38px}
+.brow{display:flex;align-items:center;gap:8px;margin:6px 0}
+.brow .cy{font-weight:700;font-size:15px;color:#3a404a;width:38px;flex:none}
 .brow .cy.on{color:var(--fg)}
-.chip{font-weight:700;font-size:13px;color:#3a404a;border:1px solid #2a3038;border-radius:5px;
-  min-width:30px;text-align:center;padding:3px 0}
+/* 포트폴리오 앱 분배금 달력의 회사 배지와 같은 모양: 이름 전체, 회사 색 바탕, 흰 굵은 글자, 각진 모서리. 4곳씩 두 줄 */
+.chips{flex:1;display:grid;grid-template-columns:repeat(4,1fr);gap:3px}
+.chip{font-weight:700;font-size:12px;color:#3a404a;border:1px solid #2a3038;border-radius:3px;
+  height:24px;display:flex;align-items:center;justify-content:center;white-space:nowrap}
 /* 켜짐 = 회사 색(포트폴리오 앱 DIST_SOURCES 와 같은 색)으로 꽉 찬 아이콘, 깜박일 땐 바탕만 빠진다 */
 .chip.lit{background:var(--c);color:#fff;border-color:var(--c)}
 .chip.new{animation:cb .9s steps(1) infinite}
@@ -315,15 +317,16 @@ function drawBoard(stale){
   CYCLES.forEach(c => {
     const row = document.createElement('div'); row.className = 'brow';
     const any = Object.values(board).some(b => b.cyc === c && b.lit);
-    row.innerHTML = `<span class="cy${any ? ' on' : ''}">${c}</span>`;
-    Object.entries(CHIP).forEach(([k, t]) => {
+    row.innerHTML = `<span class="cy${any ? ' on' : ''}">${c}</span><div class="chips"></div>`;
+    const grid = row.querySelector('.chips');
+    Object.entries(ISSUER).forEach(([k, t]) => {
       const b = board[k + '|' + c], ch = document.createElement('span');
       ch.className = 'chip' + (b && b.lit ? ' lit' + (seen.includes(b.key) ? '' : ' new') : '');
       ch.textContent = t; ch.title = ISSUER[k]; ch.style.setProperty('--c', CHIP_COLOR[k]);
       ch.onclick = () => { if (!b || !b.lit) return;
         seen = [b.key, ...seen.filter(x => x !== b.key)].slice(0, 100); store.set('tk_seen2', seen);
         ch.classList.remove('new'); if (b.url) window.open(b.url, '_blank', 'noopener'); };
-      row.appendChild(ch);
+      grid.appendChild(ch);
     });
     N.appendChild(row);
   });
