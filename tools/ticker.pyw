@@ -219,6 +219,9 @@ NOTICE_SEC = 600                         # 10분마다. 예비본 자체가 30�
 CYCLES = ("월중", "월말")
 CHIP = {"kodex": "K", "tiger": "T", "ace": "A", "plus": "P", "rise": "R", "sol": "S",
         "hanaro": "H", "kiwoom": "KW"}          # 위젯 이름 약칭(BRAND)과 같은 글자
+# 회사 색 — 포트폴리오 앱 DIST_SOURCES 의 color 와 같다(앱에서 보던 그 색이 곧 회사 아이콘이다).
+CHIP_COLOR = {"kodex": "#2563eb", "tiger": "#f59e0b", "ace": "#059669", "plus": "#7c3aed",
+              "rise": "#dc2626", "sol": "#0891b2", "hanaro": "#65a30d", "kiwoom": "#db2777"}
 ISSUER = {"kodex": "KODEX", "tiger": "TIGER", "ace": "ACE", "plus": "PLUS", "rise": "RISE",
           "sol": "SOL", "hanaro": "HANARO", "kiwoom": "KIWOOM"}
 RANGE_DAYS = 30                          # 교환비율 줄에 보여줄 최저~최고 구간(일)
@@ -499,8 +502,10 @@ def draw_board(stale=False):
         b = board.get((k, c))
         lit = bool(b and b["lit"])
         blink = lit and b["key"] in board_new and on
-        lbl.config(bg=panel_bg() if (not lit or blink) else ACC,
-                   fg=(BG if lit and not blink else (ACC if lit else LINE)))
+        col = CHIP_COLOR[k]
+        # 켜짐 = 회사 색으로 꽉 찬 아이콘(흰 글자), 깜박일 땐 바탕만 빠져 회사 색 글자, 꺼짐 = 흐린 회색
+        lbl.config(bg=col if lit and not blink else panel_bg(),
+                   fg="#ffffff" if lit and not blink else (col if lit else LINE))
     for c, lbl in cyc_lbl.items():
         any_lit = any(b["lit"] for (k, cc), b in board.items() if cc == c)
         lbl.config(fg=THEME["fg"] if any_lit else LINE, bg=panel_bg())
@@ -860,7 +865,7 @@ for _c in CYCLES:
     cyc_lbl[_c].pack(side="left", padx=(0, 4))
     for _k, _t in CHIP.items():
         _l = tk.Label(_row, text=_t, bg=panel_bg(), fg=LINE, font=("Malgun Gothic", 8, "bold"),
-                      padx=3, cursor="hand2")
+                      width=3, padx=0, cursor="hand2")          # 같은 폭의 네모 = 아이콘
         _l.pack(side="left", padx=1)
         _l.bind("<Button-1>", lambda e, k=_k, c=_c: chip_click(k, c))
         chips[(_k, _c)] = _l
