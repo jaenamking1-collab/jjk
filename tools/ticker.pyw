@@ -505,7 +505,8 @@ def draw_board(stale=False):
         col = CHIP_COLOR[k]
         # 켜짐 = 회사 색으로 꽉 찬 아이콘(흰 글자), 깜박일 땐 바탕만 빠져 회사 색 글자, 꺼짐 = 흐린 회색
         lbl.config(bg=col if lit and not blink else panel_bg(),
-                   fg="#ffffff" if lit and not blink else (col if lit else LINE))
+                   fg="#ffffff" if lit and not blink else (col if lit else LINE),
+                   highlightbackground=col if lit else LINE)
     for c, lbl in cyc_lbl.items():
         any_lit = any(b["lit"] for (k, cc), b in board.items() if cc == c)
         lbl.config(fg=THEME["fg"] if any_lit else LINE, bg=panel_bg())
@@ -858,15 +859,20 @@ body.pack(fill="both", padx=6, pady=(0, 4))
 notice = tk.Frame(root, bg=panel_bg())
 notice.pack(fill="x", padx=6, pady=(0, 4))
 tk.Frame(notice, bg=LINE, height=1).pack(fill="x", pady=(0, 3))
+# 칸 = 포트폴리오 앱 분배금 달력의 회사 배지(이름 전체·회사 색 바탕·흰 굵은 글자). 8곳이 한 줄엔
+# 안 들어가 앱 달력처럼 칸을 나눠 4곳씩 두 줄로 놓는다(2026-10-03 사용자가 앱 화면을 보여주며 지정).
 for _c in CYCLES:
     _row = tk.Frame(notice, bg=panel_bg())
-    _row.pack(fill="x", pady=1)
+    _row.pack(fill="x", pady=(1, 2))
     cyc_lbl[_c] = tk.Label(_row, text=_c, bg=panel_bg(), fg=LINE, font=("Malgun Gothic", 8, "bold"))
     cyc_lbl[_c].pack(side="left", padx=(0, 4))
-    for _k, _t in CHIP.items():
-        _l = tk.Label(_row, text=_t, bg=panel_bg(), fg=LINE, font=("Malgun Gothic", 8, "bold"),
-                      width=3, padx=0, cursor="hand2")          # 같은 폭의 네모 = 아이콘
-        _l.pack(side="left", padx=1)
+    _grid = tk.Frame(_row, bg=panel_bg())
+    _grid.pack(side="left")
+    for _n, (_k, _t) in enumerate(ISSUER.items()):
+        _l = tk.Label(_grid, text=_t, bg=panel_bg(), fg=LINE, font=("Malgun Gothic", 7, "bold"),
+                      width=7, padx=0, pady=0, highlightthickness=1, highlightbackground=LINE,
+                      cursor="hand2")
+        _l.grid(row=_n // 4, column=_n % 4, padx=1, pady=1)
         _l.bind("<Button-1>", lambda e, k=_k, c=_c: chip_click(k, c))
         chips[(_k, _c)] = _l
 board_line.append(tk.Label(notice, text="", bg=panel_bg(), fg=DIM, font=("Malgun Gothic", 8), anchor="w"))
