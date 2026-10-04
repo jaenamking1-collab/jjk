@@ -52,6 +52,15 @@ jobs:
                 if (b) cards.push({ name: b.querySelector('b') ? b.querySelector('b').innerText.trim() : b.innerText.split('\n')[0].trim(), dated: 0 });
                 if (cards.length) cards[cards.length - 1].dated += (r.innerText.match(/\d\d\.\d\d/g) || []).length;
               });
+              // 운용사별 일정 표에서 '(예정)'이 아닌(=공시가 실제로 나온) 회차가 있는 운용사만 공지가 있어야 한다.
+              // 달 초엔 8곳 모두 공시 전이라 공지 표가 비는 게 정상이다(2026-10-04 10월 넘어간 뒤 매시간 오탐 메일).
+              const announced = new Set(); let cur = '';
+              document.querySelectorAll('#distScheduleList tbody tr').forEach(r => {
+                const s = r.querySelector('td[rowspan] span, td:first-child > span');
+                if (s && r.cells.length >= 6) cur = s.innerText.trim();
+                if (cur && /월(중|말)/.test(r.innerText) && !r.innerText.includes('(예정)')) announced.add(cur);
+              });
+              cards.forEach(c => c.announced = announced.has(c.name));
               const chips = [...document.querySelectorAll('.cal-chip')].filter(x => x.innerText.trim() && !x.innerText.includes('?')).length;
               return { fresh: m ? +m[1] : 0, cards, chips, total: (typeof DIST_SOURCES !== 'undefined') ? DIST_SOURCES.length : 0 };
             });
@@ -59,7 +68,7 @@ jobs:
             const bad = [];
             if (errs.length) bad.push('JS 오류: ' + errs.slice(0, 2).join(' / '));
             if (r.fresh !== r.total) bad.push(`최신 ${r.fresh}/${r.total}곳`);
-            r.cards.filter(c => !c.dated).forEach(c => bad.push(c.name + ' 공지 비어 있음'));
+            r.cards.filter(c => !c.dated && c.announced).forEach(c => bad.push(c.name + ' 공지 비어 있음'));
             if (!r.chips) bad.push('달력 확정 칩 0개');
             if (r.cards.length !== r.total) bad.push(`공지 표 ${r.cards.length}/${r.total}행`);
             console.log(JSON.stringify(r));
