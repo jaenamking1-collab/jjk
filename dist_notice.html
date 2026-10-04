@@ -566,6 +566,7 @@ async function loadDistributions(force){
   if (_monthOffset < -1) shiftMonth(0);   // 지난달(6·7월 등)을 보던 중이면 그 달을 다시 받아 그린다
 }
 
+let _calStatusPlan = false;   // 그 줄이 공시 전 예상이면 배지를 '예정'으로
 let _calStatus = '';   // 달력이 계산한 '다음 매수 마감 …' 줄 (📌 공지사항이 읽는다)
 // ── 아직 공지 안 난 회차의 '예정' 일정 (달력·운용사별 일정 표가 함께 쓴다) ──
 // ⛔ portfolio.html / dist_notice.html 에 **똑같이** 있어야 하는 '데이터 해석 규칙'이다.
@@ -847,15 +848,19 @@ function renderMasterCalendar(allData){
     // '그날까지 사면 받습니다'라고 단정하게 됐다(2026-09-21). 그 회차의 마크가 전부 예정이면 밝힌다.
     const _planOn = q => { const a = marks[`${q.m}-${q.d}`] || []; return a.length > 0 && a.every(mk => mk.uncertain); };
     const plan = _planOn(rak.q);
+    _calStatusPlan = plan;
     const tag = plan ? ' <b style="color:#64748b">(예정)</b>' : '';
     if (rakToday) return `<b>오늘 ${_fmt(rak.q)} 분배락일</b>${tag} — 이 회차 매수는 <b>${_fmt(cut)}</b>로 마감됐습니다${tail}`;
     const dday = _days(_t0, _dt(cut));
     if (dday < 0) return `이 회차 매수는 <b>${_fmt(cut)}</b>로 마감됐습니다${tag} · 분배락 ${_fmt(rak.q)}${tail}`;
+    // 공시 전이면 '사면 받습니다'라고 단정하지 않는다 — 계산한 예상임을 문장 맨 앞에 둔다(2026-10-04 지적).
+    if (plan) return `<b>아직 공시 전</b> — 달력으로 계산한 예상: 매수 마감 <b>${_fmt(cut)}</b> ${dday === 0 ? '<b>오늘까지</b>' : `<b>D-${dday}</b>`} · 분배락 ${_fmt(rak.q)}${tail} · 공시가 나오면 바뀔 수 있습니다`;
     return `다음 매수 마감 <b>${_fmt(cut)}</b> ${dday === 0 ? '<b>오늘까지</b>' : `<b>D-${dday}</b>`}${tag} — 그날까지 사면 받습니다 · 분배락 ${_fmt(rak.q)}${tail}`;
   })();
 
   // 상태줄('다음 매수 마감 …')은 달력이 아니라 📌 공지사항 맨 위에 둔다(2026-09-21 사용자 요청).
   // 달력은 날짜만 보여주고, 말로 된 안내는 넓은 공지사항 칸이 맡는다.
+  if (!statusHtml) _calStatusPlan = false;
   _calStatus = statusHtml;
   const calHtml = `
     <div>
@@ -918,10 +923,15 @@ function renderMasterCalendar(allData){
   const CYC = { '월중': ['#ecfeff', '#0e7490'], '월말': ['#f5f3ff', '#6d28d9'] };
   const dateCell = (info, key, col, bg) => {
     const v = dcell(info, key);
-    const txt = v || '·';
-    // 예정은 같은 색을 연하게(점선 밑줄) — 확정과 한눈에 구분되되 표가 시끄러워지지 않게.
-    const extra = (v && info && info.planned) ? `;opacity:.55;border-bottom:1px dashed ${col}` : '';
-    return `<td style="text-align:center;padding:5px 3px;font-family:var(--mono);white-space:nowrap;font-weight:600;background:${bg};color:${v ? col : '#cbd5e1'}${extra}">${txt}</td>`;
+    const base = `text-align:center;padding:5px 3px;white-space:nowrap;font-weight:600;background:${bg};`;
+    // 공시일이 없는 회차(공시 전)는 '·' 대신 '공시 전'이라고 쓴다 — 빈 칸은 고장처럼 보인다(2026-10-04 지적).
+    if (!v && key === '공시일' && (!info || !info.hasNotice || info.planned))
+      return `<td style="${base}font-size:10px;color:#94a3b8">공시 전</td>`;
+    // 예정(달력 계산)은 회색 점선 — 회사 색을 쓰면 확정 일정으로 읽힌다(2026-10-04 지적, 달력과 같은 규칙).
+    const planned = v && info && info.planned;
+    const color = !v ? '#cbd5e1' : planned ? '#94a3b8' : col;
+    const extra = planned ? 'text-decoration:underline dashed #cbd5e1;text-underline-offset:3px;' : '';
+    return `<td style="${base}font-family:var(--mono);color:${color};${extra}">${v || '·'}</td>`;
   };
   const tableHtml = rowsData.length ? `
     <table>
@@ -1231,8 +1241,10 @@ function renderNoticeBoard() {
   // portfolio.html의 renderNoticeBoard와 쌍이다 — 한쪽을 고치면 반드시 다른 쪽도.
   // 달력 위에 있던 '다음 매수 마감 …' 줄도 여기로 옮겼다(2026-09-21) — 달력은 날짜만 보여준다.
   const status = _calStatus ? `
-    <div style="display:flex;align-items:flex-start;gap:6px;min-width:0;padding:5px 8px;border-bottom:1px solid #64748b;background:#fffbeb">
-      <span style="flex-shrink:0;margin-top:1px;background:#d977061a;color:#d97706;font-size:9px;font-weight:800;padding:1px 5px;border-radius:3px">일정</span>
+    <div style="display:flex;align-items:flex-start;gap:6px;min-width:0;padding:5px 8px;border-bottom:1px solid #64748b;background:${_calStatusPlan ? '#f8fafc' : '#fffbeb'}">
+      ${_calStatusPlan
+        ? '<span style="flex-shrink:0;margin-top:1px;background:#e2e8f0;color:#475569;font-size:9px;font-weight:800;padding:1px 5px;border-radius:3px;border:1px dashed #94a3b8">예정</span>'
+        : '<span style="flex-shrink:0;margin-top:1px;background:#d977061a;color:#d97706;font-size:9px;font-weight:800;padding:1px 5px;border-radius:3px">일정</span>'}
       <span style="flex:1;min-width:0;font-size:11px;line-height:1.35;color:var(--text)">${_calStatus}</span>
     </div>` : '';
   const fixed = status + `
