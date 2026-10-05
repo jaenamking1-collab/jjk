@@ -243,5 +243,6 @@ Adapted from the [Karpathy coding guidelines](https://x.com/karpathy/status/2015
   - 이 자동화를 만든 이유: 그전까지 **손으로 복사**해야 했고 **이미 네 번 빠뜨렸다**(7/13·8/27·9/12 두 번). 그때마다 공개 페이지만 조용히 옛 버전으로 남아, 달력 백지·느린 첫 화면이 고쳐진 뒤에도 사용자 눈엔 그대로였다. 2026-09-14에 "모바일 로딩이 한참 걸린다"는 지적으로 드러났다 — 원인은 9/4 판이 스냅샷 첫 화면 코드를 안 갖고 있었던 것.
 - `Code.gs` — the Google Apps Script backend (mirror of the deployed script; not auto-deployed).
 - `okx_nft_alert.gs` — unrelated to the portfolio app: an OKX NFT (Kaia) Legendary/Mystic listing watcher that writes Google Calendar alerts. Mirror of a **separate** Apps Script project — do not merge it into `Code.gs` (its 30-min trigger would steal the portfolio backend's execution slots; see WORKLOG 85·86). Also not auto-deployed. Design: `docs/superpowers/specs/2026-08-08-okx-nft-legendary-alert-design.md`.
+- `watchdog/` — **별도** Apps Script 프로젝트 '백엔드감시'(ID `watchdog/script_id.txt`). 30분마다 본체 `/exec` 를 보고, 응답 없음·갱신 멈춤이 두 번 연속이면 **구글 캘린더 일정 1개**(멈춤 한 번에 하나, 복구 알림 없음). 본체 안의 알림은 본체와 같이 죽기 때문에 만들었다(2026-10-06). ⛔ Code.gs 와 합치지 마라. 올리기는 `watchdog-deploy.yml`(main 에 `watchdog/**` 푸시하면 자동). 사용자는 카톡 알림이 안 울리고 캘린더가 울린다고 했다 — 알림은 캘린더로, 횟수는 최소로.
 - `WORKLOG.md` — running work log for syncing across the two PCs; append a dated entry each session.
 - `README.md` — one line (`# jjk`); no other docs.
