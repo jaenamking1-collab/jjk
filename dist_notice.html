@@ -1043,8 +1043,11 @@ async function loadAllNotices(){
     if (hit && !hit.stale) return Promise.resolve({ ...s, items: hit.items || [], ok: true, fallback: hit.fallback, savedAt: hit.savedAt });
     // 재조회가 실패하거나 0건이면 벌크가 실어 보낸 '마지막 성공분'으로 되돌아간다.
     // 예전엔 여기서 빈 배열을 넣어, 상류가 잠깐 죽은 것만으로 카드가 통째로 비었다.
+    // 서버까지 죽었으면(2026-10-05 /exec 403) 먼저 그려 둔 예비본을 지킨다 — 빨간 '응답 없음'은 예비본도 없을 때만.
+    const old = painted && snap.find(o => o && o.id === s.id && (o.items || []).length);
     const back = (hit && (hit.items || []).length)
       ? { ...s, items: hit.items, ok: true, fallback: true, savedAt: hit.savedAt }
+      : old ? { ...s, items: old.items, ok: true, fallback: true, savedAt: old.savedAt }
       : { ...s, items: [], ok: false };
     return within(s.fetch().then(items => (items && items.length) ? { ...s, items, ok: true } : back), 20000, back);
   }));
