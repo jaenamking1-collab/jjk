@@ -6180,8 +6180,9 @@ async function loadHoldingPrices(holdings) {
           const recEl = document.getElementById(`rec-${h.id}`), rc = _recoverMap[h.id];
           if (recEl && rc) {
             const v = plKrw + rc.cum, n = v < 0 && rc.perMonth > 0 ? Math.ceil(-v / rc.perMonth) : 0;
-            recEl.innerHTML = `<span style="font-family:var(--mono);font-size:12px;font-weight:600;color:${v >= 0 ? '#dc2626' : '#2563eb'}">${v >= 0 ? '+' : ''}${Math.round(v).toLocaleString()}</span>`
-              + (v < 0 ? `<br><span style="font-size:10px;font-weight:600;color:${n ? '#111827' : 'var(--text3)'}" title="최근 월 분배금 ${Math.round(rc.perMonth).toLocaleString()} 기준">${n ? `본전까지 약 ${n}개월` : '분배금 기록 없음'}</span>` : '');
+            // 본전 개월 수는 줄을 늘리지 않게 롤오버(title)로만 보여 준다(2026-10-06 요청)
+            const tip = v >= 0 ? '이미 본전 이상' : n ? `본전까지 약 ${n}개월 (최근 월 분배금 ${Math.round(rc.perMonth).toLocaleString()} 기준)` : '분배금 기록이 없어 본전 시점을 계산 못 함';
+            recEl.innerHTML = `<span title="${tip}" style="cursor:help;font-family:var(--mono);font-size:12px;font-weight:600;color:${v >= 0 ? '#dc2626' : '#2563eb'}">${v >= 0 ? '+' : ''}${Math.round(v).toLocaleString()}</span>`;
           }
         }
       }
