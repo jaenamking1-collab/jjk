@@ -115,6 +115,8 @@ function doGet(e) {
   if (!e || !e.parameter) return ContentService.createTextOutput('ok');
   const action = e.parameter.action;
   if (!_authOk(action, e.parameter.token)) return _unauthorized();
+  // 별도 프로젝트 '백엔드감시'(watchdog/)가 30분마다 wd=1 을 붙여 부른다 → 감시의 생존 표시(hitCounter 의 wd)
+  if (e.parameter.wd === '1') try { PropertiesService.getScriptProperties().setProperty('WATCHDOG_AT', new Date().toISOString()); } catch (_) {}
   let result;
   try {
     switch(action) {
@@ -156,7 +158,7 @@ function doGet(e) {
         } else if (_p.getProperty('VISIT_TODAY_DATE') !== _today) {
           _p.setProperties({ VISIT_TODAY: '0', VISIT_TODAY_DATE: _today }); // 표시만 해도 리셋은 저장
         }
-        result = { count: _n, today: _t };
+        result = { count: _n, today: _t, wd: _p.getProperty('WATCHDOG_AT') || '' };
         break;
       }
       case 'getSheetData':    result = getSheetData(e.parameter.force === '1'); break;
