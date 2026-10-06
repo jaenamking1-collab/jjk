@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   smoke:
@@ -88,12 +89,31 @@ jobs:
           mkdir -p o/smoke && cp shot.png o/smoke/ 2>/dev/null; cp result.txt o/smoke/ 2>/dev/null; date -u +%FT%TZ > o/smoke/at.txt
           cd o && git init -q -b probe-out && git config user.name 'github-actions[bot]' && git config user.email 'github-actions[bot]@users.noreply.github.com'
           git add -A && git commit -qm smoke && git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" probe-out
+      # 같은 문제로 매시간 카톡·메일이 가지 않게, 열린 이슈를 '이미 알렸다'는 표시로 쓴다(2026-10-06 RISE 한 곳 멈춤에 매시간 알림).
+      # 새 문제(이슈 없음·내용이 바뀜)일 때만 카톡 + 실패로 끝낸다. 정상으로 돌아오면 이슈를 닫는다(복구 알림은 보내지 않는다).
+      - name: 정상이면 이슈 닫기
+        if: ${{ steps.chk.outputs.bad == '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          N=$(gh issue list -R "${{ github.repository }}" --state open --search "공개 분배금공지 화면 이상 in:title" --json number --jq '.[0].number // empty')
+          [ -n "$N" ] && gh issue close "$N" -R "${{ github.repository }}" --comment "✅ 정상으로 돌아왔습니다 ($(TZ=Asia/Seoul date '+%m/%d %H:%M') KST)." || true
       - name: 실패 알림
         if: ${{ steps.chk.outputs.bad != '' }}
         env:
           TOKEN: ${{ secrets.APP_TOKEN }}
           BAD: ${{ steps.chk.outputs.bad }}
+          GH_TOKEN: ${{ github.token }}
         run: |
+          R="${{ github.repository }}"
+          N=$(gh issue list -R "$R" --state open --search "공개 분배금공지 화면 이상 in:title" --json number,body --jq '.[0].number // empty')
+          # 숫자는 빼고 비교한다 — '최신 0/8곳'→'최신 1/8곳'처럼 개수만 바뀐 건 같은 문제다
+          KEY=$(echo "$BAD" | sed 's/[0-9]//g')
+          if [ -n "$N" ] && [ "$(gh issue view "$N" -R "$R" --json body --jq .body | sed 's/[0-9]//g')" = "$KEY" ]; then
+            echo "::warning::이미 알린 문제(이슈 #$N) — 카톡·실패 메일 생략: $BAD"; exit 0
+          fi
+          if [ -n "$N" ]; then gh issue edit "$N" -R "$R" --body "$BAD"
+          else gh issue create -R "$R" --title "🚨 공개 분배금공지 화면 이상" --body "$BAD"; fi
           curl -sL -o /dev/null -G --max-time 120 --data-urlencode action=runMaint --data-urlencode fn=sendKakaoMemo \
             --data-urlencode "arg=🚨 공개 분배금공지 화면 이상: $BAD — https://jjk.distributionjn.workers.dev/" --data-urlencode "token=$TOKEN" \
             'https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec' || true
