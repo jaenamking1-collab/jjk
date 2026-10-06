@@ -6044,7 +6044,8 @@ function _probeSeibro(arg) {
       + '<mngco_custno value=""/><isin value=""/><RGT_RSN_DTAIL_SORT_CD value=""/><fromRGT_STD_DT value="' + from + '"/><toRGT_STD_DT value="' + to + '"/></reqParam>';
     const res = UrlFetchApp.fetch('https://seibro.or.kr/websquare/engine/proworks/callServletService.jsp', {
       method: 'post', contentType: 'application/x-www-form-urlencoded', payload: body, muteHttpExceptions: true,
-      headers: { 'User-Agent': 'Mozilla/5.0' }
+      // Referer 가 없으면 '서버오류3' 을 준다(2026-10-06 구글 서버에서 확인 — curl 은 -e 로 붙였을 때 성공)
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://seibro.or.kr/websquare/control.jsp?w2xPath=/IPORTAL/user/etf/BIP_CNTS06030V.xml&menuNo=174' }
     });
     code = res.getResponseCode();
     const xml = res.getContentText('UTF-8');
