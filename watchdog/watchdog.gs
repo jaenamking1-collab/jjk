@@ -43,7 +43,7 @@ function probe() {
   let res = null, err = '';
   for (let i = 0; i < 2 && !res; i++) {
     try {
-      const h = UrlFetchApp.fetch(EXEC + '?action=getDistributionAll', { muteHttpExceptions: true, followRedirects: true });
+      const h = UrlFetchApp.fetch(EXEC + '?action=getDistributionAll&wd=1', { muteHttpExceptions: true, followRedirects: true });
       const j = h.getResponseCode() === 200 ? JSON.parse(h.getContentText()) : null;
       if (j && j.sources) res = j.sources; else err = 'HTTP ' + h.getResponseCode();
     } catch (e) { err = String(e).slice(0, 120); }
