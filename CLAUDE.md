@@ -61,6 +61,8 @@ There is **no build system, package manager, test suite, or lint config**. The f
 
 ## Working in this repo
 
+- **PDF·워드·파워포인트·엑셀은 읽기 전에 마크다운으로 바꾼다**(2026-10-06 사용자 결정 — 토큰 절약). `python -m markitdown 파일.pdf > 파일.md` 로 바꾼 뒤 `.md` 를 읽는다. PDF 를 그대로 읽으면 쪽마다 이미지+글자로 두 번 읽혀 토큰이 이중으로 든다. **차트·그림이 핵심인 문서만** 원본을 본다. `python -c "import markitdown"` 가 실패하면 **묻지 말고** `python -m pip install --user "markitdown[all]"` 로 설치한다(파이썬 3.10↑, 원격 컨테이너 약 10초). 학교·집 PC 모두 처음 쓸 때 그 세션이 설치한다.
+
 - **Editing**: The file is large with inline styles and one big script block. Use Grep to locate a function/section by line before editing rather than reading the whole file. Function definitions are plain `function name()` / `async function name()` at column 0, so `^(async )?function <name>` finds them fast.
 - **Preview**: Just open `portfolio.html` in a browser (the launch preview panel also renders it). No dev server.
 - ⛔ **비밀번호·열쇠 값은 저장소에 절대 적지 않는다.** 일지에도 코드에도 `••••`로만 쓴다. `jjk`는 **공개 저장소**다 — 한 번 커밋하면 지난 기록에 영구히 남고, 나중에 지워도 완전히 안 지워진다. 실제 값은 Apps Script **스크립트 속성**(`APP_TOKEN`)에만 둔다. (2026-08-05에 적힌 진입 비밀번호가 3주간 공개돼 있었다 — WORKLOG 127.)
