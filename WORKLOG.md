@@ -8,6 +8,7 @@
 - Threads 글(@gymcoding)을 fetch.yml 로 읽음: PDF 를 그대로 올리면 이미지+글자로 이중 토큰 → MarkItDown 으로 .md 변환.
 - 원격에서 설치·변환 확인(0.1.7, `python -m markitdown t.pdf` 2쪽 추출 OK). CLAUDE.md 'Working in this repo' 에 규칙 추가.
 - SessionStart 훅으로 자동 설치하려 했으나 settings.json 수정이 권한 검사에 막힘 → 각 PC 세션이 처음 쓸 때 설치.
+- ⚠️ 처음에 claude-memory 를 안 붙여 학교 PC가 이 대화를 못 찾음 → 붙이고 `cloud/20261006-bddc5bfe` 저장·푸시(INDEX 10행). 원격 세션 첫 일은 add_repo claude-memory 다.
 - 다음 할 일: 학교·집 PC 세션에서 `python -c "import markitdown"` 확인, 없으면 설치(파이썬 3.10↑인지도 확인).
 
 ## 2026-10-06 (230) / 원격(집) — 남은 일 1~3
