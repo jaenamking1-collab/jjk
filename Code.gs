@@ -2313,6 +2313,69 @@ function fetchDist_plus() {
   }
 }
 
+// RISE = KB 사이트 먼저, 실패하면 예탁결제원 SEIBRO.
+// 2026-10-05 금융권 해킹 뒤 kbam.co.kr 이 해외 접속(구글 서버 포함)을 막았다. 일시적일 수 있어 KB 를 계속 먼저 시도한다.
+function fetchDist_rise() {
+  const site = _fetchDistRiseSite();
+  if (site.items && site.items.length) return site;
+  try {
+    const items = _seibroDistItems('케이비');
+    if (!items.length) return site;
+    const latest = items.reduce((a, b) => (b._std > a._std ? b : a));
+    items.forEach(it => delete it._std);
+    return { success: true, items, schedule: latest.sched, title: 'RISE 분배금 (예탁결제원 SEIBRO — KB 사이트 접속 실패)',
+             _fallback: 'seibro', _siteError: site.error || '' };
+  } catch (e) {
+    return { items: [], error: (site.error || 'RISE') + ' / SEIBRO: ' + e };
+  }
+}
+
+// SEIBRO(예탁결제원) '분배금지급현황'에서 한 운용사의 최근 회차(월중·월말 각 최신) 분배금을 운용사 파서와 같은 모양으로.
+// co = SEIBRO 의 운용사 이름 일부('케이비' — KB 를 한글로 적는다). 분배율은 SEIBRO 에 기준가가 없어 null.
+// 회차 판정은 앱과 같다: 기준일의 '일'이 20 이하면 월중, 아니면 월말.
+function _seibroDistItems(co) {
+  const rows = _seibroRows(40, 40).filter(r => r.co.indexOf(co) >= 0 && r.amt > 0);
+  const cyc = r => (Number(r.std.slice(6, 8)) <= 20 ? '월중' : '월말');
+  const md = d => Number(d.slice(4, 6)) + '월 ' + Number(d.slice(6, 8)) + '일';
+  const out = [];
+  ['월중', '월말'].forEach(c => {
+    const mine = rows.filter(r => cyc(r) === c);
+    if (!mine.length) return;
+    const last = mine.reduce((m, r) => (r.std > m ? r.std : m), '');
+    mine.filter(r => r.std === last).forEach(r => {
+      const sched = { '기준일': md(r.std) };
+      if (r.pay) sched['지급일'] = md(r.pay);
+      out.push({ name: r.nm.replace(/&amp;/g, '&'), ticker: r.isin.slice(3, 9), amount: r.amt, rate: null, cycle: c, sched, _std: r.std });
+    });
+  });
+  return out;
+}
+
+// SEIBRO 분배금지급현황 원본 행. 기준일이 오늘-back ~ 오늘+fwd 일 사이. 30건씩 쪽을 넘긴다.
+// ⚠️ Referer 가 없으면 '서버오류3' 을 준다(2026-10-06 확인).
+function _seibroRows(back, fwd) {
+  const to = Utilities.formatDate(new Date(Date.now() + fwd * 86400000), 'Asia/Seoul', 'yyyyMMdd');
+  const from = Utilities.formatDate(new Date(Date.now() - back * 86400000), 'Asia/Seoul', 'yyyyMMdd');
+  const v = (r, k) => ((r.match(new RegExp('<' + k + ' value="([^"]*)"')) || [])[1] || '');
+  let rows = [];
+  for (let pg = 0; pg < 30; pg++) {
+    const body = '<reqParam action="exerInfoDtramtPayStatPlist" task="ksd.safe.bip.cnts.etf.process.EtfExerInfoPTask">'
+      + '<START_PAGE value="' + (pg * 30 + 1) + '"/><END_PAGE value="' + (pg * 30 + 30) + '"/><etf_sort_cd value=""/><etf_big_sort_cd value=""/>'
+      + '<mngco_custno value=""/><isin value=""/><RGT_RSN_DTAIL_SORT_CD value=""/><fromRGT_STD_DT value="' + from + '"/><toRGT_STD_DT value="' + to + '"/></reqParam>';
+    const res = UrlFetchApp.fetch('https://seibro.or.kr/websquare/engine/proworks/callServletService.jsp', {
+      method: 'post', contentType: 'application/x-www-form-urlencoded', payload: body, muteHttpExceptions: true,
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://seibro.or.kr/websquare/control.jsp?w2xPath=/IPORTAL/user/etf/BIP_CNTS06030V.xml&menuNo=174' }
+    });
+    const xml = res.getContentText('UTF-8');
+    if (res.getResponseCode() !== 200 || /<WARNING>/.test(xml)) throw new Error('SEIBRO HTTP ' + res.getResponseCode() + ' ' + xml.replace(/\s+/g, ' ').slice(0, 120));
+    const got = (xml.match(/<result>[\s\S]*?<\/result>/g) || []).map(r => ({ nm: v(r, 'KOR_SECN_NM'), co: v(r, 'REP_SECN_NM'), isin: v(r, 'ISIN'),
+      std: v(r, 'RGT_STD_DT'), pay: v(r, 'TH1_PAY_TERM_BEGIN_DT'), amt: Number(v(r, 'ESTM_STDPRC')) || 0 }));
+    rows = rows.concat(got);
+    if (got.length < 30) break;
+  }
+  return rows;
+}
+
 // RISE(KB자산운용) 공지 목록 [{id, title, date:'yyyy.MM.dd'}] — 최신순.
 // 2026-09-20: riseetf.co.kr 이 kbam.co.kr 로 통합되면서 옛 목록 주소(/cust/notice)와 마크업
 // (href="/cust/notice/<id>", class="body01")이 **전부 사라졌다**. 새 사이트는 Next.js 라 목록 HTML 에
@@ -2337,7 +2400,7 @@ function _riseNotices() {
   return out;
 }
 
-function fetchDist_rise() {
+function _fetchDistRiseSite() {
   try {
     const cands = [];
     _riseNotices().forEach(n => {
@@ -6034,32 +6097,10 @@ function _diagDist(source) {
 // 운용사 사이트 대신 쓸 예비 경로. KIND 는 구글 서버를 403 으로 막았다. arg = 운용사 이름 일부(기본 'KB'). 공개 정보만 찍는다.
 function _probeSeibro(arg) {
   const who = String(arg || '케이비');   // SEIBRO 는 'KB자산운용'을 '케이비자산운용'으로 적는다
-  const to = Utilities.formatDate(new Date(Date.now() + 40 * 86400000), 'Asia/Seoul', 'yyyyMMdd');
-  const from = Utilities.formatDate(new Date(Date.now() - 40 * 86400000), 'Asia/Seoul', 'yyyyMMdd');
-  const v = (r, k) => ((r.match(new RegExp('<' + k + ' value="([^"]*)"')) || [])[1] || '');
-  let rows = [], code = 0, head = '';
-  for (let pg = 0; pg < 20; pg++) {   // 한 번에 30건까지만 준다 — 쪽을 넘긴다
-    const body = '<reqParam action="exerInfoDtramtPayStatPlist" task="ksd.safe.bip.cnts.etf.process.EtfExerInfoPTask">'
-      + '<START_PAGE value="' + (pg * 30 + 1) + '"/><END_PAGE value="' + (pg * 30 + 30) + '"/><etf_sort_cd value=""/><etf_big_sort_cd value=""/>'
-      + '<mngco_custno value=""/><isin value=""/><RGT_RSN_DTAIL_SORT_CD value=""/><fromRGT_STD_DT value="' + from + '"/><toRGT_STD_DT value="' + to + '"/></reqParam>';
-    const res = UrlFetchApp.fetch('https://seibro.or.kr/websquare/engine/proworks/callServletService.jsp', {
-      method: 'post', contentType: 'application/x-www-form-urlencoded', payload: body, muteHttpExceptions: true,
-      // Referer 가 없으면 '서버오류3' 을 준다(2026-10-06 구글 서버에서 확인 — curl 은 -e 로 붙였을 때 성공)
-      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://seibro.or.kr/websquare/control.jsp?w2xPath=/IPORTAL/user/etf/BIP_CNTS06030V.xml&menuNo=174' }
-    });
-    code = res.getResponseCode();
-    const xml = res.getContentText('UTF-8');
-    if (!pg) head = xml.replace(/\s+/g, ' ').slice(0, 300);
-    const got = (xml.match(/<result>[\s\S]*?<\/result>/g) || []).map(r => ({ nm: v(r, 'KOR_SECN_NM'), co: v(r, 'REP_SECN_NM'),
-      std: v(r, 'RGT_STD_DT'), pay: v(r, 'TH1_PAY_TERM_BEGIN_DT'), amt: v(r, 'ESTM_STDPRC') }));
-    rows = rows.concat(got);
-    if (got.length < 30) break;
-  }
-  const mine = rows.filter(r => r.co.indexOf(who) >= 0 || r.nm.indexOf(who) >= 0);
-  console.log(' | HTTP ' + code + ' · 전체 ' + rows.length + '건 · "' + who + '" ' + mine.length + '건');
-  if (!rows.length) console.log(' | 응답 앞부분: ' + head);
-  mine.slice(0, 15).forEach(r => console.log(' | ' + r.std + ' → ' + r.pay + ' · ' + r.amt + '원 · ' + r.nm));
-  return { code: code, total: rows.length, match: mine.length };
+  const rows = _seibroRows(40, 40), mine = rows.filter(r => r.co.indexOf(who) >= 0 || r.nm.indexOf(who) >= 0);
+  console.log(' | 전체 ' + rows.length + '건 · "' + who + '" ' + mine.length + '건');
+  _seibroDistItems(who).slice(0, 20).forEach(it => console.log(' | ' + it.cycle + ' ' + it.ticker + ' ' + it.amount + '원 · ' + JSON.stringify(it.sched) + ' · ' + it.name));
+  return { total: rows.length, match: mine.length };
 }
 
 function _probePrice(ticker) {
