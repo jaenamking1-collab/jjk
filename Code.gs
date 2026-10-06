@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeKind'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro'
 ];
 
 function runMaint(name, arg) {
@@ -6030,24 +6030,27 @@ function _diagDist(source) {
 // 구글 금융이 그 티커를 아는지 시험한다. 숨긴 '추세데이터' 탭 구석에 수식을 썼다가 지운다.
 // 왜: "은경 SPYI 는 오류난다"(2026-09-22). 현재가 칸이 `=GOOGLEFINANCE(B,"price")` 인데
 // 구글이 모르는 종목이면 #N/A 가 된다 — 짐작 말고 실제로 물어본다.
-// KIND(거래소 공시) 분배금 공시 검색 시험(runMaint 전용). KB 사이트가 해외 접속을 막을 때(2026-10-05~)
-// RISE 분배금을 받을 예비 경로를 찾으려고 만든다. arg = 검색어(기본 'RISE'). 공개 정보만 찍는다.
-function _probeKind(arg) {
-  const q = String(arg || 'RISE');
-  const to = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
-  const from = Utilities.formatDate(new Date(Date.now() - 45 * 86400000), 'Asia/Seoul', 'yyyy-MM-dd');
-  const res = UrlFetchApp.fetch('https://kind.krx.co.kr/disclosure/details.do', {
-    method: 'post', muteHttpExceptions: true,
-    headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://kind.krx.co.kr/disclosure/details.do?method=searchDetailsMain' },
-    payload: { method: 'searchDetailsSub', currentPageSize: '30', pageIndex: '1', orderMode: '1', orderStat: 'D',
-               forward: 'details_sub', reportNm: '분배', repIsuSrtCd: '', searchCorpName: q, fromDate: from, toDate: to }
+// SEIBRO(예탁결제원) 분배금지급현황 시험(runMaint 전용). KB 사이트가 해외 접속을 막을 때(2026-10-05~, 금융권 해킹 뒤)
+// 운용사 사이트 대신 쓸 예비 경로. KIND 는 구글 서버를 403 으로 막았다. arg = 운용사 이름 일부(기본 'KB'). 공개 정보만 찍는다.
+function _probeSeibro(arg) {
+  const who = String(arg || 'KB');
+  const to = Utilities.formatDate(new Date(Date.now() + 40 * 86400000), 'Asia/Seoul', 'yyyyMMdd');
+  const from = Utilities.formatDate(new Date(Date.now() - 40 * 86400000), 'Asia/Seoul', 'yyyyMMdd');
+  const body = '<reqParam action="exerInfoDtramtPayStatPlist" task="ksd.safe.bip.cnts.etf.process.EtfExerInfoPTask">'
+    + '<START_PAGE value="1"/><END_PAGE value="1000"/><etf_sort_cd value=""/><etf_big_sort_cd value=""/><mngco_custno value=""/>'
+    + '<isin value=""/><RGT_RSN_DTAIL_SORT_CD value=""/><fromRGT_STD_DT value="' + from + '"/><toRGT_STD_DT value="' + to + '"/></reqParam>';
+  const res = UrlFetchApp.fetch('https://seibro.or.kr/websquare/engine/proworks/callServletService.jsp', {
+    method: 'post', contentType: 'application/xml; charset=UTF-8', payload: body, muteHttpExceptions: true,
+    headers: { 'User-Agent': 'Mozilla/5.0' }
   });
-  const txt = res.getContentText('UTF-8').replace(/<script[\s\S]*?<\/script>/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
-  console.log(' | HTTP ' + res.getResponseCode() + ' · ' + txt.length + '자');
-  console.log(' | ' + txt.slice(0, 1800));
-  const ids = (res.getContentText('UTF-8').match(/openDisclsViewer\('(\d+)'/g) || []).slice(0, 5);
-  console.log(' | 공시번호 ' + ids.join(' '));
-  return { code: res.getResponseCode(), n: ids.length };
+  const xml = res.getContentText('UTF-8');
+  const v = (r, k) => ((r.match(new RegExp('<' + k + ' value="([^"]*)"')) || [])[1] || '');
+  const rows = (xml.match(/<result>[\s\S]*?<\/result>/g) || []).map(r => ({ nm: v(r, 'KOR_SECN_NM'), co: v(r, 'REP_SECN_NM'),
+    std: v(r, 'RGT_STD_DT'), pay: v(r, 'TH1_PAY_TERM_BEGIN_DT'), amt: v(r, 'ESTM_STDPRC') }));
+  const mine = rows.filter(r => r.co.indexOf(who) >= 0 || r.nm.indexOf(who) >= 0);
+  console.log(' | HTTP ' + res.getResponseCode() + ' · 전체 ' + rows.length + '건 · "' + who + '" ' + mine.length + '건');
+  mine.slice(0, 15).forEach(r => console.log(' | ' + r.std + ' → ' + r.pay + ' · ' + r.amt + '원 · ' + r.nm));
+  return { code: res.getResponseCode(), total: rows.length, match: mine.length };
 }
 
 function _probePrice(ticker) {
