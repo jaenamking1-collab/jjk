@@ -2033,6 +2033,7 @@ function getAccColor(accountId) {
   return ACC_COLORS_FALLBACK[idx % ACC_COLORS_FALLBACK.length];
 }
 
+let _recoverMap = {};   // holding_id → { cum: 받은 분배금 합(작년 포함), perMonth: 최근 월 분배금 } — '평가+분배' 칸
 async function renderHoldingsTable(holdings) {
   holdings = sortHoldings(holdings);
   if (!holdings.length) {
@@ -2042,10 +2043,28 @@ async function renderHoldingsTable(holdings) {
 
   // 연배당률 계산용 분배금 데이터 (올해)
   const year = new Date().getFullYear();
-  const allDivs = await api({ action:'getDividends', year }).catch(()=>[]);
+  const [allDivs, prevDivs] = await Promise.all([
+    api({ action:'getDividends', year }).catch(()=>[]),
+    api({ action:'getDividends', year: year - 1 }).catch(()=>[])]);
   const divByHolding = {};
   (allDivs || []).forEach(d => {
     (divByHolding[d.holding_id] = divByHolding[d.holding_id] || []).push(d);
+  });
+  // 평가+분배(시트 '평가금액-배당금') = 손익 + 받은 분배금 전부(작년 포함). 마이너스면 '몇 달 분배금으로 메꾸나'.
+  // 월 분배금 = 지난 3개월 합 ÷ 3(월배당) / 지난 12개월 합 ÷ 12(분기·반기 등). 칸 채우기는 시세 로더(rec-${id}).
+  _recoverMap = {};
+  const nowIdx = year * 12 + new Date().getMonth();   // 이번 달(0부터). 이번 달은 아직 덜 받았으니 빼고 센다
+  holdings.forEach(h => {
+    const er = state.exchangeRate || 1400, monthly = /주배당|월/.test((h.div_cycle||'').split('|')[0]);
+    let cum = 0, last3 = 0, last12 = 0;
+    [[allDivs, year], [prevDivs, year - 1]].forEach(([list, y]) => (list || []).forEach(d => {
+      if (d.holding_id !== h.id) return;
+      const a = divKrwOf(parseFloat(d.amount) || 0, d.currency, d.rate, er), ago = nowIdx - (y * 12 + Number(d.month) - 1);
+      cum += a;
+      if (ago >= 1 && ago <= 3) last3 += a;
+      if (ago >= 1 && ago <= 12) last12 += a;
+    }));
+    _recoverMap[h.id] = { cum, perMonth: monthly ? last3 / 3 : last12 / 12 };
   });
   // holding_id → 연배당률(%) 맵
   const annualRateMap = {};
@@ -2109,6 +2128,7 @@ async function renderHoldingsTable(holdings) {
         <th>계좌</th>
         <th>티커</th><th style="min-width:280px">종목명</th>
         <th class="text-right">수량</th><th class="text-right">평균단가</th><th class="text-right">현재가</th><th class="text-right">전일가</th><th class="text-right">총매입</th><th class="text-right">평가금액</th><th class="text-right">손익</th>
+        <th class="text-right" title="손익 + 지금까지 받은 분배금(작년 포함). 마이너스면 최근 월 분배금으로 몇 달 뒤 본전인지">평가+분배</th>
         <th style="width:100px">추세</th>
         <th class="text-right" style="white-space:nowrap">괴리율</th>
         <th class="text-right">연분배율</th><th>배당주기</th><th>추종</th><th>관리</th>
@@ -2144,6 +2164,7 @@ async function renderHoldingsTable(holdings) {
           <td class="num" style="color:#111827">${Math.round(investKrw).toLocaleString()}</td>
           <td class="num" id="valuation-${h.id}"><span style="color:var(--text3);font-size:11px">-</span></td>
           <td class="num" id="pl-${h.id}"><span style="color:var(--text3);font-size:11px">-</span></td>
+          <td class="num" id="rec-${h.id}"><span style="color:var(--text3);font-size:11px">-</span></td>
           <td id="trend-${h.id}" style="padding:2px 8px;"></td>
           <td class="num" id="disc-${h.id}"><span style="color:var(--border);font-size:11px">/</span></td>
           <td class="num" style="color:#111827;font-weight:600">${annual !== '-' ? annual+'%' : (annualEst !== '-' ? `<span style="color:var(--text3);font-weight:500" title="이 계좌엔 분배금 기록이 없어 같은 종목 다른 계좌 값으로 추정">~${annualEst}%</span>` : '-')}</td>
@@ -6156,6 +6177,12 @@ async function loadHoldingPrices(holdings) {
           valEl.innerHTML = `<span style="font-family:var(--mono);font-size:12px;font-weight:600;color:#111827">${Math.round(valKrw).toLocaleString()}</span>`;
           const plEl = document.getElementById(`pl-${h.id}`);
           if (plEl) plEl.innerHTML = `<span style="font-family:var(--mono);font-size:12px;font-weight:600;color:${plColor}">${plSign}${Math.round(plKrw).toLocaleString()}</span>`;
+          const recEl = document.getElementById(`rec-${h.id}`), rc = _recoverMap[h.id];
+          if (recEl && rc) {
+            const v = plKrw + rc.cum, n = v < 0 && rc.perMonth > 0 ? Math.ceil(-v / rc.perMonth) : 0;
+            recEl.innerHTML = `<span style="font-family:var(--mono);font-size:12px;font-weight:600;color:${v >= 0 ? '#dc2626' : '#2563eb'}">${v >= 0 ? '+' : ''}${Math.round(v).toLocaleString()}</span>`
+              + (v < 0 ? `<br><span style="font-size:10px;font-weight:600;color:${n ? '#111827' : 'var(--text3)'}" title="최근 월 분배금 ${Math.round(rc.perMonth).toLocaleString()} 기준">${n ? `본전까지 약 ${n}개월` : '분배금 기록 없음'}</span>` : '');
+          }
         }
       }
       // 괴리율: (현재가 − 기준가NAV) / NAV. 국내 ETF만(navMap에 있을 때). +프리미엄(빨강)/−디스카운트(파랑).
