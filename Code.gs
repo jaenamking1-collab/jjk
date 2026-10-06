@@ -2316,8 +2316,11 @@ function fetchDist_plus() {
 // RISE = KB 사이트 먼저, 실패하면 예탁결제원 SEIBRO.
 // 2026-10-05 금융권 해킹 뒤 kbam.co.kr 이 해외 접속(구글 서버 포함)을 막았다. 일시적일 수 있어 KB 를 계속 먼저 시도한다.
 function fetchDist_rise() {
-  const site = _fetchDistRiseSite();
+  // KB 접속 실패는 응답 없이 ~100초를 잡아먹는다 → 한 번 실패하면 6시간은 KB 를 건너뛰고 SEIBRO 로 간다(그 뒤 다시 시도).
+  const cache = CacheService.getScriptCache();
+  const site = cache.get('riseSiteDown') ? { items: [], error: 'RISE: KB 사이트 실패 기록(6시간 건너뜀)' } : _fetchDistRiseSite();
   if (site.items && site.items.length) return site;
+  if (/Address unavailable|timed out|Timeout|시간/.test(site.error || '')) cache.put('riseSiteDown', '1', 21600);
   try {
     const items = _seibroDistItems('케이비');
     if (!items.length) return site;
