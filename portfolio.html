@@ -2043,27 +2043,28 @@ async function renderHoldingsTable(holdings) {
 
   // 연배당률 계산용 분배금 데이터 (올해)
   const year = new Date().getFullYear();
-  const [allDivs, prevDivs] = await Promise.all([
+  const [allDivs, everDivs] = await Promise.all([
     api({ action:'getDividends', year }).catch(()=>[]),
-    api({ action:'getDividends', year: year - 1 }).catch(()=>[])]);
+    api({ action:'getDividends' }).catch(()=>[])]);   // 연도 없이 = 전 기간(평가+분배용)
   const divByHolding = {};
   (allDivs || []).forEach(d => {
     (divByHolding[d.holding_id] = divByHolding[d.holding_id] || []).push(d);
   });
-  // 평가+분배(시트 '평가금액-배당금') = 손익 + 받은 분배금 전부(작년 포함). 마이너스면 '몇 달 분배금으로 메꾸나'.
+  // 평가+분배(시트 '평가금액-배당금') = 손익 + 받은 분배금 전부(전 기간). 마이너스면 '몇 달 분배금으로 메꾸나'.
   // 월 분배금 = 지난 3개월 합 ÷ 3(월배당) / 지난 12개월 합 ÷ 12(분기·반기 등). 칸 채우기는 시세 로더(rec-${id}).
+  // ⚠️ m.html recoverOf 와 같은 계산 — 한쪽만 고치지 마라.
   _recoverMap = {};
   const nowIdx = year * 12 + new Date().getMonth();   // 이번 달(0부터). 이번 달은 아직 덜 받았으니 빼고 센다
   holdings.forEach(h => {
     const er = state.exchangeRate || 1400, monthly = /주배당|월/.test((h.div_cycle||'').split('|')[0]);
     let cum = 0, last3 = 0, last12 = 0;
-    [[allDivs, year], [prevDivs, year - 1]].forEach(([list, y]) => (list || []).forEach(d => {
+    (everDivs || []).forEach(d => {
       if (d.holding_id !== h.id) return;
-      const a = divKrwOf(parseFloat(d.amount) || 0, d.currency, d.rate, er), ago = nowIdx - (y * 12 + Number(d.month) - 1);
+      const a = divKrwOf(parseFloat(d.amount) || 0, d.currency, d.rate, er), ago = nowIdx - (Number(d.year) * 12 + Number(d.month) - 1);
       cum += a;
       if (ago >= 1 && ago <= 3) last3 += a;
       if (ago >= 1 && ago <= 12) last12 += a;
-    }));
+    });
     _recoverMap[h.id] = { cum, perMonth: monthly ? last3 / 3 : last12 / 12 };
   });
   // holding_id → 연배당률(%) 맵

@@ -473,6 +473,24 @@ function viewHome() {
     <div class="card"><div class="card-hd" style="background:#475569">계좌 ${A.per.length}개</div>${accRows || '<div class="empty">계좌 없음</div>'}</div>`;
 }
 
+// 평가+분배(시트 '평가금액-배당금') = 손익 + 받은 분배금 전부(전 기간). 마이너스면 최근 월 분배금으로 몇 달 뒤 본전인지.
+// 월 분배금 = 지난 3개월 합 ÷ 3(월배당) / 지난 12개월 합 ÷ 12(분기·반기 등), 이번 달 제외.
+// ⚠️ portfolio.html renderHoldingsTable 의 _recoverMap 과 같은 계산 — 한쪽만 고치지 마라.
+function recoverOf(h, pl) {
+  const now = new Date(), nowIdx = now.getFullYear() * 12 + now.getMonth();
+  const monthly = /주배당|월/.test((h.div_cycle || '').split('|')[0]);
+  let cum = 0, last3 = 0, last12 = 0;
+  (D.divsAll || []).forEach(d => {
+    if (d.holding_id !== h.id) return;
+    const a = divKrwOf(d.amount, d.currency, d.rate), ago = nowIdx - (Number(d.year) * 12 + Number(d.month) - 1);
+    cum += a;
+    if (ago >= 1 && ago <= 3) last3 += a;
+    if (ago >= 1 && ago <= 12) last12 += a;
+  });
+  const v = pl + cum, per = monthly ? last3 / 3 : last12 / 12;
+  return { v, months: v < 0 && per > 0 ? Math.ceil(-v / per) : 0, per };
+}
+
 function viewStocks() {
   const projMap = projectAnnualDist(D.holdings, D.divsAll, D.year);
   const sel = document.getElementById('stockAcc');
@@ -488,6 +506,7 @@ function viewStocks() {
     const acct = D.accounts.find(a => a.id === h.account_id);
     const usd = h.currency === 'USD';
     const proj = projMap[h.id] || 0;
+    const rc = recoverOf(h, c.pl);
     return `
       <button class="row" onclick="toggle('${id}')">
         <div class="t"><b>${esc(h.name || h.ticker)}</b><span class="muted">${esc(acct ? acct.name : '')}</span></div>
@@ -502,6 +521,8 @@ function viewStocks() {
         <dt>총매입</dt><dd>${won(c.invest)}</dd>
         <dt>평가금</dt><dd>${won(c.value)}</dd>
         <dt>손익</dt><dd class="${cls(c.pl)}">${sign(c.pl)}</dd>
+        <dt>평가+분배</dt><dd class="${cls(rc.v)}">${sign(rc.v)}</dd>
+        ${rc.v < 0 ? `<dt>본전까지</dt><dd>${rc.months ? `약 ${rc.months}개월 <span class="muted">(월 ${won(rc.per)})</span>` : '<span class="muted">분배금 기록 없음</span>'}</dd>` : ''}
         <dt>환산 연분배금</dt><dd style="color:var(--purple)">${won(toKrw(proj, h.currency))}</dd>
         <dt>배당주기</dt><dd>${esc(h.div_cycle || '-')}</dd>
       </dl>
