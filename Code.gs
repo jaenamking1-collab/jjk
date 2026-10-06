@@ -6033,24 +6033,32 @@ function _diagDist(source) {
 // SEIBRO(예탁결제원) 분배금지급현황 시험(runMaint 전용). KB 사이트가 해외 접속을 막을 때(2026-10-05~, 금융권 해킹 뒤)
 // 운용사 사이트 대신 쓸 예비 경로. KIND 는 구글 서버를 403 으로 막았다. arg = 운용사 이름 일부(기본 'KB'). 공개 정보만 찍는다.
 function _probeSeibro(arg) {
-  const who = String(arg || 'KB');
+  const who = String(arg || '케이비');   // SEIBRO 는 'KB자산운용'을 '케이비자산운용'으로 적는다
   const to = Utilities.formatDate(new Date(Date.now() + 40 * 86400000), 'Asia/Seoul', 'yyyyMMdd');
   const from = Utilities.formatDate(new Date(Date.now() - 40 * 86400000), 'Asia/Seoul', 'yyyyMMdd');
-  const body = '<reqParam action="exerInfoDtramtPayStatPlist" task="ksd.safe.bip.cnts.etf.process.EtfExerInfoPTask">'
-    + '<START_PAGE value="1"/><END_PAGE value="1000"/><etf_sort_cd value=""/><etf_big_sort_cd value=""/><mngco_custno value=""/>'
-    + '<isin value=""/><RGT_RSN_DTAIL_SORT_CD value=""/><fromRGT_STD_DT value="' + from + '"/><toRGT_STD_DT value="' + to + '"/></reqParam>';
-  const res = UrlFetchApp.fetch('https://seibro.or.kr/websquare/engine/proworks/callServletService.jsp', {
-    method: 'post', contentType: 'application/xml; charset=UTF-8', payload: body, muteHttpExceptions: true,
-    headers: { 'User-Agent': 'Mozilla/5.0' }
-  });
-  const xml = res.getContentText('UTF-8');
   const v = (r, k) => ((r.match(new RegExp('<' + k + ' value="([^"]*)"')) || [])[1] || '');
-  const rows = (xml.match(/<result>[\s\S]*?<\/result>/g) || []).map(r => ({ nm: v(r, 'KOR_SECN_NM'), co: v(r, 'REP_SECN_NM'),
-    std: v(r, 'RGT_STD_DT'), pay: v(r, 'TH1_PAY_TERM_BEGIN_DT'), amt: v(r, 'ESTM_STDPRC') }));
+  let rows = [], code = 0, head = '';
+  for (let pg = 0; pg < 20; pg++) {   // 한 번에 30건까지만 준다 — 쪽을 넘긴다
+    const body = '<reqParam action="exerInfoDtramtPayStatPlist" task="ksd.safe.bip.cnts.etf.process.EtfExerInfoPTask">'
+      + '<START_PAGE value="' + (pg * 30 + 1) + '"/><END_PAGE value="' + (pg * 30 + 30) + '"/><etf_sort_cd value=""/><etf_big_sort_cd value=""/>'
+      + '<mngco_custno value=""/><isin value=""/><RGT_RSN_DTAIL_SORT_CD value=""/><fromRGT_STD_DT value="' + from + '"/><toRGT_STD_DT value="' + to + '"/></reqParam>';
+    const res = UrlFetchApp.fetch('https://seibro.or.kr/websquare/engine/proworks/callServletService.jsp', {
+      method: 'post', contentType: 'application/x-www-form-urlencoded', payload: body, muteHttpExceptions: true,
+      headers: { 'User-Agent': 'Mozilla/5.0' }
+    });
+    code = res.getResponseCode();
+    const xml = res.getContentText('UTF-8');
+    if (!pg) head = xml.replace(/\s+/g, ' ').slice(0, 300);
+    const got = (xml.match(/<result>[\s\S]*?<\/result>/g) || []).map(r => ({ nm: v(r, 'KOR_SECN_NM'), co: v(r, 'REP_SECN_NM'),
+      std: v(r, 'RGT_STD_DT'), pay: v(r, 'TH1_PAY_TERM_BEGIN_DT'), amt: v(r, 'ESTM_STDPRC') }));
+    rows = rows.concat(got);
+    if (got.length < 30) break;
+  }
   const mine = rows.filter(r => r.co.indexOf(who) >= 0 || r.nm.indexOf(who) >= 0);
-  console.log(' | HTTP ' + res.getResponseCode() + ' · 전체 ' + rows.length + '건 · "' + who + '" ' + mine.length + '건');
+  console.log(' | HTTP ' + code + ' · 전체 ' + rows.length + '건 · "' + who + '" ' + mine.length + '건');
+  if (!rows.length) console.log(' | 응답 앞부분: ' + head);
   mine.slice(0, 15).forEach(r => console.log(' | ' + r.std + ' → ' + r.pay + ' · ' + r.amt + '원 · ' + r.nm));
-  return { code: res.getResponseCode(), total: rows.length, match: mine.length };
+  return { code: code, total: rows.length, match: mine.length };
 }
 
 function _probePrice(ticker) {
