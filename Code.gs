@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeKind'
 ];
 
 function runMaint(name, arg) {
@@ -6030,6 +6030,26 @@ function _diagDist(source) {
 // 구글 금융이 그 티커를 아는지 시험한다. 숨긴 '추세데이터' 탭 구석에 수식을 썼다가 지운다.
 // 왜: "은경 SPYI 는 오류난다"(2026-09-22). 현재가 칸이 `=GOOGLEFINANCE(B,"price")` 인데
 // 구글이 모르는 종목이면 #N/A 가 된다 — 짐작 말고 실제로 물어본다.
+// KIND(거래소 공시) 분배금 공시 검색 시험(runMaint 전용). KB 사이트가 해외 접속을 막을 때(2026-10-05~)
+// RISE 분배금을 받을 예비 경로를 찾으려고 만든다. arg = 검색어(기본 'RISE'). 공개 정보만 찍는다.
+function _probeKind(arg) {
+  const q = String(arg || 'RISE');
+  const to = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
+  const from = Utilities.formatDate(new Date(Date.now() - 45 * 86400000), 'Asia/Seoul', 'yyyy-MM-dd');
+  const res = UrlFetchApp.fetch('https://kind.krx.co.kr/disclosure/details.do', {
+    method: 'post', muteHttpExceptions: true,
+    headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://kind.krx.co.kr/disclosure/details.do?method=searchDetailsMain' },
+    payload: { method: 'searchDetailsSub', currentPageSize: '30', pageIndex: '1', orderMode: '1', orderStat: 'D',
+               forward: 'details_sub', reportNm: '분배', repIsuSrtCd: '', searchCorpName: q, fromDate: from, toDate: to }
+  });
+  const txt = res.getContentText('UTF-8').replace(/<script[\s\S]*?<\/script>/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  console.log(' | HTTP ' + res.getResponseCode() + ' · ' + txt.length + '자');
+  console.log(' | ' + txt.slice(0, 1800));
+  const ids = (res.getContentText('UTF-8').match(/openDisclsViewer\('(\d+)'/g) || []).slice(0, 5);
+  console.log(' | 공시번호 ' + ids.join(' '));
+  return { code: res.getResponseCode(), n: ids.length };
+}
+
 function _probePrice(ticker) {
   const t = String(ticker || '').trim().toUpperCase();
   if (!/^[A-Z0-9.:-]{1,12}$/.test(t)) { console.log('티커 형식이 아님'); return { success: false }; }
