@@ -220,6 +220,7 @@ Adapted from the [Karpathy coding guidelines](https://x.com/karpathy/status/2015
 ## Files
 
 - `portfolio.html` — the entire frontend (desktop). Redirects to `m.html` when the viewport is ≤768px unless `?pc=1` is present; the redirect sits in `<head>` so it runs before the password gate.
+- ⛔ **PC 화면(`portfolio.html`)에 기능·값을 넣으면 같은 턴에 모바일(`m.html`)에도 넣는다. 묻지 마라**(2026-10-06 사용자: *"모바일은 당연히 해야지 묻지도 마라"*). 마우스 롤오버(title)는 폰에서 안 보이니 모바일은 탭해서 펼치는 상세(`detail`)에 넣는다.
 - `m.html` — **phone-only frontend** (bottom tab bar; 홈 / 종목 / 분배금 / 더보기). Same backend, same actions, same origin — so it reuses the `jjk_pw_v1` password fingerprint and needs no separate login. Design: `docs/superpowers/specs/2026-08-13-mobile-view-design.md`.
   - ⚠️ **The calculation formulas are duplicated here.** The server does *not* return 평가금액/손익 — the browser computes them (`renderAccountStats`, `portfolio.html:1365`). `m.html` has its own copy in a single block marked `⚠️ 계산 블록`. **Change one, change both** — a layout drift is visible, a number drift is not. Verify by feeding both files the same holdings/dividends and comparing the six summary figures.
 - `dist_notice.html` — public standalone copy of the 분배금공지 tab (calendar + 운용사별 일정 + notices). `renderMasterCalendar`·`renderDistGrid`·`renderNotices`·`distIssueNotices` 가 `portfolio.html` 에도 같은 이름으로 있다.
