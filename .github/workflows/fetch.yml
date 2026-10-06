@@ -14,6 +14,10 @@ on:
         description: 'true 면 인증서 검사를 건너뛴다 (인증서 체인이 깨진 사이트 진단용)'
         required: false
         default: 'false'
+      post:
+        description: '있으면 이 본문(application/x-www-form-urlencoded)으로 POST 한다 (KIND 공시 검색처럼 폼 제출이 필요한 곳)'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -26,12 +30,14 @@ jobs:
         env:
           URLS: ${{ github.event.inputs.urls }}
           INSECURE: ${{ github.event.inputs.insecure }}
+          POST: ${{ github.event.inputs.post }}
         run: |
           mkdir out; i=0
           for u in $URLS; do
             i=$((i+1))
             K=''; [ "$INSECURE" = "true" ] && K='-k'
-            code=$(curl -sL $K -o "out/$i.bin" -D "out/$i.hdr" -w '%{http_code} %{content_type} %{time_total}s %{url_effective}' \
+            P=(); [ -n "$POST" ] && P=(--data "$POST" -e "$u")
+            code=$(curl -sL $K "${P[@]}" -o "out/$i.bin" -D "out/$i.hdr" -w '%{http_code} %{content_type} %{time_total}s %{url_effective}' \
                    --max-time 60 -A 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' "$u" 2>"out/$i.err") || true
             echo "$i $u → $code" | tee -a out/index.txt
             [ -s "out/$i.err" ] && cat "out/$i.err" >> out/index.txt
