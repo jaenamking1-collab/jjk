@@ -1,33 +1,66 @@
 # 사용자가 준 그림(sprites/*.png)으로 고양이를 그린다. 행동 두뇌(cat_brain)의 동작 이름을 받아
 # 알맞은 그림을 고르고, 통통 튀기·기울이기·숨쉬기·좌우 뒤집기로 움직임을 만든다.
 import os
+import sys
 import json
 import math
 from PIL import Image, ImageDraw
 from cat_render import HANG, clamp, ease
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))   # exe 로 묶였을 땐 풀린 임시 폴더
 SPR = os.path.join(HERE, 'sprites')
 
-# 동작 → 그림. 그림이 없는 동작은 가장 비슷한 그림 + 움직임으로 대신한다.
+# 동작 → (넘기는 방식, 그림들, 초당 장수)
+#   step: 걸음에 맞춰 넘김(한 걸음에 그림 목록 한 바퀴)   cycle: 일정 간격으로 넘김
+#   seq: 동작 시작부터 차례로 넘기고 마지막 그림에서 멈춤   pick: 할 때마다 하나를 골라 계속 씀
+#   air: 점프 전반 첫 그림, 후반 둘째 그림
 ART = {
-    'walk': 'walk', 'trot': 'walk', 'back': 'walk', 'hop': 'walk', 'stand': 'walk', 'knead': 'happy',
-    'sneak': 'hunt', 'hunt': 'hunt', 'crouch': 'hunt', 'run': 'run', 'tailchase': 'run', 'air': 'run',
-    'sit': 'headtilt', 'watch': 'headtilt', 'sitpretty': 'headtilt', 'zoneout': 'headtilt', 'headtilt': 'headtilt',
-    'scratch': 'headtilt', 'shake': 'headtilt',
-    'curious': 'curious', 'confused': 'curious', 'lookaround': 'curious', 'lookdown': 'curious', 'fall': 'curious',
-    'happy': 'happy', 'meow': 'happy', 'chatter': 'happy', 'love': 'happy', 'groom': 'happy', 'lickpaw': 'happy',
-    'wash': 'happy', 'groom_leg': 'happy', 'sneeze': 'happy', 'yawn': 'happy',
-    'loaf': 'loaf', 'sploot': 'loaf', 'paw_dangle': 'loaf', 'tailflick': 'loaf',
-    'land': 'loaf', 'land_hard': 'loaf', 'brace': 'loaf',
-    'sleep': 'sleep', 'sleep_back': 'sleep', 'sleep_side': 'sleep', 'sulk': 'sulk',
-    'belly': 'belly', 'roll': 'roll', 'stretch': 'stretch', 'stretch_back': 'stretch',
-    'bugcatch': 'bugcatch', 'swat': 'bugcatch', 'claw': 'bugcatch',
-    'hang': 'bugcatch', 'hang_kick': 'bugcatch', 'hang_one': 'bugcatch', 'climbup': 'bugcatch',
-    'climb': 'bugcatch', 'cling': 'bugcatch', 'slide': 'curious',
-    'hugheart': 'hugheart', 'stargaze': 'stargaze', 'fishtoy': 'fishtoy', 'hat': 'hat', 'box': 'box',
-    'backview': 'backview', 'peek': 'peek',
+    'walk': ('step', ['walk_a', 'walk_b']), 'trot': ('step', ['walk_happy', 'walk']),
+    'hop': ('step', ['walk_c', 'walk_d']), 'back': ('step', ['walk_back', 'walk_back2']),
+    'stand': ('pick', ['walk_front']), 'sneak': ('pick', ['hunt', 'hunt2']),
+    'run': ('step', ['run_1', 'run_2', 'run_3', 'run_4']), 'tailchase': ('cycle', ['run_1', 'run_2', 'run_3', 'run_4'], 10),
+    'crouch': ('seq', ['jprep_1', 'jprep_2'], 3), 'hunt': ('pick', ['hunt', 'hunt2', 'jprep_2']),
+    'air': ('air', ['jump_1', 'jump_2']), 'fall': ('pick', ['jump_2']),
+    'land': ('seq', ['land_1', 'land_2'], 8), 'land_hard': ('seq', ['landfail_1', 'landfail_2'], 2.5),
+    'brace': ('pick', ['jprep_1']), 'confused': ('pick', ['curious2', 'landfail_2']),
+    'sit': ('pick', ['headtilt']), 'watch': ('pick', ['headtilt', 'curious']), 'sitpretty': ('pick', ['headtilt']),
+    'zoneout': ('pick', ['headtilt']), 'headtilt': ('pick', ['headtilt']), 'shake': ('pick', ['headtilt']),
+    'curious': ('pick', ['curious', 'curious2']), 'lookaround': ('pick', ['curious']), 'lookdown': ('pick', ['curious']),
+    'happy': ('pick', ['happy', 'leaf', 'wave']), 'meow': ('pick', ['happy']), 'chatter': ('pick', ['wave']),
+    'love': ('pick', ['happy', 'stretch_finish']), 'knead': ('pick', ['happy']), 'sneeze': ('pick', ['happy']),
+    'yawn': ('pick', ['stretch_finish']), 'stretch_finish': ('pick', ['stretch_finish']),
+    'groom': ('cycle', ['groombody_a', 'groombody_b'], 3), 'lickpaw': ('cycle', ['lick_a', 'lick_b'], 3),
+    'wash': ('cycle', ['wash_a', 'wash_b'], 3), 'groom_leg': ('cycle', ['paw_a', 'paw_b'], 3),
+    'groom_tail': ('cycle', ['groomtail_a', 'groomtail_b'], 3), 'scratch': ('pick', ['groomback']),
+    'groom_all': ('pick', ['groomall']), 'groom_back': ('pick', ['groomback']),
+    'loaf': ('pick', ['loaf']), 'sploot': ('pick', ['loaf']), 'paw_dangle': ('pick', ['loaf']),
+    'tailflick': ('pick', ['loaf']), 'sleep': ('pick', ['sleep', 'cushion']), 'sleep_back': ('pick', ['sleep']),
+    'sleep_side': ('pick', ['sleep']), 'sulk': ('pick', ['sulk']), 'belly': ('pick', ['belly']),
+    'roll': ('cycle', ['roll_1', 'roll_2', 'roll_3', 'roll_4'], 6),
+    'stretch': ('pick', ['stretch', 'stretch2']), 'stretch_back': ('pick', ['stretch2']),
+    'bugcatch': ('pick', ['bugcatch', 'butterfly2']), 'swat': ('pick', ['bugcatch']), 'claw': ('pick', ['glass']),
+    'hang': ('pick', ['hang_1', 'hang_wink']), 'hang_kick': ('cycle', ['hang_3', 'hang_1'], 3),
+    'hang_one': ('pick', ['hang_2']), 'climbup': ('pick', ['climb_3']),
+    'climb': ('step', ['climb_1', 'climb_3']), 'cling': ('pick', ['climb_2']), 'slide': ('pick', ['climb_down']),
+    'hugheart': ('pick', ['hugheart']), 'stargaze': ('pick', ['stargaze']), 'fishtoy': ('pick', ['fishtoy']),
+    'hat': ('pick', ['hat', 'beanie']), 'box': ('pick', ['box', 'box2']), 'backview': ('pick', ['backview', 'backview2']),
+    'peek': ('pick', ['peek']), 'wave': ('pick', ['wave']), 'headphones': ('pick', ['headphones']),
+    'cushion': ('pick', ['cushion']), 'teacup': ('pick', ['teacup']), 'yarn': ('pick', ['yarn']),
+    'starpillow': ('pick', ['starpillow']), 'crown': ('pick', ['crown']), 'fishhug': ('pick', ['fishhug']),
+    'leaf': ('pick', ['leaf']), 'shark': ('pick', ['shark']),
 }
+CALM_RUN = ['dash', 'scarf', 'run']
+# 시트마다 고양이를 그린 크기가 달라 머리 크기가 비슷해지게 맞춘 배율(이름 앞부분으로 찾는다)
+SIZE = {'run_': 1.35, 'jump_': 1.3, 'jprep_': 1.15, 'land': 1.15, 'roll_': 1.1, 'hang_': 1.3, 'climb_': 1.35,
+        'lick_': 1.3, 'wash_': 1.3, 'groom': 1.3, 'paw_': 1.3, 'stretch_finish': 1.3, 'walk_a': 0.95,
+        'walk_b': 0.95, 'walk_c': 1.1, 'walk_d': 1.1, 'dash': 1.1, 'scarf': 1.0, 'hunt2': 1.05}
+
+
+def size_of(name):
+    for k, v in SIZE.items():
+        if name.startswith(k):
+            return v
+    return 1.0                  # 도망이 아닌 우다다는 신나게 달리는 그림
 WALKS = {'walk', 'trot', 'back', 'hop', 'sneak', 'run', 'tailchase'}
 
 
@@ -39,7 +72,8 @@ class SpriteRenderer:
         self.img, self.face = {}, {}
         for name, m in meta.items():
             im = Image.open(os.path.join(SPR, name + '.png')).convert('RGBA')
-            self.img[name] = im.resize((max(1, round(im.width * f)), max(1, round(im.height * f))), Image.LANCZOS)
+            k = f * size_of(name)
+            self.img[name] = im.resize((max(1, round(im.width * k)), max(1, round(im.height * k))), Image.LANCZOS)
             self.face[name] = m['facing']
         mw = max(i.width for i in self.img.values())
         mh = max(i.height for i in self.img.values())
@@ -56,10 +90,26 @@ class SpriteRenderer:
             return self._mirror[name]
         return self.img[name]
 
+    def _pick(self, action, at, time, brain):
+        spec = ART.get(action, ('pick', ['headtilt']))
+        mode, frames = spec[0], [f for f in spec[1] if f in self.img] or ['headtilt']
+        ph = brain.walk_phase if brain else time
+        if action == 'run' and brain is not None and not brain.flee:
+            mode, frames = 'pick', CALM_RUN
+        if mode == 'step':
+            return frames[int((ph % 1.0) * len(frames)) % len(frames)]
+        if mode == 'cycle':
+            return frames[int(at * spec[2]) % len(frames)]
+        if mode == 'seq':
+            return frames[min(len(frames) - 1, int(at * spec[2]))]
+        if mode == 'air':
+            k = brain.jump['t'] / brain.jump['T'] if (brain and brain.jump) else 0.0
+            return frames[0 if k < 0.5 else 1]
+        seed = int(((time - at) * 7.31) * 1000) if brain else 0   # 이번 동작 동안은 같은 그림
+        return frames[seed % len(frames)]
+
     def render_action(self, action, at, facing, time, brain=None):
-        name = ART.get(action, 'headtilt')
-        if action == 'roll' and int(at / 0.5) % 2:
-            name = 'belly'
+        name = self._pick(action, at, time, brain)
         im = self._get(name, facing)
         S = self.s
         dx = dy = rot = 0.0
@@ -71,7 +121,7 @@ class SpriteRenderer:
         if action in WALKS:                       # 걸음: 한 걸음마다 통통 + 좌우로 살짝 흔들
             amp = {'run': 6, 'tailchase': 6, 'hop': 9, 'trot': 4, 'sneak': 1.5}.get(action, 3) * S
             dy = -abs(math.sin(2 * math.pi * ph)) * amp
-            rot = (3 if action != 'run' else 2) * math.sin(2 * math.pi * ph)
+            rot = 1.5 * math.sin(2 * math.pi * ph)   # 그림이 걸음마다 바뀌니 기울기는 살짝만
             sy = 1 - 0.04 * math.cos(4 * math.pi * ph)
             if action == 'run':
                 rot += 4
@@ -100,7 +150,7 @@ class SpriteRenderer:
             rot = 14 * facing
         elif action in ('bugcatch', 'swat', 'claw'):
             dy = -abs(math.sin(at * 4)) * 5 * S
-        elif action in ('belly', 'roll'):
+        elif action == 'belly':
             rot = 6 * math.sin(at * 3)
         elif action in ('sleep', 'sleep_back', 'sleep_side', 'loaf', 'sploot', 'sulk', 'box'):
             sx, sy = 1 + 0.015 * breathe, 1 - 0.015 * breathe
@@ -110,7 +160,6 @@ class SpriteRenderer:
             rot = sp[0] * math.sin(time * sp[1])
         elif action in ('climb', 'cling', 'slide'):
             anchor = 'wall'
-            rot = -8 * facing if action == 'climb' else 0
             dy = (-abs(math.sin(2 * math.pi * ph)) * 2 * S) if action == 'climb' else 0
         else:
             sx, sy = 1 + 0.01 * breathe, 1 - 0.01 * breathe

@@ -2,101 +2,596 @@
  "walk": {
   "facing": 1,
   "w": 226,
-  "h": 216
+  "h": 216,
+  "sheet": "s1",
+  "iris": 32.0
  },
  "headtilt": {
   "facing": 0,
   "w": 183,
-  "h": 226
+  "h": 226,
+  "sheet": "s1",
+  "iris": 29.0
  },
  "loaf": {
   "facing": 0,
   "w": 251,
-  "h": 170
+  "h": 170,
+  "sheet": "s1",
+  "iris": 34.0
  },
  "belly": {
   "facing": 0,
   "w": 259,
-  "h": 200
+  "h": 200,
+  "sheet": "s1",
+  "iris": 27.0
  },
  "curious": {
   "facing": 0,
   "w": 204,
-  "h": 232
+  "h": 232,
+  "sheet": "s1",
+  "iris": 32.0
  },
  "sleep": {
   "facing": -1,
   "w": 252,
-  "h": 160
+  "h": 160,
+  "sheet": "s1",
+  "iris": null
  },
  "bugcatch": {
   "facing": -1,
   "w": 216,
-  "h": 188
+  "h": 188,
+  "sheet": "s1",
+  "iris": null
  },
  "happy": {
   "facing": 0,
   "w": 171,
-  "h": 190
+  "h": 190,
+  "sheet": "s1",
+  "iris": null
  },
  "hunt": {
   "facing": -1,
   "w": 248,
-  "h": 205
+  "h": 205,
+  "sheet": "s1",
+  "iris": 30.0
  },
  "box": {
   "facing": 0,
   "w": 273,
-  "h": 172
+  "h": 172,
+  "sheet": "s1",
+  "iris": 18.5
  },
  "hugheart": {
   "facing": 0,
   "w": 169,
-  "h": 196
+  "h": 196,
+  "sheet": "s1",
+  "iris": null
  },
  "backview": {
   "facing": 0,
   "w": 143,
-  "h": 181
+  "h": 181,
+  "sheet": "s1",
+  "iris": null
  },
  "roll": {
   "facing": -1,
   "w": 259,
-  "h": 151
+  "h": 151,
+  "sheet": "s1",
+  "iris": 20.5
  },
  "hat": {
   "facing": 0,
   "w": 175,
-  "h": 198
+  "h": 198,
+  "sheet": "s1",
+  "iris": 28.5
  },
  "stretch": {
   "facing": -1,
   "w": 245,
-  "h": 198
+  "h": 198,
+  "sheet": "s1",
+  "iris": null
  },
  "peek": {
   "facing": 1,
   "w": 113,
-  "h": 174
+  "h": 174,
+  "sheet": "s1",
+  "iris": 16.5
  },
  "run": {
   "facing": -1,
   "w": 218,
-  "h": 139
+  "h": 139,
+  "sheet": "s1",
+  "iris": null
  },
  "stargaze": {
   "facing": -1,
   "w": 149,
-  "h": 173
+  "h": 173,
+  "sheet": "s1",
+  "iris": 17.0
  },
  "sulk": {
   "facing": 0,
   "w": 233,
-  "h": 132
+  "h": 132,
+  "sheet": "s1",
+  "iris": 19.0
  },
  "fishtoy": {
   "facing": 0,
   "w": 184,
-  "h": 169
+  "h": 169,
+  "sheet": "s1",
+  "iris": 26.5
+ },
+ "run_1": {
+  "facing": -1,
+  "w": 268,
+  "h": 160,
+  "sheet": "s3",
+  "iris": null
+ },
+ "run_2": {
+  "facing": -1,
+  "w": 250,
+  "h": 156,
+  "sheet": "s3",
+  "iris": null
+ },
+ "run_3": {
+  "facing": -1,
+  "w": 231,
+  "h": 159,
+  "sheet": "s3",
+  "iris": null
+ },
+ "run_4": {
+  "facing": -1,
+  "w": 134,
+  "h": 159,
+  "sheet": "s3",
+  "iris": null
+ },
+ "jprep_1": {
+  "facing": -1,
+  "w": 183,
+  "h": 177,
+  "sheet": "s3",
+  "iris": 12.0
+ },
+ "jprep_2": {
+  "facing": -1,
+  "w": 172,
+  "h": 179,
+  "sheet": "s3",
+  "iris": 11.0
+ },
+ "jump_1": {
+  "facing": -1,
+  "w": 206,
+  "h": 170,
+  "sheet": "s3",
+  "iris": 11.0
+ },
+ "jump_2": {
+  "facing": -1,
+  "w": 218,
+  "h": 167,
+  "sheet": "s3",
+  "iris": null
+ },
+ "land_1": {
+  "facing": 0,
+  "w": 172,
+  "h": 219,
+  "sheet": "s3",
+  "iris": 14.0
+ },
+ "land_2": {
+  "facing": 0,
+  "w": 175,
+  "h": 168,
+  "sheet": "s3",
+  "iris": null
+ },
+ "landfail_1": {
+  "facing": 0,
+  "w": 211,
+  "h": 192,
+  "sheet": "s3",
+  "iris": 13.0
+ },
+ "landfail_2": {
+  "facing": 0,
+  "w": 217,
+  "h": 191,
+  "sheet": "s3",
+  "iris": null
+ },
+ "roll_1": {
+  "facing": 0,
+  "w": 227,
+  "h": 170,
+  "sheet": "s3",
+  "iris": null
+ },
+ "roll_2": {
+  "facing": 0,
+  "w": 232,
+  "h": 174,
+  "sheet": "s3",
+  "iris": 21.0
+ },
+ "roll_3": {
+  "facing": 0,
+  "w": 201,
+  "h": 175,
+  "sheet": "s3",
+  "iris": null
+ },
+ "roll_4": {
+  "facing": 0,
+  "w": 207,
+  "h": 180,
+  "sheet": "s3",
+  "iris": 17.0
+ },
+ "wave": {
+  "facing": 0,
+  "w": 227,
+  "h": 225,
+  "sheet": "s4",
+  "iris": 20.0
+ },
+ "headphones": {
+  "facing": 0,
+  "w": 199,
+  "h": 241,
+  "sheet": "s4",
+  "iris": 22.0
+ },
+ "cushion": {
+  "facing": -1,
+  "w": 288,
+  "h": 197,
+  "sheet": "s4",
+  "iris": null
+ },
+ "teacup": {
+  "facing": 0,
+  "w": 232,
+  "h": 225,
+  "sheet": "s4",
+  "iris": null
+ },
+ "butterfly2": {
+  "facing": 1,
+  "w": 248,
+  "h": 239,
+  "sheet": "s4",
+  "iris": null
+ },
+ "beanie": {
+  "facing": 0,
+  "w": 191,
+  "h": 214,
+  "sheet": "s4",
+  "iris": 18.0
+ },
+ "box2": {
+  "facing": 0,
+  "w": 250,
+  "h": 193,
+  "sheet": "s4",
+  "iris": 22.0
+ },
+ "yarn": {
+  "facing": -1,
+  "w": 293,
+  "h": 196,
+  "sheet": "s4",
+  "iris": 17.5
+ },
+ "stretch2": {
+  "facing": -1,
+  "w": 250,
+  "h": 225,
+  "sheet": "s4",
+  "iris": null
+ },
+ "curious2": {
+  "facing": 0,
+  "w": 191,
+  "h": 221,
+  "sheet": "s4",
+  "iris": null
+ },
+ "starpillow": {
+  "facing": 0,
+  "w": 189,
+  "h": 236,
+  "sheet": "s4",
+  "iris": null
+ },
+ "dash": {
+  "facing": 1,
+  "w": 269,
+  "h": 172,
+  "sheet": "s4",
+  "iris": 13.0
+ },
+ "crown": {
+  "facing": 0,
+  "w": 181,
+  "h": 218,
+  "sheet": "s4",
+  "iris": 26.5
+ },
+ "backview2": {
+  "facing": 0,
+  "w": 172,
+  "h": 202,
+  "sheet": "s4",
+  "iris": null
+ },
+ "fishhug": {
+  "facing": -1,
+  "w": 291,
+  "h": 176,
+  "sheet": "s4",
+  "iris": null
+ },
+ "hunt2": {
+  "facing": 1,
+  "w": 225,
+  "h": 199,
+  "sheet": "s4",
+  "iris": 9.0
+ },
+ "leaf": {
+  "facing": 0,
+  "w": 185,
+  "h": 224,
+  "sheet": "s4",
+  "iris": null
+ },
+ "shark": {
+  "facing": 0,
+  "w": 265,
+  "h": 186,
+  "sheet": "s4",
+  "iris": 23.5
+ },
+ "glass": {
+  "facing": 0,
+  "w": 203,
+  "h": 200,
+  "sheet": "s4",
+  "iris": 22.0
+ },
+ "scarf": {
+  "facing": 1,
+  "w": 270,
+  "h": 206,
+  "sheet": "s4",
+  "iris": null
+ },
+ "walk_a": {
+  "facing": -1,
+  "w": 292,
+  "h": 204,
+  "sheet": "s5",
+  "iris": 15.0
+ },
+ "walk_b": {
+  "facing": -1,
+  "w": 257,
+  "h": 214,
+  "sheet": "s5",
+  "iris": null
+ },
+ "walk_front": {
+  "facing": 0,
+  "w": 191,
+  "h": 221,
+  "sheet": "s5",
+  "iris": 18.0
+ },
+ "walk_back": {
+  "facing": 0,
+  "w": 150,
+  "h": 214,
+  "sheet": "s5",
+  "iris": null
+ },
+ "hang_1": {
+  "facing": 0,
+  "w": 153,
+  "h": 211,
+  "sheet": "s5",
+  "iris": 14.5
+ },
+ "hang_2": {
+  "facing": 0,
+  "w": 135,
+  "h": 210,
+  "sheet": "s5",
+  "iris": 12.0
+ },
+ "hang_3": {
+  "facing": 0,
+  "w": 165,
+  "h": 234,
+  "sheet": "s5",
+  "iris": 11.5
+ },
+ "hang_wink": {
+  "facing": 0,
+  "w": 170,
+  "h": 211,
+  "sheet": "s5",
+  "iris": null
+ },
+ "climb_1": {
+  "facing": -1,
+  "w": 132,
+  "h": 241,
+  "sheet": "s5",
+  "iris": 12.0
+ },
+ "climb_2": {
+  "facing": -1,
+  "w": 153,
+  "h": 232,
+  "sheet": "s5",
+  "iris": null
+ },
+ "climb_3": {
+  "facing": -1,
+  "w": 141,
+  "h": 247,
+  "sheet": "s5",
+  "iris": 11.0
+ },
+ "climb_down": {
+  "facing": -1,
+  "w": 125,
+  "h": 196,
+  "sheet": "s5",
+  "iris": null
+ },
+ "lick_a": {
+  "facing": 0,
+  "w": 133,
+  "h": 172,
+  "sheet": "s5",
+  "iris": null
+ },
+ "wash_a": {
+  "facing": 0,
+  "w": 170,
+  "h": 179,
+  "sheet": "s5",
+  "iris": null
+ },
+ "groombody_a": {
+  "facing": 0,
+  "w": 193,
+  "h": 185,
+  "sheet": "s5",
+  "iris": null
+ },
+ "groomtail_a": {
+  "facing": 0,
+  "w": 168,
+  "h": 181,
+  "sheet": "s5",
+  "iris": 12.0
+ },
+ "paw_a": {
+  "facing": 0,
+  "w": 131,
+  "h": 180,
+  "sheet": "s5",
+  "iris": 12.5
+ },
+ "groomall": {
+  "facing": -1,
+  "w": 216,
+  "h": 132,
+  "sheet": "s5",
+  "iris": null
+ },
+ "groomback": {
+  "facing": 0,
+  "w": 155,
+  "h": 178,
+  "sheet": "s5",
+  "iris": null
+ },
+ "walk_c": {
+  "facing": -1,
+  "w": 209,
+  "h": 217,
+  "sheet": "s6",
+  "iris": null
+ },
+ "walk_d": {
+  "facing": -1,
+  "w": 220,
+  "h": 207,
+  "sheet": "s6",
+  "iris": null
+ },
+ "walk_happy": {
+  "facing": -1,
+  "w": 209,
+  "h": 222,
+  "sheet": "s6",
+  "iris": 16.5
+ },
+ "walk_back2": {
+  "facing": 0,
+  "w": 144,
+  "h": 204,
+  "sheet": "s6",
+  "iris": null
+ },
+ "lick_b": {
+  "facing": 0,
+  "w": 154,
+  "h": 196,
+  "sheet": "s6",
+  "iris": null
+ },
+ "wash_b": {
+  "facing": 0,
+  "w": 163,
+  "h": 207,
+  "sheet": "s6",
+  "iris": null
+ },
+ "groombody_b": {
+  "facing": 0,
+  "w": 179,
+  "h": 192,
+  "sheet": "s6",
+  "iris": null
+ },
+ "groomtail_b": {
+  "facing": 0,
+  "w": 181,
+  "h": 219,
+  "sheet": "s6",
+  "iris": null
+ },
+ "paw_b": {
+  "facing": 0,
+  "w": 145,
+  "h": 199,
+  "sheet": "s6",
+  "iris": 8.5
+ },
+ "stretch_finish": {
+  "facing": 0,
+  "w": 176,
+  "h": 202,
+  "sheet": "s6",
+  "iris": null
  }
 }

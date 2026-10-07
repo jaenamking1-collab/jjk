@@ -9,8 +9,12 @@ import traceback
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SETTINGS = os.path.join(HERE, 'settings.json')
-LOG = os.path.join(HERE, 'desktop_cat.log')
+FROZEN = getattr(sys, 'frozen', False)            # DesktopCat.exe 로 실행 중
+RES = getattr(sys, '_MEIPASS', HERE)              # 그림 등 함께 묶인 파일 위치
+DATA = os.path.join(os.environ.get('APPDATA', HERE), 'DesktopCat') if FROZEN else HERE   # 설정·로그 저장
+os.makedirs(DATA, exist_ok=True)
+SETTINGS = os.path.join(DATA, 'settings.json')
+LOG = os.path.join(DATA, 'desktop_cat.log')
 TEST = os.environ.get('DESKTOP_CAT_TEST') == '1'   # 시험 모드: 캡처에 고양이가 찍히고, 2초마다 상태를 로그에
 DEFAULTS = {'size': 1.0, 'color': 'art', 'fps': 40}
 SIZES = [('작게', 0.75), ('보통', 1.0), ('크게', 1.35), ('아주 크게', 1.8)]
@@ -198,7 +202,9 @@ def autostart_get():
 
 def autostart_set(on):
     with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as k:
-        if on:
+        if on and FROZEN:
+            winreg.SetValueEx(k, 'DesktopCat', 0, winreg.REG_SZ, '"%s"' % sys.executable)
+        elif on:
             exe = sys.executable
             w = os.path.join(os.path.dirname(exe), 'pythonw.exe')
             winreg.SetValueEx(k, 'DesktopCat', 0, winreg.REG_SZ,
@@ -252,12 +258,12 @@ class App:
 
     # ── 트레이 ─────────────────────────────────────────────
     def add_tray(self):
-        ico = os.path.join(HERE, 'cat.ico')
+        ico = os.path.join(DATA, 'cat.ico')
         try:
             from cat_render import action_pose
             if self.s['color'] == 'art':               # 트레이 아이콘: 웃는 고양이 그림
                 from PIL import Image
-                im = Image.open(os.path.join(HERE, 'sprites', 'happy.png')).convert('RGBA')
+                im = Image.open(os.path.join(RES, 'sprites', 'happy.png')).convert('RGBA')
                 side = max(im.size)
                 sq = Image.new('RGBA', (side, side), (0, 0, 0, 0))
                 sq.alpha_composite(im, ((side - im.width) // 2, side - im.height))

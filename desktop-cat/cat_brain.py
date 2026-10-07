@@ -45,6 +45,21 @@ IDLE = {
     'stretch_back': (3, (1.8, 2.6)), # 뒷다리 쭉
     'hunt': (3, (2.0, 4.0)),         # 사냥 모드
     'tailchase': (2, (2.0, 3.5)),    # 꼬리 쫓기
+    # 두 번째 그림 묶음(2026-10-07)에서 생긴 동작
+    'groom_tail': (4, (3.0, 5.0)),   # 꼬리 핥기
+    'groom_all': (3, (4.0, 7.0)),    # 엎드려 온몸 그루밍
+    'groom_back': (3, (3.0, 5.0)),   # 등 핥기
+    'stretch_finish': (3, (1.5, 2.5)),   # 그루밍 마무리 쭉
+    'wave': (3, (1.5, 2.5)),         # 손 흔들기
+    'headphones': (3, (5.0, 10.0)),  # 헤드폰으로 음악 듣기
+    'cushion': (2, (10.0, 25.0)),    # 구름 쿠션에서 자기
+    'teacup': (2, (4.0, 8.0)),       # 찻잔 속에 쏙
+    'yarn': (3, (4.0, 7.0)),         # 털실 놀이
+    'starpillow': (2, (4.0, 7.0)),   # 별 쿠션 안기
+    'crown': (2, (3.0, 6.0)),        # 왕관 쓰기
+    'fishhug': (2, (6.0, 12.0)),     # 생선 안고 뒹굴
+    'leaf': (2, (3.0, 5.0)),         # 나뭇잎 얹고 신남
+    'shark': (2, (5.0, 9.0)),        # 상어 옷 입기
 }
 LOOKABLE = {'sit', 'watch', 'stand', 'walk', 'trot', 'sneak', 'tailflick', 'loaf', 'knead', 'lookdown',
             'sitpretty', 'curious', 'sploot', 'belly', 'hunt', 'hang', 'cling', 'climb', 'box', 'peek'}
