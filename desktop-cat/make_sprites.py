@@ -41,7 +41,10 @@ DETECTED = {
     's6': [((1,), 'walk_c', -1), ((2,), 'walk_d', -1), ((3,), 'walk_happy', -1), ((4,), 'walk_back2', 0),
            ((8,), 'lick_b', 0), ((9,), 'wash_b', 0), ((10,), 'groombody_b', 0), ((11,), 'groomtail_b', 0),
            ((12,), 'paw_b', 0), ((13,), 'stretch_finish', 0)],
+    # 한 줄 연속 동작(프레임) 시트 — 칸 크기를 똑같이 맞추고 여백을 자르지 않는다(넘길 때 흔들리지 않게)
+    's7': [((i,), 'walk8_%d' % (i + 1), 1) for i in range(8)],
 }
+STRIP = {'s7'}
 
 
 def _clean(a):
@@ -75,7 +78,8 @@ def iris_size(a):
 
 def _save(a, name, facing, meta, sheet):
     im = Image.fromarray(a)
-    im = im.crop(im.getbbox())
+    if sheet not in STRIP:
+        im = im.crop(im.getbbox())
     im.save(os.path.join(OUT, name + '.png'))
     meta[name] = {'facing': facing, 'w': im.width, 'h': im.height, 'sheet': sheet, 'iris': iris_size(np.asarray(im))}
     print(name, im.size, meta[name]['iris'])
@@ -120,10 +124,15 @@ def detect(img):
 def cut_detected(key, path, sess, meta):
     sheet = Image.open(path).convert('RGB')
     lab, objs, bg = detect(sheet)
+    if key in STRIP:                                         # 모든 칸을 가장 큰 칸 크기로, 바닥(아래 끝) 기준 정렬
+        W = max(b[2] - b[0] for _, b in objs)
+        H = max(b[3] - b[1] for _, b in objs)
     for idxs, name, facing in DETECTED[key]:
         ks = [objs[i][0] for i in idxs]
         boxes = [objs[i][1] for i in idxs]
         box = (min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes))
+        if key in STRIP:
+            box = (box[0], box[3] - H, box[0] + W, box[3])
         src = sheet.crop(box)
         a = np.asarray(remove(src, session=sess)).copy()
         own = np.isin(lab[box[1]:box[3], box[0]:box[2]], ks)  # 이웃 칸 그림이 섞이지 않게
