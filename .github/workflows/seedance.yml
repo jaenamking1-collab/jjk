@@ -1,0 +1,94 @@
+# 고양이 그림 한 장 → Seedance(fal.ai) 영상 → 장면(프레임) 추출. 결과는 seedance-out 브랜치에 올린다.
+# 필요한 것: 저장소 Secret FAL_KEY (fal.ai 대시보드에서 발급). 키는 로그에 찍지 않는다.
+name: seedance
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: '입력 그림(저장소 경로)'
+        default: 'desktop-cat/video_in/walk_side.png'
+      prompt:
+        description: '움직임 설명(영어 권장)'
+        default: 'The fluffy white kitten walks in place with a smooth natural cat gait, side view facing right, all four legs clearly visible and alternating, tail gently swaying, body stays in the center, camera fixed, plain solid dark navy background, no shadow, no text'
+      model:
+        description: 'fal 모델'
+        default: 'fal-ai/bytedance/seedance/v1/pro/image-to-video'
+      duration:
+        description: '초(2~12)'
+        default: '4'
+      resolution:
+        description: '480p / 720p / 1080p'
+        default: '720p'
+      loop:
+        description: '끝 장면을 시작 그림과 같게(반복 영상)'
+        default: 'true'
+
+permissions:
+  contents: write
+
+jobs:
+  gen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: 영상 만들기 (fal 큐)
+        env:
+          FAL_KEY: ${{ secrets.FAL_KEY }}
+          IMG: ${{ inputs.image }}
+          PROMPT: ${{ inputs.prompt }}
+          MODEL: ${{ inputs.model }}
+          DUR: ${{ inputs.duration }}
+          RES: ${{ inputs.resolution }}
+          LOOP: ${{ inputs.loop }}
+        run: |
+          set -eu
+          if [ -z "${FAL_KEY:-}" ]; then echo '::error::Secret FAL_KEY 가 없습니다'; exit 1; fi
+          mkdir -p out
+          python3 - <<'EOF'
+          import base64, json, os, time, urllib.request
+          key, model = os.environ['FAL_KEY'], os.environ['MODEL']
+          img = 'data:image/png;base64,' + base64.b64encode(open(os.environ['IMG'], 'rb').read()).decode()
+          body = {'prompt': os.environ['PROMPT'], 'image_url': img, 'duration': os.environ['DUR'],
+                  'resolution': os.environ['RES'], 'camera_fixed': True}
+          if os.environ['LOOP'] == 'true':
+              body['end_image_url'] = img
+          def call(url, data=None):
+              req = urllib.request.Request(url, data=json.dumps(data).encode() if data is not None else None,
+                                           headers={'Authorization': 'Key ' + key, 'Content-Type': 'application/json'})
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      return json.load(r)
+              except urllib.error.HTTPError as e:
+                  print('HTTP', e.code, e.read().decode()[:1500]); raise
+          sub = call('https://queue.fal.run/' + model, body)
+          print('request', sub.get('request_id'))
+          for i in range(180):
+              st = call(sub['status_url'])
+              print(i, st.get('status'), st.get('queue_position', ''))
+              if st.get('status') == 'COMPLETED':
+                  break
+              time.sleep(5)
+          res = call(sub['response_url'])
+          url = res['video']['url']
+          urllib.request.urlretrieve(url, 'out/video.mp4')
+          json.dump({k: v for k, v in body.items() if k not in ('image_url', 'end_image_url')} | {'model': model, 'seed': res.get('seed')},
+                    open('out/info.json', 'w'), indent=1)
+          print('ok', os.path.getsize('out/video.mp4'))
+          EOF
+      - name: 장면 뽑기
+        run: |
+          cd out
+          mkdir -p frames
+          ffmpeg -loglevel error -i video.mp4 frames/%04d.png
+          ffprobe -v error -select_streams v:0 -show_entries stream=r_frame_rate,nb_frames,width,height -of default=nw=1 video.mp4 | tee probe.txt
+          ffmpeg -loglevel error -i video.mp4 -vf "fps=6,scale=320:-1,tile=6x4" -frames:v 1 contact.png
+          ffmpeg -loglevel error -i video.mp4 -vf "fps=12,scale=360:-1:flags=lanczos" preview.gif
+      - name: seedance-out 브랜치로
+        run: |
+          cd out
+          git init -q -b seedance-out
+          git config user.name 'github-actions[bot]'; git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add -A; git commit -qm "seedance $(date -u +%FT%TZ)"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" seedance-out
