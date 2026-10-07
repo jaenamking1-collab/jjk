@@ -47,7 +47,7 @@ function doGet(e) {
                          .setMimeType(ContentService.MimeType.JSON);
   }
 
-  // ?total=코드 → 대시보드 총합계(수익로그 합)와 직전 거래일 대비 등락. 금액이라 목록과 같은 코드가 있어야 준다.
+  // ?total=코드 → 대시보드 '평가금'과 같은 식의 실시간 총평가와 오늘 등락. 금액이라 목록과 같은 코드가 있어야 준다.
   // 'selftest' 는 금액 없이 모양만 준다(공개 fetch.yml 로 통로를 확인하는 용도).
   if (p.total) {
     var okCode = (typeof PRIVATE_LISTS !== 'undefined') &&
@@ -56,7 +56,7 @@ function doGet(e) {
       try {
         var tot = portfolioTotal_();
         out.total = (p.total === 'selftest')
-          ? { ok: true, accounts: tot.accounts, date: tot.date, slot: tot.slot, hasPrev: tot.prev > 0 }
+          ? { ok: true, n: tot.n, missing: tot.missing, noPrev: tot.noPrev, err: tot.err, at: tot.at, positive: tot.value > 0 }
           : tot;
       } catch (err) { out.err['총자산'] = String(err).slice(0, 120); }
     }
@@ -216,47 +216,61 @@ function candles_(sym) {
   return out;
 }
 
-// ── 총자산 ── 포트폴리오 백엔드의 getPortfolioLog(수익로그: 계좌별 평가액, 평일 10·12·14·16시)를 받아
-// 대시보드 '📊 총합계' 그래프의 마지막 점과 같은 값을 낸다: 그날 계좌별 가장 늦은 슬롯의 합.
-// 그날 값이 없는 계좌는 직전 값으로 잇는다(대시보드 totalPts 와 같은 규칙). 등락은 직전 거래일 합 대비.
-// 열쇠(APP_TOKEN)는 이 프로젝트 속성에만 있다. 10분 캐시 — 수익로그가 하루 4번만 바뀐다.
+// ── 총평가 ── 대시보드 '평가금'(acctInvestValue)과 같은 식을 **실시간**으로 낸다:
+//   평가금 = Σ 수량 × 현재가(달러 종목은 × 환율), 현재가가 없으면 매수평균가(대시보드도 그렇게 한다).
+//   오늘 등락 = 지금 평가금 − 전일 기준 평가금(종목별 전일대비, 달러 종목은 환율 변동까지).
+// 대시보드의 '총자산'은 여기에 예수금을 더하지만, 예수금은 매매·분배금 기록을 굴려 내는 값이라
+// (portfolio.html rollScorecard) 이 줄에선 뺀다 — 시세로 오르내린 만큼을 보는 게 이 줄의 목적이다.
+// 보유 목록은 포트폴리오 API(getHoldings, 열쇠는 이 프로젝트 속성에만)에서 10분마다 받는다.
 var PORTFOLIO_API = 'https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec';
-function portfolioTotal_() {
-  var cache = CacheService.getScriptCache(), hit = cache.get('total');
+function holdings_() {
+  var cache = CacheService.getScriptCache(), hit = cache.get('holdings');
   if (hit) return JSON.parse(hit);
   var token = PropertiesService.getScriptProperties().getProperty('APP_TOKEN');
   if (!token) throw new Error('열쇠 없음');
-  var res = UrlFetchApp.fetch(PORTFOLIO_API + '?action=getPortfolioLog&token=' + encodeURIComponent(token),
+  var res = UrlFetchApp.fetch(PORTFOLIO_API + '?action=getHoldings&token=' + encodeURIComponent(token),
+                              { muteHttpExceptions: true });
+  var arr = JSON.parse(res.getContentText());
+  if (!Array.isArray(arr)) throw new Error('보유 목록 실패');
+  var hs = arr.map(function (x) {
+    return { t: String(x.ticker || '').trim().toUpperCase(), q: parseFloat(x.quantity) || 0,
+             avg: parseFloat(x.avg_price) || 0, usd: x.currency === 'USD' };
+  }).filter(function (x) { return x.t && x.q > 0; });
+  cache.put('holdings', JSON.stringify(hs), 600);
+  return hs;
+}
+
+function portfolioApi_(action, key, ttl) {
+  var cache = CacheService.getScriptCache(), hit = cache.get(key);
+  if (hit) return JSON.parse(hit);
+  var token = PropertiesService.getScriptProperties().getProperty('APP_TOKEN');
+  if (!token) throw new Error('열쇠 없음');
+  var res = UrlFetchApp.fetch(PORTFOLIO_API + '?action=' + action + '&token=' + encodeURIComponent(token),
                               { muteHttpExceptions: true });
   var j = JSON.parse(res.getContentText());
-  if (!j.success || !j.items) throw new Error('수익로그 실패');
-  var byDay = {};                                  // 날짜 -> 계좌 -> {slot, v}
-  j.items.forEach(function (it) {
-    var d = new Date(it.date);
-    if (isNaN(d)) return;
-    var day = Utilities.formatDate(d, 'Asia/Seoul', 'yyyy-MM-dd');
-    var m = byDay[day] = byDay[day] || {};
-    var cur = m[it.account_name];
-    if (!cur || it.slot >= cur.slot) m[it.account_name] = { slot: it.slot, v: it.value };
+  try { cache.put(key, JSON.stringify(j), ttl); } catch (e) {}      // 100KB 넘으면 캐시만 건너뛴다
+  return j;
+}
+
+function portfolioTotal_() {
+  var hs = holdings_();
+  // 시세는 **대시보드가 쓰는 바로 그 함수**(getLivePrices: 네이버·야후·시트 예비시세)로 받는다.
+  // 따로 받으면 종목 분류가 어긋나 11종목이 빠졌다(통화가 KRW 가 아닌 종목은 그쪽이 야후로 묻는다).
+  var lp = (portfolioApi_('getLivePrices', 'livep', 60) || {}).prices || {};
+  var err = {}, fxq = fetchQuotes_(['USDKRW=X'], err)['USDKRW=X'];
+  var fx = fxq ? fxq[0] : 1400, fxPrev = fxq ? fxq[0] - fxq[1] : fx;
+  var now = 0, prev = 0, missing = 0, noPrev = 0;
+  hs.forEach(function (x) {
+    var p = lp[x.t], cur = p && p.current, before = p && p.prev;
+    if (!cur) missing++;
+    else if (!before) noPrev++;                    // 시트 예비시세는 전일값이 없다 → 그 종목은 등락 0
+    var a = cur || x.avg, b = before || a;
+    now  += x.q * a * (x.usd ? fx : 1);
+    prev += x.q * b * (x.usd ? fxPrev : 1);
   });
-  var days = Object.keys(byDay).sort();
-  if (!days.length) throw new Error('수익로그 비어 있음');
-  var last = {}, sums = [];                        // 계좌별 직전 값으로 이으며 날짜별 합
-  days.forEach(function (day) {
-    Object.keys(byDay[day]).forEach(function (a) { last[a] = byDay[day][a]; });
-    var s = 0, slot = 0;
-    Object.keys(last).forEach(function (a) {
-      s += last[a].v;
-      if (byDay[day][a]) slot = Math.max(slot, byDay[day][a].slot);
-    });
-    sums.push({ day: day, v: s, slot: slot, n: Object.keys(last).length });
-  });
-  var now = sums[sums.length - 1], prev = sums.length > 1 ? sums[sums.length - 2] : null;
-  var out = { total: now.v, date: now.day, slot: now.slot, accounts: now.n,
-              prev: prev ? prev.v : 0, diff: prev ? now.v - prev.v : 0,
-              pct: prev && prev.v ? (now.v - prev.v) / prev.v * 100 : 0 };
-  cache.put('total', JSON.stringify(out), 600);
-  return out;
+  return { value: Math.round(now), diff: Math.round(now - prev),
+           pct: prev ? (now - prev) / prev * 100 : 0, n: hs.length, missing: missing, noPrev: noPrev,
+           err: err, at: Utilities.formatDate(new Date(), 'Asia/Seoul', 'HH:mm') };
 }
 
 function splitList_(s) {
