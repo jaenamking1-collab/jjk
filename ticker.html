@@ -71,9 +71,10 @@ body.detail .amt{display:block}
 <div id="top"><b>시세</b><span id="alive" class="stale"></span><span id="stamp">불러오는 중…</span>
   <button id="editBtn">편집</button></div>
 <div id="warn"></div>
-<div id="total" class="row" style="display:none" onclick="detail=!detail;store.set('tk_detail',detail);document.body.classList.toggle('detail',detail)"><div class="nm">총평가</div><div class="px">…</div>
-  <div class="ch dim"></div><div class="amt"></div><div class="band"></div></div>
 <div id="list"></div>
+<!-- 총평가: 맨 위가 아니라 시세 목록 맨 아래(2026-10-07 사용자 지정) -->
+<div id="total" class="row" style="display:none;border-top:1px solid var(--line);margin-top:3px" onclick="detail=!detail;store.set('tk_detail',detail);document.body.classList.toggle('detail',detail)"><div class="nm">총평가</div><div class="px">…</div>
+  <div class="ch dim"></div><div class="amt"></div><div class="band"></div></div>
 <div id="notice"></div>
 <div id="hint"></div>
 <div id="edit">
