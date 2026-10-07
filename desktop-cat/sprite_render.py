@@ -15,7 +15,7 @@ SPR = os.path.join(HERE, 'sprites')
 #   seq: 동작 시작부터 차례로 넘기고 마지막 그림에서 멈춤   pick: 할 때마다 하나를 골라 계속 씀
 #   air: 점프 전반 첫 그림, 후반 둘째 그림
 ART = {
-    'walk': ('warp', ['walk_b', 'walk_a', 'walk_c', 'walk_d']), 'trot': ('warp', ['walk_happy', 'walk']),
+    'walk': ('blend', ['walk8_%d' % i for i in range(1, 9)]), 'trot': ('blend', ['walk8_%d' % i for i in range(1, 9)]),
     'hop': ('warp', ['walk_c', 'walk_d']), 'back': ('warp', ['walk_back', 'walk_back2']),
     'stand': ('pick', ['walk_front']), 'sneak': ('pick', ['hunt', 'hunt2']),
     'run': ('step', ['run_1', 'run_2', 'run_3', 'run_4']), 'tailchase': ('cycle', ['run_1', 'run_2', 'run_3', 'run_4'], 10),
@@ -53,7 +53,7 @@ CALM_RUN = ['dash', 'scarf', 'run']
 # 시트마다 고양이를 그린 크기가 달라 머리 크기가 비슷해지게 맞춘 배율(이름 앞부분으로 찾는다)
 SIZE = {'run_': 1.35, 'jump_': 1.3, 'jprep_': 1.15, 'land': 1.15, 'roll_': 1.1, 'hang_': 1.3, 'climb_': 1.35,
         'lick_': 1.3, 'wash_': 1.3, 'groom': 1.3, 'paw_': 1.3, 'stretch_finish': 1.3, 'walk_a': 0.95,
-        'walk_b': 0.95, 'walk_c': 1.1, 'walk_d': 1.1, 'dash': 1.1, 'scarf': 1.0, 'hunt2': 1.05}
+        'walk_b': 0.95, 'walk_c': 1.1, 'walk_d': 1.1, 'dash': 1.1, 'scarf': 1.0, 'hunt2': 1.05, 'walk8_': 1.25}
 
 
 def size_of(name):
@@ -137,6 +137,10 @@ class SpriteRenderer:
             mode, frames = 'pick', CALM_RUN
         if mode == 'step':
             return frames[int((ph % 1.0) * len(frames)) % len(frames)]
+        if mode == 'blend':                       # 연속 동작: 걸음에 맞춰 넘기고 이웃 두 장을 섞는다
+            pos = (ph % 1.0) * len(frames)
+            i = int(pos) % len(frames)
+            return (frames[i], frames[(i + 1) % len(frames)], pos - int(pos))
         if mode == 'cycle':
             return frames[int(at * spec[2]) % len(frames)]
         if mode == 'seq':
@@ -149,7 +153,12 @@ class SpriteRenderer:
 
     def render_action(self, action, at, facing, time, brain=None):
         name = self._pick(action, at, time, brain)
-        im = self._get(name, facing)
+        if isinstance(name, tuple):               # (이번 장, 다음 장, 섞는 비율)
+            a, b, k = name
+            name = a
+            im = Image.blend(self._get(a, facing), self._get(b, facing), ease(k) * 0.6)
+        else:
+            im = self._get(name, facing)
         S = self.s
         dx = dy = rot = 0.0
         sx = sy = 1.0

@@ -593,5 +593,61 @@
   "h": 202,
   "sheet": "s6",
   "iris": null
+ },
+ "walk8_1": {
+  "facing": 1,
+  "w": 208,
+  "h": 198,
+  "sheet": "s7",
+  "iris": null
+ },
+ "walk8_2": {
+  "facing": 1,
+  "w": 208,
+  "h": 198,
+  "sheet": "s7",
+  "iris": null
+ },
+ "walk8_3": {
+  "facing": 1,
+  "w": 208,
+  "h": 198,
+  "sheet": "s7",
+  "iris": null
+ },
+ "walk8_4": {
+  "facing": 1,
+  "w": 208,
+  "h": 198,
+  "sheet": "s7",
+  "iris": null
+ },
+ "walk8_5": {
+  "facing": 1,
+  "w": 208,
+  "h": 198,
+  "sheet": "s7",
+  "iris": null
+ },
+ "walk8_6": {
+  "facing": 1,
+  "w": 208,
+  "h": 198,
+  "sheet": "s7",
+  "iris": null
+ },
+ "walk8_7": {
+  "facing": 1,
+  "w": 208,
+  "h": 198,
+  "sheet": "s7",
+  "iris": null
+ },
+ "walk8_8": {
+  "facing": 1,
+  "w": 208,
+  "h": 198,
+  "sheet": "s7",
+  "iris": null
  }
 }
