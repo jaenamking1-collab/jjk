@@ -78,7 +78,36 @@ try:
             shot('flee%d' % i, pos)
         time.sleep(2.5)
     say('alive after mouse', cat.poll() is None)
-    cat.terminate()
+
+    u = ctypes.windll.user32
+    pos = last_pos()                          # Ctrl 누른 채 고양이 좌클릭 = 쓰다듬기 → love
+    if pos:
+        u.keybd_event(0x11, 0, 0, 0)
+        time.sleep(0.3)
+        u.SetCursorPos(pos[0], pos[1] - 30)
+        time.sleep(0.2)
+        u.mouse_event(0x0002, 0, 0, 0, 0)
+        u.mouse_event(0x0004, 0, 0, 0, 0)
+        time.sleep(0.3)
+        shot('pet', pos)
+        time.sleep(2.0)
+        u.keybd_event(0x11, 0, 2, 0)
+        txt = open(os.path.join(HERE, 'desktop_cat.log'), encoding='utf-8').read()
+        say('ctrl+click pet -> love logged', 'action=love' in txt)
+
+    cat2 = subprocess.Popen([sys.executable, os.path.join(HERE, 'desktop_cat.py')],
+                            env=dict(os.environ, DESKTOP_CAT_TEST='1'))
+    time.sleep(4)
+    say('second run replaced first:', cat.poll() is not None, 'second alive:', cat2.poll() is None)
+
+    for vk, up in ((0x11, 0), (0x12, 0), (0x51, 0), (0x51, 2), (0x12, 2), (0x11, 2)):   # Ctrl+Alt+Q
+        u.keybd_event(vk, 0, up, 0)
+        time.sleep(0.05)
+    time.sleep(2.5)
+    say('ctrl+alt+q quit:', cat2.poll() is not None)
+    for c in (cat, cat2):
+        if c.poll() is None:
+            c.terminate()
     pad.kill()
     time.sleep(1)
     if os.path.exists(log):
