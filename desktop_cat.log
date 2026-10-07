@@ -1,0 +1,19 @@
+2026-10-07 23:43:35 test mode=ground action=sit x=632 y=720 plats={'ground': 1, 'window': 2, 'icon': 6}
+2026-10-07 23:43:37 test mode=ground action=wash x=632 y=720 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 98}
+2026-10-07 23:43:39 test mode=ground action=wash x=632 y=720 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 98}
+2026-10-07 23:43:41 test mode=ground action=wash x=632 y=720 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 98}
+2026-10-07 23:43:43 test mode=ground action=love x=632 y=720 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 98}
+2026-10-07 23:43:45 test mode=ground action=love x=632 y=720 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 98}
+2026-10-07 23:43:47 test mode=ground action=walk x=695 y=720 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 94}
+2026-10-07 23:43:49 test mode=ground action=walk x=779 y=720 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 85}
+2026-10-07 23:43:51 test mode=ground action=walk x=862 y=720 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 79}
+2026-10-07 23:43:53 test mode=ground action=walk x=861 y=720 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 77}
+2026-10-07 23:43:55 test mode=ground action=walk x=778 y=720 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 77}
+2026-10-07 23:43:57 test mode=ground action=walk x=694 y=720 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 88}
+2026-10-07 23:43:59 test mode=ground action=walk x=610 y=720 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 99}
+2026-10-07 23:44:01 test mode=ground action=watch x=268 y=720 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 100}
+2026-10-07 23:44:03 test mode=ground action=watch x=268 y=720 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 99}
+2026-10-07 23:44:06 test mode=ground action=walk x=339 y=720 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 100}
+2026-10-07 23:44:08 test mode=ground action=walk x=423 y=720 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 101}
+2026-10-07 23:44:09 test mode=ground action=sit x=460 y=720 plats={'ground': 1, 'window': 2, 'icon': 6}
+2026-10-07 23:44:11 test mode=ground action=sleep x=460 y=720 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 100}
