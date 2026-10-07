@@ -228,10 +228,7 @@ class CatBrain:
                 ex = p.x1 + self.margin if left else p.x2 - self.margin
                 self.plan = [('walk', ex), ('face', -1 if left else 1), ('idle', 'lookdown', dur)]
                 return
-        if name in ('stretch', 'knead', 'loaf', 'sleep'):
-            self.plan = [('idle', name, dur)]
-        else:
-            self.plan = [('idle', name, dur)]
+        self.plan = [('idle', name, dur)]
 
     # ── 도망 ───────────────────────────────────────────────
     def _start_flee(self, cx):
