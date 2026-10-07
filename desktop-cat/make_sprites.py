@@ -1,6 +1,7 @@
 # 그림 시트를 동작별 투명 PNG 로 오린다. 그림을 새로 받았을 때만 돌린다.
 #   pip install "rembg[cpu]" scipy
 #   python make_sprites.py s1=첫시트.png s3=도망점프.png s4=소품.png s5=걷기매달리기.png s6=걷기그루밍.png
+#   python make_sprites.py v_walkv=걷기.mp4:105:23:1     (영상: 시작 장면 번호(0부터), 장수, 보는 방향)
 # s1 은 5×4 칸 시트(칸 아래 이름표), 나머지는 짙은 배경에서 고양이 덩어리를 자동으로 찾아 번호 순서로 이름을 붙인다.
 import os
 import sys
@@ -150,6 +151,36 @@ def cut_detected(key, path, sess, meta):
         _save(_clean(a), name, facing, meta, key)
 
 
+def cut_video(name, path, start, count, facing, sess, meta):
+    """영상(제자리 반복 동작)에서 start 번째부터 count 장을 같은 칸 크기로 오린다 → name_01.. (VIDEO_TODO.md)."""
+    import subprocess
+    import tempfile
+    tmp = tempfile.mkdtemp()
+    subprocess.run(['ffmpeg', '-loglevel', 'error', '-i', path, os.path.join(tmp, '%04d.png')], check=True)
+    frames = [Image.open(os.path.join(tmp, '%04d.png' % (start + 1 + i))).convert('RGB') for i in range(count)]
+    bg = np.median(np.asarray(frames[0]).reshape(-1, 3), 0)
+    boxes = []                                              # 모든 장면을 덮는 한 칸(넘길 때 흔들리지 않게)
+    for f in frames:
+        m = np.abs(np.asarray(f).astype(np.int32) - bg).sum(-1) > 90
+        ys, xs = np.nonzero(m)
+        boxes.append((xs.min(), ys.min(), xs.max(), ys.max()))
+    pad = 12
+    box = (max(0, min(b[0] for b in boxes) - pad), max(0, min(b[1] for b in boxes) - pad),
+           min(frames[0].width, max(b[2] for b in boxes) + pad), min(frames[0].height, max(b[3] for b in boxes) + pad))
+    STRIP.add('video')
+    for i, f in enumerate(frames):
+        src = f.crop(box)
+        # 영상은 배경이 고른 단색이라 AI 대신 '배경색과의 거리'로 오린다(AI 는 장면마다 꼬리를 지웠다 살렸다 했다)
+        c = np.asarray(src).astype(np.float32)
+        dist = np.abs(c - bg).sum(-1)
+        al = np.clip((dist - 45) / 120.0, 0, 1)[..., None]
+        a = np.zeros(c.shape[:2] + (4,), np.uint8)
+        a[..., 3] = (al[..., 0] * 255).astype(np.uint8)
+        fg = np.clip((c - (1 - al) * bg) / np.maximum(al, 0.05), 0, 255)
+        a[..., :3] = np.where(al > 0.02, fg, c).astype(np.uint8)
+        _save(_clean(a), '%s_%02d' % (name, i + 1), facing, meta, 'video')
+
+
 def main(args):
     os.makedirs(OUT, exist_ok=True)
     sess = new_session('isnet-general-use')
@@ -159,7 +190,10 @@ def main(args):
         meta = {}
     for arg in args:
         key, path = arg.split('=', 1)
-        if key == 's1':
+        if key.startswith('v_'):                             # v_이름=영상.mp4:시작장면:장수:방향
+            vpath, start, count, facing = path.rsplit(':', 3)
+            cut_video(key[2:], vpath, int(start), int(count), int(facing), sess, meta)
+        elif key == 's1':
             cut_grid(path, sess, meta)
         else:
             cut_detected(key, path, sess, meta)
