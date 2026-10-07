@@ -12,9 +12,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SETTINGS = os.path.join(HERE, 'settings.json')
 LOG = os.path.join(HERE, 'desktop_cat.log')
 TEST = os.environ.get('DESKTOP_CAT_TEST') == '1'   # 시험 모드: 캡처에 고양이가 찍히고, 2초마다 상태를 로그에
-DEFAULTS = {'size': 1.0, 'color': 'snow', 'fps': 40}
+DEFAULTS = {'size': 1.0, 'color': 'art', 'fps': 40}
 SIZES = [('작게', 0.75), ('보통', 1.0), ('크게', 1.35), ('아주 크게', 1.8)]
-COLORS = [('하양·파란 눈', 'snow'), ('치즈(주황)', 'cheese'), ('회색', 'gray'), ('검정', 'black')]
+COLORS = [('그림(참고 그림 그대로)', 'art'), ('코드 그림: 하양', 'snow'), ('코드 그림: 치즈', 'cheese'),
+          ('코드 그림: 회색', 'gray'), ('코드 그림: 검정', 'black')]
 RUN_KEY = r'Software\Microsoft\Windows\CurrentVersion\Run'
 
 
@@ -60,6 +61,7 @@ except (AttributeError, OSError):
         ctypes.windll.user32.SetProcessDPIAware()
 
 from cat_render import CatRenderer, OX, OY
+from sprite_render import SpriteRenderer
 from cat_brain import CatBrain
 from win_world import WorldScanner
 
@@ -232,7 +234,12 @@ class App:
 
     def build(self):
         self.scale = 1.3 * self.s['size'] * self.dpi / 96
-        self.rend = CatRenderer(self.scale, self.s['color'])
+        if self.s['color'] == 'art':
+            self.rend = SpriteRenderer(self.scale)
+            self.ox, self.oy = self.rend.ox, self.rend.oy
+        else:
+            self.rend = CatRenderer(self.scale, self.s['color'])
+            self.ox, self.oy = OX * self.scale, OY * self.scale
         old = getattr(self, 'brain', None)
         self.brain = CatBrain(self.scale)
         if old is not None and old.spawned:        # 크기·색만 바꿨으면 그 자리에서 이어서
@@ -244,8 +251,16 @@ class App:
         ico = os.path.join(HERE, 'cat.ico')
         try:
             from cat_render import action_pose
-            im = CatRenderer(1.0, self.s['color']).render(action_pose('sit', 0, {}), 1, 0)
-            im.crop((OX - 24, OY - 48, OX + 24, OY)).save(ico, sizes=[(16, 16), (32, 32), (48, 48)])
+            if self.s['color'] == 'art':               # 트레이 아이콘: 웃는 고양이 그림
+                from PIL import Image
+                im = Image.open(os.path.join(HERE, 'sprites', 'happy.png')).convert('RGBA')
+                side = max(im.size)
+                sq = Image.new('RGBA', (side, side), (0, 0, 0, 0))
+                sq.alpha_composite(im, ((side - im.width) // 2, side - im.height))
+                sq.save(ico, sizes=[(16, 16), (32, 32), (48, 48)])
+            else:
+                im = CatRenderer(1.0, self.s['color']).render(action_pose('sit', 0, {}), 1, 0)
+                im.crop((OX - 24, OY - 48, OX + 24, OY)).save(ico, sizes=[(16, 16), (32, 32), (48, 48)])
             hicon = user32.LoadImageW(None, ico, 1, 0, 0, 0x10 | 0x40)
         except Exception:
             hicon = None
@@ -328,8 +343,11 @@ class App:
                 user32.GetCursorPos(ctypes.byref(pt))
                 world = dict(snap, cursor=(pt.x, pt.y))
                 x, y, facing, pose = self.brain.update(dt, world)
-                img = self.rend.render(pose, facing, self.brain.time)
-                left, top = x - OX * self.scale, y - OY * self.scale
+                if isinstance(self.rend, SpriteRenderer):
+                    img = self.rend.render_action(self.brain.action, self.brain.at, facing, self.brain.time, self.brain)
+                else:
+                    img = self.rend.render(pose, facing, self.brain.time)
+                left, top = x - self.ox, y - self.oy
                 self.scanner.cat = (x, y, (int(left), int(top), int(left) + img.width, int(top) + img.height))
                 self.overlay.show(img, left, top)
                 if now > t_top:
