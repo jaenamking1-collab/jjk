@@ -14,7 +14,7 @@ PALETTES = {
     'black':  dict(fur=(52, 52, 60), dark=(30, 30, 36), far=(30, 30, 36), belly=(84, 84, 94)),
     'white':  dict(fur=(250, 248, 244), dark=(226, 218, 206), far=(208, 200, 190), belly=(255, 255, 255)),
     # 사용자가 준 참고 그림(2026-10-07): 하얀 털, 큰 파란 눈, 분홍 귀, 연한 선
-    'snow':   dict(fur=(253, 250, 246), dark=(238, 230, 222), far=(238, 231, 224), belly=(255, 255, 255),
+    'snow':   dict(fur=(253, 250, 246), dark=(238, 230, 222), far=(246, 241, 236), belly=(255, 255, 255),
                    line=(222, 200, 190), ear_in=(248, 174, 180), nose=(242, 150, 162), eye=(30, 42, 78),
                    iris=(82, 136, 196), iris_hi=(150, 196, 236)),
 }
@@ -25,7 +25,7 @@ STYLES = {
     'mochi': dict(hs=1.45, es=1.7, ey=0.2, mz=0.72, bt=1.22, lw=1.3, ow=0.85, blush=1, stripe=0.0),
     # 참고 그림체: 머리 더 크게, 눈 아주 크게, 줄무늬·수염·주둥이 무늬 없음
     'snow':  dict(hs=1.6, es=2.05, ey=0.7, mz=0.0, bt=1.2, lw=1.35, ow=0.75, blush=1, stripe=0.0,
-                  whisker=0, ring=0, bodystripe=0),
+                  whisker=0, ring=0, bodystripe=0, stubby=1, drop=4.0),
 }
 COMMON = dict(line=(64, 42, 30), eye=(40, 32, 26), nose=(238, 132, 146), ear_in=(246, 172, 172),
               tongue=(238, 106, 128), mouth=(104, 44, 48), white=(255, 255, 255))
@@ -164,7 +164,7 @@ HANG = 47.0   # 매달린 자세에서 앞발 끝 ~ 원점 거리(단위). 고�
 def P_hang():
     """발판 끝에 앞발로 매달린 자세. 앞발 끝이 y=-HANG, 몸은 그 아래로 늘어진다."""
     return base(c1=(1, -20), r1=7.0, c2=(0, -10), r2=7.5, head=(3, -31), face=0.2, look=(0.0, -0.3),
-                fn=leg((15, -22), (13, -45), 1, 12.0, 12.0), ff=leg((-9, -22), (-7, -45), 1, 12.0, 12.0),
+                fn=leg((19, -22), (17, -45), 1, 12.0, 12.0), ff=leg((-13, -22), (-11, -45), 1, 12.0, 12.0),
                 bn=leg((2, -6), (3, 0), 1, 4.0, 4.0), bf=leg((-2, -6), (-3, 0), 1, 4.0, 4.0),
                 tail={'base': (-4, -6), 'ang': 2.3, 'curve': -0.2, 'amp': 0.35, 'spd': 2.5,
                       'puff': 1.0, 'ground': 0.0, 'front': 0.0}, armsfront=1.0)
@@ -423,7 +423,7 @@ def action_pose(name, t, ctx):
         return _swing(p, 0.06 * math.sin(t * 7))
     if name == 'hang_one':                                 # 한 발로 매달려 흔들
         p = P_hang()
-        p['ff'] = leg((-9, -22), (-14 + 3 * math.sin(t * 6), -30 + 2 * math.cos(t * 6)), 1, 12.0, 12.0)
+        p['ff'] = leg((-13, -22), (-18 + 3 * math.sin(t * 6), -30 + 2 * math.cos(t * 6)), 1, 12.0, 12.0)
         p['emote'] = '!' if t < 0.8 else ''
         return _swing(p, 0.22 * math.sin(t * 2.6))
     if name == 'climbup':                                  # 매달렸다가 낑낑 기어오르기 (ctx cprog 0→1)
@@ -744,6 +744,12 @@ class CatRenderer:
     def _leg_shapes(self, lg, col, back):
         knee, foot = ik(lg['hip'], lg['foot'], lg['la'], lg['lb'], 1 if lg['bend'] >= 0 else -1)
         lw = self.st['lw']
+        if self.st.get('stubby'):                 # 참고 그림: 무릎 없는 통통한 기둥 + 동그란 발
+            hip, foot = lg['hip'], lg['foot']
+            w = (6.6 if back else 6.0) * lw
+            if math.hypot(foot[0] - hip[0], foot[1] - hip[1]) > 18:   # 쭉 뻗은 팔(매달리기)은 가늘게
+                w *= 0.7
+            return [('cap', hip, foot, w, col), ('e', add(foot, (0.7, -0.9)), w * 0.62, w * 0.5, col)]
         return [('cap', lg['hip'], knee, (6.0 if back else 5.0) * lw, col),
                 ('cap', knee, foot, 3.8 * lw, col),
                 ('e', add(foot, (1.2, -0.7)), 2.6 * lw, 1.9 * lw, col)]
@@ -944,7 +950,26 @@ class CatRenderer:
             for i in range(3):
                 self._ell(d, add(top, (-3 + 3 * i, 6)), 0.8, 0.8, (90, 90, 90))
 
+    def _toes(self, d, lg):
+        """발끝 발가락 금 두 줄(참고 그림)."""
+        f = add(lg['foot'], (0.7, -0.9))
+        w = 6.0 * self.st['lw'] * 0.62
+        lw = max(1, int(0.5 * self.k))
+        for dx in (-0.3, 0.3):
+            a, b = add(f, (w * dx + w * 0.35, w * 0.15)), add(f, (w * dx + w * 0.35, w * 0.55))
+            d.line([self.P(a), self.P(b)], fill=self.pal['line'], width=lw)
+
     def render(self, p, facing=1, time=0.0):
+        drop = self.st.get('drop', 0)
+        if drop:                                  # 몸을 내려 다리를 짧게 (발 위치는 그대로, 몸이 땅에 묻히지 않게)
+            bt = self.st['bt']
+            low = max(p['c1'][1] + p['r1'] * bt, p['c2'][1] + p['r2'] * bt)
+            dy = clamp(-0.5 - low, 0.0, drop)
+            if dy > 0:
+                feet = {k: p[k]['foot'] for k in ('fn', 'ff', 'bn', 'bf')}
+                p = translate_pose(p, (0, dy))
+                for k, f in feet.items():
+                    p[k] = dict(p[k], foot=f)
         big = Image.new('RGBA', (self.W * self.ss, self.H * self.ss), (0, 0, 0, 0))
         d = ImageDraw.Draw(big)
         far = self.pal['far']
@@ -961,6 +986,8 @@ class CatRenderer:
             self._tail(d, p['tail'], time)
         for k in (('bn',) if arms_front else ('bn', 'fn')):
             self._group(d, self._leg_shapes(p[k], self.pal['fur'], k == 'bn'))
+            if self.st.get('stubby'):
+                self._toes(d, p[k])
         if prop == 'fish':                        # 생선 장난감 (앞발 아래)
             blue = (110, 150, 205)
             self._group(d, [('e', (14, -5), 6.0, 3.2, blue),
