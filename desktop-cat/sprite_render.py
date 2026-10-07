@@ -15,8 +15,8 @@ SPR = os.path.join(HERE, 'sprites')
 #   seq: 동작 시작부터 차례로 넘기고 마지막 그림에서 멈춤   pick: 할 때마다 하나를 골라 계속 씀
 #   air: 점프 전반 첫 그림, 후반 둘째 그림
 ART = {
-    'walk': ('step', ['walk_a', 'walk_b']), 'trot': ('step', ['walk_happy', 'walk']),
-    'hop': ('step', ['walk_c', 'walk_d']), 'back': ('step', ['walk_back', 'walk_back2']),
+    'walk': ('warp', ['walk_b', 'walk_a', 'walk_c', 'walk_d']), 'trot': ('warp', ['walk_happy', 'walk']),
+    'hop': ('warp', ['walk_c', 'walk_d']), 'back': ('warp', ['walk_back', 'walk_back2']),
     'stand': ('pick', ['walk_front']), 'sneak': ('pick', ['hunt', 'hunt2']),
     'run': ('step', ['run_1', 'run_2', 'run_3', 'run_4']), 'tailchase': ('cycle', ['run_1', 'run_2', 'run_3', 'run_4'], 10),
     'crouch': ('seq', ['jprep_1', 'jprep_2'], 3), 'hunt': ('pick', ['hunt', 'hunt2', 'jprep_2']),
@@ -41,7 +41,7 @@ ART = {
     'bugcatch': ('pick', ['bugcatch', 'butterfly2']), 'swat': ('pick', ['bugcatch']), 'claw': ('pick', ['glass']),
     'hang': ('pick', ['hang_1', 'hang_wink']), 'hang_kick': ('cycle', ['hang_3', 'hang_1'], 3),
     'hang_one': ('pick', ['hang_2']), 'climbup': ('pick', ['climb_3']),
-    'climb': ('step', ['climb_1', 'climb_3']), 'cling': ('pick', ['climb_2']), 'slide': ('pick', ['climb_down']),
+    'climb': ('warp', ['climb_1', 'climb_3']), 'cling': ('pick', ['climb_2']), 'slide': ('pick', ['climb_down']),
     'hugheart': ('pick', ['hugheart']), 'stargaze': ('pick', ['stargaze']), 'fishtoy': ('pick', ['fishtoy']),
     'hat': ('pick', ['hat', 'beanie']), 'box': ('pick', ['box', 'box2']), 'backview': ('pick', ['backview', 'backview2']),
     'peek': ('pick', ['peek']), 'wave': ('pick', ['wave']), 'headphones': ('pick', ['headphones']),
@@ -62,6 +62,8 @@ def size_of(name):
             return v
     return 1.0                  # 도망이 아닌 우다다는 신나게 달리는 그림
 WALKS = {'walk', 'trot', 'back', 'hop', 'sneak', 'run', 'tailchase'}
+# 그림 한 장을 휘어서 걷게 하는 동작 — 다리를 앞뒤로, 꼬리를 살랑(2장 번갈아 끼우면 뚝뚝 끊겨 보였다)
+WARP = {'walk', 'trot', 'back', 'hop', 'sneak', 'climb'}
 
 
 class SpriteRenderer:
@@ -89,6 +91,43 @@ class SpriteRenderer:
                 self._mirror[name] = self.img[name].transpose(Image.FLIP_LEFT_RIGHT)
             return self._mirror[name]
         return self.img[name]
+
+    @staticmethod
+    def _warp(im, ph, facing, time, climb=False):
+        """그림을 격자로 나눠 아래쪽(다리)은 앞뒤로, 몸 뒤쪽 위(꼬리)는 살랑 흔든다. (휜 그림, 좌우 여백)"""
+        w, h = im.size
+        p = max(2, int(w * 0.08))
+        base = Image.new('RGBA', (w + 2 * p, h + p), (0, 0, 0, 0))   # 꼬리·다리가 밖으로 나가도 안 잘리게(아래는 땅이라 여백 없음)
+        base.paste(im, (p, p))
+        W, H = base.size
+        s2 = math.sin(2 * math.pi * ph)
+        A = w * (0.035 if climb else 0.06)       # 다리 흔들림
+        L = h * 0.03                             # 다리 들림
+        T = w * 0.045                            # 꼬리 흔들림
+        wag = math.sin(time * 5.0)
+
+        def disp(X, Y):
+            u, v = (X - p) / w, (Y - p) / h
+            legs = clamp((v - 0.55) / 0.45) ** 1.5
+            fb = math.cos(math.pi * clamp(u))    # 앞다리와 뒷다리는 반대로
+            dx = A * legs * s2 * fb
+            dy = -L * legs * abs(s2)
+            back = clamp((((1 - u) if facing > 0 else u) - 0.55) / 0.45)
+            tail = back * clamp((0.65 - v) / 0.65)
+            return dx + T * tail * wag, dy + 0.4 * T * tail * math.cos(time * 5.0)
+
+        nx, ny = 10, 8
+        xs = [W * i / nx for i in range(nx + 1)]
+        ys = [H * j / ny for j in range(ny + 1)]
+        mesh = []
+        for j in range(ny):
+            for i in range(nx):
+                quad = []
+                for X, Y in ((xs[i], ys[j]), (xs[i], ys[j + 1]), (xs[i + 1], ys[j + 1]), (xs[i + 1], ys[j])):
+                    dx, dy = disp(X, Y)
+                    quad += [X - dx, Y - dy]
+                mesh.append(((int(xs[i]), int(ys[j]), int(xs[i + 1]), int(ys[j + 1])), quad))
+        return base.transform((W, H), Image.MESH, mesh, Image.BICUBIC), p
 
     def _pick(self, action, at, time, brain):
         spec = ART.get(action, ('pick', ['headtilt']))
@@ -118,11 +157,13 @@ class SpriteRenderer:
         breathe = math.sin(time * 2.2)
         ph = brain.walk_phase if brain else time
 
-        if action in WALKS:                       # 걸음: 한 걸음마다 통통 + 좌우로 살짝 흔들
-            amp = {'run': 6, 'tailchase': 6, 'hop': 9, 'trot': 4, 'sneak': 1.5}.get(action, 3) * S
-            dy = -abs(math.sin(2 * math.pi * ph)) * amp
-            rot = 1.5 * math.sin(2 * math.pi * ph)   # 그림이 걸음마다 바뀌니 기울기는 살짝만
-            sy = 1 - 0.04 * math.cos(4 * math.pi * ph)
+        if action in WALKS:                       # 걸음: 한 걸음에 두 번 부드럽게 오르내림
+            amp = {'run': 6, 'tailchase': 6, 'hop': 9, 'trot': 3, 'sneak': 1.0}.get(action, 1.6) * S
+            if action in ('run', 'tailchase', 'hop'):
+                dy = -abs(math.sin(2 * math.pi * ph)) * amp
+            else:
+                dy = -(1 - math.cos(4 * math.pi * ph)) / 2 * amp
+            rot = 0.8 * math.sin(2 * math.pi * ph)
             if action == 'run':
                 rot += 4
         elif action == 'air' and brain and brain.jump:
@@ -164,6 +205,9 @@ class SpriteRenderer:
         else:
             sx, sy = 1 + 0.01 * breathe, 1 - 0.01 * breathe
 
+        pad = 0
+        if action in WARP:
+            im, pad = self._warp(im, ph, facing, time, action == 'climb')
         if sx != 1 or sy != 1:
             im = im.resize((max(1, round(im.width * sx)), max(1, round(im.height * sy))), Image.BILINEAR)
         if abs(rot) > 0.3:
