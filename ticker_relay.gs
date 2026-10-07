@@ -37,6 +37,16 @@ function doGet(e) {
   var bands = splitList_(p.band);
   var out = { t: Date.now(), q: {}, band: {}, err: {} };
 
+  // ?list=코드 → 휴대폰 화면의 종목 목록. 목록엔 보유 종목이 들어 있어 공개 저장소에 못 둔다.
+  // 그래서 이 프로젝트에만 있는 Private.gs(저장소에 없음)의 PRIVATE_LISTS 에서 꺼낸다.
+  // 코드는 claude-memory(비공개)의 ticker/phone_code.txt 에 있다. 모르는 코드면 list 를 안 준다.
+  if (p.list) {
+    var lists = (typeof PRIVATE_LISTS !== 'undefined') ? PRIVATE_LISTS : {};
+    if (Object.prototype.hasOwnProperty.call(lists, p.list)) out.list = lists[p.list];
+    if (!syms.length) return ContentService.createTextOutput(JSON.stringify(out))
+                                           .setMimeType(ContentService.MimeType.JSON);
+  }
+
   var cache = CacheService.getScriptCache();
   var need = [];
   syms.forEach(function (s) {

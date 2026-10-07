@@ -81,9 +81,9 @@ body.detail .amt{display:block}
     국내지수 <code>KOSPI</code> · 국내종목 <code>069500</code> · 코인 <code>XRP-KRW</code> ·
     해외 <code>AAPL</code> <code>^IXIC</code> · 환율 <code>USDKRW=X</code><br>
     교환비율 <code>XRP-KRW/KAIA-KRW=이름 @49,50,v41</code> (v=하한)<br>
-    집 PC 목록: 받은 <b>가져오기 링크를 복사</b>한 뒤 아래 📋 버튼 한 번
+    집 PC 목록: 받은 <b>8글자 코드</b>를 칸에 적고 저장(또는 복사 후 📋). 한 번 넣으면 열 때마다 집 목록을 따라옵니다
   </div>
-  <button id="pasteBtn">📋 가져오기 링크 붙여넣기</button><br style="margin-bottom:6px">
+  <button id="pasteBtn">📋 복사한 코드 붙여넣기</button><br style="margin-bottom:6px">
   <button id="saveBtn">저장</button><button class="ghost" id="cancelBtn">취소</button>
   <button class="ghost" id="resetBtn">기본값</button>
 </div>
@@ -125,11 +125,43 @@ function applyList(arr){
   tickers = arr; store.set('tk_list', arr);
   return arr.filter(x => !x.startsWith('---')).length;
 }
+// 짧은 코드(8글자) 방식: 목록은 중계(Private.gs, 저장소에 없음)에 두고 코드로 받는다.
+// 긴 #import= 링크는 Claude 앱이 '…'로 줄여 복사돼 깨졌다(2026-10-07, CLAUDE.md 0-3).
+// 코드를 한 번 넣으면 기억해 두고 **열 때마다 목록을 다시 받는다** — 집 목록을 바꾸면 폰도 따라온다.
+function codeOf(text){
+  const m = String(text || '').trim().match(/(?:^|k=)([a-z2-9]{8})(?![a-z2-9])/);
+  return m ? m[1] : null;
+}
+async function fetchList(code){
+  try{
+    const j = await (await fetch(RELAY + '?list=' + encodeURIComponent(code), {cache:'no-store'})).json();
+    return (Array.isArray(j.list) && j.list.length) ? j.list : null;
+  }catch(e){ return null; }
+}
+async function useCode(code, quiet){
+  const arr = await fetchList(code);
+  if (!arr){ if (!quiet) alert('코드를 찾지 못했어요: ' + code); return 0; }
+  store.set('tk_code', code);
+  const changed = JSON.stringify(arr) !== JSON.stringify(tickers);
+  const n = applyList(arr);
+  if (changed){ build(); load(); }
+  return n;
+}
 (function(){
-  if (!/^#import=/.test(location.hash)) return;
-  const arr = decodeImport(location.hash);
-  if (arr) imported = applyList(arr);
-  history.replaceState(null, '', location.pathname);
+  const code = codeOf(location.hash);
+  if (code){
+    history.replaceState(null, '', location.pathname);
+    useCode(code).then(n => { if (n) document.getElementById('hint').textContent = `집 PC 목록 ${n}종목으로 맞췄습니다`; });
+    return;
+  }
+  if (/^#import=/.test(location.hash)){
+    const arr = decodeImport(location.hash);
+    if (arr) imported = applyList(arr);
+    history.replaceState(null, '', location.pathname);
+    return;
+  }
+  const saved = store.get('tk_code', null);
+  if (saved) useCode(saved, true);          // 열 때마다 집 목록을 따라간다(실패하면 지금 목록 유지)
 })();
 
 // 위젯 cut() 과 같은 브랜드 약칭. 이름을 직접 안 준 종목(코드만 적은 줄)에만 쓴다.
@@ -371,14 +403,19 @@ function done(n){
   ed.style.display = 'none'; build(); load();
   document.getElementById('hint').textContent = `목록 ${n}종목으로 맞췄습니다`;
 }
-document.getElementById('saveBtn').onclick = () => {
-  const arr = decodeImport(ta.value);      // 가져오기 링크를 통째로 붙여넣어도 된다
+document.getElementById('saveBtn').onclick = async () => {
+  const code = codeOf(ta.value);           // 8글자 코드(또는 #k= 링크)만 적었으면 중계에서 받는다
+  if (code && ta.value.trim().split('\n').length === 1){ const n = await useCode(code); if (n) done(n); return; }
+  const arr = decodeImport(ta.value);      // 옛 긴 링크를 통째로 붙여넣어도 된다
+  store.set('tk_code', null);              // 손으로 고친 목록은 집 목록을 따라가지 않는다
   done(applyList(arr || ta.value.split('\n').map(x => x.trim()).filter(Boolean)));
 };
 // 복사해 둔 가져오기 링크를 한 번에 넣는다(클립보드 읽기 — 처음 한 번 허용을 묻는다).
 document.getElementById('pasteBtn').onclick = async () => {
   try{
     const t = await navigator.clipboard.readText();
+    const code = codeOf(t);
+    if (code){ const n = await useCode(code); if (n) done(n); return; }
     const arr = decodeImport(t);
     if (arr) return done(applyList(arr));
     ta.value = t;                           // 링크가 아니면 칸에 넣어 주고 저장은 사람이 누른다
