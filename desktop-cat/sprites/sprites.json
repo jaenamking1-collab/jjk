@@ -1,0 +1,102 @@
+{
+ "walk": {
+  "facing": 1,
+  "w": 226,
+  "h": 216
+ },
+ "headtilt": {
+  "facing": 0,
+  "w": 183,
+  "h": 226
+ },
+ "loaf": {
+  "facing": 0,
+  "w": 251,
+  "h": 170
+ },
+ "belly": {
+  "facing": 0,
+  "w": 259,
+  "h": 200
+ },
+ "curious": {
+  "facing": 0,
+  "w": 204,
+  "h": 232
+ },
+ "sleep": {
+  "facing": -1,
+  "w": 252,
+  "h": 160
+ },
+ "bugcatch": {
+  "facing": -1,
+  "w": 216,
+  "h": 188
+ },
+ "happy": {
+  "facing": 0,
+  "w": 171,
+  "h": 190
+ },
+ "hunt": {
+  "facing": -1,
+  "w": 248,
+  "h": 205
+ },
+ "box": {
+  "facing": 0,
+  "w": 273,
+  "h": 172
+ },
+ "hugheart": {
+  "facing": 0,
+  "w": 169,
+  "h": 196
+ },
+ "backview": {
+  "facing": 0,
+  "w": 143,
+  "h": 181
+ },
+ "roll": {
+  "facing": -1,
+  "w": 259,
+  "h": 151
+ },
+ "hat": {
+  "facing": 0,
+  "w": 175,
+  "h": 198
+ },
+ "stretch": {
+  "facing": -1,
+  "w": 245,
+  "h": 198
+ },
+ "peek": {
+  "facing": 1,
+  "w": 113,
+  "h": 174
+ },
+ "run": {
+  "facing": -1,
+  "w": 218,
+  "h": 139
+ },
+ "stargaze": {
+  "facing": -1,
+  "w": 149,
+  "h": 173
+ },
+ "sulk": {
+  "facing": 0,
+  "w": 233,
+  "h": 132
+ },
+ "fishtoy": {
+  "facing": 0,
+  "w": 184,
+  "h": 169
+ }
+}

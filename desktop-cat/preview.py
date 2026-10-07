@@ -6,6 +6,7 @@ import random
 from PIL import Image, ImageDraw
 from cat_brain import CatBrain, Platform, ground_platforms
 from cat_render import CatRenderer, OX, OY
+from sprite_render import SpriteRenderer
 
 W1, W2, H = 640, 640, 360
 MONITORS = [dict(rect=(0, 0, W1, H), work=(0, 0, W1, H - 28)),
@@ -65,12 +66,12 @@ def main():
     ap.add_argument('--fps', type=int, default=12)
     ap.add_argument('--out', default='cat_preview.gif')
     ap.add_argument('--scale', type=float, default=1.0)
-    ap.add_argument('--color', default='snow')
+    ap.add_argument('--color', default='art')     # art = 참고 그림, 그 밖은 코드로 그린 고양이
     ap.add_argument('--seed', type=int, default=3)
     a = ap.parse_args()
     random.seed(a.seed)
     brain = CatBrain(a.scale, MONITORS)
-    rend = CatRenderer(a.scale, a.color)
+    rend = SpriteRenderer(a.scale) if a.color == 'art' else CatRenderer(a.scale, a.color)
     bg = background()
     frames, dt, sub = [], 1 / 30, max(1, round(30 / a.fps))
     cur = [W1 + W2 - 30.0, 30.0]
@@ -86,8 +87,11 @@ def main():
         x, y, facing, pose = brain.update(dt, world)
         if i % sub == 0:
             im = bg.copy()
-            cat = rend.render(pose, facing, brain.time)
-            im.alpha_composite(cat, (int(x - OX * a.scale), int(y - OY * a.scale)))
+            if a.color == 'art':
+                cat, ox, oy = rend.render_action(brain.action, brain.at, facing, brain.time, brain), rend.ox, rend.oy
+            else:
+                cat, ox, oy = rend.render(pose, facing, brain.time), OX * a.scale, OY * a.scale
+            im.paste(cat, (int(x - ox), int(y - oy)), cat)
             d = ImageDraw.Draw(im)
             d.polygon([(cur[0], cur[1]), (cur[0], cur[1] + 16), (cur[0] + 11, cur[1] + 11)],
                       fill=(255, 255, 255, 255), outline=(0, 0, 0, 255))
