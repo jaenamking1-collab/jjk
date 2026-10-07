@@ -14,6 +14,12 @@ PALETTES = {
     'black':  dict(fur=(52, 52, 60), dark=(30, 30, 36), far=(40, 40, 48), belly=(84, 84, 94)),
     'white':  dict(fur=(250, 248, 244), dark=(226, 218, 206), far=(228, 224, 218), belly=(255, 255, 255)),
 }
+# 그리는 비율 — hs 머리, es 눈, ey 눈 높이, mz 주둥이, bt 몸통 굵기, lw 다리 굵기, ow 외곽선, blush 볼터치
+STYLES = {
+    'basic': dict(hs=1.0, es=1.0, ey=-0.8, mz=1.0, bt=1.0, lw=1.0, ow=1.15, blush=0, stripe=1.0),
+    'cute':  dict(hs=1.3, es=1.45, ey=-0.2, mz=0.8, bt=1.12, lw=1.18, ow=0.95, blush=1, stripe=0.0),
+    'mochi': dict(hs=1.45, es=1.7, ey=0.2, mz=0.72, bt=1.22, lw=1.3, ow=0.85, blush=1, stripe=0.0),
+}
 COMMON = dict(line=(64, 42, 30), eye=(40, 32, 26), nose=(238, 132, 146), ear_in=(246, 172, 172),
               tongue=(238, 106, 128), mouth=(104, 44, 48), white=(255, 255, 255))
 
@@ -322,12 +328,13 @@ def action_pose(name, t, ctx):
 
 # ── 그리기 ────────────────────────────────────────────────────
 class CatRenderer:
-    def __init__(self, scale=1.3, palette='cheese', ss=3):
+    def __init__(self, scale=1.3, palette='cheese', ss=3, style='mochi'):
+        self.st = STYLES.get(style, STYLES['cute'])
         self.s, self.ss = scale, ss
         self.k = scale * ss
         self.W, self.H = int(CW * scale), int(CH * scale)
         self.pal = dict(PALETTES.get(palette, PALETTES['cheese']), **COMMON)
-        self.ow = 1.15  # 외곽선 두께(단위)
+        self.ow = self.st['ow']  # 외곽선 두께(단위)
 
     def P(self, p):
         return ((OX + p[0]) * self.k, (OY + p[1]) * self.k)
@@ -362,9 +369,10 @@ class CatRenderer:
     # ── 부위 ──
     def _leg_shapes(self, lg, col, back):
         knee, foot = ik(lg['hip'], lg['foot'], lg['la'], lg['lb'], 1 if lg['bend'] >= 0 else -1)
-        return [('cap', lg['hip'], knee, 6.0 if back else 5.0, col),
-                ('cap', knee, foot, 3.8, col),
-                ('e', add(foot, (1.2, -0.7)), 2.6, 1.9, col)]
+        lw = self.st['lw']
+        return [('cap', lg['hip'], knee, (6.0 if back else 5.0) * lw, col),
+                ('cap', knee, foot, 3.8 * lw, col),
+                ('e', add(foot, (1.2, -0.7)), 2.6 * lw, 1.9 * lw, col)]
 
     def _tail_pts(self, tl, time):
         pts = [tl['base']]
@@ -383,13 +391,14 @@ class CatRenderer:
         pts = self._tail_pts(tl, time)
         shapes = []
         for i in range(TAIL_N):
-            w = (3.7 - 1.4 * i / TAIL_N) * tl['puff']
+            w = (3.7 - 1.4 * i / TAIL_N) * tl['puff'] * self.st['lw']
             col = self.pal['dark'] if (i % 3 == 2 or i >= TAIL_N - 2) else self.pal['fur']
             shapes.append(('cap', pts[i], pts[i + 1], w, col))
         self._group(d, shapes)
 
     def _body(self, d, p):
-        c1, r1, c2, r2 = p['c1'], p['r1'], p['c2'], p['r2']
+        c1, c2 = p['c1'], p['c2']
+        r1, r2 = p['r1'] * self.st['bt'], p['r2'] * self.st['bt']
         vx, vy = c1[0] - c2[0], c1[1] - c2[1]
         n = math.hypot(vx, vy) or 1
         nx, ny = -vy / n, vx / n                  # 아래쪽 법선
@@ -406,7 +415,9 @@ class CatRenderer:
 
     def _head(self, d, p):
         h, a, f, fl = p['head'], p['hrot'], p['face'], p['ears']
-        H = lambda q: add(h, rot(q, a))
+        st = self.st
+        hs = st['hs']
+        H = lambda q: add(h, rot((q[0] * hs, q[1] * hs), a))
         fur = self.pal['fur']
         ears = []
         for sgn, b1, b2, tip in ((-1, (-8.0, -3.5), (-2.5, -7.8), (-7.6, -12.5)),
@@ -415,17 +426,17 @@ class CatRenderer:
             tip = (tip[0] + sh + sgn * 3.2 * fl, tip[1] + 4.0 * fl)
             ears.append([(b1[0] + sh, b1[1]), (b2[0] + sh, b2[1]), tip])
         self._group(d, [('poly', [H(q) for q in ears[0]], fur), ('poly', [H(q) for q in ears[1]], fur),
-                        ('e', h, 9.4, 8.3, fur), ('e', H((0.5 * f, 2.6)), 9.6, 6.2, fur)])
+                        ('e', h, 9.4 * hs, 8.3 * hs, fur), ('e', H((0.5 * f, 2.6)), 9.6 * hs, 6.2 * hs, fur)])
         for e in ears:                            # 귀 안쪽
             cx = sum(q[0] for q in e) / 3
             cy = sum(q[1] for q in e) / 3
             inner = [H((cx + (q[0] - cx) * 0.55, cy + (q[1] - cy) * 0.55 + 0.4)) for q in e]
             d.polygon([self.P(q) for q in inner], fill=self.pal['ear_in'])
-        for dx in (-2.2, 0.0, 2.2):               # 이마 줄무늬
+        for dx in ((-2.2, 0.0, 2.2) if st['stripe'] else ()):   # 이마 줄무늬
             q = H((dx + 1.2 * f, -7.2))
-            self._cap(d, q, H((dx * 0.8 + 1.2 * f, -4.6)), 0.6, self.pal['dark'])
+            self._cap(d, q, H((dx * 0.8 + 1.2 * f, -5.4 + 0.8 * st['stripe'])), 0.6, self.pal['dark'])
         mz = H((2.2 * f, 3.5))
-        self._ell(d, mz, 4.3, 3.0, self.pal['belly'])
+        self._ell(d, mz, 4.3 * hs * st['mz'], 3.0 * hs * st['mz'], self.pal['belly'])
         lw = max(1, int(0.45 * self.k))
         for sgn in (-1, 1):                       # 수염
             for dy in (-0.6, 0.6):
@@ -435,8 +446,11 @@ class CatRenderer:
         # 눈
         lk = p['look']
         for ex, er in ((-3.6 + 3.0 * f, 1.85), (3.6 + 2.2 * f, 2.0)):
-            c = H((ex + lk[0] * 0.7, -0.8 + lk[1] * 0.6))
-            self._eye(d, c, er, p['eyes'], a)
+            c = H((ex + lk[0] * 0.5, st['ey'] + lk[1] * 0.45))
+            self._eye(d, c, er * st['es'], p['eyes'], a)
+            if st['blush']:                       # 볼터치 (털색과 분홍을 섞은 불투명 색)
+                bc = tuple(int(u + (v - u) * 0.55) for u, v in zip(fur, (255, 120, 140)))
+                self._ell(d, H((ex + (-0.6 if ex < 0 else 0.6), 3.0)), 1.7 * hs, 0.95 * hs, bc)
         # 코·입
         nz = H((2.2 * f, 1.7))
         x, y = self.P(nz)
@@ -465,8 +479,14 @@ class CatRenderer:
         lw = max(1, int(0.65 * k))
         if state == 'open':
             d.ellipse([x - r * k, y - r * 1.2 * k, x + r * k, y + r * 1.2 * k], fill=col)
-            hx, hy = x + 0.6 * k, y - 0.8 * k
-            d.ellipse([hx - 0.7 * k, hy - 0.7 * k, hx + 0.7 * k, hy + 0.7 * k], fill=self.pal['white'])
+            hr = 0.35 * r                         # 눈 반짝이 (큰 것 + 작은 것)
+            hx, hy = x + 0.3 * r * k, y - 0.45 * r * k
+            d.ellipse([hx - hr * k, hy - hr * k, hx + hr * k, hy + hr * k], fill=self.pal['white'])
+            if r > 2.4:
+                sx, sy, sr = x - 0.35 * r * k, y + 0.45 * r * k, 0.16 * r
+                d.ellipse([sx - sr * k, sy - sr * k, sx + sr * k, sy + sr * k], fill=self.pal['white'])
+        elif state == 'half' and self.st['blush']:  # 귀여운 그림체: 반쯤 감은 눈은 화나 보여서 졸린 ‿ 로
+            d.arc([x - r * k, y - r * k - 0.6 * k, x + r * k, y + r * k - 0.6 * k], 20, 160, fill=col, width=lw)
         elif state == 'half':
             d.chord([x - r * k, y - r * 1.2 * k, x + r * k, y + r * 1.2 * k], 0, 180, fill=col)
         elif state == 'closed':                  # ^ 모양(기분 좋음)
