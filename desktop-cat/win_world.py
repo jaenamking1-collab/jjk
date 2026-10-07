@@ -148,6 +148,23 @@ def window_platforms(wins):
     return plats, refs
 
 
+def window_walls(wins):
+    """창 옆면 — 고양이가 타고 오르거나 뒤에 숨는 벽. 앞 창에 가려진 높이는 빼고 가장 긴 구간만."""
+    out = []
+    for i, (h, (l, t, r, b)) in enumerate(wins):
+        for x, side in ((l, 1), (r, -1)):
+            spans = [(t, b)]
+            for _, (l2, t2, r2, b2) in wins[:i]:
+                if l2 <= x - side * 2 <= r2:
+                    spans = _subtract(spans, t2, b2)
+            if not spans:
+                continue
+            top, bottom = max(spans, key=lambda s: s[1] - s[0])
+            if bottom - top >= 80:
+                out.append(dict(x=x, top=top, bottom=bottom, side=side, owner=('win', h), reach=top == t))
+    return out
+
+
 # ── 바탕화면 아이콘 (탐색기의 목록 컨트롤에서 위치를 읽는다) ──────────
 class IconReader:
     def __init__(self):
@@ -321,7 +338,7 @@ class WorldScanner(threading.Thread):
                 plats = ground_platforms(mons) + wp + icon_platforms(icon_rects, wins) + \
                     [Platform(a, b, y, 'edge') for a, b, y in edges]
                 with self.lock:
-                    self._snap = dict(monitors=mons, platforms=plats, refs=refs)
+                    self._snap = dict(monitors=mons, platforms=plats, refs=refs, walls=window_walls(wins))
             except Exception as e:                        # 한 번 실패해도 계속 돈다
                 self.error = repr(e)
             time.sleep(0.05)

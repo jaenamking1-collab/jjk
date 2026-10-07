@@ -12,9 +12,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SETTINGS = os.path.join(HERE, 'settings.json')
 LOG = os.path.join(HERE, 'desktop_cat.log')
 TEST = os.environ.get('DESKTOP_CAT_TEST') == '1'   # 시험 모드: 캡처에 고양이가 찍히고, 2초마다 상태를 로그에
-DEFAULTS = {'size': 1.0, 'color': 'cheese', 'fps': 40}
+DEFAULTS = {'size': 1.0, 'color': 'snow', 'fps': 40}
 SIZES = [('작게', 0.75), ('보통', 1.0), ('크게', 1.35), ('아주 크게', 1.8)]
-COLORS = [('치즈(주황)', 'cheese'), ('회색', 'gray'), ('검정', 'black'), ('흰색', 'white')]
+COLORS = [('하양·파란 눈', 'snow'), ('치즈(주황)', 'cheese'), ('회색', 'gray'), ('검정', 'black')]
 RUN_KEY = r'Software\Microsoft\Windows\CurrentVersion\Run'
 
 
