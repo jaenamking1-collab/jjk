@@ -216,6 +216,13 @@ NOTICE_SRC = (("https://raw.githubusercontent.com/%s/main/%s" % (REPO, NOTICE_PA
               ("https://api.github.com/repos/%s/contents/%s?ref=main" % (REPO, NOTICE_PATH), "api"),
               ("https://cdn.jsdelivr.net/gh/%s@main/%s" % (REPO, NOTICE_PATH), "jsdelivr"))
 NOTICE_SEC = 600                         # 10분마다. 예비본 자체가 30분 간격이라 이보다 자주 볼 이유가 없다
+# ── 총평가(시세 맨 아래 한 줄) ── 휴대폰 시세(ticker.html)와 같은 값을 중계에서 받는다.
+# 대시보드 '평가금' 식(보유 수량 × 대시보드 getLivePrices 현재가)과 오늘 등락. 예수금은 빠진다.
+# 금액이라 코드가 있어야 준다 — 코드는 비공개 claude-memory/ticker/phone_code.txt(두 PC 동기화)에서 읽는다.
+# 그 파일이 없는 PC(남에게 준 사본 포함)에서는 이 줄이 아예 안 생긴다.
+RELAY = ("https://script.google.com/macros/s/"
+         "AKfycbwjjzNI_BpGyvJ_-3j2b-6VxQB2m5HXmQhiOkvGBrmPYx7hvs9xIL4KjoblZzjEiOph/exec")
+TOTAL_SEC = 120
 CYCLES = ("월중", "월말")
 CHIP = {"kodex": "K", "tiger": "T", "ace": "A", "plus": "P", "rise": "R", "sol": "S",
         "hanaro": "H", "kiwoom": "KW"}          # 위젯 이름 약칭(BRAND)과 같은 글자
@@ -313,6 +320,7 @@ def theme():
     for sym in amt_lbl:
         amt_note(sym)
     draw_board()
+    total_paint()
     for sym in rows:
         nm, p, c, _ = rows[sym]
         nm.config(fg=THEME["fg"])
@@ -372,6 +380,7 @@ def band_toggle(sym=None):
     save(cfg)
     for k in list(amt_lbl):
         amt_note(k)
+    total_paint()
     sync_back()
     place_panel()
 
@@ -535,6 +544,62 @@ def notice_blink():
     if board_new:
         draw_board()
     root.after(600, notice_blink)
+
+
+total_w = []                             # [이름, 값, %, ±금액, 밑줄] — build() 가 만든다
+total_last = [None]                      # 직전에 받은 값(못 받아도 그대로 보여준다)
+total_ok = [0.0]
+
+
+def total_code():
+    try:
+        with open(os.path.join(os.path.expanduser("~"), "claude-memory", "ticker", "phone_code.txt"),
+                  encoding="utf-8") as f:
+            c = f.read().strip()
+        return c if re.match(r"^[a-z2-9]{8}$", c) else None
+    except Exception:
+        return None
+
+
+def total_loop():
+    code = total_code()
+    if code:
+        def work():
+            try:
+                j = get(RELAY + "?total=" + code)
+                t = j.get("total") or {}
+                if t.get("value"):
+                    total_last[0] = t
+                    total_ok[0] = time.time()
+            except Exception:
+                pass
+            root.after(0, total_paint)
+        Thread(target=work, daemon=True).start()
+    root.after(TOTAL_SEC * 1000, total_loop)
+
+
+def total_paint():
+    if not total_w or not THEME:
+        return
+    nm, p, c, d, sub = total_w
+    t = total_last[0]
+    if not t:
+        sub.config(text="총평가: 받는 중…", fg=THEME["dim"])
+        return
+    diff, pct = t.get("diff", 0), t.get("pct", 0.0)
+    tone = THEME["up"] if diff > 0 else THEME["down"] if diff < 0 else THEME["dim"]
+    p.config(text="%.2f억" % (t["value"] / 1e8), fg=THEME["fg"])
+    c.config(text="%+.2f%%" % pct, fg=tone)
+    d.config(text=("+" if diff > 0 else "") + fmt(diff, 0), fg=tone)
+    if cfg.get("detail_open"):
+        d.grid()
+    else:
+        d.grid_remove()
+    stale = time.time() - total_ok[0] > TOTAL_SEC * 3
+    part = " · 등락 %d/%d종목" % (t["n"] - t["noPrev"], t["n"]) if t.get("noPrev") else ""
+    sub.config(text="오늘 %s원 · %s 기준%s%s" % (("+" if diff > 0 else "") + fmt(diff, 0), t.get("at", ""),
+                                                part, " · 못 받음(직전 값)" if stale else ""),
+               fg=THEME["dim"])
 
 
 def repaint(w, old, new):
@@ -969,7 +1034,25 @@ def build():
             tk.Frame(body, bg=ROWLINE, height=1).grid(row=r + 1, column=0, columnspan=4,
                                                       sticky="ew")
             r += 2
-    theme()
+    # 맨 아래 총평가 줄(사용자 지정 2026-10-07: "맨 위 말고 맨 아래"). 코드가 있는 PC 에서만.
+    total_w.clear()
+    if total_code():
+        tk.Frame(body, bg=LINE, height=1).grid(row=r, column=0, columnspan=4, sticky="ew", pady=(2, 1))
+        nm = tk.Label(body, text="총평가", bg=panel_bg(), fg=FG, font=("Malgun Gothic", 8, "bold"))
+        p = tk.Label(body, text="…", bg=panel_bg(), fg=FG, font=("Consolas", 9))
+        c = tk.Label(body, text="", bg=panel_bg(), fg=DIM, font=("Consolas", 8))
+        d = tk.Label(body, text="", bg=panel_bg(), fg=DIM, font=("Consolas", 8))
+        nm.grid(row=r + 1, column=0, sticky="w", padx=(0, 2))
+        p.grid(row=r + 1, column=1, sticky="e")
+        c.grid(row=r + 1, column=2, sticky="e", padx=(3, 0))
+        d.grid(row=r + 1, column=3, sticky="e", padx=(3, 0))
+        sub = tk.Label(body, text="", bg=panel_bg(), fg=DIM, font=("Malgun Gothic", 7))
+        sub.grid(row=r + 2, column=0, columnspan=4, sticky="w")
+        for w in (nm, p, c, d, sub):
+            w.bind("<Button-1>", lambda e: band_toggle())
+            w.config(cursor="hand2")
+        total_w.extend([nm, p, c, d, sub])
+    theme()                              # 총평가 줄도 여기서 칠한다(theme → total_paint). 그 전엔 THEME 이 비어 있다
     sync_back()                          # 줄 수가 바뀌면 배경 창 크기도 맞춘다
 
 
@@ -1544,6 +1627,7 @@ refresh()
 blink()
 notice_loop()
 notice_blink()
+total_loop()
 if cfg["hidden"]:
     root.withdraw()
 tab_btn.config(text="◀" if cfg["hidden"] else "▶")
