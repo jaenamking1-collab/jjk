@@ -15,7 +15,8 @@ SPR = os.path.join(HERE, 'sprites')
 #   seq: 동작 시작부터 차례로 넘기고 마지막 그림에서 멈춤   pick: 할 때마다 하나를 골라 계속 씀
 #   air: 점프 전반 첫 그림, 후반 둘째 그림
 ART = {
-    'walk': ('step', ['walk8_%d' % i for i in range(1, 9)]), 'trot': ('step', ['walk8_%d' % i for i in range(1, 9)]),
+    # 걷기: 사용자가 캔바 AI 로 만든 영상에서 뽑은 한 주기 23장(2026-10-07). 종종걸음은 그림 시트 8장
+    'walk': ('step', ['walkv_%02d' % i for i in range(1, 24)]), 'trot': ('step', ['walk8_%d' % i for i in range(1, 9)]),
     'hop': ('warp', ['walk_c', 'walk_d']), 'back': ('warp', ['walk_back', 'walk_back2']),
     'stand': ('pick', ['walk_front']), 'sneak': ('pick', ['hunt', 'hunt2']),
     'run': ('step', ['run_1', 'run_2', 'run_3', 'run_4']), 'tailchase': ('cycle', ['run_1', 'run_2', 'run_3', 'run_4'], 10),
@@ -53,7 +54,7 @@ CALM_RUN = ['dash', 'scarf', 'run']
 # 시트마다 고양이를 그린 크기가 달라 머리 크기가 비슷해지게 맞춘 배율(이름 앞부분으로 찾는다)
 SIZE = {'run_': 1.35, 'jump_': 1.3, 'jprep_': 1.15, 'land': 1.15, 'roll_': 1.1, 'hang_': 1.3, 'climb_': 1.35,
         'lick_': 1.3, 'wash_': 1.3, 'groom': 1.3, 'paw_': 1.3, 'stretch_finish': 1.3, 'walk_a': 0.95,
-        'walk_b': 0.95, 'walk_c': 1.1, 'walk_d': 1.1, 'dash': 1.1, 'scarf': 1.0, 'hunt2': 1.05, 'walk8_': 1.25}
+        'walk_b': 0.95, 'walk_c': 1.1, 'walk_d': 1.1, 'dash': 1.1, 'scarf': 1.0, 'hunt2': 1.05, 'walk8_': 1.25, 'walkv_': 0.85}
 
 
 def size_of(name):
