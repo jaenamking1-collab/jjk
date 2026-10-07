@@ -70,7 +70,7 @@ There is **no build system, package manager, test suite, or lint config**. The f
 
 ## Working in this repo
 
-- **PDF·워드·파워포인트·엑셀은 읽기 전에 마크다운으로 바꾼다**(2026-10-06 사용자 결정 — 토큰 절약). `python -m markitdown 파일.pdf > 파일.md` 로 바꾼 뒤 `.md` 를 읽는다. PDF 를 그대로 읽으면 쪽마다 이미지+글자로 두 번 읽혀 토큰이 이중으로 든다. **차트·그림이 핵심인 문서만** 원본을 본다. `python -c "import markitdown"` 가 실패하면 **묻지 말고** `python -m pip install --user "markitdown[all]"` 로 설치한다(파이썬 3.10↑, 원격 컨테이너 약 10초). 학교·집 PC 모두 처음 쓸 때 그 세션이 설치한다.
+- **PDF·워드·파워포인트·엑셀은 읽기 전에 마크다운으로 바꾼다**(2026-10-06 사용자 결정 — 토큰 절약). `python -m markitdown 파일.pdf -o 파일.md` 로 바꾼 뒤(⚠️ `>` 금지 — 윈도우 PowerShell 은 `>` 로 받으면 UTF-16 으로 저장하고 한글이 cp949 를 거쳐 깨질 수 있다. `-o` 는 UTF-8 로 바로 쓴다) `.md` 를 읽는다. PDF 를 그대로 읽으면 쪽마다 이미지+글자로 두 번 읽혀 토큰이 이중으로 든다. **차트·그림이 핵심인 문서만** 원본을 본다. `python -c "import markitdown"` 가 실패하면 **묻지 말고** `python -m pip install --user "markitdown[all]"` 로 설치한다(파이썬 3.10↑, 원격 컨테이너 약 10초). 학교·집 PC 모두 처음 쓸 때 그 세션이 설치한다.
 
 - **Editing**: The file is large with inline styles and one big script block. Use Grep to locate a function/section by line before editing rather than reading the whole file. Function definitions are plain `function name()` / `async function name()` at column 0, so `^(async )?function <name>` finds them fast.
 - **Preview**: Just open `portfolio.html` in a browser (the launch preview panel also renders it). No dev server.
