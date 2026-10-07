@@ -231,6 +231,10 @@ class App:
         self.scanner = WorldScanner([self.overlay.hwnd, self.tray_hwnd])
         self.scanner.start()
         self.add_tray()
+        # 단축키: Ctrl+Alt+C 숨기기/보이기, Ctrl+Alt+Q 종료 (다른 프로그램이 이미 쓰고 있으면 조용히 건너뜀)
+        user32.RegisterHotKey(self.tray_hwnd, 1, 0x0001 | 0x0002 | 0x4000, ord('C'))
+        user32.RegisterHotKey(self.tray_hwnd, 2, 0x0001 | 0x0002 | 0x4000, ord('Q'))
+        self.ctrl = False
 
     def build(self):
         self.scale = 1.3 * self.s['size'] * self.dpi / 96
@@ -318,6 +322,20 @@ class App:
         if hwnd == self.tray_hwnd and msg == WM_TRAY and lp in (WM_LBUTTONUP, WM_RBUTTONUP):
             self.menu()
             return 0
+        ov = getattr(self, 'overlay', None)
+        if ov is not None and hwnd == ov.hwnd:      # Ctrl 누른 동안만 고양이가 클릭된다
+            if msg == WM_RBUTTONUP:
+                self.menu()
+                return 0
+            if msg == WM_LBUTTONUP:
+                self.brain.pet()
+                return 0
+        if hwnd == self.tray_hwnd and msg == 0x0312:   # WM_HOTKEY: 1 = 숨기기/보이기, 2 = 종료
+            if wp == 1:
+                self.overlay.set_hidden(not self.overlay.hidden)
+            elif wp == 2:
+                self.running = False
+            return 0
         if msg in (WM_CLOSE, WM_DESTROY) and hwnd == self.tray_hwnd:
             self.running = False
             return 0
@@ -341,7 +359,13 @@ class App:
             if snap and snap['monitors'] and not self.overlay.hidden:
                 pt = wt.POINT()
                 user32.GetCursorPos(ctypes.byref(pt))
-                world = dict(snap, cursor=(pt.x, pt.y))
+                ctrl = bool(user32.GetAsyncKeyState(0x11) & 0x8000)
+                if ctrl != self.ctrl:                # Ctrl 누르면 클릭 통과를 끈다 → 고양이 우클릭 메뉴·좌클릭 쓰다듬기
+                    self.ctrl = ctrl
+                    ex = user32.GetWindowLongW(self.overlay.hwnd, -20)
+                    ex = (ex & ~0x20) if ctrl else (ex | 0x20)
+                    user32.SetWindowLongW(self.overlay.hwnd, -20, ex)
+                world = dict(snap, cursor=(pt.x, pt.y), calm=ctrl)
                 x, y, facing, pose = self.brain.update(dt, world)
                 if isinstance(self.rend, SpriteRenderer):
                     img = self.rend.render_action(self.brain.action, self.brain.at, facing, self.brain.time, self.brain)
@@ -372,8 +396,15 @@ class App:
 
 def main():
     kernel32.CreateMutexW(None, False, 'DesktopCat_single_instance')
-    if ctypes.get_last_error() == 183:                                      # 이미 실행 중
-        return
+    if ctypes.get_last_error() == 183:            # 이미 실행 중 → 옛 고양이를 끄고 새로 뜬다(업데이트 후 run.bat 만 다시 누르면 됨)
+        old = user32.FindWindowW('DesktopCatTray', None)
+        if old:
+            user32.PostMessageW(old, WM_CLOSE, 0, 0)
+            for _ in range(30):
+                time.sleep(0.1)
+                if not user32.FindWindowW('DesktopCatTray', None):
+                    break
+        time.sleep(0.3)
     try:
         ctypes.windll.winmm.timeBeginPeriod(1)    # sleep 정밀도 1ms (기본 15ms 라 끊겨 보인다)
     except OSError:

@@ -174,6 +174,13 @@ class CatBrain:
         self.mode, self.vx, self.vy, self.plan = 'fall', 0.0, 0.0, []
         self._set('fall')
 
+    def pet(self):
+        """Ctrl+좌클릭 = 쓰다듬기: 바닥에 있으면 하트 보내며 기분 좋아한다."""
+        if self.mode == 'ground' and not self.flee:
+            self.facing = 1 if self.cursor[0] >= self.x else -1
+            self.plan = [('idle', 'love', 2.5), ('idle', 'happy', 1.5)]
+            self.chain = 0
+
     def _mon_y_top(self, x):
         for m in self.monitors:
             if m['rect'][0] <= x < m['rect'][2]:
@@ -496,7 +503,7 @@ class CatBrain:
         self.still_t = self.still_t + dt if self.cursor_v < 15 * self.S else 0.0
         hx, hy = self.x, self.y - 22 * self.S
         md = math.hypot(cx - hx, cy - hy)
-        if not self.flee and self.mode != 'air' and md < self.flee_r and \
+        if not self.flee and self.mode != 'air' and md < self.flee_r and not world.get('calm') and \
                 (self.cursor_v > 40 * self.S or md < self.flee_r * 0.55):
             self._start_flee(cx)
         if self.flee:
