@@ -80,8 +80,10 @@ body.detail .amt{display:block}
     <code>코드=보일이름</code> · 그룹 나누기 <code>---</code><br>
     국내지수 <code>KOSPI</code> · 국내종목 <code>069500</code> · 코인 <code>XRP-KRW</code> ·
     해외 <code>AAPL</code> <code>^IXIC</code> · 환율 <code>USDKRW=X</code><br>
-    교환비율 <code>XRP-KRW/KAIA-KRW=이름 @49,50,v41</code> (v=하한)
+    교환비율 <code>XRP-KRW/KAIA-KRW=이름 @49,50,v41</code> (v=하한)<br>
+    집 PC 목록: 받은 <b>가져오기 링크를 복사</b>한 뒤 아래 📋 버튼 한 번
   </div>
+  <button id="pasteBtn">📋 가져오기 링크 붙여넣기</button><br style="margin-bottom:6px">
   <button id="saveBtn">저장</button><button class="ghost" id="cancelBtn">취소</button>
   <button class="ghost" id="resetBtn">기본값</button>
 </div>
@@ -107,16 +109,26 @@ let last = {}, band = {}, okAt = 0, timer = null, imported = 0;
 // 집 PC 목록 가져오기: ticker.html#import=<base64url(JSON 배열)>.
 // 목록엔 보유 종목이 들어 있어 공개 저장소인 이 파일엔 못 적는다. 주소의 # 뒤는 서버로 가지 않고,
 // 이 브라우저에 저장한 뒤 주소에서 지운다(새로고침해도 다시 덮어쓰지 않게).
-(function(){
-  const m = location.hash.match(/^#import=([A-Za-z0-9_-]+)$/);
-  if (!m) return;
+// ⚠️ 링크를 Claude 앱 안의 브라우저·삼성 인터넷으로 열면 목록이 **그 브라우저에만** 저장되고,
+// 크롬으로 만든 홈 화면 아이콘은 못 본다(2026-10-07 "바로가기에 설정값이 안 날아온다").
+// 그래서 같은 링크를 아이콘 안의 '편집 → 붙여넣기'로도 넣을 수 있게 했다(decodeImport 공용).
+function decodeImport(text){
+  const m = String(text || '').match(/import=([A-Za-z0-9_-]+)/);
+  if (!m) return null;
   try{
     const bin = atob(m[1].replace(/-/g, '+').replace(/_/g, '/'));
     const arr = JSON.parse(new TextDecoder().decode(Uint8Array.from(bin, c => c.charCodeAt(0))));
-    if (Array.isArray(arr) && arr.length && arr.every(x => typeof x === 'string')){
-      tickers = arr; store.set('tk_list', arr); imported = arr.filter(x => !x.startsWith('---')).length;
-    }
-  }catch(e){}
+    return (Array.isArray(arr) && arr.length && arr.every(x => typeof x === 'string')) ? arr : null;
+  }catch(e){ return null; }
+}
+function applyList(arr){
+  tickers = arr; store.set('tk_list', arr);
+  return arr.filter(x => !x.startsWith('---')).length;
+}
+(function(){
+  if (!/^#import=/.test(location.hash)) return;
+  const arr = decodeImport(location.hash);
+  if (arr) imported = applyList(arr);
   history.replaceState(null, '', location.pathname);
 })();
 
@@ -355,9 +367,22 @@ const ta = document.getElementById('ta'), ed = document.getElementById('edit');
 document.getElementById('editBtn').onclick = () => { ta.value = tickers.join('\n'); ed.style.display = ed.style.display === 'block' ? 'none' : 'block'; };
 document.getElementById('cancelBtn').onclick = () => { ed.style.display = 'none'; };
 document.getElementById('resetBtn').onclick = () => { ta.value = DEFAULT.join('\n'); };
+function done(n){
+  ed.style.display = 'none'; build(); load();
+  document.getElementById('hint').textContent = `목록 ${n}종목으로 맞췄습니다`;
+}
 document.getElementById('saveBtn').onclick = () => {
-  tickers = ta.value.split('\n').map(x => x.trim()).filter(Boolean);
-  store.set('tk_list', tickers); ed.style.display = 'none'; build(); load();
+  const arr = decodeImport(ta.value);      // 가져오기 링크를 통째로 붙여넣어도 된다
+  done(applyList(arr || ta.value.split('\n').map(x => x.trim()).filter(Boolean)));
+};
+// 복사해 둔 가져오기 링크를 한 번에 넣는다(클립보드 읽기 — 처음 한 번 허용을 묻는다).
+document.getElementById('pasteBtn').onclick = async () => {
+  try{
+    const t = await navigator.clipboard.readText();
+    const arr = decodeImport(t);
+    if (arr) return done(applyList(arr));
+    ta.value = t;                           // 링크가 아니면 칸에 넣어 주고 저장은 사람이 누른다
+  }catch(e){ ta.focus(); alert('붙여넣기 권한이 없어요. 칸을 길게 눌러 붙여넣은 뒤 저장을 누르세요.'); }
 };
 
 build(); load();
