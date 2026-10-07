@@ -611,12 +611,61 @@ function viewDivs() {
     <div class="muted" style="padding:4px 2px 0">숫자를 고치고 칸 밖을 누르면 저장됩니다. USD 종목은 달러로 입력하세요.</div>`;
 }
 
+// 보유 기준 예상 — portfolio.html renderGoalRun 과 같은 계산(한쪽만 고치지 마라).
+// 월배당 = 수량 × 최근 공시 좌당 분배금(세전, getDistributionAll). 공시에 없으면 최근 3회 입력 평균.
+// 분기·반기 등 = 최근 3회 입력 평균 × 연 지급 횟수 ÷ 12. 수량 0(판 종목·숨김)은 넣지 않는다.
+function loadPerUnit() {
+  if (D.perUnit) return;
+  D.perUnit = {};
+  api({ action: 'getDistributionAll' }).then(dAll => {
+    Object.values((dAll && dAll.sources) || {}).forEach(src => (src.items || []).forEach(it => {
+      if (it.hist || !it.ticker || !(Number(it.amount) > 0)) return;
+      const t = String(it.ticker).toUpperCase();
+      if (!(t in D.perUnit)) D.perUnit[t] = Number(it.amount);
+    }));
+    D.perUnitReady = true;
+    if (view === 'dash') render();
+  }).catch(() => { D.perUnitReady = true; });
+}
+function goalRunOf() {
+  const byH = {};
+  (D.divsAll || []).forEach(d => {
+    const v = parseFloat(d.amount) || 0, y = parseInt(d.year), m = parseInt(d.month);
+    if (v > 0 && y && m) (byH[d.holding_id] = byH[d.holding_id] || []).push({ k: y * 12 + m, v, m, cur: d.currency, rate: d.rate });
+  });
+  let run = 0, noData = 0;
+  (D.holdings || []).forEach(h => {
+    const qty = parseFloat(h.quantity) || 0;
+    if (qty <= 0) return;
+    let t = String(h.ticker || '').trim().toUpperCase();
+    if (h.currency !== 'USD' && /^\d{1,5}$/.test(t)) t = t.padStart(6, '0');
+    const monthly = /월|주/.test(h.div_cycle || '');
+    if (monthly && D.perUnit && D.perUnit[t]) { run += qty * D.perUnit[t]; return; }
+    // 1회 금액 = 최근 3회 평균. PC 처럼 올해 입력이 있으면 올해 것만, 없으면 전 기간에서.
+    const list = (byH[h.id] || []).sort((a, b) => a.k - b.k);
+    const thisList = list.filter(x => Math.floor((x.k - x.m) / 12) === new Date().getFullYear());
+    const rec = (thisList.length ? thisList : list).slice(-3);
+    const per = rec.length ? rec.reduce((a, x) => a + toKrw(x.v, h.currency), 0) / rec.length : 0;
+    // 지급 횟수 = portfolio.html payMonthsOf 와 같게: 올해 지급월 + 직전 해 지급월(올해 달과 ±1개월이면 '밀린 것'이라 뺀다)
+    const yr = new Date().getFullYear(), byY = {};
+    list.forEach(x => { const y = Math.floor((x.k - x.m) / 12); (byY[y] = byY[y] || new Set()).add(x.m); });
+    const thisY = [...(byY[yr] || [])], prior = Object.keys(byY).map(Number).filter(y => y < yr).sort((a, b) => b - a)[0];
+    const ms = new Set(thisY);
+    if (prior) [...byY[prior]].forEach(m => { if (!thisY.some(a => Math.abs(a - m) <= 1)) ms.add(m); });
+    const n = monthly ? 12 : (ms.size || (/분기/.test(h.div_cycle || '') ? 4 : /반기/.test(h.div_cycle || '') ? 2 : 0));
+    if (per > 0 && n > 0) run += per * n / 12; else noData++;
+  });
+  return { run, noData };
+}
+
 // ── 대시보드 ──────────────────────────────────────────
 function viewDash() {
   const GOAL = 10000000;                                  // portfolio.html:2285 와 동일
   const M = projectMonthly(D.holdings, D.divsAll, D.year);
   const monthlyAvg = M.annual / 12;
   const gap = GOAL - monthlyAvg;
+  loadPerUnit();
+  const R = goalRunOf(), rd = R.run - monthlyAvg;
 
   // D-Day. portfolio.html:2297 과 동일한 기준일
   const TARGET = new Date('2029-02-28'), START = new Date('2024-01-01'), now = new Date();
@@ -665,6 +714,9 @@ function viewDash() {
         <div style="margin-top:6px;font-size:12px;font-weight:600;color:${gap>0?'var(--text2)':'var(--green)'}">
           ${gap > 0 ? `목표까지 월 ${won(gap)} 부족` : `목표 달성 (+${won(-gap)})`}
         </div>
+        <div style="margin-top:4px;font-size:12px">${D.perUnitReady
+          ? `지금 보유 기준 예상 <b class="num">월 ${won(R.run)}</b> (${(R.run / GOAL * 100).toFixed(1)}%) · 입력 기준보다 <b class="${cls(rd)}">${sign(rd)}</b>${R.noData ? ` · 분배 정보 없음 ${R.noData}종목` : ''}`
+          : '<span class="muted">지금 보유 기준 예상 계산 중…</span>'}</div>
         <div style="margin-top:13px;padding-top:11px;border-top:1px solid var(--border)">
           <div style="display:flex;justify-content:space-between;align-items:baseline">
             <span class="muted">🗓 목표일 2029년 2월 28일</span>

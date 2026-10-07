@@ -781,6 +781,7 @@ window.addEventListener('load', () => api({ action: 'hitCounter' }).then(d => {
         <div id="goalBar" style="height:100%;width:0%;background:linear-gradient(90deg,var(--accent),var(--green));border-radius:7px;transition:width .6s"></div>
       </div>
       <div id="goalGap" style="font-size:11px;color:var(--text3);margin-top:6px"></div>
+      <div id="goalRun" style="font-size:11px;color:var(--text);margin-top:3px"></div>
       <!-- 진척도 추이: 마우스를 올리면(휴대폰은 탭) 월별 실수령 분배금 그래프가 뜬다 -->
       <div id="goalHist" style="display:none;position:absolute;left:12px;right:12px;top:44px;z-index:20;background:var(--bg2,#fff);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.15);padding:10px 12px"></div>
       <!-- 목표일 D-Day -->
@@ -2855,6 +2856,39 @@ let _plLog  = null;
 let _plSpan = null;    // 보이는 점 개수(휠 줌). null=모드 기본값
 let _plOffset = 0;     // 최신에서 뒤로 민 점 개수(드래그 팬). 0=최신
 
+// 보유 기준 예상(2026-10-07 요청): 위 진척도는 **입력한 분배금** 기준이라 새로 산 종목은 첫 분배금을 입력할
+// 때까지 0 이고, 판 종목은 올해 받은 몫이 남는다. 그래서 '지금 들고 있는 것'만으로 한 달에 얼마가 들어올지를 따로 보인다.
+//   월배당 = 수량 × 최근 공시 좌당 분배금(분배금공지 데이터, 세전). 공시에 없으면 최근 3회 입력 평균.
+//   분기·반기 등 = 최근 3회 입력 평균 × 연 지급 횟수 ÷ 12. 수량 0(판 종목·숨김)은 넣지 않는다.
+// ⚠️ m.html 의 같은 계산(goalRunOf)과 한쪽만 고치지 마라.
+async function renderGoalRun(runInfo, monthlyAvg, GOAL) {
+  const el = document.getElementById('goalRun');
+  if (!el) return;
+  el.textContent = '지금 보유 기준 예상 계산 중…';
+  const dAll = await api({ action: 'getDistributionAll' }).catch(() => null);
+  const perUnit = {};
+  Object.values((dAll && dAll.sources) || {}).forEach(src => (src.items || []).forEach(it => {
+    if (it.hist || !it.ticker || !(Number(it.amount) > 0)) return;
+    const t = String(it.ticker).toUpperCase();
+    if (!(t in perUnit)) perUnit[t] = Number(it.amount);
+  }));
+  let run = 0, noData = 0, fromNotice = 0;
+  runInfo.forEach(({ h, perPayK, n }) => {
+    const qty = parseFloat(h.quantity) || 0;
+    let t = String(h.ticker || '').trim().toUpperCase();
+    if (h.currency !== 'USD' && /^\d{1,5}$/.test(t)) t = t.padStart(6, '0');
+    const monthly = /월|주/.test(h.div_cycle || '');
+    if (monthly && perUnit[t]) { run += qty * perUnit[t]; fromNotice++; }
+    else if (perPayK > 0 && n > 0) run += perPayK * n / 12;
+    else noData++;
+  });
+  const d = run - monthlyAvg;
+  el.innerHTML = `지금 보유 기준 예상 <b style="color:var(--text);font-family:var(--mono)">월 ${Math.round(run).toLocaleString()}</b>`
+    + ` (${(run / GOAL * 100).toFixed(1)}%) · 위 입력 기준보다 <b style="color:${d >= 0 ? 'var(--red)' : 'var(--accent)'}">${d >= 0 ? '+' : ''}${Math.round(d).toLocaleString()}</b>`
+    + (noData ? ` · <span title="분배 공지에도 없고 입력된 분배금도 없는 보유 종목(새로 샀거나 무배당)">분배 정보 없음 ${noData}종목</span>` : '');
+  el.title = `월배당 ${fromNotice}종목은 최근 공시 좌당 분배금 × 수량(세전), 나머지는 최근 3회 입력 평균으로 계산. 판 종목·수량 0 은 제외.`;
+}
+
 // 목표 진척도 카드에 마우스를 올리면 월별 추이. 휴대폰(마우스 없음)은 탭으로 켜고 끈다.
 let _goalHistPinned = false;
 function toggleGoalHist(show) {
@@ -3009,6 +3043,7 @@ async function loadDashboard() {
   const monthProj = Array(12).fill(0);    // 확정+예상 (더리치식 풀 투영)
   const monthActual = Array(12).fill(0);  // 입력 확정만
   const monthWho = Array.from({length:12}, () => []);   // 그 달 투영에 뭐가 얼마나 들어갔나(막대 툴팁)
+  const runInfo = [];   // 보유 기준 예상(아래 renderGoalRun)용 — 보유 종목별 최근 1회 분배금·연 지급 횟수
   // 투영은 **지금 보유 중인 종목만** 넣는다. 판 종목까지 넣으면 그 종목의 과거 지급월·과거
   // 평균액이 앞으로도 계속 들어오는 것처럼 잡혀 이번 달·연간 예상이 부푼다.
   // 확정(monthActual)은 판 종목의 올해 입력분도 그대로 더한다 — 실제로 받은 돈이다.
@@ -3023,6 +3058,7 @@ async function loadDashboard() {
     // vals 는 월 오름차순(연도 넘어가면 연도 오름차순)이라 뒤에서 3개가 가장 최근이다.
     const recent = vals.slice(-3);
     const perPay = recent.length ? recent.reduce((a,b)=>a+b,0) / recent.length : 0;
+    if (held) runInfo.push({ h, perPayK: divKrw(perPay, cur), n: payMonthsOf(h).length });
     (held ? payMonthsOf(h) : []).forEach(m => {
       const actual = thisYear[m] || 0;
       const amtK = divKrw(actual > 0 ? actual : perPay, cur);
@@ -3054,6 +3090,7 @@ async function loadDashboard() {
     ? `목표까지 월 ${Math.round(gap).toLocaleString()} 부족`
     : `목표 달성 (+${Math.round(-gap).toLocaleString()})`)
     + ` · 세후 추정 월평균 ${Math.round(afterMonthly).toLocaleString()} (건보료 별도)`;
+  renderGoalRun(runInfo, monthlyAvg, GOAL);
   // 진척도 추이 — 월별 실제 받은 분배금(입력분)과 3개월 평균. 속도가 붙는지 꺾이는지 보려는 것.
   const histMap = {}, curOf = {};
   holdings.forEach(h => { curOf[h.id] = h.currency; });
