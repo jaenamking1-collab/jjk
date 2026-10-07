@@ -38,6 +38,9 @@ def load_settings():
             s.update(json.load(f))
     except (OSError, ValueError):
         pass
+    if s.get('ver', 1) < 2:                       # 그림 방식이 나오기 전에 저장한 색 → 한 번만 '그림'으로 바꿔 준다
+        s['color'], s['ver'] = 'art', 2
+        save_settings(s)
     return s
 
 
