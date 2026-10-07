@@ -41,7 +41,7 @@ jobs:
             try { await p.waitForFunction(() => /갱신$/.test(document.getElementById('stamp').textContent), null, { timeout: 60000 }); } catch (e) {}
             await p.waitForTimeout(1500);
             const r = await p.evaluate(() => {
-              const rows = [...document.querySelectorAll('.row')];
+              const rows = [...document.querySelectorAll('#list .row')];
               const empty = rows.filter(x => { const t = x.children[1].textContent; return t === '…' || x.children[2].textContent === '없음'; })
                                 .map(x => x.children[0].textContent);
               return { rows: rows.length, empty, stamp: document.getElementById('stamp').textContent,

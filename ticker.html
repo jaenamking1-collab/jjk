@@ -63,16 +63,19 @@ body.detail .amt{display:block}
 #edit .help{font-size:11px;color:var(--dim);line-height:1.6;margin:6px 0}
 #edit button{background:#2a6df4;color:#fff;border:0;border-radius:6px;padding:8px 14px;font-size:14px;margin-right:6px}
 #edit button.ghost{background:none;border:1px solid var(--line);color:var(--dim)}
-#hint{font-size:11px;color:var(--dim);text-align:center;margin-top:12px}
+#hint{font-size:11px;color:var(--dim);text-align:center;margin-top:6px}
+#hint:empty{display:none}   /* 평소엔 숨김 — 한 화면에 다 들어가게. 알릴 말이 있을 때만 */
 </style>
 </head>
 <body>
 <div id="top"><b>시세</b><span id="alive" class="stale"></span><span id="stamp">불러오는 중…</span>
   <button id="editBtn">편집</button></div>
 <div id="warn"></div>
+<div id="total" class="row" style="display:none" onclick="detail=!detail;store.set('tk_detail',detail);document.body.classList.toggle('detail',detail)"><div class="nm">총평가</div><div class="px">…</div>
+  <div class="ch dim"></div><div class="amt"></div><div class="band"></div></div>
 <div id="list"></div>
 <div id="notice"></div>
-<div id="hint">줄을 누르면 전 종목에 ±금액이 보였다 숨었다 합니다</div>
+<div id="hint"></div>
 <div id="edit">
   <textarea id="ta" spellcheck="false"></textarea>
   <div class="help">
@@ -142,6 +145,7 @@ async function useCode(code, quiet){
   const arr = await fetchList(code);
   if (!arr){ if (!quiet) alert('코드를 찾지 못했어요: ' + code); return 0; }
   store.set('tk_code', code);
+  loadTotal();
   const changed = JSON.stringify(arr) !== JSON.stringify(tickers);
   const n = applyList(arr);
   if (changed){ build(); load(); }
@@ -230,7 +234,7 @@ function quote(sym){
 }
 
 function paintAll(){
-  document.querySelectorAll('.row').forEach(r => paint(r));
+  document.querySelectorAll('#list .row').forEach(r => paint(r));
 }
 function paint(r){
   const sym = r.dataset.sym, q = quote(sym);
@@ -421,6 +425,32 @@ document.getElementById('pasteBtn').onclick = async () => {
     ta.value = t;                           // 링크가 아니면 칸에 넣어 주고 저장은 사람이 누른다
   }catch(e){ ta.focus(); alert('붙여넣기 권한이 없어요. 칸을 길게 눌러 붙여넣은 뒤 저장을 누르세요.'); }
 };
+
+// ── 총평가 한 줄 ── 대시보드 '평가금'과 같은 식(보유 수량 × 대시보드가 쓰는 현재가)을 중계가 계산해 준다.
+// 오늘 등락 = 지금 − 전일 기준. 예수금(현금)은 빠진다(대시보드 '총자산' = 평가금 + 예수금).
+// 금액이라 목록 코드(tk_code)가 있을 때만 받는다. 2분마다.
+const eok = v => (v / 1e8).toFixed(2) + '억';
+async function loadTotal(){
+  const code = store.get('tk_code', null), T = document.getElementById('total');
+  if (!code){ T.style.display = 'none'; return; }
+  try{
+    const j = await (await fetch(RELAY + '?total=' + encodeURIComponent(code), {cache:'no-store'})).json();
+    const t = j.total; if (!t || !t.value) throw 0;
+    const [nm, px, ch, amt, bd] = T.children;
+    T.style.display = '';
+    px.textContent = eok(t.value);
+    ch.textContent = (t.pct >= 0 ? '+' : '') + t.pct.toFixed(2) + '%';
+    ch.className = 'ch ' + (t.diff > 0 ? 'up' : t.diff < 0 ? 'down' : 'dim');
+    amt.textContent = (t.diff > 0 ? '+' : '') + Math.round(t.diff).toLocaleString('ko-KR');
+    amt.className = 'amt ' + (t.diff > 0 ? 'up' : t.diff < 0 ? 'down' : 'dim');
+    const part = t.noPrev ? ` · 등락 ${t.n - t.noPrev}/${t.n}종목` : '';
+    bd.textContent = `오늘 ${t.diff > 0 ? '+' : ''}${Math.round(t.diff).toLocaleString('ko-KR')}원 · ${t.at} 기준${part}`;
+    bd.className = 'band';
+  }catch(e){
+    if (T.style.display !== 'none') T.lastElementChild.textContent = '총평가: 못 받음(직전 값)';
+  }
+}
+loadTotal(); setInterval(() => { if (document.visibilityState === 'visible') loadTotal(); }, 120000);
 
 build(); load();
 if (imported) document.getElementById('hint').textContent = `집 PC 목록 ${imported}종목으로 맞췄습니다`;
