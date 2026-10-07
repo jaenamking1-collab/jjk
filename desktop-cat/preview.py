@@ -13,6 +13,15 @@ MONITORS = [dict(rect=(0, 0, W1, H), work=(0, 0, W1, H - 28)),
 ICONS = [(20 + c * 64, 16 + r * 70) for c in range(2) for r in range(4)] + [(W1 + 560, 30), (W1 + 560, 100)]
 WIN = (230, 70, 560, 290)                     # 창 하나 (글자 줄이 발판이 된다)
 TEXT_LINES = [(250, 120, 470), (250, 150, 520), (250, 180, 430), (250, 240, 540)]
+WIN2 = (W1 + 150, 90, W1 + 400, H - 22)       # 작업표시줄까지 닿는 창 (몰래 보기·벽 긁기용)
+
+
+def walls():
+    out = []
+    for owner, (l, t, r, b) in ((('win', 1), WIN), (('win', 2), WIN2)):
+        out.append(dict(x=l, top=t, bottom=b, side=1, owner=owner, reach=True))
+        out.append(dict(x=r, top=t, bottom=b, side=-1, owner=owner, reach=True))
+    return out
 
 
 def platforms():
@@ -20,6 +29,7 @@ def platforms():
     for i, (x, y) in enumerate(ICONS):
         ps.append(Platform(x, x + 40, y, 'icon', ('icon', i)))
     ps.append(Platform(WIN[0], WIN[2], WIN[1], 'window', ('win', 1)))
+    ps.append(Platform(WIN2[0], WIN2[2], WIN2[1], 'window', ('win', 2)))
     for x1, y, x2 in TEXT_LINES:
         ps.append(Platform(x1, x2, y, 'edge'))
     return ps
@@ -35,6 +45,7 @@ def background():
     for x, y in ICONS:
         d.rounded_rectangle([x, y, x + 40, y + 40], 6, fill=(240, 200, 90, 255))
         d.rectangle([x - 4, y + 46, x + 44, y + 52], fill=(220, 220, 220, 255))
+    d.rectangle(WIN2, fill=(236, 240, 246, 255), outline=(90, 90, 90, 255))
     d.rectangle(WIN, fill=(250, 250, 250, 255), outline=(90, 90, 90, 255))
     d.rectangle([WIN[0], WIN[1], WIN[2], WIN[1] + 22], fill=(225, 230, 240, 255))
     for x1, y, x2 in TEXT_LINES:
@@ -54,7 +65,7 @@ def main():
     ap.add_argument('--fps', type=int, default=12)
     ap.add_argument('--out', default='cat_preview.gif')
     ap.add_argument('--scale', type=float, default=1.0)
-    ap.add_argument('--color', default='cheese')
+    ap.add_argument('--color', default='snow')
     ap.add_argument('--seed', type=int, default=3)
     a = ap.parse_args()
     random.seed(a.seed)
@@ -71,7 +82,7 @@ def main():
             n = math.hypot(dx, dy) or 1
             cur[0] += dx / n * min(n, 9)
             cur[1] += dy / n * min(n, 9)
-        world = dict(monitors=MONITORS, platforms=platforms(), cursor=tuple(cur), refs={})
+        world = dict(monitors=MONITORS, platforms=platforms(), cursor=tuple(cur), refs={}, walls=walls())
         x, y, facing, pose = brain.update(dt, world)
         if i % sub == 0:
             im = bg.copy()
