@@ -3,6 +3,10 @@
 작은 고양이가 바탕화면 아이콘·창 윗변·작업표시줄, 그리고 열린 창 속 그림·글자 윗선 위를 걸어 다닙니다.
 
 ## 실행
+**파이썬 없이(가장 쉬움):** https://github.com/jaenamking1-collab/jjk/releases/tag/cat 에서 `DesktopCat.exe` 를 받아 더블클릭.
+처음에 'Windows의 PC 보호' 창이 뜨면 **추가 정보 → 실행**. 설정·기록은 `%APPDATA%\DesktopCat` 에 남습니다.
+
+**파이썬으로:**
 1. 파이썬 3.9 이상을 설치합니다(설치할 때 "Add python.exe to PATH" 체크).
 2. `run.bat` 을 더블클릭합니다. 처음 한 번은 `pillow`·`numpy` 를 자동으로 설치합니다.
 3. 메뉴(부르기 / 숨기기 / 크기 / 색 / 윈도우 켤 때 자동 실행 / 종료) 여는 법:

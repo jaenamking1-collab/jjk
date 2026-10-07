@@ -3,3 +3,6 @@ cat.ico
 desktop_cat.log
 __pycache__/
 *.gif
+build/
+dist/
+*.spec

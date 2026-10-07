@@ -1,0 +1,52 @@
+# 바탕화면 고양이를 파이썬 설치 없이 실행되는 DesktopCat.exe 로 묶어 릴리스(태그 cat)에 올린다.
+# 받는 곳: https://github.com/jaenamking1-collab/jjk/releases/tag/cat
+name: desktop-cat-exe
+
+on:
+  push:
+    branches: [main]
+    paths: ['desktop-cat/**', '.github/workflows/desktop-cat-exe.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install pillow numpy pyinstaller
+      - name: 아이콘 만들기
+        working-directory: desktop-cat
+        run: |
+          python -c "from PIL import Image; im=Image.open('sprites/happy.png').convert('RGBA'); s=max(im.size); q=Image.new('RGBA',(s,s)); q.alpha_composite(im,((s-im.width)//2,s-im.height)); q.save('cat.ico',sizes=[(16,16),(32,32),(48,48),(256,256)])"
+      - name: exe 만들기
+        working-directory: desktop-cat
+        run: pyinstaller --noconfirm --onefile --noconsole --name DesktopCat --icon cat.ico --add-data "sprites;sprites" desktop_cat.py
+      - name: exe 실행 시험 (20초)
+        shell: pwsh
+        run: |
+          $env:DESKTOP_CAT_TEST = '1'
+          $p = Start-Process -FilePath desktop-cat\dist\DesktopCat.exe -PassThru
+          Start-Sleep -Seconds 20
+          $alive = -not $p.HasExited
+          $log = Join-Path $env:APPDATA 'DesktopCat\desktop_cat.log'
+          Get-Content $log -Tail 8
+          if ($alive) { Stop-Process -Id $p.Id -Force }
+          if (-not $alive) { throw 'exe 가 20초 안에 꺼졌다' }
+          if (-not (Select-String -Path $log -Pattern 'test mode=' -Quiet)) { throw '고양이가 움직인 기록이 없다' }
+          if (Select-String -Path $log -Pattern 'Traceback' -Quiet) { throw '오류 기록이 있다' }
+          (Get-Item desktop-cat\dist\DesktopCat.exe).Length / 1MB
+      - name: 릴리스(cat)에 올리기
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view cat >/dev/null 2>&1 || gh release create cat --title "바탕화면 고양이" \
+            --notes "DesktopCat.exe 를 받아 더블클릭하면 됩니다(파이썬 설치 필요 없음). 처음 실행 때 'Windows의 PC 보호' 창이 뜨면 '추가 정보 → 실행'."
+          gh release upload cat desktop-cat/dist/DesktopCat.exe --clobber
