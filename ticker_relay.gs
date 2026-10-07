@@ -37,6 +37,33 @@ function doGet(e) {
   var bands = splitList_(p.band);
   var out = { t: Date.now(), q: {}, band: {}, err: {} };
 
+  // ?settoken=… → 포트폴리오 API 열쇠를 이 프로젝트 속성에 한 번 넣는다(relay-token.yml 이 Secret 으로 부른다).
+  // 이미 있으면 바꾸지 않는다 — 남이 먼저 불러도 덮어쓸 수 없게. 값은 어디에도 돌려주지 않는다.
+  if (p.settoken) {
+    var sp = PropertiesService.getScriptProperties();
+    var had = !!sp.getProperty('APP_TOKEN');
+    if (!had) sp.setProperty('APP_TOKEN', String(p.settoken));
+    return ContentService.createTextOutput(JSON.stringify({ t: out.t, stored: !had, had: had }))
+                         .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // ?total=코드 → 대시보드 총합계(수익로그 합)와 직전 거래일 대비 등락. 금액이라 목록과 같은 코드가 있어야 준다.
+  // 'selftest' 는 금액 없이 모양만 준다(공개 fetch.yml 로 통로를 확인하는 용도).
+  if (p.total) {
+    var okCode = (typeof PRIVATE_LISTS !== 'undefined') &&
+                 Object.prototype.hasOwnProperty.call(PRIVATE_LISTS, p.total);
+    if (okCode) {
+      try {
+        var tot = portfolioTotal_();
+        out.total = (p.total === 'selftest')
+          ? { ok: true, accounts: tot.accounts, date: tot.date, slot: tot.slot, hasPrev: tot.prev > 0 }
+          : tot;
+      } catch (err) { out.err['총자산'] = String(err).slice(0, 120); }
+    }
+    if (!syms.length && !p.list) return ContentService.createTextOutput(JSON.stringify(out))
+                                                     .setMimeType(ContentService.MimeType.JSON);
+  }
+
   // ?list=코드 → 휴대폰 화면의 종목 목록. 목록엔 보유 종목이 들어 있어 공개 저장소에 못 둔다.
   // 그래서 이 프로젝트에만 있는 Private.gs(저장소에 없음)의 PRIVATE_LISTS 에서 꺼낸다.
   // 코드는 claude-memory(비공개)의 ticker/phone_code.txt 에 있다. 모르는 코드면 list 를 안 준다.
@@ -186,6 +213,49 @@ function candles_(sym) {
   rows.forEach(function (c) {           // [시각ms, 시가, 종가, 고가, 저가, 거래량]
     out[Utilities.formatDate(new Date(Number(c[0])), 'Asia/Seoul', 'yyyyMMdd')] = Number(c[2]);
   });
+  return out;
+}
+
+// ── 총자산 ── 포트폴리오 백엔드의 getPortfolioLog(수익로그: 계좌별 평가액, 평일 10·12·14·16시)를 받아
+// 대시보드 '📊 총합계' 그래프의 마지막 점과 같은 값을 낸다: 그날 계좌별 가장 늦은 슬롯의 합.
+// 그날 값이 없는 계좌는 직전 값으로 잇는다(대시보드 totalPts 와 같은 규칙). 등락은 직전 거래일 합 대비.
+// 열쇠(APP_TOKEN)는 이 프로젝트 속성에만 있다. 10분 캐시 — 수익로그가 하루 4번만 바뀐다.
+var PORTFOLIO_API = 'https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec';
+function portfolioTotal_() {
+  var cache = CacheService.getScriptCache(), hit = cache.get('total');
+  if (hit) return JSON.parse(hit);
+  var token = PropertiesService.getScriptProperties().getProperty('APP_TOKEN');
+  if (!token) throw new Error('열쇠 없음');
+  var res = UrlFetchApp.fetch(PORTFOLIO_API + '?action=getPortfolioLog&token=' + encodeURIComponent(token),
+                              { muteHttpExceptions: true });
+  var j = JSON.parse(res.getContentText());
+  if (!j.success || !j.items) throw new Error('수익로그 실패');
+  var byDay = {};                                  // 날짜 -> 계좌 -> {slot, v}
+  j.items.forEach(function (it) {
+    var d = new Date(it.date);
+    if (isNaN(d)) return;
+    var day = Utilities.formatDate(d, 'Asia/Seoul', 'yyyy-MM-dd');
+    var m = byDay[day] = byDay[day] || {};
+    var cur = m[it.account_name];
+    if (!cur || it.slot >= cur.slot) m[it.account_name] = { slot: it.slot, v: it.value };
+  });
+  var days = Object.keys(byDay).sort();
+  if (!days.length) throw new Error('수익로그 비어 있음');
+  var last = {}, sums = [];                        // 계좌별 직전 값으로 이으며 날짜별 합
+  days.forEach(function (day) {
+    Object.keys(byDay[day]).forEach(function (a) { last[a] = byDay[day][a]; });
+    var s = 0, slot = 0;
+    Object.keys(last).forEach(function (a) {
+      s += last[a].v;
+      if (byDay[day][a]) slot = Math.max(slot, byDay[day][a].slot);
+    });
+    sums.push({ day: day, v: s, slot: slot, n: Object.keys(last).length });
+  });
+  var now = sums[sums.length - 1], prev = sums.length > 1 ? sums[sums.length - 2] : null;
+  var out = { total: now.v, date: now.day, slot: now.slot, accounts: now.n,
+              prev: prev ? prev.v : 0, diff: prev ? now.v - prev.v : 0,
+              pct: prev && prev.v ? (now.v - prev.v) / prev.v * 100 : 0 };
+  cache.put('total', JSON.stringify(out), 600);
   return out;
 }
 
