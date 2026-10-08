@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula'
 ];
 
 function runMaint(name, arg) {
@@ -2374,7 +2374,7 @@ function _seibroRows(back, fwd) {
     const xml = res.getContentText('UTF-8');
     if (res.getResponseCode() !== 200 || /<WARNING>/.test(xml)) throw new Error('SEIBRO HTTP ' + res.getResponseCode() + ' ' + xml.replace(/\s+/g, ' ').slice(0, 120));
     const got = (xml.match(/<result>[\s\S]*?<\/result>/g) || []).map(r => ({ nm: v(r, 'KOR_SECN_NM'), co: v(r, 'REP_SECN_NM'), isin: v(r, 'ISIN'),
-      std: v(r, 'RGT_STD_DT'), pay: v(r, 'TH1_PAY_TERM_BEGIN_DT'), amt: Number(v(r, 'ESTM_STDPRC')) || 0 }));
+      std: v(r, 'RGT_STD_DT'), pay: v(r, 'TH1_PAY_TERM_BEGIN_DT'), amt: Number(v(r, 'ESTM_STDPRC')) || 0, tax: Number(v(r, 'TAXSTD')) || 0 }));
     rows = rows.concat(got);
     if (got.length < 30) break;
   }
@@ -3226,6 +3226,37 @@ function refreshKodexTax() {
   if (Object.keys(got).length) { props.setProperty('KODEX_TAX', JSON.stringify(out)); CacheService.getScriptCache().remove('taxRates'); }
   console.log(' | KODEX 세율 자동 ' + out.length + '종목 (이번에 받음 ' + fresh + '/' + reps.length + ') · 0% ' + out.filter(r => r.rate === 0).length + ' · 일부 과세 ' + out.filter(r => r.rate > 0 && r.rate < 15.4).length + ' · 전액 ' + out.filter(r => r.rate >= 15.4).length);
   return { n: out.length, fresh: fresh, of: reps.length };
+}
+
+// 검증용(runMaint): SEIBRO 과표기준가(TAXSTD)로 낸 과세액 min(분배금, max(0, TAXSTD-10000)) 이 삼성 공시 TAX_DIVID_A 와
+// 맞는지 KODEX 분배 종목 **전체**로 센다(공개 데이터 전체라 보유 목록이 드러나지 않는다). 맞으면 이 식을 모든 운용사에 쓴다.
+function _diagTaxFormula() {
+  const H = { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' } };
+  const funds = {};
+  for (let page = 1; page <= 15; page++) {
+    const res = UrlFetchApp.fetch('https://www.samsungfund.com/api/v1/kodex/distribution.do?pageNo=' + page + '&pageSize=100', H);
+    if (res.getResponseCode() !== 200) break;
+    const j = JSON.parse(res.getContentText('UTF-8')), list = j.dividList || [];
+    if (!list.length) break;
+    list.forEach(it => { if (it.fid && it.fNm) funds[it.fid] = it.fNm; });
+    if (Object.keys(funds).length >= (j.totalCnt || 9999)) break;
+  }
+  const ids = Object.keys(funds);
+  const reps = UrlFetchApp.fetchAll(ids.map(id => Object.assign({ url: 'https://www.samsungfund.com/api/v1/kodex/product/' + id + '.do' }, H)));
+  const sei = _seibroRows(100, 0), key = s => String(s).replace(/\s|\(.*?\)/g, '');
+  let ok = 0, bad = 0, miss = 0; const badList = [];
+  reps.forEach((res, i) => {
+    let L; try { L = ((JSON.parse(res.getContentText('UTF-8')).info || {}).divideList || []).slice(0, 3); } catch (_) { return; }
+    L.forEach(d => {
+      const r = sei.find(x => key(x.nm) === key(funds[ids[i]]) && x.std === String(d.BASIC_D));
+      if (!r || !r.tax) { miss++; return; }
+      const est = Math.min(r.amt, Math.max(0, Math.round(r.tax - 10000)));
+      if (Math.abs(est - Number(d.TAX_DIVID_A)) <= 1) ok++; else { bad++; if (badList.length < 15) badList.push(funds[ids[i]] + ' ' + d.BASIC_D + ' 분배' + r.amt + ' 과표' + r.tax + ' 식' + est + ' 공시' + d.TAX_DIVID_A); }
+    });
+  });
+  console.log(' | 식 검증: 일치 ' + ok + ' · 불일치 ' + bad + ' · SEIBRO 없음 ' + miss + ' (KODEX ' + ids.length + '종목 × 최근 3회)');
+  badList.forEach(b => console.log(' |   ' + b));
+  return { ok: ok, bad: bad, miss: miss };
 }
 
 // 카톡 버튼 링크가 실제로 나가는지 확인용(runMaint 전용). 카카오는 등록 안 된 도메인이면
