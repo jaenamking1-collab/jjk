@@ -639,10 +639,10 @@ function taxNorm(s) {
 function taxRateOf(name, rates) {
   const n = taxNorm(name);
   const hit = (rates || []).find(r => { const k = taxNorm(r.name); return k && (n === k || n.startsWith(k) || k.startsWith(n)); });
-  if (hit) return hit.rate / 100;
+  if (hit) return hit.rate < 2 ? 0 : hit.rate / 100; // 2% 미만은 실제 원천징수 0원(미래에셋 내역 10/8 확인)
   if (/리츠|REIT|부동산|인프라/.test(n)) return 0.154;
   if (/미국|나스닥|S&P|글로벌|인도|차이나|중국|일본|테슬라|엔비디아|팔란티어|빅테크|AI테크/.test(n)) return 0.12;
-  if (/커버드콜|200|코스피|고배당|배당/.test(n)) return 0.01;
+  if (/커버드콜|200|코스피|고배당|배당/.test(n)) return 0;
   return 0.154;   // 그 밖의 국내 주식 배당
 }
 function accClassOf(a) {   // portfolio.html ppAccClass 와 같다
