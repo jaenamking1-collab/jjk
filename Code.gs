@@ -3201,14 +3201,15 @@ function getTaxRates() {
 // 공개 데이터라 KODEX 분배 종목 전체를 받는다(보유 목록이 드러나지 않게). 이번 목록에 없는 종목은 지난 값을 둔다.
 function refreshKodexTax() {
   const H = { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' } };
-  const funds = {};
+  const funds = {}, domestic = {}; let seen = 0;
   for (let page = 1; page <= 15; page++) {
     const res = UrlFetchApp.fetch('https://www.samsungfund.com/api/v1/kodex/distribution.do?pageNo=' + page + '&pageSize=100', H);
     if (res.getResponseCode() !== 200) break;
     const j = JSON.parse(res.getContentText('UTF-8')), list = j.dividList || [];
     if (!list.length) break;
-    list.forEach(it => { if (it.fid && it.fNm) funds[it.fid] = it.fNm; });
-    if (Object.keys(funds).length >= (j.totalCnt || 9999)) break;
+    // 국내주식형은 뺀다: 공시 과세액과 실제 원천징수가 어긋났다(금융고배당타겟위클리 9/02 공시 35/144원, 실제 0원). 시트·규칙(0)을 쓴다.
+    list.forEach(it => { if (!it.fid || !it.fNm) return; if (it.zeroinTypeLnm === '국내주식') domestic[it.fNm] = 1; else funds[it.fid] = it.fNm; });
+    seen += list.length; if (seen >= (j.totalCnt || 9999)) break;
   }
   const ids = Object.keys(funds), got = {};
   const reps = UrlFetchApp.fetchAll(ids.map(id => Object.assign({ url: 'https://www.samsungfund.com/api/v1/kodex/product/' + id + '.do' }, H)));
@@ -3236,7 +3237,7 @@ function refreshKodexTax() {
   } catch (e) { console.log(' | SEIBRO 실패 — ' + e); }
   const ss = SpreadsheetApp.openById(TAX_SHEET_ID), sh = ss.getSheetByName('자동') || ss.insertSheet('자동', ss.getSheets().length);
   const prev = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues() : [];
-  prev.forEach(r => { if (r[0] && !got[r[0]]) got[r[0]] = { name: String(r[0]), rate: Number(r[1]), src: String(r[2]) }; });   // 이번에 안 나온 종목은 지난 값 유지
+  prev.forEach(r => { if (r[0] && !got[r[0]] && !domestic[r[0]]) got[r[0]] = { name: String(r[0]), rate: Number(r[1]), src: String(r[2]) }; });   // 이번에 안 나온 종목은 지난 값 유지
   const out = Object.keys(got).map(k => got[k]);
   if (fresh || seiN) {
     sh.clearContents(); sh.getRange(1, 1, out.length + 1, 3).setValues([['종목명', '세율(%)', '근거(자동 — 매일 08:30 덮어씀)']].concat(out.map(r => [r.name, r.rate, r.src])));
