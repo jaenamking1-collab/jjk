@@ -741,7 +741,7 @@ function viewDash() {
           <span class="num" style="color:var(--green);font-size:15px">${goalPct.toFixed(1)}%</span>
         </div>
         ${bar(goalPct, 'linear-gradient(90deg,#10b981,#3b82f6)')}
-        <div class="muted">${D.year}년 예상 월평균 · 목표 10,000,000</div>
+        <div class="muted">${D.year}년 입력 기준 월평균 (받은 분배금 + 남은 달 예상) · 목표 10,000,000</div>
         <div style="margin-top:6px;font-size:12px;font-weight:600;color:${gap>0?'var(--text2)':'var(--green)'}">
           ${gap > 0 ? `목표까지 월 ${won(gap)} 부족` : `목표 달성 (+${won(-gap)})`}
         </div>
