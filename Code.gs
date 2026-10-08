@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates'
 ];
 
 function runMaint(name, arg) {
@@ -176,6 +176,7 @@ function doGet(e) {
       case 'markAlertRead':   result = markAlertRead(parseInt(e.parameter.row)); break;
       // 유지보수 함수 실행. 토큰 필요(PUBLIC_ACTIONS 에 없다) + 화이트리스트만.
       case 'runMaint':        result = runMaint(e.parameter.fn, e.parameter.arg); break;
+      case 'getTaxRates':     result = getTaxRates(); break;   // 토큰 필요 — 보유 종목명이 드러난다
       default: result = { error: 'Unknown action' };
     }
   } catch(err) {
@@ -3176,6 +3177,22 @@ function sendKakaoMemo(text) {
   const ok = res.getResponseCode() === 200;
   if (!ok) console.log('카카오 발송 실패', res.getResponseCode(), res.getContentText());
   return ok;
+}
+
+// 분배금 원천징수율 표(비공개 시트 '세율표'): 종목명, 세율(%), 근거. 2026-10-08 키움 일반 계좌 거래내역의
+// 실제 소득세·주민세 ÷ 분배금으로 만든 실측 + 검색 추정. 대시보드 '보유 기준 예상'이 일반 계좌 공시분을 세후로 바꿀 때 쓴다.
+// ⛔ 이 표는 저장소에 넣지 않는다(보유 종목 목록이 드러난다) — 시트에서만 고친다.
+const TAX_SHEET_ID = '1QopgCKwDhVi2QZ7bGiJwK-f9eZAm87TO3hIfatKJ4ls';
+// 확인용(runMaint): 건수만 찍는다 — 종목명은 공개 로그에 남기지 않는다
+function _diagTaxRates() { CacheService.getScriptCache().remove('taxRates'); const r = getTaxRates(); console.log(' | 세율표 ' + r.length + '종목 · 0~2% ' + r.filter(x => x.rate <= 2).length + ' · 2~13% ' + r.filter(x => x.rate > 2 && x.rate < 13).length + ' · 13%↑ ' + r.filter(x => x.rate >= 13).length); return { n: r.length }; }
+function getTaxRates() {
+  const c = CacheService.getScriptCache(), hit = c.get('taxRates');
+  if (hit) return JSON.parse(hit);
+  const rows = SpreadsheetApp.openById(TAX_SHEET_ID).getSheets()[0].getDataRange().getValues();
+  const out = rows.slice(1).filter(r => r[0] !== '' && r[1] !== '' && !isNaN(Number(r[1])))
+    .map(r => ({ name: String(r[0]).trim(), rate: Number(r[1]), src: String(r[2] || '') }));
+  c.put('taxRates', JSON.stringify(out), 21600);
+  return out;
 }
 
 // 카톡 버튼 링크가 실제로 나가는지 확인용(runMaint 전용). 카카오는 등록 안 된 도메인이면

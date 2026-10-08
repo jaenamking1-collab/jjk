@@ -613,11 +613,12 @@ function viewDivs() {
 
 // 보유 기준 예상 — portfolio.html renderGoalRun 과 같은 계산(한쪽만 고치지 마라).
 // 입력 기준 한 달 치 = 월배당은 가장 최근 1회 입력액, 분기·반기 등은 최근 3회 입력 평균 × 연 지급 횟수 ÷ 12.
-// 보유 기준 = 같은 식인데 월배당만 '수량 × 최근 공시 좌당 분배금'. 공시는 세전이라 일반 계좌만 15.4% 를 빼 입력(세후)과 맞춘다.
+// 보유 기준 = 같은 식인데 월배당만 '수량 × 최근 공시 좌당 분배금'. 공시는 세전이라 일반 계좌만 종목별 원천징수율(taxRateOf)을 빼 입력(세후)과 맞춘다.
 // 수량 0(판 종목·숨김)은 둘 다 넣지 않는다.
 function loadPerUnit() {
   if (D.perUnit) return;
   D.perUnit = {};
+  api({ action: 'getTaxRates' }).then(r => { D.taxRates = Array.isArray(r) ? r : []; if (view === 'dash') render(); }).catch(() => {});
   api({ action: 'getDistributionAll' }).then(dAll => {
     Object.values((dAll && dAll.sources) || {}).forEach(src => (src.items || []).forEach(it => {
       if (it.hist || !it.ticker || !(Number(it.amount) > 0)) return;
@@ -627,6 +628,22 @@ function loadPerUnit() {
     D.perUnitReady = true;
     if (view === 'dash') render();
   }).catch(() => { D.perUnitReady = true; });
+}
+// 일반 계좌 분배금 원천징수율(0~0.154). 비공개 '세율표'(getTaxRates)에서 종목명으로 찾고, 없으면 종류로 짐작한다.
+// 실측(2026-10-08 키움 거래내역): 국내 지수 커버드콜 0~2%, 해외 추종 8~13%, 리츠·주식 9.5~15.4%.
+// ⚠️ portfolio.html 과 m.html 에 같은 함수가 있다 — 한쪽만 고치지 마라.
+function taxNorm(s) {
+  return String(s || '').toUpperCase().replace(/&AMP;/g, '&').replace(/\(.*?\)/g, '')
+    .replace(/^(삼성|한화|KB|미래에셋|한국투자|신한|키움|NH-AMUNDI)\s*/, '').replace(/증권상장지수투자신탁.*$/, '').replace(/[\s\[\]]/g, '');
+}
+function taxRateOf(name, rates) {
+  const n = taxNorm(name);
+  const hit = (rates || []).find(r => { const k = taxNorm(r.name); return k && (n === k || n.startsWith(k) || k.startsWith(n)); });
+  if (hit) return hit.rate / 100;
+  if (/리츠|REIT|부동산|인프라/.test(n)) return 0.154;
+  if (/미국|나스닥|S&P|글로벌|인도|차이나|중국|일본|테슬라|엔비디아|팔란티어|빅테크|AI테크/.test(n)) return 0.12;
+  if (/커버드콜|200|코스피|고배당|배당/.test(n)) return 0.01;
+  return 0.154;   // 그 밖의 국내 주식 배당
 }
 function accClassOf(a) {   // portfolio.html ppAccClass 와 같다
   const t = (a && a.type || '').trim();
@@ -665,7 +682,7 @@ function goalRunOf() {
     const n = monthly ? 12 : (ms.size || (/분기/.test(h.div_cycle || '') ? 4 : /반기/.test(h.div_cycle || '') ? 2 : 0));
     const b = monthly ? last : (per > 0 && n > 0 ? per * n / 12 : 0);
     base += b;
-    if (monthly && D.perUnit && D.perUnit[t]) run += qty * D.perUnit[t] * (accClassOf(acc) === '일반' ? 0.846 : 1);
+    if (monthly && D.perUnit && D.perUnit[t]) run += qty * D.perUnit[t] * (accClassOf(acc) === '일반' ? 1 - taxRateOf(h.name, D.taxRates) : 1);
     else if (b > 0) run += b;
     else noData.push((h.name || h.ticker) + (acc ? ' (' + acc.name + ')' : ''));
   });
