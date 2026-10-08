@@ -2859,15 +2859,31 @@ let _plOffset = 0;     // 최신에서 뒤로 민 점 개수(드래그 팬). 0=�
 // 보유 기준 예상(2026-10-07 요청): 위 진척도는 **입력한 분배금**의 올해 1~12월 평균이라, 보유가 적던 연초가 끌어내리고
 // 새로 산 종목은 첫 분배금을 입력할 때까지 0 이다. 그래서 같은 '한 달 치' 둘을 나란히 보인다(2026-10-08 사용자와 정함).
 //   입력 기준 한 달 치 = 월배당은 가장 최근 1회 입력액, 분기·반기 등은 최근 3회 입력 평균 × 연 지급 횟수 ÷ 12(몰아받는 달이 튀지 않게)
-//   보유 기준         = 같은 식인데 월배당만 '수량 × 최근 공시 좌당 분배금'. 일반 계좌는 세후로 입력하므로 15.4% 를 뺀다
+//   보유 기준         = 같은 식인데 월배당만 '수량 × 최근 공시 좌당 분배금'. 일반 계좌는 세후로 입력하므로 종목별 원천징수율(taxRateOf)을 뺀다
 //                       (ISA·연금저축·IRP 는 지급 때 원천징수가 없어 입력액 = 세전).
 //   둘의 차이 = 새로 사거나 늘리거나 판 효과. 수량 0(판 종목·숨김)은 둘 다 넣지 않는다.
 // ⚠️ m.html 의 goalRunOf 와 같은 계산 — 한쪽만 고치지 마라.
+// 일반 계좌 분배금 원천징수율(0~0.154). 비공개 '세율표'(getTaxRates)에서 종목명으로 찾고, 없으면 종류로 짐작한다.
+// 실측(2026-10-08 키움 거래내역): 국내 지수 커버드콜 0~2%, 해외 추종 8~13%, 리츠·주식 9.5~15.4%.
+// ⚠️ portfolio.html 과 m.html 에 같은 함수가 있다 — 한쪽만 고치지 마라.
+function taxNorm(s) {
+  return String(s || '').toUpperCase().replace(/&AMP;/g, '&').replace(/\(.*?\)/g, '')
+    .replace(/^(삼성|한화|KB|미래에셋|한국투자|신한|키움|NH-AMUNDI)\s*/, '').replace(/증권상장지수투자신탁.*$/, '').replace(/[\s\[\]]/g, '');
+}
+function taxRateOf(name, rates) {
+  const n = taxNorm(name);
+  const hit = (rates || []).find(r => { const k = taxNorm(r.name); return k && (n === k || n.startsWith(k) || k.startsWith(n)); });
+  if (hit) return hit.rate / 100;
+  if (/리츠|REIT|부동산|인프라/.test(n)) return 0.154;
+  if (/미국|나스닥|S&P|글로벌|인도|차이나|중국|일본|테슬라|엔비디아|팔란티어|빅테크|AI테크/.test(n)) return 0.12;
+  if (/커버드콜|200|코스피|고배당|배당/.test(n)) return 0.01;
+  return 0.154;   // 그 밖의 국내 주식 배당
+}
 async function renderGoalRun(runInfo, monthlyAvg, GOAL) {
   const el = document.getElementById('goalRun');
   if (!el) return;
   el.textContent = '지금 보유 기준 예상 계산 중…';
-  const dAll = await api({ action: 'getDistributionAll' }).catch(() => null);
+  const [dAll, rates] = await Promise.all([api({ action: 'getDistributionAll' }).catch(() => null), api({ action: 'getTaxRates' }).catch(() => [])]);
   const perUnit = {};
   Object.values((dAll && dAll.sources) || {}).forEach(src => (src.items || []).forEach(it => {
     if (it.hist || !it.ticker || !(Number(it.amount) > 0)) return;
@@ -2882,7 +2898,7 @@ async function renderGoalRun(runInfo, monthlyAvg, GOAL) {
     if (h.currency !== 'USD' && /^\d{1,5}$/.test(t)) t = t.padStart(6, '0');
     const monthly = /월|주/.test(h.div_cycle || '');
     const acc = (state.accounts || []).find(a => a.id === h.account_id);
-    const net = acc && ppAccClass(acc) === '일반' ? 0.846 : 1;
+    const net = acc && ppAccClass(acc) === '일반' ? 1 - taxRateOf(h.name, Array.isArray(rates) ? rates : []) : 1;
     const b = monthly ? lastK : (perPayK > 0 && n > 0 ? perPayK * n / 12 : 0);
     base += b;
     if (monthly && perUnit[t]) { run += qty * perUnit[t] * net; fromNotice++; }
@@ -2893,7 +2909,7 @@ async function renderGoalRun(runInfo, monthlyAvg, GOAL) {
   el.innerHTML = `지금 보유 기준 예상 <b style="color:var(--text);font-family:var(--mono)">월 ${Math.round(run).toLocaleString()}</b>`
     + ` (${(run / GOAL * 100).toFixed(1)}%) · 입력 기준 한 달 치 ${Math.round(base).toLocaleString()}보다 <b style="color:${d >= 0 ? 'var(--red)' : 'var(--accent)'}">${d >= 0 ? '+' : ''}${Math.round(d).toLocaleString()}</b>`
     + (noData.length ? ` · <span style="cursor:help;text-decoration:underline dotted" title="공시에도 없고 입력된 분배금도 없는 보유 종목(0으로 계산):\n${noData.join('\n').replace(/"/g, '&quot;')}">분배 정보 없음 ${noData.length}종목</span>` : '');
-  el.title = `월배당 ${fromNotice}종목은 최근 공시 좌당 분배금 × 수량(일반 계좌는 15.4% 뺀 세후), 나머지는 입력 기준과 같게 계산. 분기·반기는 12달로 나눔. 판 종목·수량 0 제외.`;
+  el.title = `월배당 ${fromNotice}종목은 최근 공시 좌당 분배금 × 수량(일반 계좌는 종목별 실제 원천징수율을 뺀 세후), 나머지는 입력 기준과 같게 계산. 분기·반기는 12달로 나눔. 판 종목·수량 0 제외.`;
 }
 
 // 목표 진척도 카드에 마우스를 올리면 월별 추이. 휴대폰(마우스 없음)은 탭으로 켜고 끈다.
