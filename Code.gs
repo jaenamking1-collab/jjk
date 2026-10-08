@@ -3188,15 +3188,15 @@ function _diagTaxRates() { CacheService.getScriptCache().remove('taxRates'); con
 function getTaxRates() {
   const c = CacheService.getScriptCache(), hit = c.get('taxRates');
   if (hit) return JSON.parse(hit);
-  const rows = SpreadsheetApp.openById(TAX_SHEET_ID).getSheets()[0].getDataRange().getValues();
-  const auto = JSON.parse(PropertiesService.getScriptProperties().getProperty('KODEX_TAX') || '[]');   // 앞에 둬야 시트보다 먼저 맞는다
-  const out = auto.concat(rows.slice(1).filter(r => r[0] !== '' && r[1] !== '' && !isNaN(Number(r[1])))
-    .map(r => ({ name: String(r[0]).trim(), rate: Number(r[1]), src: String(r[2] || '') })));
+  const ss = SpreadsheetApp.openById(TAX_SHEET_ID), rows = ss.getSheets()[0].getDataRange().getValues();
+  const autoSh = ss.getSheetByName('자동'), auto = autoSh && autoSh.getLastRow() > 1 ? autoSh.getRange(2, 1, autoSh.getLastRow() - 1, 3).getValues() : [];
+  const out = auto.concat(rows.slice(1)).filter(r => r[0] !== '' && r[1] !== '' && !isNaN(Number(r[1])))   // 자동을 앞에 둬야 시트보다 먼저 맞는다
+    .map(r => ({ name: String(r[0]).trim(), rate: Number(r[1]), src: String(r[2] || '') }));
   c.put('taxRates', JSON.stringify(out), 21600);
   return out;
 }
 
-// KODEX 세율 자동(2026-10-08): 삼성 상품 정보의 최근 회차 '과세 대상 분배금'(TAX_DIVID_A) ÷ 분배금 × 15.4.
+// 세율 자동(2026-10-08) — 결과는 세율표 시트 '자동' 탭. KODEX: 삼성 상품 정보의 최근 회차 '과세 대상 분배금'(TAX_DIVID_A) ÷ 분배금 × 15.4.
 // 해외형은 과표기준가 증분에 따라 달마다 바뀐다(나스닥100데일리OTM 7월 전액 과세 → 9·10월 0원). 매일 08:30 markInputCells 끝.
 // 공개 데이터라 KODEX 분배 종목 전체를 받는다(보유 목록이 드러나지 않게). 이번 목록에 없는 종목은 지난 값을 둔다.
 function refreshKodexTax() {
@@ -3219,13 +3219,31 @@ function refreshKodexTax() {
       got[funds[ids[i]]] = { name: funds[ids[i]], rate: Math.round(Number(d.TAX_DIVID_A) / Number(d.DIVID_A) * 154) / 10, src: '삼성 공시 ' + String(d.PAY_D || '').slice(4) };
     } catch (_) {}
   });
-  const fresh = Object.keys(got).length, props = PropertiesService.getScriptProperties();
-  const prev = JSON.parse(props.getProperty('KODEX_TAX') || '[]');
-  prev.forEach(r => { if (!got[r.name]) got[r.name] = r; });
+  const fresh = Object.keys(got).length;
+  // 다른 운용사: SEIBRO 과표기준가로 min(분배금, 과표−10000). 해외형만 — KODEX 전체로 검증해 해외형 일치, 국내주식·리츠·채권은 식이 안 맞았다
+  // (_diagTaxFormula 2026-10-08: 해외지수 30/33, 파생(커버드콜) 불일치 6건은 전부 국내). 국내형은 시트·종류 규칙(0 / 15.4)을 그대로 쓴다.
+  let seiN = 0;
+  try {
+    const OVERSEAS = /미국|나스닥|S&P|글로벌|인도|차이나|중국|일본|테슬라|엔비디아|빅테크|선진국|유럽/;
+    const latest = {};
+    _seibroRows(45, 0).forEach(r => {
+      if (/^KODEX/.test(r.nm) || !/해외지수|파생상품/.test(r.sort) || !OVERSEAS.test(r.nm) || /채권|국채|머니마켓|금리|달러/.test(r.nm)) return;
+      if (!(r.amt > 0) || !(r.tax > 3000 && r.tax < 30000)) return;
+      if (!latest[r.nm] || r.std > latest[r.nm].std) latest[r.nm] = r;
+    });
+    Object.keys(latest).forEach(nm => { const r = latest[nm]; if (got[nm]) return;
+      got[nm] = { name: nm, rate: Math.round(Math.min(r.amt, Math.max(0, r.tax - 10000)) / r.amt * 154) / 10, src: 'SEIBRO 과표 ' + r.std.slice(4) }; seiN++; });
+  } catch (e) { console.log(' | SEIBRO 실패 — ' + e); }
+  const ss = SpreadsheetApp.openById(TAX_SHEET_ID), sh = ss.getSheetByName('자동') || ss.insertSheet('자동', ss.getSheets().length);
+  const prev = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues() : [];
+  prev.forEach(r => { if (r[0] && !got[r[0]]) got[r[0]] = { name: String(r[0]), rate: Number(r[1]), src: String(r[2]) }; });   // 이번에 안 나온 종목은 지난 값 유지
   const out = Object.keys(got).map(k => got[k]);
-  if (Object.keys(got).length) { props.setProperty('KODEX_TAX', JSON.stringify(out)); CacheService.getScriptCache().remove('taxRates'); }
-  console.log(' | KODEX 세율 자동 ' + out.length + '종목 (이번에 받음 ' + fresh + '/' + reps.length + ') · 0% ' + out.filter(r => r.rate === 0).length + ' · 일부 과세 ' + out.filter(r => r.rate > 0 && r.rate < 15.4).length + ' · 전액 ' + out.filter(r => r.rate >= 15.4).length);
-  return { n: out.length, fresh: fresh, of: reps.length };
+  if (fresh || seiN) {
+    sh.clearContents(); sh.getRange(1, 1, out.length + 1, 3).setValues([['종목명', '세율(%)', '근거(자동 — 매일 08:30 덮어씀)']].concat(out.map(r => [r.name, r.rate, r.src])));
+    CacheService.getScriptCache().remove('taxRates');
+  }
+  console.log(' | 세율 자동 ' + out.length + '종목 (KODEX 공시 ' + fresh + '/' + reps.length + ' · SEIBRO 해외형 ' + seiN + ') · 0% ' + out.filter(r => r.rate === 0).length + ' · 일부 과세 ' + out.filter(r => r.rate > 0 && r.rate < 15.4).length + ' · 전액 ' + out.filter(r => r.rate >= 15.4).length);
+  return { n: out.length, kodex: fresh, seibro: seiN };
 }
 
 // 검증용(runMaint): SEIBRO 과표기준가(TAXSTD)로 낸 과세액 min(분배금, max(0, TAXSTD-10000)) 이 삼성 공시 TAX_DIVID_A 와
