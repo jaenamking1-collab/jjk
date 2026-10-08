@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax'
 ];
 
 function runMaint(name, arg) {
@@ -3189,10 +3189,43 @@ function getTaxRates() {
   const c = CacheService.getScriptCache(), hit = c.get('taxRates');
   if (hit) return JSON.parse(hit);
   const rows = SpreadsheetApp.openById(TAX_SHEET_ID).getSheets()[0].getDataRange().getValues();
-  const out = rows.slice(1).filter(r => r[0] !== '' && r[1] !== '' && !isNaN(Number(r[1])))
-    .map(r => ({ name: String(r[0]).trim(), rate: Number(r[1]), src: String(r[2] || '') }));
+  const auto = JSON.parse(PropertiesService.getScriptProperties().getProperty('KODEX_TAX') || '[]');   // 앞에 둬야 시트보다 먼저 맞는다
+  const out = auto.concat(rows.slice(1).filter(r => r[0] !== '' && r[1] !== '' && !isNaN(Number(r[1])))
+    .map(r => ({ name: String(r[0]).trim(), rate: Number(r[1]), src: String(r[2] || '') })));
   c.put('taxRates', JSON.stringify(out), 21600);
   return out;
+}
+
+// KODEX 세율 자동(2026-10-08): 삼성 상품 정보의 최근 회차 '과세 대상 분배금'(TAX_DIVID_A) ÷ 분배금 × 15.4.
+// 해외형은 과표기준가 증분에 따라 달마다 바뀐다(나스닥100데일리OTM 7월 전액 과세 → 9·10월 0원). 매일 08:30 markInputCells 끝.
+// 공개 데이터라 KODEX 분배 종목 전체를 받는다(보유 목록이 드러나지 않게). 이번 목록에 없는 종목은 지난 값을 둔다.
+function refreshKodexTax() {
+  const H = { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' } };
+  const funds = {};
+  for (let page = 1; page <= 15; page++) {
+    const res = UrlFetchApp.fetch('https://www.samsungfund.com/api/v1/kodex/distribution.do?pageNo=' + page + '&pageSize=100', H);
+    if (res.getResponseCode() !== 200) break;
+    const j = JSON.parse(res.getContentText('UTF-8')), list = j.dividList || [];
+    if (!list.length) break;
+    list.forEach(it => { if (it.fid && it.fNm) funds[it.fid] = it.fNm; });
+    if (Object.keys(funds).length >= (j.totalCnt || 9999)) break;
+  }
+  const ids = Object.keys(funds), got = {};
+  const reps = UrlFetchApp.fetchAll(ids.map(id => Object.assign({ url: 'https://www.samsungfund.com/api/v1/kodex/product/' + id + '.do' }, H)));
+  reps.forEach((res, i) => {
+    try {
+      const d = ((JSON.parse(res.getContentText('UTF-8')).info || {}).divideList || [])[0];
+      if (!d || !(Number(d.DIVID_A) > 0)) return;
+      got[funds[ids[i]]] = { name: funds[ids[i]], rate: Math.round(Number(d.TAX_DIVID_A) / Number(d.DIVID_A) * 154) / 10, src: '삼성 공시 ' + String(d.PAY_D || '').slice(4) };
+    } catch (_) {}
+  });
+  const fresh = Object.keys(got).length, props = PropertiesService.getScriptProperties();
+  const prev = JSON.parse(props.getProperty('KODEX_TAX') || '[]');
+  prev.forEach(r => { if (!got[r.name]) got[r.name] = r; });
+  const out = Object.keys(got).map(k => got[k]);
+  if (Object.keys(got).length) { props.setProperty('KODEX_TAX', JSON.stringify(out)); CacheService.getScriptCache().remove('taxRates'); }
+  console.log(' | KODEX 세율 자동 ' + out.length + '종목 (이번에 받음 ' + fresh + '/' + reps.length + ') · 0% ' + out.filter(r => r.rate === 0).length + ' · 일부 과세 ' + out.filter(r => r.rate > 0 && r.rate < 15.4).length + ' · 전액 ' + out.filter(r => r.rate >= 15.4).length);
+  return { n: out.length, fresh: fresh, of: reps.length };
 }
 
 // 카톡 버튼 링크가 실제로 나가는지 확인용(runMaint 전용). 카카오는 등록 안 된 도메인이면
@@ -3785,7 +3818,8 @@ function markInputCells() {
   if (!cycles.length) { console.log('지급일 ±2일인 회차 없음 — 표시 없음 (묵은 표시 ' + cleared + '개 제거)');
     try { autoFillIrpDivs(); } catch (e) { console.log('IRP 자동 입력 실패 — ' + e); }
     try { fillMissingDivCycles(); } catch (e) { console.log('배당주기 채우기 실패 — ' + e); }
-    try { hideSoldDivRows(); } catch (e) { console.log('판 종목 숨김 실패 — ' + e); } return; }
+    try { hideSoldDivRows(); } catch (e) { console.log('판 종목 숨김 실패 — ' + e); }
+    try { refreshKodexTax(); } catch (e) { console.log('KODEX 세율 자동 실패 — ' + e); } return; }
 
   // 2) 지급이 임박한 회차의 달 칸만 칠한다.
   let marked = 0;
@@ -3807,6 +3841,7 @@ function markInputCells() {
   try { autoFillIrpDivs(); } catch (e) { console.log('IRP 자동 입력 실패 — ' + e); }   // 매일 08:30 함께
   try { fillMissingDivCycles(); } catch (e) { console.log('배당주기 채우기 실패 — ' + e); }
   try { hideSoldDivRows(); } catch (e) { console.log('판 종목 숨김 실패 — ' + e); }
+  try { refreshKodexTax(); } catch (e) { console.log('KODEX 세율 자동 실패 — ' + e); }
 }
 
 // 'yyyy-MM-dd' 문자열 또는 Date → 'yyyy-MM-dd'
