@@ -3182,7 +3182,7 @@ function sendKakaoMemo(text) {
 // 분배금 원천징수율 표(비공개 시트 '세율표'): 종목명, 세율(%), 근거. 2026-10-08 키움 일반 계좌 거래내역의
 // 실제 소득세·주민세 ÷ 분배금으로 만든 실측 + 검색 추정. 대시보드 '보유 기준 예상'이 일반 계좌 공시분을 세후로 바꿀 때 쓴다.
 // ⛔ 이 표는 저장소에 넣지 않는다(보유 종목 목록이 드러난다) — 시트에서만 고친다.
-const TAX_SHEET_ID = '1QopgCKwDhVi2QZ7bGiJwK-f9eZAm87TO3hIfatKJ4ls';
+const TAX_SHEET_ID = '1ptbvNkEMsbMvkIfZ550LbLCrzac9HcjIedkpL2NNbRQ';
 // 확인용(runMaint): 건수만 찍는다 — 종목명은 공개 로그에 남기지 않는다
 function _diagTaxRates() { CacheService.getScriptCache().remove('taxRates'); const r = getTaxRates(); console.log(' | 세율표 ' + r.length + '종목 · 0~2% ' + r.filter(x => x.rate <= 2).length + ' · 2~13% ' + r.filter(x => x.rate > 2 && x.rate < 13).length + ' · 13%↑ ' + r.filter(x => x.rate >= 13).length); return { n: r.length }; }
 function getTaxRates() {
