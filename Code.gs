@@ -2374,7 +2374,7 @@ function _seibroRows(back, fwd) {
     const xml = res.getContentText('UTF-8');
     if (res.getResponseCode() !== 200 || /<WARNING>/.test(xml)) throw new Error('SEIBRO HTTP ' + res.getResponseCode() + ' ' + xml.replace(/\s+/g, ' ').slice(0, 120));
     const got = (xml.match(/<result>[\s\S]*?<\/result>/g) || []).map(r => ({ nm: v(r, 'KOR_SECN_NM'), co: v(r, 'REP_SECN_NM'), isin: v(r, 'ISIN'),
-      std: v(r, 'RGT_STD_DT'), pay: v(r, 'TH1_PAY_TERM_BEGIN_DT'), amt: Number(v(r, 'ESTM_STDPRC')) || 0, tax: Number(v(r, 'TAXSTD')) || 0 }));
+      std: v(r, 'RGT_STD_DT'), pay: v(r, 'TH1_PAY_TERM_BEGIN_DT'), amt: Number(v(r, 'ESTM_STDPRC')) || 0, tax: Number(v(r, 'TAXSTD')) || 0, sort: v(r, 'ETF_SORT_NM') }));
     rows = rows.concat(got);
     if (got.length < 30) break;
   }
@@ -3244,18 +3244,20 @@ function _diagTaxFormula() {
   const ids = Object.keys(funds);
   const reps = UrlFetchApp.fetchAll(ids.map(id => Object.assign({ url: 'https://www.samsungfund.com/api/v1/kodex/product/' + id + '.do' }, H)));
   const sei = _seibroRows(100, 0), key = s => String(s).replace(/\s|\(.*?\)/g, '');
-  let ok = 0, bad = 0, miss = 0; const badList = [];
+  let ok = 0, bad = 0, miss = 0; const badList = [], bySort = {};
   reps.forEach((res, i) => {
     let L; try { L = ((JSON.parse(res.getContentText('UTF-8')).info || {}).divideList || []).slice(0, 3); } catch (_) { return; }
     L.forEach(d => {
       const r = sei.find(x => key(x.nm) === key(funds[ids[i]]) && x.std === String(d.BASIC_D));
       if (!r || !r.tax) { miss++; return; }
       const est = Math.min(r.amt, Math.max(0, Math.round(r.tax - 10000)));
-      if (Math.abs(est - Number(d.TAX_DIVID_A)) <= 1) ok++; else { bad++; if (badList.length < 15) badList.push(funds[ids[i]] + ' ' + d.BASIC_D + ' 분배' + r.amt + ' 과표' + r.tax + ' 식' + est + ' 공시' + d.TAX_DIVID_A); }
+      const hitOk = Math.abs(est - Number(d.TAX_DIVID_A)) <= 1, b = bySort[r.sort] = bySort[r.sort] || [0, 0]; b[hitOk ? 0 : 1]++;
+      if (hitOk) ok++; else { bad++; if (badList.length < 15) badList.push(funds[ids[i]] + ' ' + d.BASIC_D + ' 분배' + r.amt + ' 과표' + r.tax + ' 식' + est + ' 공시' + d.TAX_DIVID_A); }
     });
   });
   console.log(' | 식 검증: 일치 ' + ok + ' · 불일치 ' + bad + ' · SEIBRO 없음 ' + miss + ' (KODEX ' + ids.length + '종목 × 최근 3회)');
   badList.forEach(b => console.log(' |   ' + b));
+  Object.keys(bySort).forEach(k => console.log(' | 분류 ' + k + ': 일치 ' + bySort[k][0] + ' · 불일치 ' + bySort[k][1]));
   return { ok: ok, bad: bad, miss: miss };
 }
 
