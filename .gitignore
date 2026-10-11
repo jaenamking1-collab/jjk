@@ -19,6 +19,11 @@ skills-lock.json
 *.xls
 *.csv
 
+# 비디오 다운로더(별도 비공개 저장소 video-downloader-extension)를 문서\jjk 아래에 풀어 쓴다.
+# 받은 영상·cookies.txt 가 섞이므로 이 공개 저장소에 절대 들어오면 안 된다(Stop 훅이 git add -A 한다).
+VideoDownloader/
+video_downloader*/
+
 # 파이썬 위젯(tools/ticker.pyw) 실행 부산물
 __pycache__/
 
