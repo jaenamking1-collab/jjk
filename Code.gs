@@ -1549,13 +1549,18 @@ function refreshAllDistributions() {
   // 걸려 있어도 낮에는 절대 안 돌도록 함수 안에서도 새벽만 통과시킨다(checkDistNotices와 같은 방식).
   const hour = parseInt(Utilities.formatDate(new Date(), 'Asia/Seoul', 'H'), 10);
   if (hour < 3 || hour > 6) return;
-  DIST_SOURCE_IDS.forEach(s => {
+  // ⚠️ 2026-10-11: RISE(KB 사이트 해외 차단 → 응답 없이 ~100초)에서 6분 실행 한도에 걸려 끝의 생존 신호를
+  // 못 남겼고, 다음 날 '선갱신 27시간째 안 돎' 오경보가 났다. → RISE 를 맨 뒤로, 한 곳 끝날 때마다 신호를 남기고,
+  // 4분 반이 지나면 남은 곳은 건너뛴다(앱을 열면 그때 채운다).
+  const t0 = Date.now(), props = PropertiesService.getScriptProperties();
+  DIST_SOURCE_IDS.filter(s => s !== 'rise').concat('rise').forEach(s => {
+    if (Date.now() - t0 > 270000) { console.log(s, '시간 부족으로 건너뜀'); return; }
     try { getDistribution(s, true); } catch(e) { console.log(s, e); }
+    // 파이프라인 생존 신호 — 파싱 결과와 무관하게 '돌았다'는 사실만 남긴다(distWatchdog가 이걸 본다).
+    // 분배캐시 savedAt·_파서메타는 생존 신호로 못 쓴다: 전자는 파싱이 0건이면 안 써지고(새 회차 공지가
+    // 아직 없는 매달 21~25일·1~7일이 그렇다), 후자는 공지창 밖(13~22일)엔 아예 안 돈다.
+    props.setProperty('WD_LAST_REFRESH', new Date().toISOString());
   });
-  // 파이프라인 생존 신호 — 파싱 결과와 무관하게 '돌았다'는 사실만 남긴다(distWatchdog가 이걸 본다).
-  // 분배캐시 savedAt·_파서메타는 생존 신호로 못 쓴다: 전자는 파싱이 0건이면 안 써지고(새 회차 공지가
-  // 아직 없는 매달 21~25일·1~7일이 그렇다), 후자는 공지창 밖(13~22일)엔 아예 안 돈다.
-  PropertiesService.getScriptProperties().setProperty('WD_LAST_REFRESH', new Date().toISOString());
 }
 // ===== OCR 공용 함수 (Google Cloud Vision) =====
 // 이미지 URL을 받아 OCR 텍스트 반환. 실패 시 '' 반환.
