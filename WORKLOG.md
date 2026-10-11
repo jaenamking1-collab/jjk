@@ -3,6 +3,15 @@
 두 대의 Windows PC(직장 / 집)에서 Claude Code로 번갈아 작업할 때 대화 맥락을 이어받기 위한 작업 로그.
 각 항목은 장소(직장/집)로 구분한다. **최신 항목이 맨 위**에 오도록 추가한다. 세션 시작 시 이 파일을 먼저 읽고, 세션 종료 시 맨 위에 새 항목을 추가한다. 과거 항목은 수정하지 않는다.
 
+## 2026-10-12 (246) / 원격 — 비디오 다운로더 '설치 없는 exe 묶음' (학교 PC 실행 안 됨)
+
+- 학교 PC에서 다운로더가 안 돈다는 요청. 원격이라 그 PC 디스크엔 못 닿고, 원인도 못 봤음(확인 못 함).
+- 그래서 파이썬·관리자 권한 없이 도는 묶음을 만듦(`video-downloader-extension` PR 18~20, main 병합).
+  - `exe.yml` → 릴리스 `exe` 에 `VideoDownloader-windows.zip`(97MB): 확장 파일 + `VideoDownloader.exe`(서버) + `bin\`(yt-dlp·gallery-dl·ffmpeg·ffprobe).
+  - CI에서 exe를 띄워 `/progress`·`/gallery` 응답 확인, 그리고 ffmpeg가 묶음 `bin` 에서 잡히는 것까지 확인(run 38184325578 ✅).
+- jjk `.gitignore` 에 `VideoDownloader/`·`video_downloader*/` 추가 — 문서\jjk 아래 풀어도 Stop 훅이 공개 저장소로 올리지 않게.
+- 다음 할 일(학교 PC): zip을 받아 문서\jjk에 풀고, exe를 실행한 뒤 크롬 확장 폴더를 새 `VideoDownloader` 폴더로 다시 로드한다.
+
 ## 2026-10-12 (245) / 원격 — '[분배알림 이상] 선갱신 27시간째' 메일 점검
 
 - 메일(10/11 08:26) 원인: 10/11 05시 선갱신이 KODEX~PLUS 만 저장(05:12)하고 **RISE 에서 6분 한도 초과**(KB 사이트 해외 차단 → 응답 없이 ~100초) → 끝의 `WD_LAST_REFRESH` 를 못 남김. 트리거는 18개 정상, 10/12 05:08 엔 8곳 전부 갱신됨(dist_snapshot savedAt 으로 확인).
