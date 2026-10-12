@@ -51,6 +51,9 @@ def self_update():
       내가 고치던 코드가 덮일 일이 없다.
     - 저장소 밖(남에게 준 사본): GitHub raw에서 받아 자기 자신을 갈아끼운다.
     파일이 실제로 바뀐 경우에만 새 코드로 다시 시작한다."""
+    if os.environ.get("TICKER_LAUNCHER"):        # exe 가 방금 받아 놓고 실행한 것 — 다시 받지 않는다
+        update_note[0] = os.environ["TICKER_LAUNCHER"]
+        return
     me = os.path.abspath(__file__)
     try:
         before = open(me, "rb").read()
