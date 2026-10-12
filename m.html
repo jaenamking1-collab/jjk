@@ -167,6 +167,7 @@ fetch('script_versions.json?' + Date.now()).then(r => r.json()).then(d => {
   <button id="nav-more"              onclick="go('more')"><span class="ic">☰</span>더보기</button>
 </nav>
 
+<script src="calc.js?v=1"></script>
 <script>
 // =====================================================================
 //  폰 전용 화면. PC용은 portfolio.html.
@@ -223,128 +224,18 @@ let view = 'home';
 const open = {};                 // 펼쳐진 행 id
 
 // =====================================================================
-//  ⚠️ 계산 블록 — portfolio.html의 renderAccountStats와 같은 식이다.
+//  ⚠️ 계산은 calc.js 에 있다 — portfolio.html 과 같은 파일을 쓴다(2026-10-12).
 //  서버는 평가금액·손익을 주지 않는다. 브라우저가 계산한다.
-//  여기를 고치면 portfolio.html도 같이 고칠 것. 숫자가 어긋나면 눈에 안 보인다.
-//    투자금     Σ toKrw(avg_price × quantity)          portfolio.html:1390
-//    평가금     Σ toKrw((현재가 ?? avg_price) × qty)    portfolio.html:1391
-//    손익       평가금 − 투자금                          portfolio.html:1408
-//    분배금     Σ toKrw(amount)                          portfolio.html:1400
-//    누적분배율 분배금 / 투자금 × 100                     portfolio.html:1410
-//    환산분배율 projectAnnualDist 합계 / 투자금 × 100     portfolio.html:1315
+//  여기 남은 것은 D(환율·현재가)를 넘겨 주는 얇은 껍데기다.
 // =====================================================================
 function toKrw(v, cur) { return cur === 'USD' ? v * D.rate : v; }
-// 받은 분배금 → 원화. 저장된 '그때 환율'(dividends 시트 rate 칸)이 있으면 그걸 쓴다.
-// portfolio.html divKrwOf 와 같은 것. 앞으로 받을 예상(투영)에는 쓰지 않는다.
-function divKrwOf(amt, cur, rowRate) {
-  const a = parseFloat(amt) || 0;
-  return cur === 'USD' ? a * (parseFloat(rowRate) || D.rate) : a;
-}
-
-function calcHolding(h) {
-  const qty = parseFloat(h.quantity) || 0;
-  const avg = parseFloat(h.avg_price) || 0;
-  const live = D.priceMap[(h.ticker || '').toString().toUpperCase()];
-  const price = live || avg;
-  const invest = toKrw(avg * qty, h.currency);
-  const value  = toKrw(price * qty, h.currency);
-  return { qty, avg, price, isLive: !!live, invest, value, pl: value - invest };
-}
-
-// 배당주기 투영. portfolio.html:1315 projectAnnualDist 와 동일 로직.
-function projectAnnualDist(holdings, dividends, year) {
-  const byH = {};
-  (dividends || []).forEach(d => {
-    const hid = d.holding_id, y = parseInt(d.year), m = parseInt(d.month);
-    if (!hid || !y || !m) return;
-    (byH[hid] = byH[hid] || {});
-    (byH[hid][y] = byH[hid][y] || {});
-    byH[hid][y][m] = parseFloat(d.amount) || 0;
-  });
-  const ALLM = [1,2,3,4,5,6,7,8,9,10,11,12];
-  const payMonthsOf = h => {
-    const cyc = h.div_cycle || '';
-    if (/월|주/.test(cyc)) return ALLM;
-    const hist = byH[h.id] || {};
-    const ms = [...new Set(Object.values(hist).flatMap(o => Object.keys(o).map(Number)).filter(Boolean))].sort((a,b)=>a-b);
-    if (ms.length) return ms;
-    if (/분기/.test(cyc)) return [3,6,9,12];
-    if (/반기/.test(cyc)) return [6,12];
-    return [];
-  };
-  const perH = {};
-  (holdings || []).forEach(h => {
-    if ((parseFloat(h.quantity) || 0) <= 0) { perH[h.id] = 0; return; }   // 판 종목은 앞으로 안 나온다
-    const thisYear = (byH[h.id] && byH[h.id][year]) || {};
-    let vals = Object.values(thisYear).filter(v => v > 0);
-    if (!vals.length) vals = Object.values(byH[h.id] || {}).flatMap(o => Object.values(o)).filter(v => v > 0);
-    // 1회 예상액 = **최근 3회** 평균. 올해 전체 평균은 연중 추가 매수 전(수량 적던 때)의 작은 금액이
-    // 끌어내려 월배당 48종목 합계가 월 ~75만원 낮게 잡혔다(2026-09-27 실측, 사용자 결정 A).
-    // vals 는 월 오름차순(연도 넘어가면 연도 오름차순)이라 뒤에서 3개가 가장 최근이다.
-    const recent = vals.slice(-3);
-    const perPay = recent.length ? recent.reduce((a,b)=>a+b,0) / recent.length : 0;
-    let sum = 0;
-    payMonthsOf(h).forEach(m => {
-      const actual = thisYear[m] || 0;
-      sum += actual > 0 ? actual : perPay;
-    });
-    perH[h.id] = sum;
-  });
-  return perH;
-}
-
-// 월별 투영. portfolio.html 대시보드(:2255~2278)와 같은 로직을 월 단위로 편 것.
-// 반환은 KRW 12칸. 여기 고치면 portfolio.html 대시보드도 같이 볼 것.
+function divKrwOf(amt, cur, rowRate) { return Calc.divKrw(amt, cur, rowRate, D.rate); }
+function calcHolding(h) { return Calc.holding(h, D.priceMap, D.rate); }
+function projectAnnualDist(holdings, dividends, year) { return Calc.projectAnnual(holdings, dividends, year); }
+// 월별 투영 — 반환은 KRW 12칸 { proj, actual, annual }
 function projectMonthly(holdings, dividends, year) {
-  const byH = {}, divRate = {};
-  (dividends || []).forEach(d => {
-    const hid = d.holding_id, y = parseInt(d.year), m = parseInt(d.month);
-    if (!hid || !y || !m) return;
-    (byH[hid] = byH[hid] || {}); (byH[hid][y] = byH[hid][y] || {});
-    byH[hid][y][m] = parseFloat(d.amount) || 0;
-    divRate[hid + '_' + y + '_' + m] = d.rate;      // 그때 환율(있으면). 확정 합계에만 쓴다.
-  });
-  const ALLM = [1,2,3,4,5,6,7,8,9,10,11,12];
-  const proj = Array(12).fill(0), actual = Array(12).fill(0);
-  (holdings || []).forEach(h => {
-    const cur = h.currency;
-    const held = (parseFloat(h.quantity) || 0) > 0;
-    const thisYear = (byH[h.id] && byH[h.id][year]) || {};
-    let vals = Object.values(thisYear).filter(v => v > 0);
-    if (!vals.length) vals = Object.values(byH[h.id] || {}).flatMap(o => Object.values(o)).filter(v => v > 0);
-    // 1회 예상액 = **최근 3회** 평균. 올해 전체 평균은 연중 추가 매수 전(수량 적던 때)의 작은 금액이
-    // 끌어내려 월배당 48종목 합계가 월 ~75만원 낮게 잡혔다(2026-09-27 실측, 사용자 결정 A).
-    // vals 는 월 오름차순(연도 넘어가면 연도 오름차순)이라 뒤에서 3개가 가장 최근이다.
-    const recent = vals.slice(-3);
-    const perPay = recent.length ? recent.reduce((a,b)=>a+b,0) / recent.length : 0;
-    const cyc = h.div_cycle || '';
-    let months;
-    if (/월|주/.test(cyc)) months = ALLM;
-    else {
-      const hist = byH[h.id] || {};
-      // portfolio.html payMonthsOf 와 동일 — union 대신 올해 실제월 + 직전 연도 스케줄(올해 월과
-      // ±1개월 겹치면 제외). 지급월 밀린 반기 리츠가 연 2회인데 3개월로 잡혀 부풀던 것 방지.
-      const thisMs = Object.keys(hist[year] || {}).map(Number).filter(Boolean);
-      const priors = Object.keys(hist).map(Number).filter(y => y < year).sort((a,b)=>b-a);
-      const ref = priors.length ? Object.keys(hist[priors[0]]).map(Number).filter(Boolean) : [];
-      const merged = [...thisMs];
-      ref.forEach(mm => { if (!thisMs.some(a => Math.abs(a - mm) <= 1)) merged.push(mm); });
-      const ms = [...new Set(merged)].sort((a,b)=>a-b);
-      months = ms.length ? ms : (/분기/.test(cyc) ? [3,6,9,12] : /반기/.test(cyc) ? [6,12] : []);
-    }
-    // 예상은 지금 보유 중인 종목만. 판 종목을 넣으면 그 종목의 과거 지급월·평균액이
-    // 앞으로도 들어오는 것처럼 잡혀 이번 달·연간 예상이 부푼다.
-    (held ? months : []).forEach(m => {
-      const act = thisYear[m] || 0;
-      proj[m-1] += toKrw(act > 0 ? act : perPay, cur);
-    });
-    // 확정(입력)은 지급월 제한 없이 실제 입력된 모든 월을 합산 → 앱 월합계와 일치
-    Object.entries(thisYear).forEach(([mm, a]) => {
-      const v = parseFloat(a) || 0;
-      if (v > 0) actual[parseInt(mm)-1] += divKrwOf(v, cur, divRate[h.id + '_' + year + '_' + mm]);
-    });
-  });
-  return { proj, actual, annual: proj.reduce((a,b)=>a+b,0) };
+  const r = Calc.projectMonths(holdings, dividends, year, D.rate);
+  return { proj: r.proj, actual: r.actual, annual: r.annual };
 }
 
 // 계좌 하나의 집계
@@ -652,42 +543,9 @@ function accClassOf(a) {   // portfolio.html ppAccClass 와 같다
   const n = (a && a.name || '').toUpperCase();
   return n.includes('ISA') ? 'ISA' : n.includes('IRP') ? 'IRP' : n.includes('연금') ? '연금저축' : '일반';
 }
-function goalRunOf() {
-  const byH = {};
-  (D.divsAll || []).forEach(d => {
-    const v = parseFloat(d.amount) || 0, y = parseInt(d.year), m = parseInt(d.month);
-    if (v > 0 && y && m) (byH[d.holding_id] = byH[d.holding_id] || []).push({ k: y * 12 + m, y, v, m });
-  });
-  const yr = new Date().getFullYear();
-  let run = 0, base = 0;
-  const noData = [];
-  (D.holdings || []).forEach(h => {
-    const qty = parseFloat(h.quantity) || 0;
-    if (qty <= 0) return;
-    let t = String(h.ticker || '').trim().toUpperCase();
-    if (h.currency !== 'USD' && /^\d{1,5}$/.test(t)) t = t.padStart(6, '0');
-    const monthly = /월|주/.test(h.div_cycle || '');
-    const acc = D.accounts.find(a => a.id === h.account_id);
-    // 1회 금액 — PC 처럼 올해 입력이 있으면 올해 것만, 없으면 전 기간에서
-    const list = (byH[h.id] || []).sort((a, b) => a.k - b.k);
-    const thisList = list.filter(x => x.y === yr), vals = thisList.length ? thisList : list;
-    const rec = vals.slice(-3);
-    const per = rec.length ? rec.reduce((a, x) => a + toKrw(x.v, h.currency), 0) / rec.length : 0;
-    const last = vals.length ? toKrw(vals[vals.length - 1].v, h.currency) : 0;
-    // 지급 횟수 = PC payMonthsOf: 올해 지급월 + 직전 해 지급월(올해 달과 ±1개월이면 '밀린 것'이라 뺀다)
-    const byY = {};
-    list.forEach(x => (byY[x.y] = byY[x.y] || new Set()).add(x.m));
-    const thisY = [...(byY[yr] || [])], prior = Object.keys(byY).map(Number).filter(y => y < yr).sort((a, b) => b - a)[0];
-    const ms = new Set(thisY);
-    if (prior) [...byY[prior]].forEach(m => { if (!thisY.some(a => Math.abs(a - m) <= 1)) ms.add(m); });
-    const n = monthly ? 12 : (ms.size || (/분기/.test(h.div_cycle || '') ? 4 : /반기/.test(h.div_cycle || '') ? 2 : 0));
-    const b = monthly ? last : (per > 0 && n > 0 ? per * n / 12 : 0);
-    base += b;
-    if (monthly && D.perUnit && D.perUnit[t]) run += qty * D.perUnit[t] * (accClassOf(acc) === '일반' ? 1 - taxRateOf(h.name, D.taxRates) : 1);
-    else if (b > 0) run += b;
-    else noData.push((h.name || h.ticker) + (acc ? ' (' + acc.name + ')' : ''));
-  });
-  return { run, base, noData };
+function goalRunOf() {   // 식은 calc.js (portfolio.html renderGoalRun 과 같이 쓴다)
+  const { runInfo } = Calc.projectMonths(D.holdings, D.divsAll, new Date().getFullYear(), D.rate);
+  return Calc.goalRun(runInfo, D.perUnit || {}, D.accounts, accClassOf, name => taxRateOf(name, D.taxRates));
 }
 
 // ── 대시보드 ──────────────────────────────────────────

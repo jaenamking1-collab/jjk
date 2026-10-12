@@ -1,0 +1,15 @@
+# 계산 검사 — PC(portfolio.html)·폰(m.html)이 같이 쓰는 calc.js 의 숫자가 그대로인지.
+# 가짜 데이터로 낸 값을 tools/calc_golden.json 과 비교하고, 두 화면이 계산식을 다시 따로 갖게 됐는지도 본다.
+# 실패하면 GitHub 실행 실패 메일이 온다. 정답을 일부러 바꿨다면 `node tools/calc_test.js --update` 후 커밋.
+name: calc-test
+on:
+  push:
+    branches: [main]
+    paths: ['calc.js', 'portfolio.html', 'm.html', 'dist_notice.html', 'tools/calc_test.js', 'tools/calc_golden.json']
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: node tools/calc_test.js
