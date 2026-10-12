@@ -8,6 +8,7 @@
 - 사용자: 9월로 돌린 분배금공지에 RISE 공시가 안 나온다(일정표 공시 칸 '·', 달력 9/14·9/23 칩 없음).
 - 원인: KB 사이트 해외 차단 → RISE 는 SEIBRO 대체 경로인데 SEIBRO 에 공시일이 없다.
 - 수정 `fetchDist_rise`: SEIBRO 결과에 `lastN_rise`(마지막으로 읽은 KB 공지 목록)의 'N월 말/중순 … 분배' 등록일로 공시일을 채운다. 스냅샷 데이터로 시험: 월중 9/14·월말 9/23(공지 등록일과 일치).
+- 배포 + resetAllTriggers 18개 ✅ + clearDistCache rise. `_diagDist rise`(새 코드로 직접 조회): 월중 공시 9/14 6종목·월말 공시 9/23 21종목 ✅. 공개 예비본(dist_snapshot)도 RISE 공시일 채워짐.
 
 ## 2026-10-12 (249) / 원격 — Claude Code 10월 업데이트 4가지 검토
 
