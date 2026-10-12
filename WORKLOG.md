@@ -7,7 +7,7 @@
 
 - `mods/jjk-guard/` + 루트 `.claude-plugin/marketplace.json`. 규칙: ①`clasp deploy` 라이브 `-i` 없으면 거부 ②임시 폴더로 cd 없이 `clasp pull` 거부 ③명령·Write·Edit 에 토큰 모양(ya29·1//0·GOCSPX·ghp_·github_pat·sk-ant·refresh_token) 거부(.clasprc 등 자격증명 파일 예외) ④deploy.yml 실행 뒤 resetAllTriggers 전까지 상태줄·턴 끝 알림. Bash·PowerShell 둘 다.
 - 검증: `claude plugin validate` ✅, `claude plugin test` 4/4 ✅, 실제 엔진(`claude -p --plugin-dir`)에서 `clasp deploy -d test` 거부 확인.
-- 프로젝트 settings 에 자동 설치(enabledPlugins) 넣으려다 자기설정 변경으로 막혀 되돌림 → 사용자 결정 대기. 그 전까지 PC마다 `/plugin install jjk-guard --marketplace jaenamking1-collab/jjk`.
+- 사용자 승인('설정에 넣어')으로 `.claude/settings.json` 에 `extraKnownMarketplaces.jjk`(github) + `enabledPlugins["jjk-guard@jjk"]` 추가. 각 PC 가 다음에 저장소를 열 때 설치 여부를 한 번 묻는다 — 첫 PC 세션이 실제로 깔렸는지 `claude plugin list` 로 확인할 것.
 - 못 막는 것: 긴 링크(답변 글을 가로채는 이벤트가 없다), 존댓말.
 
 ## 2026-10-12 (247) / 원격 — CLAUDE.md prompt-audit(Opus) 적용 + 월간 루틴
