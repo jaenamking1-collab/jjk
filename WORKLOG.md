@@ -11,6 +11,7 @@
 - 실제 글 2개로 시험: 10월 중순 6종목(기준 10/15·지급 10/19·공시 10/12), 9월 말 21종목(금액 SEIBRO 와 일치).
 - 배포 + resetAllTriggers 18개 ✅ + clearDistCache rise + `getDistribution&source=rise&force=1`(fetch.yml) → 공개 예비본에 RISE 10월 중순 6종목·공시 10/12 들어감 ✅.
 - 공지 목록(왼쪽 표)도: `getEtfNotices rise` 가 KB 실패(또는 riseSiteDown) 시 블로그 RSS(`_riseBlogNotices`)로. `_riseFillNotice` 는 KB 공지(kbam url)만 공시일로 쓴다. `clearDistCache` 가 `notices_v2_<source>` 도 지운다.
+- 2차 배포 + resetAllTriggers 18개 ✅ + clearDistCache rise. 실제 /exec 응답: getDistribution rise = blog 경로, 10월 중순 6종목 공시 10/12 ✅ / getEtfNotices rise = 블로그 글 목록(10.12 '10월 중순 분배금 지급 안내') ✅. ⚠️ 9월 말 공지의 등록일은 블로그 날짜(10.02)로 보인다(KB 실제 9.23) — 공시일 칸은 KB 기록으로 9/23 유지.
 
 ## 2026-10-12 (250) / 원격 — RISE 공시일 빈칸(9월 일정표·달력)
 
