@@ -74,33 +74,12 @@ const Calc = (() => {
     return { thisYear, vals, perPay: recent.length ? recent.reduce((a,b)=>a+b,0) / recent.length : 0 };
   }
 
-  // 종목별 연간 분배금 투영 — 계좌 표의 '환산분배율'이 쓴다.
-  // 반환: { holding_id: 연 투영액 }  (금액은 저장된 그대로 — USD 종목은 달러 그대로다)
-  // ⚠️ 지급월 판정이 아래 months()(대시보드)와 다르다 — 과거 전 연도 지급월의 합집합. 2026-10-12 기록, 사용자 결정 대기.
-  function projectAnnual(holdings, dividends, year) {
-    const { byH } = byHolding(dividends);
-    const payMonthsOf = (h) => {
-      const cyc = h.div_cycle || '';
-      if (/월|주/.test(cyc)) return ALLM;
-      const hist = byH[h.id] || {};
-      const ms = [...new Set(Object.values(hist).flatMap(o => Object.keys(o).map(Number)).filter(Boolean))].sort((a,b)=>a-b);
-      if (ms.length) return ms;
-      if (/분기/.test(cyc)) return [3,6,9,12];
-      if (/반기/.test(cyc)) return [6,12];
-      return [];
-    };
-    const perH = {};
-    (holdings || []).forEach(h => {
-      if ((parseFloat(h.quantity) || 0) <= 0) { perH[h.id] = 0; return; }   // 판 종목은 앞으로 안 나온다
-      const { thisYear, perPay } = perPayOf(byH, h, year);
-      let sum = 0;
-      payMonthsOf(h).forEach(m => {
-        const actual = thisYear[m] || 0;
-        sum += actual > 0 ? actual : perPay;
-      });
-      perH[h.id] = sum;
-    });
-    return perH;
+  // 종목별 연간 분배금 투영(원화) — 계좌 표의 '환산분배율'·폰 종목 '환산 연분배금'이 쓴다.
+  // 반환: { holding_id: 연 투영액(원) }. 대시보드(projectMonths)와 **같은 지급월 판정·같은 환산**이다.
+  // 2026-10-12 이전엔 지급월을 '과거 전 연도 합집합'으로 세고 USD 를 달러 그대로 더해,
+  // 밀린 반기 리츠는 대시보드와 연 예상이 달랐고 해외 줄 환산분배율이 1% 아래로 나왔다(사용자 결정: 둘 다 고침).
+  function projectAnnual(holdings, dividends, year, rate) {
+    return projectMonths(holdings, dividends, year, rate).perH;
   }
 
   // 월별 투영(대시보드·폰 대시보드). 반환 금액은 전부 원화.
@@ -131,16 +110,17 @@ const Calc = (() => {
     };
     const proj = Array(12).fill(0), actual = Array(12).fill(0);
     const who = Array.from({length:12}, () => []);
-    const runInfo = [];
+    const runInfo = [], perH = {};
     (holdings || []).forEach(h => {
       const cur = h.currency;
+      perH[h.id] = 0;   // 판 종목은 앞으로 안 나온다
       const held = (parseFloat(h.quantity) || 0) > 0;
       const { thisYear, vals, perPay } = perPayOf(byH, h, year);
       if (held) runInfo.push({ h, perPayK: toKrw(perPay, cur, rate), lastK: vals.length ? toKrw(vals[vals.length - 1], cur, rate) : 0, n: payMonthsOf(h).length });
       (held ? payMonthsOf(h) : []).forEach(m => {
         const act = thisYear[m] || 0;
         const amtK = toKrw(act > 0 ? act : perPay, cur, rate);
-        proj[m-1] += amtK;
+        proj[m-1] += amtK; perH[h.id] += amtK;
         who[m-1].push({ name: h.name || h.ticker, amt: amtK, est: !(act > 0) });
       });
       // 확정(입력)은 지급월 제한 없이 실제 입력된 모든 월을 합산 → 앱 월합계와 일치
@@ -149,7 +129,7 @@ const Calc = (() => {
         if (v > 0) actual[parseInt(mm)-1] += divKrw(v, cur, divRate[h.id + '_' + year + '_' + mm], rate);
       });
     });
-    return { proj, actual, who, runInfo, byH, divRate, annual: proj.reduce((a,b)=>a+b,0) };
+    return { proj, actual, who, runInfo, byH, divRate, perH, annual: proj.reduce((a,b)=>a+b,0) };
   }
 
   // 지금 보유 기준 월 예상(대시보드 목표 카드 아래 한 줄). runInfo 는 projectMonths 의 것.
