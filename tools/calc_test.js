@@ -29,7 +29,7 @@ const months = Calc.projectMonths(holdings, dividends, YEAR, RATE);
 const result = {
   investValue: Calc.investValue(holdings, priceMap, RATE),
   holdings: holdings.map(h => Calc.holding(h, priceMap, RATE)),
-  projectAnnual: Calc.projectAnnual(holdings, dividends, YEAR),
+  projectAnnual: Calc.projectAnnual(holdings, dividends, YEAR, RATE),
   projectMonths: { proj: months.proj, actual: months.actual, annual: months.annual,
                    runInfo: months.runInfo.map(x => [x.h.id, x.perPayK, x.lastK, x.n]) },
   divKrw: dividends.map(d => Calc.divKrw(d.amount, d.currency, d.rate, RATE)),
