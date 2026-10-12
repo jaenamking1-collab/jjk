@@ -1,0 +1,1 @@
+{ "name": "jjk-guard", "version": "0.1.0", "description": "jjk CLAUDE.md 금지 규칙을 실행 직전에 기계적으로 막는다(clasp 배포 ID·저장소 안 clasp pull·비밀값·배포 뒤 트리거 재설치)" }

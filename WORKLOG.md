@@ -3,6 +3,13 @@
 두 대의 Windows PC(직장 / 집)에서 Claude Code로 번갈아 작업할 때 대화 맥락을 이어받기 위한 작업 로그.
 각 항목은 장소(직장/집)로 구분한다. **최신 항목이 맨 위**에 오도록 추가한다. 세션 시작 시 이 파일을 먼저 읽고, 세션 종료 시 맨 위에 새 항목을 추가한다. 과거 항목은 수정하지 않는다.
 
+## 2026-10-12 (248) / 원격 — Claude Code mod `jjk-guard`
+
+- `mods/jjk-guard/` + 루트 `.claude-plugin/marketplace.json`. 규칙: ①`clasp deploy` 라이브 `-i` 없으면 거부 ②임시 폴더로 cd 없이 `clasp pull` 거부 ③명령·Write·Edit 에 토큰 모양(ya29·1//0·GOCSPX·ghp_·github_pat·sk-ant·refresh_token) 거부(.clasprc 등 자격증명 파일 예외) ④deploy.yml 실행 뒤 resetAllTriggers 전까지 상태줄·턴 끝 알림. Bash·PowerShell 둘 다.
+- 검증: `claude plugin validate` ✅, `claude plugin test` 4/4 ✅, 실제 엔진(`claude -p --plugin-dir`)에서 `clasp deploy -d test` 거부 확인.
+- 프로젝트 settings 에 자동 설치(enabledPlugins) 넣으려다 자기설정 변경으로 막혀 되돌림 → 사용자 결정 대기. 그 전까지 PC마다 `/plugin install jjk-guard --marketplace jaenamking1-collab/jjk`.
+- 못 막는 것: 긴 링크(답변 글을 가로채는 이벤트가 없다), 존댓말.
+
 ## 2026-10-12 (247) / 원격 — CLAUDE.md prompt-audit(Opus) 적용 + 월간 루틴
 
 - `/doctor prompt-audit CLAUDE.md` 를 Sonnet·Opus 로 돌려 비교, Opus 권고 중 사실 오류·모순만 적용: 3900줄→큰 파일, 1365→함수명만(m.html 주석 포함), 6개사→DIST_SOURCE_IDS, 공개 액션에 getDistributionMonth, 커밋 서술, 08-18 부트스트랩 문장 삭제, **트리거는 배포본을 돈다**로 통일, 원격 배포 = deploy.yml(컨테이너 clasp OAuth 절차 삭제), 프론트 '로컬 파일' → 웹 서빙, 'manual redeploy' 표현 정리.

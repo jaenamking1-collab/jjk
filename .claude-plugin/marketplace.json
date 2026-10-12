@@ -1,0 +1,5 @@
+{
+  "name": "jjk",
+  "owner": { "name": "jaenamking1-collab" },
+  "plugins": [{ "name": "jjk-guard", "source": "./mods/jjk-guard" }]
+}
