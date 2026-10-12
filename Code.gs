@@ -2333,6 +2333,17 @@ function fetchDist_rise() {
     if (!items.length) return site;
     const latest = items.reduce((a, b) => (b._std > a._std ? b : a));
     items.forEach(it => delete it._std);
+    // SEIBRO 엔 공시일이 없다 → 달력·일정표에서 RISE 공시가 통째로 빠졌다(2026-10-12 지적).
+    // 마지막으로 읽은 KB 공지 목록('9월 말/중순 분배금 지급 안내'의 등록일)으로 채운다.
+    const ln = (_readLastNotices('rise') || {}).items || [];
+    items.forEach(it => {
+      const m = ((it.sched['기준일'] || '').match(/(\d{1,2})월/) || [])[1];
+      if (!m || it.sched['공시일']) return;
+      const re = new RegExp('(^|\\D)' + m + '월\\s*' + (it.cycle === '월말' ? '말' : '중'));
+      const n = ln.find(x => re.test(x.title || '') && /분배/.test(x.title || ''));
+      const d = n && String(n.date || '').match(/\d{4}\.(\d{2})\.(\d{2})/);
+      if (d) it.sched['공시일'] = Number(d[1]) + '월 ' + Number(d[2]) + '일';
+    });
     return { success: true, items, schedule: latest.sched, title: 'RISE 분배금 (예탁결제원 SEIBRO — KB 사이트 접속 실패)',
              _fallback: 'seibro', _siteError: site.error || '' };
   } catch (e) {
