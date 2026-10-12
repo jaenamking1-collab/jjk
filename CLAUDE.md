@@ -231,7 +231,9 @@ Adapted from the [Karpathy coding guidelines](https://x.com/karpathy/status/2015
 - `portfolio.html` — the entire frontend (desktop). Redirects to `m.html` when the viewport is ≤768px unless `?pc=1` is present; the redirect sits in `<head>` so it runs before the password gate.
 - ⛔ **PC 화면(`portfolio.html`)에 기능·값을 넣으면 같은 턴에 모바일(`m.html`)에도 넣는다. 묻지 마라**(2026-10-06 사용자: *"모바일은 당연히 해야지 묻지도 마라"*). 마우스 롤오버(title)는 폰에서 안 보이니 모바일은 탭해서 펼치는 상세(`detail`)에 넣는다.
 - `m.html` — **phone-only frontend** (bottom tab bar; 홈 / 종목 / 분배금 / 더보기). Same backend, same actions, same origin — so it reuses the `jjk_pw_v1` password fingerprint and needs no separate login. Design: `docs/superpowers/specs/2026-08-13-mobile-view-design.md`.
-  - ⚠️ **The calculation formulas are duplicated here.** The server does *not* return 평가금액/손익 — the browser computes them (`renderAccountStats` in `portfolio.html`). `m.html` has its own copy in a single block marked `⚠️ 계산 블록`. **Change one, change both** — a layout drift is visible, a number drift is not. Verify by feeding both files the same holdings/dividends and comparing the six summary figures.
+  - ⚠️ 계산식은 `calc.js` 한 곳에 있다(PC·폰 공용, 2026-10-12). 서버는 평가금액/손익을 주지 않고 브라우저가 계산한다. 고치면 `node tools/calc_test.js` 를 돌리고,
+    숫자를 일부러 바꿨으면 `--update` 로 정답을 갱신한다. 푸시마다 `calc-test.yml` 도 돈다. 공개 페이지(`dist_notice.html`)는 `calc.js` 를 쓰지 않는다.
+    `calc.js` 를 고치면 두 화면의 `calc.js?v=N` 숫자를 올린다(브라우저가 옛 파일을 쓰지 않게).
 - `dist_notice.html` — public standalone copy of the 분배금공지 tab (calendar + 운용사별 일정 + notices). `renderMasterCalendar`·`renderDistGrid`·`renderNotices`·`distIssueNotices` 가 `portfolio.html` 에도 같은 이름으로 있다.
   - ⚠️ **두 파일은 일부러 다르다**(2026-09-15 실측) — `renderMasterCalendar` 만 159줄이 다르고 그게 전부 의도된 것이다: **앱만 보유종목을 안다**(`isHeld`·`보유X`·보유 종목 우선 마킹 — 공개 페이지엔 그 개념 자체가 없다), **공개 페이지만 좁은 칸용 `shortLabel` 을 쓴다.** 이걸 "동기화"한다고 합치면 공개 페이지에 남의 보유내역 개념이 들어간다.
   - ✅ **반드시 같아야 하는 건 '데이터 해석 규칙'뿐이다** — 회차 판정(기준일의 '일', 20일 이하=월중), 예정 합의 문턱(`roundBest.n >= 3`), `uncertain`→`?` 배지, `fillRakil`·`parseDay`. 2026-09-15 확인 시점엔 이 넷이 줄 단위로 같았다. **여기가 갈리면 두 화면이 같은 날짜를 다르게 말한다.**
