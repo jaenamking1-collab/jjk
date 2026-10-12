@@ -27,6 +27,12 @@ Claude 앱은 긴 링크를 화면에 `앞부분…뒷부분` 으로 **줄여 �
 - 데이터를 넘겨야 하면 **짧은 코드**(예: 8글자)를 주고 서버(Apps Script 중계 등)에서 받게 한다 — 휴대폰 시세 목록이 이 방식이다.
 - 긴 주소를 꼭 줘야 하면 링크로 주지 말고, 사용자가 실제로 쓸 수 있는 다른 길(버튼·코드 입력)을 만든다.
 
+## 0-4. CLAUDE.md 는 매달 점검한다 (2026-10-12)
+
+루틴 `CLAUDE.md 월간 프롬프트 점검`(`trig_012uVFsY3S2BxvkQSEaypzAz`, 매월 1일 08:53 KST)이 새 세션에서 Opus 로 `/doctor prompt-audit CLAUDE.md` 를 돌려 '적용 권고 / 보류'로 보고한다. **파일은 사용자 승인 뒤에만 고친다.**
+- 적용: 저장소가 직접 반박하는 사실 오류·문서 안 모순·낡은 절차.
+- 보류: 날짜·사용자 인용·WORKLOG 번호는 **규칙의 이유라 남긴다**. ⛔ 강조 줄이기도 보류(사용자 결정).
+
 ## 0-2. 출력 모드 — 메시지 앞의 `/모드` 를 따른다 (2026-10-03 사용자 지정)
 
 사용자가 메시지 앞에 아래 모드를 붙이면 **그 메시지 한 번**은 그 형식으로 답한다. 모드가 없으면 평소대로.
@@ -66,7 +72,7 @@ Claude 앱은 긴 링크를 화면에 `앞부분…뒷부분` 으로 **줄여 �
 
 A single-file personal dividend-portfolio tracker (`portfolio.html`) for two people (재남 / 은경) holding mostly monthly-distribution Korean ETFs across several brokerage accounts. It tracks holdings, valuations, and monthly dividend income, and visualizes progress toward a goal (₩10,000,000/month in distributions by 2029-02-28).
 
-There is **no build system, package manager, test suite, or lint config**. The frontend — HTML, CSS (`<style>`), and JS (`<script>`) — lives in `portfolio.html` (~3900 lines). Open the file in a browser to run it; there is nothing to compile. The backend lives in `Code.gs` (Google Apps Script).
+There is **no build system, package manager, test suite, or lint config**. The frontend — HTML, CSS (`<style>`), and JS (`<script>`) — lives in `portfolio.html` (one large file). Open the file in a browser to run it; there is nothing to compile. The backend lives in `Code.gs` (Google Apps Script).
 
 ## Working in this repo
 
@@ -76,9 +82,9 @@ There is **no build system, package manager, test suite, or lint config**. The f
 - **Editing**: The file is large with inline styles and one big script block. Use Grep to locate a function/section by line before editing rather than reading the whole file. Function definitions are plain `function name()` / `async function name()` at column 0, so `^(async )?function <name>` finds them fast.
 - **Preview**: Just open `portfolio.html` in a browser (the launch preview panel also renders it). No dev server.
 - ⛔ **비밀번호·열쇠 값은 저장소에 절대 적지 않는다.** 일지에도 코드에도 `••••`로만 쓴다. `jjk`는 **공개 저장소**다 — 한 번 커밋하면 지난 기록에 영구히 남고, 나중에 지워도 완전히 안 지워진다. 실제 값은 Apps Script **스크립트 속성**(`APP_TOKEN`)에만 둔다. (2026-08-05에 적힌 진입 비밀번호가 3주간 공개돼 있었다 — WORKLOG 127.)
-- **Commit/push**: History is a linear series of single-file "Update portfolio.html" commits on `main`, pushed to `origin` (GitHub `jaenamking1-collab/jjk`). Git identity is set locally as `jaenamking1-collab <jaenamking1@gmail.com>` (not global — new clones must set it). The owner works across **two PCs (work / home)** and wants every change committed and pushed automatically without asking.
+- **Commit/push**: Commits go straight to `main` and are pushed to `origin` (GitHub `jaenamking1-collab/jjk`). Git identity is set locally as `jaenamking1-collab <jaenamking1@gmail.com>` (not global — new clones must set it). The owner works across **two PCs (work / home)** and wants every change committed and pushed automatically without asking.
 - **Two-PC routine**: This repo is edited from two machines. **The very first thing in every session — before reading anything, before `git pull`: run `git status`. If the tree is dirty, commit and push it immediately**, before any other action. A dirty tree at session start means *the previous session on this PC ended without committing* and that work is stranded — pulling first can turn it into a conflict, and reading first wastes the chance to rescue it. Then `git pull` so the other PC's work (and `WORKLOG.md` / `CLAUDE.md` rules) is present. **End every session by** adding one entry to the top of `WORKLOG.md`, then `git add .` → `git commit` → `git push`. `WORKLOG.md` is the running cross-PC log; keep it current.
-- **This is also automated — but don't rely on it alone.** `.claude/settings.json` (committed, so both PCs get it) holds two hooks: `SessionStart` rescues a dirty tree then pulls, and `Stop` commits + pushes at the end of every turn. Both are limited to `main` and skip mid-merge/rebase. **A PC that has never pulled since 2026-08-18 does not have them yet** — the hooks arrive via the very pull they are meant to perform, so on that one bootstrap session the rule above is the only thing protecting the work. Do it by hand there. (This gap is exactly how the 2026-08-18 school work was stranded — see WORKLOG 99.)
+- **This is also automated — but don't rely on it alone.** `.claude/settings.json` (committed, so both PCs get it) holds two hooks: `SessionStart` rescues a dirty tree then pulls, and `Stop` commits + pushes at the end of every turn. Both are limited to `main` and skip mid-merge/rebase.
 
 ## 세션 연속성 (WORKLOG.md)
 
@@ -102,7 +108,7 @@ There is **no build system, package manager, test suite, or lint config**. The f
 - `Code.gs` is the source of the deployed Apps Script. **Editing it here does NOT deploy it.**
   - ⛔ **배포는 에이전트가 clasp로 한다. 사용자에게 "편집기에 붙여넣고 재배포하세요"라고 시키지 마라.** 두 PC(직장/집) 모두 clasp로 배포한다. `clasp`가 없으면 **묻지 말고 설치해라**: `npm i -g @google/clasp` (2026-08-19 집 PC에서 이것 때문에 헛되이 붙여넣기를 요청했다가 지적받음 — 환경 차이는 내가 메꾼다). 사용자 몫은 `clasp login` 브라우저 '허용' 1회뿐(구글 인증은 에이전트가 못 한다).
   - **`clasp` is set up** (`.clasp.json` → project `포트폴리오관리`, id `1yYeK3W1aHUY…`). `clasp push` from the repo root uploads **only `Code.gs`** — `.claspignore` blocks everything else, which matters because `okx_nft_alert.gs` and `public_dist_proxy.gs` are **separate** Apps Script projects and `portfolio.html`/`dist_notice.html` are frontend files. Verify the file set any time with `clasp status` (should list `Code.gs` alone).
-  - **`clasp push` updates the editor content, not the deployment.** Time-driven triggers and manual `▶` runs use the saved editor code, so they take effect immediately. **The web app served at the `/exec` URL keeps running the old version until you redeploy** — so the rule is: **if the changed code runs in a `doGet`/`doPost` path, it needs a redeploy.** (A `getDistribution` parser fix was pushed and wrongly called "no redeploy needed" on 2026-08-12; the frontend kept showing the broken output. See WORKLOG 93.)
+  - **`clasp push` updates the editor content, not the deployment.** Only manual `▶` runs in the editor use the saved code. **The `/exec` web app and the time-driven triggers (installed via `maint` → `resetAllTriggers`) run the deployed version** — so any `Code.gs` change they run needs a redeploy.
   - **배포 절차 (그대로 따라라)**:
     1. 임시 폴더에 `.clasp.json`만 복사해 `clasp pull` → 원격이 내 작업 전 로컬과 같은지 확인. (**저장소 안에서 `clasp pull` 금지** — 로컬 `Code.gs`가 옛 원격본으로 덮인다.)
     2. `clasp push --force` — **`--force` 없으면 매니페스트 확인 프롬프트에서 `Skipping push.`로 끝난다.** 비대화형이라 `echo y |` 파이프도 안 먹는다.
@@ -118,8 +124,7 @@ There is **no build system, package manager, test suite, or lint config**. The f
        - ✅ **내가 돌린다. 사용자에게 ▶ 를 부탁하지 마라** (2026-09-12 확인). `maint` 워크플로로
          `fn=resetAllTriggers` 를 돌리면 된다 — 웹앱은 소유자 권한으로 돌기 때문에 트리거 설치가
          **된다**(13개 함수 전부 ✅, 트리거 15개 재설치를 로그로 확인). `clasp run-function` 이
-         안 되는 것과는 별개 통로다. 이 문서에 오래 적혀 있던 "이것만은 사람이 눌러야 한다"는
-         **틀린 기록이었다** — 웹앱 통로를 안 만들어 봤을 뿐이다.
+         안 되는 것과는 별개 통로다.
        - 화면에는 감지 장치도 있다(`showDistDead`/`renderFreshness`): 데이터가 공지창엔 6시간,
          그 밖의 날엔 30시간 넘게 안 바뀌면 분배금공지 탭에 🚨 배너가 뜬다. 배너는 안전망이지
          예방책이 아니다 — 배포 직후에 `maint` 를 돌려라.
@@ -129,13 +134,9 @@ There is **no build system, package manager, test suite, or lint config**. The f
     `Cannot create more versions: Script has reached the limit of 200 versions.` **버전을 지우는
     API는 없다** — `DELETE .../versions/N` 은 404 고, 안 쓰는 배포를 `clasp undeploy` 로 지워도
     버전 수는 안 줄었다(6개 지워 봤다). 사람이 편집기에서 지워야 한다.
-    - **그래도 손이 묶이는 건 아니다.** **시간 트리거와 편집기 ▶ 는 배포본이 아니라 `clasp push` 로
-      저장된 코드를 실행한다.** 그러니 `doGet`/`doPost` 를 안 타는 일(시트 손보기, 데이터 채우기)은
-      **push 만으로 오늘 안에 돌릴 수 있다.** 5분마다 도는 `keepWarm` 에 '하루 한 번 따라잡기'가
-      들어 있어(`assetDay` 속성) `pushTrendData`·`markInputCells` 는 곧 저절로 돈다.
-      ⚠️ **틀렸다(2026-09-29 실측, WORKLOG 200).** 트리거를 `maint`(웹앱)의 `resetAllTriggers` 로 깔면
-      그 트리거는 **배포본**을 돈다. 00:42 push 뒤 20분간 keepWarm 이 새 코드를 안 돌았고, 배포(01:03)
-      직후 01:04 에 돌았다. **버전 상한에 걸리면 트리거용 변경도 막힌다** — 사용자에게 버전 삭제를 바로 부탁해라.
+    - **트리거도 배포본을 돈다**(2026-09-29 실측, WORKLOG 200). `resetAllTriggers` 로 깐 시간 트리거는
+      push 한 저장본이 아니라 **배포본**을 실행한다(편집기 ▶ 만 저장본). 그래서 트리거가 쓰는 코드를 바꿔도
+      새 버전이 필요하고, **버전 상한에 걸리면 트리거용 변경도 막힌다** — 사용자에게 버전 삭제를 바로 부탁해라.
     - **웹앱(`/exec`)만은 새 버전이 필요하다.** 프론트가 쓰는 액션을 고쳤으면 배포가 뚫릴 때까지
       화면엔 반영되지 않는다. 그땐 사용자에게 삭제를 부탁하는 수밖에 없다(구글 계정 안에서만
       되는 일이다 — 근거를 같이 줘라). **부탁할 땐 아래를 그대로 준다:**
@@ -146,19 +147,15 @@ There is **no build system, package manager, test suite, or lint config**. The f
       - **활성 배포가 쓰는 버전은 못 지운다.** 먼저 안 쓰는 배포를 `clasp undeploy` 로 치워
         두면(저장소에서 `grep -o 'AKfycb[A-Za-z0-9_-]*'` 로 실제 쓰이는 것만 남긴다) 라이브
         하나만 묶이고 나머지는 다 지워진다.
-    - 교훈: **배포를 습관처럼 하지 마라.** 트리거만 쓰는 변경이면 `clasp push` 로 끝난다.
-  - ✅ **원격(클라우드) 세션에서도 배포된다** (2026-09-03 확인). 막힌 건 `script.google.com` **하나뿐**이고 clasp 가 실제로 쓰는 `script.googleapis.com`·`oauth2.googleapis.com`·`accounts.google.com` 은 열려 있다. "원격이라 배포 못 한다"고 말하지 마라 — 아래 순서로 하면 된다.
-    1. `npm i -g @google/clasp@2.4.2`
-    2. **로그인**: `clasp login` 의 로컬 콜백 서버는 컨테이너 안에 떠서 사용자 브라우저가 못 닿는다. 그래서 인증 URL을 직접 만들어 준다 — clasp 의 공개 client(`1072944905499-vm2v2i5dvn0a0d2o4ca36i1vge8cvbn0.apps.googleusercontent.com`, secret 은 `build/src/auth.js` 안에 있다)와 `redirect_uri=http://localhost:33353`, scope 는 `clasp login` 이 찍는 것 그대로. 사용자가 허용하면 `localhost:33353/?code=...` 로 넘어가 **연결 실패 페이지**가 뜨는데 정상이다. 주소창의 `code=` 를 받아 `oauth2.googleapis.com/token` 에 교환하고 `~/.clasprc.json` 을 `{token, oauth2ClientSettings, isLocalCreds:false}` 형태로 쓴다. `clasp login --status` 로 확인.
-    3. 그다음은 아래 '배포 절차' 그대로.
-    - ⚠️ **컨테이너는 세션마다 새로 만들어져 `~/.clasprc.json` 이 사라진다.** 원격에서 배포할 일이 있으면 그 세션에서 위 2번(사용자 클릭 1회, 30초)을 다시 해야 한다. **토큰은 저장소에 절대 남기지 않는다.**
+    - 교훈: **배포를 습관처럼 하지 마라.** 프론트 파일만 바뀐 변경은 배포 대상이 아니다. `Code.gs` 가 바뀌었으면 위 규칙대로 배포한다.
+  - ✅ **원격(클라우드) 세션은 `deploy.yml` 로 배포한다**(Actions, `CLASPRC_JSON` Secret — `actions_run_trigger` 로 실행). 컨테이너에서 clasp OAuth 로그인은 구글이 '확인되지 않은 앱'으로 막는다(2026-09-11 확인, `deploy.yml` 머리말). "원격이라 배포 못 한다"고 말하지 마라. **토큰은 저장소에 절대 남기지 않는다.**
   - **원격 컨테이너에서 운용사 사이트가 막혀도(`connect_rejected`) 포기하지 마라** — `fetch.yml` 워크플로에 URL 을 주면 Actions 러너가 받아 `probe-out` 브랜치에 원본(HTML·이미지·JSON·인증서 체인 `tls.txt`)을 올린다. 읽기는 `curl -H 'Accept: application/vnd.github.raw' https://api.github.com/repos/jaenamking1-collab/jjk/contents/<파일>?ref=probe-out` (raw.githubusercontent 는 캐시돼 늦다). 2026-10-01 HANARO·KIWOOM 을 이걸로 뚫었다.
 - **`clasp run-function` does not work** here — it needs the script deployed as an API executable. 하지만 **그게 "사람이 눌러야 한다"는 뜻은 아니다**: 웹앱(`/exec`)은 소유자 권한으로 도니 아래 `runMaint` 로 실행한다. `MAINT_ALLOW` 에 이름만 추가하면 트리거 설치 함수(`setupKeepWarm` 등)도 마찬가지다.
   - ✅ **진단·복구 함수는 `runMaint` 로 내가 직접 돌린다 — 소유자에게 ▶ 를 부탁하지 마라** (2026-09-12). `Code.gs` 의 `runMaint(fn, arg)` 가 `MAINT_ALLOW` 화이트리스트 함수를 실행하고 `console.log` 를 가로채 **로그까지 응답에 실어 준다.** `APP_TOKEN` 이 필요하다(`PUBLIC_ACTIONS` 아님). 실행 통로는 `.github/workflows/maint.yml`(`APP_TOKEN` Secret) — `actions_run_trigger` 로 `maint.yml` 을 `fn`/`arg` 와 함께 돌리고 로그를 읽는다.
     - 함수를 새로 만들면 **`MAINT_ALLOW` 에 이름을 추가**해야 부를 수 있다.
     - ✅ **`resetAllTriggers` 도 여기서 돈다**(2026-09-12 확인). 배포 직후 `maint` 로 돌려라 — 위 '배포 절차' 5단계.
   - One-time per machine: `npm i -g @google/clasp`(에이전트가 함) + `clasp login`과 `script.google.com/home/usersettings`의 **Apps Script API** 토글(구글 계정 행위 — 소유자가 함). 자격증명은 `~/.clasprc.json`.
-  - **`portfolio.html`·`m.html`·`dist_notice.html`은 배포 대상이 아니다.** 로컬 파일을 브라우저로 열고, `.claspignore`가 push에서 막는다. git push로 끝.
+  - **`portfolio.html`·`m.html`·`dist_notice.html`은 clasp 배포 대상이 아니다**(`.claspignore`가 막는다). 웹으로 서빙되니 `main` 에 푸시하면 끝.
 - The Apps Script reads/writes two spreadsheets by ID: the app's own DB sheet (`SHEET_ID`, tabs `accounts`/`holdings`/`dividends`/`config`/`stocks` + logs/caches) and an external "주식상황"/"분배금" sheet (hardcoded ID in `getSheetData`/`getDivSheetData`) that the sync features diff against.
 - `doGet` routes `?action=` reads; `doPost` routes JSON-body writes. `getDistribution(source)` scrapes eight ETF issuers (KODEX/TIGER/ACE/RISE/PLUS/SOL + 2026-10-01 HANARO/KIWOOM) with per-issuer parsers (HANARO = 공지 본문 HTML 표, KIWOOM = '분배금 정보' 종목별 JSON API — 인증서 체인이 깨져 `validateHttpsCertificates:false`), a smarttoday.co.kr news fallback, an adaptive sheet cache (`분배캐시`, keyed by billing "cycle"), and optional Google Vision OCR (needs `VISION_API_KEY` script property) for schedules embedded in notice images. `checkAndLogAlerts` fingerprints each parse to detect structure changes and writes to the `알림로그` sheet. Several time-driven triggers exist (`snapshotPrices`, `snapshotPortfolio`, `compactPriceLog`, `refreshAllDistributions`, `checkDistNotices`).
 - **Functions meant to be run by hand from the Apps Script editor go at the very bottom of `Code.gs`, under the `===== 수동 실행 =====` banner** (`setupDistTriggers`, `setupPortfolioTriggers`, `_testNoticeWindow`). Don't scatter them mid-file — they're hard to find in the editor's function dropdown otherwise. Leave a one-line pointer where the code logically belongs.
@@ -171,9 +168,9 @@ There is **no build system, package manager, test suite, or lint config**. The f
 
 Reads (`api`): `getExchangeRate`, `getAccounts`, `getHoldings`, `getDividends`, `getSheetData`, `getDivSheetData`, `getDistribution`, `getDistributionAll`, `getPortfolioLog`, `getPriceLog`, `getStockPrice`, `getEtfScreener`, `getEtfNotices`, `getEtfNoticesAll`, `getStockList`, `getAlerts`, `markAlertRead`, `checkAlerts`, `hitCounter`.
 
-**공개 액션**(`PUBLIC_ACTIONS`, `APP_TOKEN` 없이 열림 — 공개 분배금공지 페이지가 쓴다): `getDistribution`, `getDistributionAll`, `getEtfNotices`, `getEtfNoticesAll`, `hitCounter`, `getPricesCsv`, `getNoticeChanges`(알림로그 중 공지변경만·24시간). 나머지는 전부 토큰이 필요하고, 서로 다른 오답 5개가 쌓이면 5분간 잠긴다.
+**공개 액션**(`PUBLIC_ACTIONS`, `APP_TOKEN` 없이 열림 — 공개 분배금공지 페이지가 쓴다): `getDistribution`, `getDistributionAll`, `getDistributionMonth`, `getEtfNotices`, `getEtfNoticesAll`, `hitCounter`, `getPricesCsv`, `getNoticeChanges`(알림로그 중 공지변경만·24시간). 나머지는 전부 토큰이 필요하고, 서로 다른 오답 5개가 쌓이면 5분간 잠긴다.
 
-`getDistributionAll` 은 6개사를 한 번에 준다(개별 호출 6번 대신 시트 1회 읽기). 운용사별로 `stale`(캐시가 낡음)과 `savedAt`(분배캐시에 쓰인 시각)이 함께 오고, 화면 헤더의 '데이터 기준 시각'이 이 값을 쓴다. ⚠️ `_파서메타`의 `itemCount` 는 **직전 2회차가 병합된** 건수라 분배캐시 행의 건수(이번 회차만)와 다르다.
+`getDistributionAll` 은 `DIST_SOURCE_IDS` 의 운용사 전부를 한 번에 준다(개별 호출 대신 시트 1회 읽기). 운용사별로 `stale`(캐시가 낡음)과 `savedAt`(분배캐시에 쓰인 시각)이 함께 오고, 화면 헤더의 '데이터 기준 시각'이 이 값을 쓴다. ⚠️ `_파서메타`의 `itemCount` 는 **직전 2회차가 병합된** 건수라 분배캐시 행의 건수(이번 회차만)와 다르다.
 
 Writes (`apiPost`): `addAccount` / `updateAccount` / `deleteAccount`, `addHolding` / `updateHolding` / `deleteHolding`, `saveDividend`.
 
@@ -222,21 +219,21 @@ Writes (`apiPost`): `addAccount` / `updateAccount` / `deleteAccount`, `addHoldin
 
 ## Working principles
 
-Adapted from the [Karpathy coding guidelines](https://x.com/karpathy/status/2015883857489522876) — they matter more than usual here because there is no test suite or type checker to catch mistakes, and the backend must be redeployed by hand. They bias toward caution over speed; for trivial edits, use judgment.
+Adapted from the [Karpathy coding guidelines](https://x.com/karpathy/status/2015883857489522876) — they matter more than usual here because there is no test suite or type checker to catch mistakes, and the backend is deployed separately from the frontend. They bias toward caution over speed; for trivial edits, use judgment.
 
 1. **Think before coding.** State assumptions out loud instead of hiding uncertainty. When a request has multiple valid readings (e.g. "remove the ₩" — every page, or just totals?), lay out the options and recommend the simpler one before editing. If something is genuinely ambiguous, stop and ask rather than guess — a wrong guess here ships to a live personal-finance app.
 2. **Simplicity first.** This is a personal two-user tool, not a framework. Write the minimal change that solves the actual request — no speculative features, config toggles, abstractions, or defensive handling for cases that can't occur. Match the existing plain-`function`, inline-style, `api()`/`apiPost()` idiom rather than introducing new patterns. *Self-check: "Would a senior engineer call this overcomplicated?" If 200 lines could be 50, rewrite it.*
-3. **Surgical changes.** Edit only what the task needs. Don't reformat, rename, or "improve" untouched code in the same file — diffs are reviewed by eye against a ~3900-line file, so noise hides real changes. Remove imports/variables/functions that *your* change orphaned, but flag pre-existing dead code (like the stray top-level debug lines that were in `Code.gs`) instead of silently deleting it unless asked. Preserve the documented **Conventions** above. *The test: every changed line should trace directly to the request.*
-4. **Goal-driven execution.** Define how you'll verify before you start, then loop until it holds. Reframe vague tasks as checkable goals: "fix the bug" → reproduce it first — there's no test runner, so reproduce in the browser console or a scratch fetch (e.g. dumping `_distData` to pin down a mis-render), then confirm the reproduction is gone. For multi-step work, state a brief plan with a verify step per line. Remember `Code.gs` only takes effect after a **manual redeploy** — say so explicitly — and state the concrete success criterion ("월합계 셀에 ₩가 사라지고 숫자 크기가 나머지와 같다") and confirm it's met.
+3. **Surgical changes.** Edit only what the task needs. Don't reformat, rename, or "improve" untouched code in the same file — diffs are reviewed by eye against a single large file, so noise hides real changes. Remove imports/variables/functions that *your* change orphaned, but flag pre-existing dead code (like the stray top-level debug lines that were in `Code.gs`) instead of silently deleting it unless asked. Preserve the documented **Conventions** above. *The test: every changed line should trace directly to the request.*
+4. **Goal-driven execution.** Define how you'll verify before you start, then loop until it holds. Reframe vague tasks as checkable goals: "fix the bug" → reproduce it first — there's no test runner, so reproduce in the browser console or a scratch fetch (e.g. dumping `_distData` to pin down a mis-render), then confirm the reproduction is gone. For multi-step work, state a brief plan with a verify step per line. Remember `Code.gs` changes take effect only after deploy (`deploy.yml` → `maint resetAllTriggers`), and state the concrete success criterion ("월합계 셀에 ₩가 사라지고 숫자 크기가 나머지와 같다") and confirm it's met.
 
 ## Files
 
 - `portfolio.html` — the entire frontend (desktop). Redirects to `m.html` when the viewport is ≤768px unless `?pc=1` is present; the redirect sits in `<head>` so it runs before the password gate.
 - ⛔ **PC 화면(`portfolio.html`)에 기능·값을 넣으면 같은 턴에 모바일(`m.html`)에도 넣는다. 묻지 마라**(2026-10-06 사용자: *"모바일은 당연히 해야지 묻지도 마라"*). 마우스 롤오버(title)는 폰에서 안 보이니 모바일은 탭해서 펼치는 상세(`detail`)에 넣는다.
 - `m.html` — **phone-only frontend** (bottom tab bar; 홈 / 종목 / 분배금 / 더보기). Same backend, same actions, same origin — so it reuses the `jjk_pw_v1` password fingerprint and needs no separate login. Design: `docs/superpowers/specs/2026-08-13-mobile-view-design.md`.
-  - ⚠️ **The calculation formulas are duplicated here.** The server does *not* return 평가금액/손익 — the browser computes them (`renderAccountStats`, `portfolio.html:1365`). `m.html` has its own copy in a single block marked `⚠️ 계산 블록`. **Change one, change both** — a layout drift is visible, a number drift is not. Verify by feeding both files the same holdings/dividends and comparing the six summary figures.
+  - ⚠️ **The calculation formulas are duplicated here.** The server does *not* return 평가금액/손익 — the browser computes them (`renderAccountStats` in `portfolio.html`). `m.html` has its own copy in a single block marked `⚠️ 계산 블록`. **Change one, change both** — a layout drift is visible, a number drift is not. Verify by feeding both files the same holdings/dividends and comparing the six summary figures.
 - `dist_notice.html` — public standalone copy of the 분배금공지 tab (calendar + 운용사별 일정 + notices). `renderMasterCalendar`·`renderDistGrid`·`renderNotices`·`distIssueNotices` 가 `portfolio.html` 에도 같은 이름으로 있다.
-  - ⚠️ **"전부 미러해라"는 틀린 지시다**(2026-09-15 실측으로 정정). 두 파일은 **일부러** 다르다 — `renderMasterCalendar` 만 159줄이 다르고 그게 전부 의도된 것이다: **앱만 보유종목을 안다**(`isHeld`·`보유X`·보유 종목 우선 마킹 — 공개 페이지엔 그 개념 자체가 없다), **공개 페이지만 좁은 칸용 `shortLabel` 을 쓴다.** 이걸 "동기화"한다고 합치면 공개 페이지에 남의 보유내역 개념이 들어간다.
+  - ⚠️ **두 파일은 일부러 다르다**(2026-09-15 실측) — `renderMasterCalendar` 만 159줄이 다르고 그게 전부 의도된 것이다: **앱만 보유종목을 안다**(`isHeld`·`보유X`·보유 종목 우선 마킹 — 공개 페이지엔 그 개념 자체가 없다), **공개 페이지만 좁은 칸용 `shortLabel` 을 쓴다.** 이걸 "동기화"한다고 합치면 공개 페이지에 남의 보유내역 개념이 들어간다.
   - ✅ **반드시 같아야 하는 건 '데이터 해석 규칙'뿐이다** — 회차 판정(기준일의 '일', 20일 이하=월중), 예정 합의 문턱(`roundBest.n >= 3`), `uncertain`→`?` 배지, `fillRakil`·`parseDay`. 2026-09-15 확인 시점엔 이 넷이 줄 단위로 같았다. **여기가 갈리면 두 화면이 같은 날짜를 다르게 말한다.**
   - 🔎 두 화면이 달라 보이면 **먼저 데이터를 의심해라.** 2026-09-15 에 `PLUS?`(앱) vs `PLUS`(공개)로 갈린 건 렌더 차이가 아니라 그 순간 받은 분배 데이터가 달랐던 것이고, 뿌리는 PLUS 가 6월 기사를 물고 있던 것이었다(WORKLOG 162).
   - ⛔ **우선순위: 앱(`portfolio.html`)이 먼저다. 공개 페이지는 실수 없게**(2026-10-01 사용자: *"원래 앱이 우선 작업이고 공지페이지는 실수없게 해야 한다"*).
