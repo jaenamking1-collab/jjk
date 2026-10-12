@@ -5989,9 +5989,16 @@ function _diagScoreRoll() {
     if (p && p.qty === q && p.avg === a) return;
     step(id, String(h.account_id), h.currency, h.ticker, q, a, today, p ? '' : (log.length ? 'new' : 'base')); });
   Object.keys(at).forEach(id => { const p = at[id]; if (!seen[id] && p.qty) step(id, p.acc, p.cur, p.t, 0, p.avg, today, 'gone'); });
+  // 앱(rollScorecard lateTk)과 같게: 기준일 달의 **월말 회차**(기준일 20일 넘음)는 다음 달 초 지급이라 더한다.
+  const late = {};
+  Object.values((getDistributionMonth(+ASOF.slice(5, 7)) || {}).sources || {}).forEach(v => (v.items || []).forEach(it => {
+    const md = _mdOfSched((it.sched || {})['기준일']);   // 앱과 같게 기준일만
+    if (md && md.d > 20) late[String(it.ticker || '').trim().toUpperCase()] = 1; }));
   divs.forEach(d => { const ym = d.year + '-' + String(d.month).padStart(2, '0'), amt = +d.amount || 0;
-    if (ym <= ASOF.slice(0, 7) || !amt) return;
-    const h = hs.find(x => String(x.id) === String(d.holding_id)); const acc = h ? String(h.account_id) : at[d.holding_id] && at[d.holding_id].acc;
+    const h = hs.find(x => String(x.id) === String(d.holding_id));
+    const tk = String((h ? h.ticker : (at[d.holding_id] || {}).t) || '').trim().toUpperCase();
+    if (ym < ASOF.slice(0, 7) || !amt || (ym === ASOF.slice(0, 7) && !late[tk])) return;
+    const acc = h ? String(h.account_id) : at[d.holding_id] && at[d.holding_id].acc;
     if (!acc) return; const v = k(amt, d.currency, +d.rate); ev.push({ date: ym + '-01', acc, amt: v }); C(acc).div++; C(acc).divAmt += v; });
   ev.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
   console.log('보유변동 ' + log.length + '줄 · 마지막 기록일 ' + (log.length ? log.map(r => r.date.slice(0, 10)).sort().pop() : '-') + ' · 오늘 ' + today);
