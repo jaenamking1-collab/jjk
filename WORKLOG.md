@@ -10,6 +10,7 @@
 - 약속대로 함수·gcf-artifacts 저장소 삭제(비용 0). 남은 것: 프로젝트에 Cloud Functions·Run·Build·Artifact Registry API 켜짐, 컴퓨트 SA 에 cloudbuild.builds.builder 역할(무료·무해).
 - 원격 gcloud: 환경변수 `CLOUDSDK_AUTH_ACCESS_TOKEN` 이 로그인보다 앞서므로 `env -u CLOUDSDK_AUTH_ACCESS_TOKEN gcloud …` 로 써야 한다. 프로젝트 id `project-d3a1f375-d441-4446-91a`(결제 연결됨).
 - 다음: 한국 통신사 회선(학교·집 PC) 경유 또는 AWS 서울 시험 — 사용자 결정 대기. 그 전까지 RISE 는 블로그 경로(251).
+- 18:02 블로그 경로 정상 확인. 그런데 공지 목록이 블로그 것으로 덮여 **9월 말 공시일(9/23)이 다시 빠짐** → `_riseFillNotice` 에 ③ 분배캐시 지난 저장분(같은 회차·기준일)의 공시일을 쓰게 추가.
 
 ## 2026-10-12 (251) / 원격 — RISE 10월 중순 공시가 안 들어옴 → **RISE 네이버 블로그** 경로 추가
 
