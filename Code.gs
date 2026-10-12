@@ -2363,6 +2363,22 @@ function fetchDist_rise() {
 // 9월 말 블로그 글은 지급 뒤인 10/2 에 올라왔다).
 function _riseFillNotice(items) {
   const ln = (_readLastNotices('rise') || {}).items || [];
+  // ③ 분배캐시의 지난 저장분 — KB 를 읽던 때 저장한 같은 회차(같은 기준일)의 공시일. 공지 목록이 블로그 것으로
+  //    덮여도(lastN 은 마지막 성공분 하나뿐) 9/23 같은 KB 공시일을 잃지 않게(2026-10-12 9월 말 공시일이 다시 빠졌다).
+  let past = null;
+  const pastOf = (cyc, std) => {
+    if (!past) {
+      past = {};
+      try {
+        _distCacheSheet().getDataRange().getValues().forEach(r => {
+          if (r[0] !== 'rise') return;
+          let pl; try { pl = JSON.parse(r[1]); } catch (e) { return; }
+          (pl.items || []).forEach(x => { const s = x.sched || {}; if (s['공시일'] && s['기준일']) past[x.cycle + '|' + s['기준일']] = s['공시일']; });
+        });
+      } catch (e) {}
+    }
+    return past[cyc + '|' + std];
+  };
   items.forEach(it => {
     const m = ((it.sched['기준일'] || '').match(/(\d{1,2})월/) || [])[1];
     if (!m || it.sched['공시일']) { delete it._post; return; }
@@ -2371,6 +2387,7 @@ function _riseFillNotice(items) {
     const n = ln.find(x => re.test(x.title || '') && /분배/.test(x.title || '') && !/blog\.naver/.test(x.url || ''));
     const d = n && String(n.date || '').match(/\d{4}\.(\d{2})\.(\d{2})/);
     if (d) it.sched['공시일'] = Number(d[1]) + '월 ' + Number(d[2]) + '일';
+    else if (pastOf(it.cycle, it.sched['기준일'])) it.sched['공시일'] = pastOf(it.cycle, it.sched['기준일']);
     else if (it._post && it._post <= it._std) it.sched['공시일'] = Number(it._post.slice(4, 6)) + '월 ' + Number(it._post.slice(6, 8)) + '일';
     delete it._post;
   });
