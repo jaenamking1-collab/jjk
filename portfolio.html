@@ -15,6 +15,7 @@ if (!/[?&]pc=1/.test(location.search) && window.innerWidth <= 768) {
 <!-- SheetJS(약 900KB)는 엑셀 탭에서만 쓴다. head 에서 동기 로드하면 그동안 첫 화면이
      통째로 멈춘다 → defer. 순서는 지켜지고 DOMContentLoaded 전에 실행되므로 탭 진입 시엔 준비돼 있다. -->
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="calc.js?v=1"></script>
 <style>
   :root {
     --bg: #f4f7ff;
@@ -1486,52 +1487,14 @@ function renderAccounts() {
 // 없으면 지금 환율로 떨어진다(rate 칸이 생기기 전의 옛 기록). 지난 달 합계가 오늘 환율에
 // 따라 매일 달라지던 것을 막는 것이 목적이다.
 // ⚠️ '앞으로 받을 예상'(투영)에는 쓰지 않는다 — 그건 오늘 환율이 맞다.
-function divKrwOf(amt, cur, rowRate, er) {
-  const a = parseFloat(amt) || 0;
-  return cur === 'USD' ? a * (parseFloat(rowRate) || er) : a;
+function divKrwOf(amt, cur, rowRate, er) {   // 식은 calc.js
+  return Calc.divKrw(amt, cur, rowRate, er);
 }
 
 // 종목별 연간 분배금 투영 — 대시보드 loadDashboard와 동일 알고리즘.
 // 반환: { holding_id: 연 투영액 }  (금액은 저장된 그대로=KRW 취급, 대시보드와 동일)
-function projectAnnualDist(holdings, dividends, year) {
-  const byH = {};
-  (dividends || []).forEach(d => {
-    const hid = d.holding_id, y = parseInt(d.year), m = parseInt(d.month);
-    if (!hid || !y || !m) return;
-    (byH[hid] = byH[hid] || {});
-    (byH[hid][y] = byH[hid][y] || {});
-    byH[hid][y][m] = parseFloat(d.amount) || 0;
-  });
-  const ALLM = [1,2,3,4,5,6,7,8,9,10,11,12];
-  const payMonthsOf = (h) => {
-    const cyc = h.div_cycle || '';
-    if (/월|주/.test(cyc)) return ALLM;
-    const hist = byH[h.id] || {};
-    const ms = [...new Set(Object.values(hist).flatMap(o => Object.keys(o).map(Number)).filter(Boolean))].sort((a,b)=>a-b);
-    if (ms.length) return ms;
-    if (/분기/.test(cyc)) return [3,6,9,12];
-    if (/반기/.test(cyc)) return [6,12];
-    return [];
-  };
-  const perH = {};
-  (holdings || []).forEach(h => {
-    if ((parseFloat(h.quantity) || 0) <= 0) { perH[h.id] = 0; return; }   // 판 종목은 앞으로 안 나온다
-    const thisYear = (byH[h.id] && byH[h.id][year]) || {};
-    let vals = Object.values(thisYear).filter(v => v > 0);
-    if (!vals.length) vals = Object.values(byH[h.id] || {}).flatMap(o => Object.values(o)).filter(v => v > 0);
-    // 1회 예상액 = **최근 3회** 평균. 올해 전체 평균은 연중 추가 매수 전(수량 적던 때)의 작은 금액이
-    // 끌어내려 월배당 48종목 합계가 월 ~75만원 낮게 잡혔다(2026-09-27 실측, 사용자 결정 A).
-    // vals 는 월 오름차순(연도 넘어가면 연도 오름차순)이라 뒤에서 3개가 가장 최근이다.
-    const recent = vals.slice(-3);
-    const perPay = recent.length ? recent.reduce((a,b)=>a+b,0) / recent.length : 0;
-    let sum = 0;
-    payMonthsOf(h).forEach(m => {
-      const actual = thisYear[m] || 0;
-      sum += actual > 0 ? actual : perPay;
-    });
-    perH[h.id] = sum;
-  });
-  return perH;
+function projectAnnualDist(holdings, dividends, year) {   // 식은 calc.js (m.html 과 같이 쓴다)
+  return Calc.projectAnnual(holdings, dividends, year);
 }
 
 async function loadAccountStats() {
@@ -2891,21 +2854,9 @@ async function renderGoalRun(runInfo, monthlyAvg, GOAL) {
     const t = String(it.ticker).toUpperCase();
     if (!(t in perUnit)) perUnit[t] = Number(it.amount);
   }));
-  let run = 0, base = 0, fromNotice = 0;
-  const noData = [];
-  runInfo.forEach(({ h, perPayK, lastK, n }) => {
-    const qty = parseFloat(h.quantity) || 0;
-    let t = String(h.ticker || '').trim().toUpperCase();
-    if (h.currency !== 'USD' && /^\d{1,5}$/.test(t)) t = t.padStart(6, '0');
-    const monthly = /월|주/.test(h.div_cycle || '');
-    const acc = (state.accounts || []).find(a => a.id === h.account_id);
-    const net = acc && ppAccClass(acc) === '일반' ? 1 - taxRateOf(h.name, Array.isArray(rates) ? rates : []) : 1;
-    const b = monthly ? lastK : (perPayK > 0 && n > 0 ? perPayK * n / 12 : 0);
-    base += b;
-    if (monthly && perUnit[t]) { run += qty * perUnit[t] * net; fromNotice++; }
-    else if (b > 0) run += b;
-    else noData.push((h.name || h.ticker) + (acc ? ' (' + acc.name + ')' : ''));
-  });
+  // 식은 calc.js (m.html 과 같이 쓴다)
+  const { run, base, fromNotice, noData } = Calc.goalRun(runInfo, perUnit, state.accounts, ppAccClass,
+    name => taxRateOf(name, Array.isArray(rates) ? rates : []));
   const d = run - base;
   el.innerHTML = `지금 보유 기준 예상 <b style="color:var(--text);font-family:var(--mono)">월 ${Math.round(run).toLocaleString()}</b>`
     + ` (${(run / GOAL * 100).toFixed(1)}%) · 입력 기준 한 달 치 ${Math.round(base).toLocaleString()}보다 <b style="color:${d >= 0 ? 'var(--red)' : 'var(--accent)'}">${d >= 0 ? '+' : ''}${Math.round(d).toLocaleString()}</b>`
@@ -3032,69 +2983,9 @@ async function loadDashboard() {
   });
   const pl = valued - valuedCost, plPct = valuedCost>0? pl/valuedCost*100 : 0;
 
-  // 분배금 집계 — 종목별 투영(입력=확정, 빈 지급월=평균 예상) + USD 환산
-  const divKrw = (a, cur) => cur === 'USD' ? a * rate : a;   // USD 종목은 달러로 저장된다(그리드와 동일)
-  const byHolding = {}, divRate = {};
-  divs.forEach(d => {
-    const hid = d.holding_id, y = parseInt(d.year), m = parseInt(d.month);
-    if (!hid || !y || !m) return;
-    (byHolding[hid] = byHolding[hid] || {});
-    (byHolding[hid][y] = byHolding[hid][y] || {});
-    byHolding[hid][y][m] = parseFloat(d.amount) || 0;
-    divRate[hid + '_' + y + '_' + m] = d.rate;      // 그때 환율(있으면). 확정 합계에만 쓴다.
-  });
-  const ALLM = [1,2,3,4,5,6,7,8,9,10,11,12];
-  // 지급월 판정. 예전엔 '과거 전 연도 지급월의 union'이라, 지급월이 해마다 밀리는
-  // 반기 리츠(롯데리츠 3→4월, 코람코 2→3월)가 연 2회인데 3개월로 잡혀 특정 달이 부풀었다.
-  // → 올해 실제 지급월 + 직전 연도 스케줄. 단 직전 월이 올해 월과 ±1개월 내면 '밀린 것'으로 보고 제외.
-  const payMonthsOf = (h) => {
-    const cyc = h.div_cycle || '';
-    if (/월|주/.test(cyc)) return ALLM;
-    const hist = byHolding[h.id] || {};
-    const thisY = Object.keys(hist[year] || {}).map(Number).filter(Boolean);
-    const priors = Object.keys(hist).map(Number).filter(y => y < year).sort((a,b)=>b-a);
-    const ref = priors.length ? Object.keys(hist[priors[0]]).map(Number).filter(Boolean) : [];
-    const merged = [...thisY];
-    // ponytail: ±1개월 드리프트만 병합. 2개월 이상 밀리는 경우는 드물어 무시.
-    ref.forEach(m => { if (!thisY.some(a => Math.abs(a - m) <= 1)) merged.push(m); });
-    const ms = [...new Set(merged)].sort((a,b)=>a-b);
-    if (ms.length) return ms;
-    if (/분기/.test(cyc)) return [3,6,9,12];
-    if (/반기/.test(cyc)) return [6,12];
-    return [];
-  };
-
-  const monthProj = Array(12).fill(0);    // 확정+예상 (더리치식 풀 투영)
-  const monthActual = Array(12).fill(0);  // 입력 확정만
-  const monthWho = Array.from({length:12}, () => []);   // 그 달 투영에 뭐가 얼마나 들어갔나(막대 툴팁)
-  const runInfo = [];   // 보유 기준 예상(아래 renderGoalRun)용 — 보유 종목별 최근 1회 분배금·연 지급 횟수
-  // 투영은 **지금 보유 중인 종목만** 넣는다. 판 종목까지 넣으면 그 종목의 과거 지급월·과거
-  // 평균액이 앞으로도 계속 들어오는 것처럼 잡혀 이번 달·연간 예상이 부푼다.
-  // 확정(monthActual)은 판 종목의 올해 입력분도 그대로 더한다 — 실제로 받은 돈이다.
-  holdings.forEach(h => {
-    const cur = h.currency;
-    const held = (parseFloat(h.quantity) || 0) > 0;
-    const thisYear = (byHolding[h.id] && byHolding[h.id][year]) || {};
-    let vals = Object.values(thisYear).filter(v => v > 0);
-    if (!vals.length) vals = Object.values(byHolding[h.id] || {}).flatMap(o => Object.values(o)).filter(v => v > 0);
-    // 1회 예상액 = **최근 3회** 평균. 올해 전체 평균은 연중 추가 매수 전(수량 적던 때)의 작은 금액이
-    // 끌어내려 월배당 48종목 합계가 월 ~75만원 낮게 잡혔다(2026-09-27 실측, 사용자 결정 A).
-    // vals 는 월 오름차순(연도 넘어가면 연도 오름차순)이라 뒤에서 3개가 가장 최근이다.
-    const recent = vals.slice(-3);
-    const perPay = recent.length ? recent.reduce((a,b)=>a+b,0) / recent.length : 0;
-    if (held) runInfo.push({ h, perPayK: divKrw(perPay, cur), lastK: vals.length ? divKrw(vals[vals.length - 1], cur) : 0, n: payMonthsOf(h).length });
-    (held ? payMonthsOf(h) : []).forEach(m => {
-      const actual = thisYear[m] || 0;
-      const amtK = divKrw(actual > 0 ? actual : perPay, cur);
-      monthProj[m-1] += amtK;
-      monthWho[m-1].push({ name: h.name || h.ticker, amt: amtK, est: !(actual > 0) });
-    });
-    // 확정(입력)은 payMonthsOf 제한 없이 실제 입력된 모든 월을 합산 → 앱 월합계와 일치
-    Object.entries(thisYear).forEach(([mm, a]) => {
-      const v = parseFloat(a) || 0;
-      if (v > 0) monthActual[parseInt(mm)-1] += divKrwOf(v, cur, divRate[h.id + '_' + year + '_' + mm], rate);
-    });
-  });
+  // 분배금 투영(입력=확정, 빈 지급월=최근 3회 평균 예상) + USD 환산 — 식은 calc.js (m.html 과 같이 쓴다)
+  const { proj: monthProj, actual: monthActual, who: monthWho, runInfo, byH: byHolding, divRate }
+    = Calc.projectMonths(holdings, divs, year, rate);
   const annualProj = monthProj.reduce((a,b)=>a+b,0);
   const annualActual = monthActual.reduce((a,b)=>a+b,0);
   const monthlyAvg = annualProj / 12;
@@ -4555,27 +4446,8 @@ function showTab(name) {
 // 왜: 증권사 앱은 '국내 잔고'와 '해외 잔고'를 다른 화면에 둔다. 우리가 합쳐서만 보여주니
 // 키움 화면(국내만 79,195,571)과 우리 계좌 행(102,879,986)이 안 맞아 보여 사용자가 틀린
 // 줄 알았다(2026-09-21). 값은 맞았고 **쪼개서 보여주지 않은 것이 문제**였다.
-function acctInvestValue(hs, priceMap) {
-  const toKrw = (v, cur) => cur === 'USD' ? v * (state.exchangeRate || 1400) : v;
-  let invest = 0, value = 0, investDom = 0, valueDom = 0, investOvs = 0, valueOvs = 0;
-  const noPrice = [], noPriceDom = [], noPriceOvs = [];
-  (hs || []).forEach(x => {
-    const qty = parseFloat(x.quantity) || 0, avg = parseFloat(x.avg_price) || 0;
-    const cur = priceMap[(x.ticker || '').toString().trim().toUpperCase()];
-    const iv = toKrw(avg * qty, x.currency);
-    const vv = toKrw((cur || avg) * qty, x.currency);
-    invest += iv; value += vv;
-    // ⛔ 현재가가 없으면 위에서 **매수평균가로 대신 계산**한다. 그러면 그 종목은 손익 0 —
-    // 화면엔 '본전'으로 보인다. 못 받은 것을 본전이라고 말하는 셈이라, 몇 종목이 그런지
-    // 세어 화면에 밝힌다(2026-09-21). m.html 은 진작부터 종목별로 '(시세없음)'을 달고 있었다.
-    if (!cur && qty > 0) {
-      const nm = x.name || x.ticker || '(이름없음)';
-      noPrice.push(nm); (x.currency === 'USD' ? noPriceOvs : noPriceDom).push(nm);
-    }
-    if (x.currency === 'USD') { investOvs += iv; valueOvs += vv; }
-    else                      { investDom += iv; valueDom += vv; }
-  });
-  return { invest, value, investDom, valueDom, investOvs, valueOvs, noPrice, noPriceDom, noPriceOvs };
+function acctInvestValue(hs, priceMap) {   // 식은 calc.js (m.html 과 같이 쓴다)
+  return Calc.investValue(hs, priceMap, state.exchangeRate || 1400);
 }
 
 // ── 계좌 성적표 ─────────────────────────────
