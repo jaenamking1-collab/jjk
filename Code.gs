@@ -2323,32 +2323,102 @@ function fetchDist_plus() {
 // RISE = KB 사이트 먼저, 실패하면 예탁결제원 SEIBRO.
 // 2026-10-05 금융권 해킹 뒤 kbam.co.kr 이 해외 접속(구글 서버 포함)을 막았다. 일시적일 수 있어 KB 를 계속 먼저 시도한다.
 function fetchDist_rise() {
-  // KB 접속 실패는 응답 없이 ~100초를 잡아먹는다 → 한 번 실패하면 6시간은 KB 를 건너뛰고 SEIBRO 로 간다(그 뒤 다시 시도).
+  // KB 접속 실패는 응답 없이 ~100초를 잡아먹는다 → 한 번 실패하면 6시간은 KB 를 건너뛴다(그 뒤 다시 시도).
+  // 대체 순서: KB 사이트 → RISE 네이버 블로그(riseetf, 공지 당일 올라온다) → SEIBRO(공시 다음 날 이후에야 뜬다).
   const cache = CacheService.getScriptCache();
   const site = cache.get('riseSiteDown') ? { items: [], error: 'RISE: KB 사이트 실패 기록(6시간 건너뜀)' } : _fetchDistRiseSite();
   if (site.items && site.items.length) return site;
   if (/Address unavailable|timed out|Timeout|시간/.test(site.error || '')) cache.put('riseSiteDown', '1', 21600);
   try {
+    const blog = _riseBlogItems();
+    if (blog.items.length) {
+      _riseFillNotice(blog.items);
+      const latest = blog.items.reduce((a, b) => (b._std > a._std ? b : a));
+      blog.items.forEach(it => delete it._std);
+      return { success: true, items: blog.items, schedule: latest.sched, title: 'RISE 분배금 (네이버 블로그 — KB 사이트 접속 실패)',
+               _fallback: 'blog', _siteError: site.error || '' };
+    }
+  } catch (e) { console.log('RISE 블로그 실패: ' + e); }
+  try {
     const items = _seibroDistItems('케이비');
     if (!items.length) return site;
     const latest = items.reduce((a, b) => (b._std > a._std ? b : a));
     items.forEach(it => delete it._std);
-    // SEIBRO 엔 공시일이 없다 → 달력·일정표에서 RISE 공시가 통째로 빠졌다(2026-10-12 지적).
-    // 마지막으로 읽은 KB 공지 목록('9월 말/중순 분배금 지급 안내'의 등록일)으로 채운다.
-    const ln = (_readLastNotices('rise') || {}).items || [];
-    items.forEach(it => {
-      const m = ((it.sched['기준일'] || '').match(/(\d{1,2})월/) || [])[1];
-      if (!m || it.sched['공시일']) return;
-      const re = new RegExp('(^|\\D)' + m + '월\\s*' + (it.cycle === '월말' ? '말' : '중'));
-      const n = ln.find(x => re.test(x.title || '') && /분배/.test(x.title || ''));
-      const d = n && String(n.date || '').match(/\d{4}\.(\d{2})\.(\d{2})/);
-      if (d) it.sched['공시일'] = Number(d[1]) + '월 ' + Number(d[2]) + '일';
-    });
+    _riseFillNotice(items);
     return { success: true, items, schedule: latest.sched, title: 'RISE 분배금 (예탁결제원 SEIBRO — KB 사이트 접속 실패)',
              _fallback: 'seibro', _siteError: site.error || '' };
   } catch (e) {
     return { items: [], error: (site.error || 'RISE') + ' / SEIBRO: ' + e };
   }
+}
+
+// 대체 경로 결과에 공시일을 채운다. SEIBRO·블로그엔 공시일이 없다 → 달력·일정표에서 RISE 공시가 통째로 빠졌다(2026-10-12).
+// ① 마지막으로 읽은 KB 공지 목록('9월 말/중순 분배금 지급 안내' 등록일) ② 없으면 블로그 글 날짜(기준일 이전일 때만 —
+// 9월 말 블로그 글은 지급 뒤인 10/2 에 올라왔다).
+function _riseFillNotice(items) {
+  const ln = (_readLastNotices('rise') || {}).items || [];
+  items.forEach(it => {
+    const m = ((it.sched['기준일'] || '').match(/(\d{1,2})월/) || [])[1];
+    if (!m || it.sched['공시일']) { delete it._post; return; }
+    const re = new RegExp('(^|\\D)' + m + '월\\s*' + (it.cycle === '월말' ? '말' : '중'));
+    const n = ln.find(x => re.test(x.title || '') && /분배/.test(x.title || ''));
+    const d = n && String(n.date || '').match(/\d{4}\.(\d{2})\.(\d{2})/);
+    if (d) it.sched['공시일'] = Number(d[1]) + '월 ' + Number(d[2]) + '일';
+    else if (it._post && it._post <= it._std) it.sched['공시일'] = Number(it._post.slice(4, 6)) + '월 ' + Number(it._post.slice(6, 8)) + '일';
+    delete it._post;
+  });
+}
+
+// RISE 네이버 블로그(riseetf)의 분배금 글 → 운용사 파서와 같은 모양. KB 사이트가 해외 접속을 막아도(2026-10-05~) 열린다.
+// 본문은 글자 표: '*지급기준일 : 2026년 10월 15일(목) *지급예정일 : 2026년 10월 19일(월) … 종목 종목코드 좌당 예상분배금(원) 분배율(%)
+//  RISE 코리아밸류업위클리고정커버드콜 0094M0 465 2.81 …' (2026-10-12 글로 확인). 월말 글엔 '좌당 과세분배금' 칸이 하나 더 있다
+// ('… 490590 188 188 1.29') — 금액 다음 정수 하나는 건너뛴다. 최신 4건에서 월중·월말 각 1건.
+function _riseBlogItems() {
+  const res = UrlFetchApp.fetch('https://rss.blog.naver.com/riseetf.xml', { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } });
+  if (res.getResponseCode() !== 200) return { items: [] };
+  const posts = [];
+  String(res.getContentText('UTF-8')).split('<item>').slice(1).forEach(c => {
+    const t = (c.match(/<title>\s*(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?\s*<\/title>/) || [])[1] || '';
+    const d = (c.match(/<pubDate>\s*([\s\S]*?)\s*<\/pubDate>/) || [])[1];
+    const l = (c.match(/riseetf\/(\d{6,})/) || [])[1];
+    if (l && d && /분배금/.test(t)) posts.push({ title: t, logNo: l, post: Utilities.formatDate(new Date(d), 'Asia/Seoul', 'yyyyMMdd') });
+  });
+  const out = [], seen = {};
+  for (let i = 0; i < posts.length && i < 4; i++) {
+    if (seen['월중'] && seen['월말']) break;
+    const p = _riseParsePost(posts[i].logNo);
+    if (!p || !p.items.length || !p.std) { console.log('RISE 블로그 글 파싱 0건 — 표기 변경 의심: ' + posts[i].title); continue; }
+    const cyc = Number(p.std.slice(6, 8)) <= 20 ? '월중' : '월말';
+    if (seen[cyc]) continue;
+    seen[cyc] = 1;
+    p.items.forEach(it => out.push(Object.assign(it, { cycle: cyc, sched: Object.assign({}, p.sched), _std: p.std, _post: posts[i].post })));
+  }
+  return { items: out };
+}
+
+function _riseParsePost(logNo) {
+  const res = UrlFetchApp.fetch('https://blog.naver.com/PostView.naver?blogId=riseetf&logNo=' + logNo + '&redirect=Dlog&widgetTypeCall=true',
+    { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } });
+  if (res.getResponseCode() !== 200) return null;
+  const html = res.getContentText('UTF-8');
+  const bi = html.indexOf('se-main-container');
+  if (bi < 0) return null;
+  const txt = html.slice(bi, bi + 300000).replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/[\s\u200b]+/g, ' ');
+  const ymd = re => { const m = txt.match(re); return m ? m[1] + ('0' + m[2]).slice(-2) + ('0' + m[3]).slice(-2) : ''; };
+  const std = ymd(/지급\s*기준일\s*:?\s*(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
+  const pay = ymd(/지급\s*예정일\s*:?\s*(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
+  const md = d => Number(d.slice(4, 6)) + '월 ' + Number(d.slice(6, 8)) + '일';
+  const sched = {};
+  if (std) sched['기준일'] = md(std);
+  if (pay) sched['지급일'] = md(pay);
+  const seg = (txt.split(/분배율\s*\(%\)/)[1] || '').split(/\*\s*분배율|태그 취소|공감/)[0];
+  const items = [], re = /(RISE\s.+?)\s([0-9][0-9A-Z]{5})\s([\d,]+)(?:\s[\d,]+)?(?:\s(\d{1,3}\.\d{1,2}))?(?=\sRISE\s|\s*\*|\s*$)/g;
+  let m;
+  while ((m = re.exec(seg)) !== null)
+    items.push({ name: m[1].trim(), ticker: m[2], amount: Number(m[3].replace(/,/g, '')), rate: m[4] ? Number(m[4]) : null });
+  return { std, sched, items };
 }
 
 // SEIBRO(예탁결제원) '분배금지급현황'에서 한 운용사의 최근 회차(월중·월말 각 최신) 분배금을 운용사 파서와 같은 모양으로.
