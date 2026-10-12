@@ -31,9 +31,16 @@ export function judgeWrite(path: string, text: string): string | undefined {
   return undefined
 }
 
+// 배포를 돌렸는데 resetAllTriggers 를 아직 안 돌렸으면 상태줄에 계속 띄운다. 사용량도 같은 줄에.
+let deployPending = false
+let usageText = ''
+const warned: Record<string, number> = {}
+function paint($: { ui: { status: (t?: string) => unknown } }) {
+  const parts = [deployPending ? '⚠ 배포 뒤 resetAllTriggers 안 함' : '', usageText].filter(Boolean)
+  $.ui.status(parts.length ? parts.join(' · ') : undefined)
+}
+
 export const register: Register = on => {
-  // 배포를 돌렸는데 resetAllTriggers 를 아직 안 돌렸으면 상태줄에 계속 띄운다
-  let deployPending = false
 
   on('tool.call', ($, e, next) => {
     const a = e as unknown as Record<string, unknown>
@@ -48,10 +55,10 @@ export const register: Register = on => {
       const wf = String(a.workflow_id ?? ''), fn = String((a.inputs as Record<string, unknown> | undefined)?.fn ?? '')
       if (/^deploy\.ya?ml$/.test(wf)) {
         deployPending = true
-        $.ui.status('⚠ 배포 뒤 maint resetAllTriggers 아직 안 돌림')
+        paint($)
       } else if (/^maint\.ya?ml$/.test(wf) && fn === 'resetAllTriggers') {
         deployPending = false
-        $.ui.status(undefined)
+        paint($)
       }
     }
     return next(e)
@@ -59,6 +66,21 @@ export const register: Register = on => {
 
   on('turn.complete', ($, e, next) => {
     if (deployPending) $.ui.toast('jjk-guard: 배포했는데 resetAllTriggers 를 안 돌렸다 — 트리거가 조용히 죽는다')
+    return next(e)
+  })
+
+  // ⑤ 사용량: 컨텍스트·5시간·7일 한도를 상태줄에, 80%·90% 를 처음 넘을 때 한 번씩 알림
+  on('session.measure', ($, e, next) => {
+    const lim = (k: string) => e.rateLimits.find(r => r.kind === k)
+    const pct = (v?: number) => (v === undefined ? '-' : Math.round(v) + '%')
+    const f = lim('five_hour'), w = lim('seven_day')
+    usageText = '컨텍스트 ' + pct(e.context.percent) + ' · 5시간 ' + pct(f?.percentUsed) + ' · 7일 ' + pct(w?.percentUsed)
+    paint($)
+    for (const [name, v] of [['컨텍스트', e.context.percent], ['5시간 한도', f?.percentUsed], ['7일 한도', w?.percentUsed]] as const) {
+      const step = v === undefined ? 0 : v >= 90 ? 90 : v >= 80 ? 80 : 0
+      if (step > (warned[name] ?? 0)) $.ui.toast('jjk-guard: ' + name + ' ' + Math.round(v as number) + '% 사용')
+      warned[name] = step
+    }
     return next(e)
   })
 }
