@@ -3058,8 +3058,13 @@ function checkAndLogAlerts() {
     const prev = prevMeta[source];
 
     // 1) 파싱 경고 — 실패·이상은 로그뿐 아니라 카톡으로도 즉시 알림(새로 감지된 것만: _addAlert가 true 반환할 때).
+    // 0건은 **두 번 연속**(30분 간격 실행)일 때만 알린다. 운용사 사이트가 한 번 응답을 안 줘도 바로 '⚠️ 파싱 0건'
+    // 달력 알림이 갔다 — 다음 실행에선 멀쩡했다(2026-10-12 18:13 ACE). 진짜 고장이면 30분 늦게 알 뿐이다.
+    const zp = PropertiesService.getScriptProperties(), zk = 'zeroRun_' + source;
+    const zeroRuns = fp.hasItems ? 0 : (Number(zp.getProperty(zk)) || 0) + 1;
+    zp.setProperty(zk, String(zeroRuns));
     if (!fp.hasItems) {
-      if (_addAlert(logSheet, label, '파싱경고', `${label} 종목 0건 — 파싱 실패 또는 공지 없음`, '경고'))
+      if (zeroRuns >= 2 && _addAlert(logSheet, label, '파싱경고', `${label} 종목 0건 — 파싱 실패 또는 공지 없음`, '경고'))
         kakaoMsgs.push(`⚠️ ${label} 파싱 0건 (실패/공지없음)`);
     } else {
       // 자사 파서 사망 → 뉴스사이트 우회(result.fallback). 지금은 나오지만 뉴스에서도 빠지면 통째로 사라짐.
