@@ -3,6 +3,14 @@
 두 대의 Windows PC(직장 / 집)에서 Claude Code로 번갈아 작업할 때 대화 맥락을 이어받기 위한 작업 로그.
 각 항목은 장소(직장/집)로 구분한다. **최신 항목이 맨 위**에 오도록 추가한다. 세션 시작 시 이 파일을 먼저 읽고, 세션 종료 시 맨 위에 새 항목을 추가한다. 과거 항목은 수정하지 않는다.
 
+## 2026-10-12 (252) / 원격 — KB(kbam.co.kr) 직접 읽기 시도: **구글 클라우드 서울도 막힘**
+
+- kbam.co.kr = AWS 서울(3.37.137.36·54.116.126.56). 구글 Apps Script·GitHub Actions(미국)·원격 컨테이너 모두 TCP 연결 단계 무응답.
+- 사용자 선택으로 구글 클라우드 서울(asia-northeast3) Cloud Functions 중계(`relay-kb/`) 배포 → **`UND_ERR_CONNECT_TIMEOUT`(두 IP 모두 10초)**. 즉 '한국 IP 허용'이 아니라 **클라우드(데이터센터) IP 도 막는다** — 한국 통신사 회선만 허용으로 추정.
+- 약속대로 함수·gcf-artifacts 저장소 삭제(비용 0). 남은 것: 프로젝트에 Cloud Functions·Run·Build·Artifact Registry API 켜짐, 컴퓨트 SA 에 cloudbuild.builds.builder 역할(무료·무해).
+- 원격 gcloud: 환경변수 `CLOUDSDK_AUTH_ACCESS_TOKEN` 이 로그인보다 앞서므로 `env -u CLOUDSDK_AUTH_ACCESS_TOKEN gcloud …` 로 써야 한다. 프로젝트 id `project-d3a1f375-d441-4446-91a`(결제 연결됨).
+- 다음: 한국 통신사 회선(학교·집 PC) 경유 또는 AWS 서울 시험 — 사용자 결정 대기. 그 전까지 RISE 는 블로그 경로(251).
+
 ## 2026-10-12 (251) / 원격 — RISE 10월 중순 공시가 안 들어옴 → **RISE 네이버 블로그** 경로 추가
 
 - 사용자: 카페엔 15:45 'RISE 10월 중순 분배금 공지'가 올라왔는데 앱은 '예정'.

@@ -28,6 +28,6 @@ functions.http('kb', async (req, res) => {
     if (r.ok) cache.set(key, v);
     res.status(v.status).type(v.type).set('X-Relay-Cache', 'miss').send(body);
   } catch (e) {
-    res.status(502).send('relay error: ' + e);
+    const c = e && e.cause; res.status(502).send('relay error: ' + e + (c ? ' | cause ' + (c.code || '') + ' ' + (c.message || c) : ''));
   }
 });
