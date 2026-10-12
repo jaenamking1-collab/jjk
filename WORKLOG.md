@@ -3,6 +3,11 @@
 두 대의 Windows PC(직장 / 집)에서 Claude Code로 번갈아 작업할 때 대화 맥락을 이어받기 위한 작업 로그.
 각 항목은 장소(직장/집)로 구분한다. **최신 항목이 맨 위**에 오도록 추가한다. 세션 시작 시 이 파일을 먼저 읽고, 세션 종료 시 맨 위에 새 항목을 추가한다. 과거 항목은 수정하지 않는다.
 
+## 2026-10-12 (249) / 원격 — Claude Code 10월 업데이트 4가지 검토
+
+- 서브에이전트별 autocompact·슬랙 Claude Tag·MCP 설명 길이 2배: 우리 작업에 해당 없음(서브에이전트 거의 안 씀, 슬랙 안 씀, MCP 는 만드는 쪽 기능).
+- 파일 읽기 `allow_large`: 이 세션 도구에 있음을 확인. 토큰 절약 원칙과 충돌 → CLAUDE.md Editing 에 '쓰지 않는다, 필요하면 먼저 묻는다' 한 줄.
+
 ## 2026-10-12 (248) / 원격 — Claude Code mod `jjk-guard`
 
 - `mods/jjk-guard/` + 루트 `.claude-plugin/marketplace.json`. 규칙: ①`clasp deploy` 라이브 `-i` 없으면 거부 ②임시 폴더로 cd 없이 `clasp pull` 거부 ③명령·Write·Edit 에 토큰 모양(ya29·1//0·GOCSPX·ghp_·github_pat·sk-ant·refresh_token) 거부(.clasprc 등 자격증명 파일 예외) ④deploy.yml 실행 뒤 resetAllTriggers 전까지 상태줄·턴 끝 알림. Bash·PowerShell 둘 다.
