@@ -788,10 +788,15 @@ function getEtfNotices(source) {
       const json = fetchAceApi('https://papi.aceetf.co.kr/api/notices?categoryNo=61&page=1&searchValue=');
       (json.data || []).slice(0, NOTICE_MAX).forEach(n => items.push({ title: n.title || '', date: (n.regDate || '').replace(/-/g, '.'), url: 'https://www.aceetf.co.kr/cs/notice/' + n.id }));
     } else if (source === 'rise') {
-      _riseNotices().forEach(n => {
+      // KB 사이트가 막히면(해외 차단, 2026-10-05~) RISE 네이버 블로그 글 목록으로 대신한다.
+      let rn = [];
+      // KB 실패는 응답 없이 수십 초를 잡아먹는다 — 분배 쪽이 남긴 'riseSiteDown'(6시간)이면 KB 는 건너뛴다.
+      if (!cache.get('riseSiteDown')) try { rn = _riseNotices(); } catch (e) { console.log('RISE 공지 KB 실패: ' + e); }
+      if (!rn.length) rn = _riseBlogNotices();
+      rn.forEach(n => {
         if (items.length >= NOTICE_MAX) return;
         if (!NOTICE_KEEP_RE.test(n.title)) return;
-        items.push({ title: n.title, date: n.date, url: 'https://kbam.co.kr/support/notice/' + n.id });
+        items.push({ title: n.title, date: n.date, url: n.url || ('https://kbam.co.kr/support/notice/' + n.id) });
       });
     } else if (source === 'sol') {
       // SOL은 홈페이지가 아니라 네이버 블로그에 분배금 공지를 올린다(홈페이지는 늦거나 누락).
@@ -932,6 +937,7 @@ function clearDistCache(arg) {
   const cache = CacheService.getScriptCache();
   cache.remove('dist2_' + source);
   cache.remove('dist2_ALL');
+  cache.remove('notices_v2_' + source);   // 공지 목록도 새로 받게(경로를 바꿨을 때 6시간 기다리지 않도록)
   const all = scope === 'all';
   const need = currentCycleKey();
   let removed = 0, kept = 0;
@@ -2361,7 +2367,8 @@ function _riseFillNotice(items) {
     const m = ((it.sched['기준일'] || '').match(/(\d{1,2})월/) || [])[1];
     if (!m || it.sched['공시일']) { delete it._post; return; }
     const re = new RegExp('(^|\\D)' + m + '월\\s*' + (it.cycle === '월말' ? '말' : '중'));
-    const n = ln.find(x => re.test(x.title || '') && /분배/.test(x.title || ''));
+    // KB 공지만 쓴다 — 블로그 글 날짜는 공시일이 아닐 수 있다(9월 말 글은 지급 뒤 10/2 에 올라왔다).
+    const n = ln.find(x => re.test(x.title || '') && /분배/.test(x.title || '') && !/blog\.naver/.test(x.url || ''));
     const d = n && String(n.date || '').match(/\d{4}\.(\d{2})\.(\d{2})/);
     if (d) it.sched['공시일'] = Number(d[1]) + '월 ' + Number(d[2]) + '일';
     else if (it._post && it._post <= it._std) it.sched['공시일'] = Number(it._post.slice(4, 6)) + '월 ' + Number(it._post.slice(6, 8)) + '일';
@@ -2394,6 +2401,22 @@ function _riseBlogItems() {
     p.items.forEach(it => out.push(Object.assign(it, { cycle: cyc, sched: Object.assign({}, p.sched), _std: p.std, _post: posts[i].post })));
   }
   return { items: out };
+}
+
+// RISE 블로그 글 목록 → _riseNotices 와 같은 모양({title, date:'yyyy.MM.dd', url}).
+function _riseBlogNotices() {
+  try {
+    const res = UrlFetchApp.fetch('https://rss.blog.naver.com/riseetf.xml', { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } });
+    if (res.getResponseCode() !== 200) return [];
+    const out = [];
+    String(res.getContentText('UTF-8')).split('<item>').slice(1).forEach(c => {
+      const t = (c.match(/<title>\s*(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?\s*<\/title>/) || [])[1] || '';
+      const d = (c.match(/<pubDate>\s*([\s\S]*?)\s*<\/pubDate>/) || [])[1];
+      const l = (c.match(/riseetf\/(\d{6,})/) || [])[1];
+      if (l && d) out.push({ title: t, date: Utilities.formatDate(new Date(d), 'Asia/Seoul', 'yyyy.MM.dd'), url: 'https://blog.naver.com/riseetf/' + l });
+    });
+    return out;
+  } catch (e) { return []; }
 }
 
 function _riseParsePost(logNo) {
