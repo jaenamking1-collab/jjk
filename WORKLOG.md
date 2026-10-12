@@ -3,6 +3,13 @@
 두 대의 Windows PC(직장 / 집)에서 Claude Code로 번갈아 작업할 때 대화 맥락을 이어받기 위한 작업 로그.
 각 항목은 장소(직장/집)로 구분한다. **최신 항목이 맨 위**에 오도록 추가한다. 세션 시작 시 이 파일을 먼저 읽고, 세션 종료 시 맨 위에 새 항목을 추가한다. 과거 항목은 수정하지 않는다.
 
+## 2026-10-12 (247) / 원격 — CLAUDE.md prompt-audit(Opus) 적용 + 월간 루틴
+
+- `/doctor prompt-audit CLAUDE.md` 를 Sonnet·Opus 로 돌려 비교, Opus 권고 중 사실 오류·모순만 적용: 3900줄→큰 파일, 1365→함수명만(m.html 주석 포함), 6개사→DIST_SOURCE_IDS, 공개 액션에 getDistributionMonth, 커밋 서술, 08-18 부트스트랩 문장 삭제, **트리거는 배포본을 돈다**로 통일, 원격 배포 = deploy.yml(컨테이너 clasp OAuth 절차 삭제), 프론트 '로컬 파일' → 웹 서빙, 'manual redeploy' 표현 정리.
+- `deploy.yml` 의 '사람이 ▶ 눌러야 한다' 경고 → 'maint 로 resetAllTriggers'.
+- 보류(사용자 결정): 날짜·인용 걷어내기, ⛔ 축소, Karpathy 축약.
+- 월간 루틴 `trig_012uVFsY3S2BxvkQSEaypzAz` (매월 1일 08:53 KST, 새 세션, 푸시·메일 알림, 파일은 승인 뒤에만). ⚠️ 루틴 세션에 저장소 소스가 안 붙어 프롬프트에 add_repo/clone 단계를 넣었다 — 11/1 첫 실행 때 푸시까지 되는지 확인 필요.
+
 ## 2026-10-12 (246) / 원격 — 비디오 다운로더 '설치 없는 exe 묶음' (학교 PC 실행 안 됨)
 
 - 학교 PC에서 다운로더가 안 돈다는 요청. 원격이라 그 PC 디스크엔 못 닿고, 원인도 못 봤음(확인 못 함).
