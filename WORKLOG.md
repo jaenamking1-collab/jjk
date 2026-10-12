@@ -9,6 +9,8 @@
 - 확인: KB 사이트는 구글·GitHub(미국) 모두 60초 무응답. SEIBRO 엔 아직 9월분만(공시 당일엔 안 뜬다). **RISE 블로그 `riseetf` RSS 는 열림** — 15:40 '10월 중순 분배금 지급 안내'.
 - `fetchDist_rise`: KB → **블로그(`_riseBlogItems`·`_riseParsePost`)** → SEIBRO. 본문 글자 표(종목·코드·예상분배금·[월말만 과세분배금]·분배율). 공시일은 `_riseFillNotice`: KB 마지막 공지 등록일, 없으면 블로그 글 날짜(기준일 이전일 때만 — 9월 말 글은 10/2 에 올라왔다).
 - 실제 글 2개로 시험: 10월 중순 6종목(기준 10/15·지급 10/19·공시 10/12), 9월 말 21종목(금액 SEIBRO 와 일치).
+- 배포 + resetAllTriggers 18개 ✅ + clearDistCache rise + `getDistribution&source=rise&force=1`(fetch.yml) → 공개 예비본에 RISE 10월 중순 6종목·공시 10/12 들어감 ✅.
+- 공지 목록(왼쪽 표)도: `getEtfNotices rise` 가 KB 실패(또는 riseSiteDown) 시 블로그 RSS(`_riseBlogNotices`)로. `_riseFillNotice` 는 KB 공지(kbam url)만 공시일로 쓴다. `clearDistCache` 가 `notices_v2_<source>` 도 지운다.
 
 ## 2026-10-12 (250) / 원격 — RISE 공시일 빈칸(9월 일정표·달력)
 
