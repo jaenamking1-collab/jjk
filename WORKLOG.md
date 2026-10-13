@@ -3,6 +3,12 @@
 두 대의 Windows PC(직장 / 집)에서 Claude Code로 번갈아 작업할 때 대화 맥락을 이어받기 위한 작업 로그.
 각 항목은 장소(직장/집)로 구분한다. **최신 항목이 맨 위**에 오도록 추가한다. 세션 시작 시 이 파일을 먼저 읽고, 세션 종료 시 맨 위에 새 항목을 추가한다. 과거 항목은 수정하지 않는다.
 
+## 2026-10-13 (260) / 원격 — TIGER 10/13 공지 놓침 → 공지창 중순 8~12일 → **8~16일**
+
+- 사용자: "타이거 공지되었다는데 왜 안 뜨냐 / 내가 게시판 보고 알아야 겠니". 원인: `_inNoticeWindow` 중순 창이 12일까지라 13일엔 checkDistNotices 가 아예 안 돌았다(07:21 저장본 그대로). 파서는 정상(`_diagDist tiger` 실시간 10종목·공시 10/13).
+- 고침: 중순 창 16일까지(Code.gs + `_testNoticeWindow` 경계 + 화면 낡음 기준 distStaleLimitH·dist_notice limitH 같이). `checkDistNotices` MAINT_ALLOW 추가. 배포 + resetAllTriggers 18개 ✅ → maint checkDistNotices: checked 6 · notified 3 (10:01).
+- 확인(getDistributionAll 10:01): 10월 중순 KODEX 18 · TIGER 10 · ACE 4 · PLUS 4 · RISE 6 · SOL 4 종목. HANARO·KIWOOM 은 아직 없음.
+
 ## 2026-10-13 (259) / 원격 — 외부 입금 통로 (재남 키움 일반계좌 개인돈 입금·매수)
 
 - 사용자: 재남 키움 일반계좌에 개인돈 입금 후 매수. 그전엔 '예수금보다 더 산 만큼'만 매수일 입금으로 짐작 → 쌓인 분배금 예수금이 먼저 쓰여 투자원금이 덜 잡혔다.
