@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits'
 ];
 
 function runMaint(name, arg) {
@@ -127,6 +127,7 @@ function doGet(e) {
       case 'getCostBasis':    result = getCostBasis(e.parameter.year); break;
       case 'getAccountSummary': result = getAccountSummary(); break;
       case 'getAccountFlows': result = getAccountFlows(); break;
+      case 'getExtDeposits':  result = getExtDeposits(); break;
       case 'getHoldingLog': result = getHoldingLog(); break;
       case 'getSavings':      result = getSavings(); break;
       case 'maturityAlertPreview': result = previewMaturityAlerts(); break;
@@ -302,6 +303,27 @@ function getAccountSummary() {
              sell: r[5], realized: r[6], inkind: r[7], div: r[8], interest: r[9],
              div12: r[10], tax: r[11], cash: r[12], cash_usd: r[13] };
   });
+}
+
+// 외부 입금·출금(2026-10-13): 사용자가 "OO계좌에 개인돈 넣었다"고 말해 준 것. 성적표 투자원금·예수금, 계좌 그래프 현금에 들어간다.
+// 그 전엔 '예수금보다 더 산 만큼'을 매수일에 입금으로 짐작했다 — 쌓인 분배금 예수금이 먼저 쓰여 투자원금이 덜 잡혔다.
+// ⛔ 금액은 비공개 시트에만 둔다(저장소·로그 금지). 시트 [계좌이름, 날짜 yyyy-MM-dd, 금액(+입금 −출금), 메모].
+const EXT_DEP_SHEET_ID = '1bN_8bquEhZdJ6Exy1pNcqeSre2jK5xkaHxsZ8GtajQQ';
+function getExtDeposits() {
+  let rows;
+  try { rows = SpreadsheetApp.openById(EXT_DEP_SHEET_ID).getSheets()[0].getDataRange().getValues(); } catch (e) { return []; }
+  return rows.slice(1).filter(r => r[0] && Number(r[2])).map(r => ({
+    account: String(r[0]).trim(),
+    date: r[1] instanceof Date ? Utilities.formatDate(r[1], 'Asia/Seoul', 'yyyy-MM-dd') : String(r[1]).trim().slice(0, 10),
+    amount: Number(r[2]) }));
+}
+// 확인용(runMaint): 건수와 계좌 이름이 맞는지만 — 금액은 찍지 않는다
+function _diagExtDeposits() {
+  const deps = getExtDeposits(), key = s => String(s).replace(/\s/g, '');
+  const names = {}; getAccounts().forEach(a => names[key(a.name)] = 1);
+  const bad = deps.filter(d => !names[key(d.account)]).length, badDate = deps.filter(d => !/^\d{4}-\d\d-\d\d$/.test(d.date)).length;
+  console.log(' | 외부입금 ' + deps.length + '건 · 계좌 이름 안 맞음 ' + bad + ' · 날짜 형식 틀림 ' + badDate);
+  return { n: deps.length, badName: bad, badDate: badDate };
 }
 
 // 계좌별 현금흐름 (XIRR용). 투자자 관점 부호: 계좌에 넣은 돈 −, 빼낸 돈 +.
