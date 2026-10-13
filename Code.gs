@@ -320,8 +320,9 @@ function getExtDeposits() {
 // 확인용(runMaint): 건수와 계좌 이름이 맞는지만 — 금액은 찍지 않는다
 function _diagExtDeposits() {
   const deps = getExtDeposits(), key = s => String(s).replace(/\s/g, '');
-  const names = {}; getAccounts().forEach(a => names[key(a.name)] = 1);
-  const bad = deps.filter(d => !names[key(d.account)]).length, badDate = deps.filter(d => !/^\d{4}-\d\d-\d\d$/.test(d.date)).length;
+  const names = getAccounts().map(a => key(a.name));   // 프론트 extDepEvents 와 같은 규칙: 정확히 같거나, 앞부분이 맞는 계좌가 하나뿐
+  const ok = nm => { const k = key(nm); return names.indexOf(k) >= 0 || names.filter(x => x.indexOf(k) === 0).length === 1; };
+  const bad = deps.filter(d => !ok(d.account)).length, badDate = deps.filter(d => !/^\d{4}-\d\d-\d\d$/.test(d.date)).length;
   console.log(' | 외부입금 ' + deps.length + '건 · 계좌 이름 안 맞음 ' + bad + ' · 날짜 형식 틀림 ' + badDate);
   return { n: deps.length, badName: bad, badDate: badDate };
 }

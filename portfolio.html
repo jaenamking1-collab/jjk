@@ -4489,9 +4489,11 @@ function xirr(flows, endValue, endDate) {
 const SCORECARD_ASOF = '2026-09-28';
 // 외부 입금·출금(getExtDeposits, 비공개 시트 '외부입금') → [{acc, date, amt}]. 기준일 뒤 것만. 계좌는 이름으로 맞춘다(띄어쓰기 무시).
 function extDepEvents(deps) {
-  const key = s => String(s || '').replace(/\s/g, ''), idOf = {};
-  (state.accounts || []).forEach(a => idOf[key(a.name)] = a.id.toString());
-  return (Array.isArray(deps) ? deps : []).map(d => ({ acc: idOf[key(d.account)], date: String(d.date).slice(0, 10), amt: +d.amount || 0 }))
+  // 정확히 같은 이름이 먼저, 없으면 앞부분이 맞는 계좌가 **하나뿐일 때만**('재남 키움 일반' → '재남 키움 일반계좌')
+  const key = s => String(s || '').replace(/\s/g, ''), accs = (state.accounts || []).map(a => ({ k: key(a.name), id: a.id.toString() }));
+  const idOf = nm => { const k = key(nm), hit = accs.find(a => a.k === k); if (hit) return hit.id;
+    const pre = accs.filter(a => a.k.startsWith(k)); return pre.length === 1 ? pre[0].id : null; };
+  return (Array.isArray(deps) ? deps : []).map(d => ({ acc: idOf(d.account), date: String(d.date).slice(0, 10), amt: +d.amount || 0 }))
     .filter(d => d.acc && d.amt && d.date > SCORECARD_ASOF);
 }
 function rollScorecard(log, divs, priceMap, er, lateTk) {
