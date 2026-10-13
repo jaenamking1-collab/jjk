@@ -3009,10 +3009,13 @@ function _kiwoomNoticeOcr(apiItems, names) {
     const lab = d => (d.getMonth() + 1) + '월 ' + d.getDate() + '일';
     const sched = { '공시일': lab(noticeDay), '분배락일': lab(lockD), '기준일': lab(baseD), '지급일': +pay[1] + '월 ' + +pay[2] + '일' };
     const cycle = baseD.getDate() <= 20 ? '월중' : '월말';
-    const codes = [...flat.matchAll(/\b(\d[0-9A-Z]{5})\b/g)].map(m => m[1]).filter(c => names[c]);
+    // 종목코드는 키움 목록에 있는 것만, OCR 이 0↔O·1↔I 를 헷갈려도 찾게(2026-10-13 첫 실행: 3개 중 1개를 놓쳤다). 글 순서대로.
+    const fuzzy = c => new RegExp('(^|[^0-9A-Z])' + c.split('').map(ch => ch === '0' ? '[0OoQD]' : ch === '1' ? '[1Il|]' : ch === 'O' ? '[0O]' : ch).join('') + '(?![0-9A-Z])');
+    const codes = Object.keys(names).map(c => { const m = flat.match(fuzzy(c)); return m ? { c, at: m.index } : null; })
+                    .filter(Boolean).sort((a, b) => a.at - b.at).map(x => x.c);
     const amts = [...flat.matchAll(/([\d,]+)\s*원/g)].map(m => Number(m[1].replace(/,/g, '')));
     const rates = [...flat.matchAll(/(\d+\.\d+)\s*%/g)].map(m => parseFloat(m[1]));
-    if (!codes.length || codes.length !== amts.length) { console.log('KIWOOM OCR: 종목 ' + codes.length + ' · 금액 ' + amts.length + ' 개수 안 맞음'); return null; }
+    if (!codes.length || codes.length !== amts.length) { console.log('KIWOOM OCR: 종목 ' + codes.length + ' · 금액 ' + amts.length + ' 개수 안 맞음 — ' + flat.slice(0, 400)); return null; }
     const items = codes.map((c, i) => ({ name: names[c], ticker: c, amount: amts[i], rate: rates.length === codes.length ? rates[i] : null,
                                          cycle: cycle, sched: Object.assign({}, sched), ocr: true }));
     console.log('KIWOOM OCR: ' + n.title + ' → ' + items.length + '종목 ' + JSON.stringify(sched));
