@@ -1564,7 +1564,13 @@ function checkDistNotices() {
   const hour = Number(Utilities.formatDate(now, 'Asia/Seoul', 'H'));
   if (!_inNoticeWindow(day)) return;
   if (hour < 9 || hour > 18) return;
-  return checkAndLogAlerts();
+  const r = checkAndLogAlerts();
+  // 공지 목록(notices_v2_)은 2시간 캐시라 분배 데이터보다 늦게 바뀌었다 — 2026-10-13 KODEX·TIGER·ACE 새 공지가
+  // 분배 데이터엔 들어왔는데 화면의 공지 목록은 9/28 글이 최신으로 남아, 사용자가 게시판을 보고 먼저 알았다.
+  // 그래서 30분마다 목록도 새로 받는다(배경 실행이라 앱 요청을 막지 않는다. 실패하면 마지막 성공분이 남는다).
+  const cache = CacheService.getScriptCache();
+  DIST_SOURCE_IDS.forEach(s => { try { cache.remove('notices_v2_' + s); getEtfNotices(s); } catch (e) { console.log(s + ' 공지 목록 실패 ' + e); } });
+  return r;
 }
 
 // 트리거 설정은 파일 맨 아래 '수동 실행' 섹션의 setupDistTriggers() 참고.
