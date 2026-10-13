@@ -1655,6 +1655,17 @@ function ocrImageText(imgUrl) {
     const code = resp.getResponseCode();
     const bytes = resp.getBlob().getBytes();
     if (code !== 200 || !bytes.length) { _ocrDbg = 'img fetch code=' + code + ' bytes=' + bytes.length + ' url=' + imgUrl; return ''; }
+    return _ocrBytes(bytes, _ock);
+  } catch(e) { _ocrDbg = 'ocr exception ' + e; return ''; }
+}
+// 이미지 바이트 → Vision 글자. 무료 한도 보호·장애 표시·캐시는 여기 한 곳에서 한다(KIWOOM 공지처럼 본문에 박힌 그림도 쓴다).
+function _ocrBytes(bytes, _ock) {
+  try {
+    const key = PropertiesService.getScriptProperties().getProperty('VISION_API_KEY');
+    if (!key) { _ocrDbg = 'no VISION_API_KEY'; return ''; }
+    const _oc = CacheService.getScriptCache();
+    const _hit = _oc.get(_ock);
+    if (_hit !== null) { _ocrDbg = 'cache hit len=' + _hit.length; return _hit; }
     // ⛔ 요금 안전장치: Vision 은 **월 1,000건까지 무료**다. 이 프로젝트가 쓴 건수를 세서
     // 500·800건에 카톡으로 미리 알리고(checkAndLogAlerts 가 ocrQuota 를 읽는다), 950건이면 이달은 더 안 부른다.
     // 그러면 결제 계정이 연결돼 있어도 청구가 생길 수 없다(2026-09-28 사용자: "결제 상황이 오기 전 알람부터").
@@ -2952,11 +2963,61 @@ function fetchDist_kiwoom() {
         if (x.stdDt > newest) { newest = x.stdDt; schedule = sched; }
       });
     });
+    // 종목 API 는 공지보다 늦게 바뀐다(2026-10-13: 10/13 공지가 떴는데 14시에도 9월 값, SEIBRO 도 없음).
+    // 그 틈엔 공지 본문 그림(일정·종목표)을 OCR 로 읽어 이번 회차를 채운다.
+    const names = {}; prods.forEach(p => names[p.gcode] = p.name);
+    const ocr = _kiwoomNoticeOcr(items, names);
+    if (ocr && ocr.items.length) {
+      const keep = items.filter(it => it.cycle !== ocr.cycle);
+      return { success: true, items: ocr.items.concat(keep), schedule: ocr.sched, title: 'KIWOOM 분배금 (공지 그림 OCR — 종목 API 갱신 전)', _source: 'ocr' };
+    }
     if (!items.length) return { items: [], error: 'KIWOOM: 최근 45일 분배 0건 (종목 ' + prods.length + '개 조회)' };
     return { success: true, items, schedule, title: 'KIWOOM 분배금 (분배금 정보 API)', _source: 'api' };
   } catch(e) {
     return { items: [], error: 'KIWOOM: ' + e.toString() };
   }
+}
+
+// KIWOOM 최신 '분배금 지급 안내' 공지가 종목 API 보다 새로우면 본문 그림 2장을 OCR 한다.
+// 그림 ①: '대상자: 2026년 10월 13일 … 매수한 투자자' · '분배금 지급 예정일: 2026년 10월 19일' · 종목코드/주당분배금/분배율 표.
+// 분배락 = 매수기준일 다음 영업일, 기준일 = 그다음 영업일(키움 일정 그림과 같다, 2026-10-13 확인).
+function _kiwoomNoticeOcr(apiItems, names) {
+  try {
+    const html = UrlFetchApp.fetch(KIWOOM_BASE + '/service/notice/KO05020101T', KIWOOM_OPT).getContentText('UTF-8');
+    let n = null;
+    for (const m of html.matchAll(/fnDetail\('(\d+)'\);">([\s\S]*?)<\/a>\s*<\/td>\s*<td>([\d.]+)<\/td>/g)) {
+      const title = m[2].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+      if (/분배금\s*지급\s*안내/.test(title)) { n = { no: m[1], title, date: m[3] }; break; }
+    }
+    if (!n) return null;
+    const nd = n.date.match(/(\d{4})\.(\d{2})\.(\d{2})/); if (!nd) return null;
+    const noticeDay = new Date(+nd[1], +nd[2] - 1, +nd[3]);
+    const md = t => { const m = String(t || '').match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/); return m ? new Date(noticeDay.getFullYear(), +m[1] - 1, +m[2]) : null; };
+    const newestApi = (apiItems || []).map(it => md((it.sched || {})['공시일'])).filter(Boolean).sort((a, b) => b - a)[0];
+    if (newestApi && newestApi >= noticeDay) return null;          // API 가 이미 이 공지 회차를 갖고 있다
+    const page = UrlFetchApp.fetch(KIWOOM_BASE + '/service/notice/KO05020102T?noticeNo=' + n.no, KIWOOM_OPT).getContentText('UTF-8');
+    const imgs = [...page.matchAll(/src="data:image\/[a-z]+;base64,([^"]+)"/g)].map(m => m[1]);
+    if (!imgs.length) { console.log('KIWOOM OCR: 공지 그림 없음 ' + n.no); return null; }
+    const text = imgs.map((b, i) => _ocrBytes(Utilities.base64Decode(b), 'ocr_kw_' + n.no + '_' + i)).join('\n');
+    if (!text) { console.log('KIWOOM OCR: 글자 0 (' + _ocrDbg + ')'); return null; }
+    const flat = text.replace(/\s+/g, ' ');
+    const buy = (flat.match(/대상자\s*[:：]?\s*\d{4}\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/) || []);
+    const pay = (flat.match(/지급\s*예정일\s*[:：]?\s*\d{4}\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/) || []);
+    if (!buy[1] || !pay[1]) { console.log('KIWOOM OCR: 날짜 못 찾음 — ' + flat.slice(0, 200)); return null; }
+    const nb = d => { const x = new Date(d); do { x.setDate(x.getDate() + 1); } while (_isOffDay(x)); return x; };
+    const buyD = new Date(noticeDay.getFullYear(), +buy[1] - 1, +buy[2]), lockD = nb(buyD), baseD = nb(lockD);
+    const lab = d => (d.getMonth() + 1) + '월 ' + d.getDate() + '일';
+    const sched = { '공시일': lab(noticeDay), '분배락일': lab(lockD), '기준일': lab(baseD), '지급일': +pay[1] + '월 ' + +pay[2] + '일' };
+    const cycle = baseD.getDate() <= 20 ? '월중' : '월말';
+    const codes = [...flat.matchAll(/\b(\d[0-9A-Z]{5})\b/g)].map(m => m[1]).filter(c => names[c]);
+    const amts = [...flat.matchAll(/([\d,]+)\s*원/g)].map(m => Number(m[1].replace(/,/g, '')));
+    const rates = [...flat.matchAll(/(\d+\.\d+)\s*%/g)].map(m => parseFloat(m[1]));
+    if (!codes.length || codes.length !== amts.length) { console.log('KIWOOM OCR: 종목 ' + codes.length + ' · 금액 ' + amts.length + ' 개수 안 맞음'); return null; }
+    const items = codes.map((c, i) => ({ name: names[c], ticker: c, amount: amts[i], rate: rates.length === codes.length ? rates[i] : null,
+                                         cycle: cycle, sched: Object.assign({}, sched), ocr: true }));
+    console.log('KIWOOM OCR: ' + n.title + ' → ' + items.length + '종목 ' + JSON.stringify(sched));
+    return { items: items, sched: sched, cycle: cycle };
+  } catch (e) { console.log('KIWOOM OCR 실패 ' + e); return null; }
 }
 
 // ===== 알림 엔진 =====
