@@ -5185,13 +5185,13 @@ function showDistOffline(list) {
 // 다음 날 "달력에 왜 아무것도 없냐"로 발견됐다. 감시자(distWatchdog)도 같이 죽어 메일이 끊겼다.
 // 그래서 **화면이 직접 말한다.** 판단 근거는 서버가 이미 보내주는 savedAt뿐이라 새 API가 필요 없다.
 // 기준은 백엔드가 실제로 도는 주기에 맞춘다(Code.gs의 _inNoticeWindow와 같은 날짜 조건):
-//  · 공지창(8~12일, 23일~말일) — checkDistNotices가 09~18시에 30분마다 → 6시간이면 확실히 죽은 것
+//  · 공지창(8~16일, 23일~말일) — checkDistNotices가 09~18시에 30분마다 → 6시간이면 확실히 죽은 것
 //  · 그 밖의 날 — refreshAllDistributions가 매일 새벽 5시 1회뿐 → 30시간까지는 정상
 // ⚠️ 한때 24시간 단일 기준으로 뒀더니 이번 사고(9/10 15:16 정지 → 9/11 11시에도 20시간)가
 // 경고에 안 걸렸다. 정작 공지가 올라오는 날에 못 잡으면 이 경고는 의미가 없다.
 function distStaleLimitH() {
   const d = new Date().getDate();
-  return ((d >= 8 && d <= 12) || d >= 23) ? 6 : 30;
+  return ((d >= 8 && d <= 16) || d >= 23) ? 6 : 30;
 }
 // savedAt 은 **두 형식이 다 온다.** writeDistCache 는 'yyyy-MM-dd HH:mm' 문자열로 쓰지만,
 // 구글 시트가 그걸 날짜로 자동 인식해 Date 셀로 바꾼다 → 다시 읽으면 Date 객체이고

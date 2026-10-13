@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', 'checkDistNotices'
 ];
 
 function runMaint(name, arg) {
@@ -1552,7 +1552,9 @@ function parseSmartTodayArticle(html) {
 }
 
 // 공지가 몰리는 날: 중순①은 10일 전후, 월말②는 25일부터 말일까지(28~29일 게시가 잦아 23일~월말 전체를 연다)
-function _inNoticeWindow(day) { return (day >= 8 && day <= 12) || (day >= 23); }
+// 2026-10-13: 중순 창이 12일까지라 TIGER 10/13 공지를 하루 종일 못 봤다(사용자가 게시판 보고 알려 줌). 휴일로 밀리면 13~15일에도
+// 올라온다(기준일 15일) → 16일까지 연다.
+function _inNoticeWindow(day) { return (day >= 8 && day <= 16) || (day >= 23); }
 
 // 트리거용(30분 간격). 공지 창 밖의 날·주간 09~18시 밖은 그냥 넘어가 쿼터를 아낀다.
 // (OCR은 이미지 URL 캐시(ocrImageText)로 재사용되므로 폴링이 잦아도 Vision 호출은 새 이미지에만 나간다.)
@@ -5804,8 +5806,8 @@ function setupKeepWarm() {
 
 // 공지 창 경계값 자체 점검. 통과하면 'ok' 반환, 틀리면 예외.
 function _testNoticeWindow() {
-  [8,10,12,23,25,27,28,29,31].forEach(d => { if (!_inNoticeWindow(d)) throw new Error('창 안인데 false: ' + d); });
-  [1,7,13,22].forEach(d => { if (_inNoticeWindow(d)) throw new Error('창 밖인데 true: ' + d); });
+  [8,10,12,13,16,23,25,27,28,29,31].forEach(d => { if (!_inNoticeWindow(d)) throw new Error('창 안인데 false: ' + d); });
+  [1,7,17,22].forEach(d => { if (_inNoticeWindow(d)) throw new Error('창 밖인데 true: ' + d); });
   console.log('ok');
   return 'ok';
 }
