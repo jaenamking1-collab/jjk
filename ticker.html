@@ -391,9 +391,21 @@ function drawBoard(stale){
   } else line.textContent = stale ? '공지: 못 받음' : '';
   N.appendChild(line);
 }
+// 2026-10-13: 예비본 갱신(GitHub 예약)이 실제로는 4~7시간 간격이라 새 공지가 늦게 켜졌다 →
+// 백엔드 공개 액션(토큰 없음)에서 먼저 받고, 안 되면 예비본. PC 위젯(fetch_live)과 같은 순서.
+const LIVE_API = 'https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec';
+async function liveBoardJson(){
+  const get = async a => (await fetch(LIVE_API + '?action=' + a, {cache:'no-store'})).json();
+  const d = await get('getDistributionAll');
+  if (!d || !d.sources) throw new Error('no sources');
+  const n = await get('getEtfNoticesAll').catch(() => ({}));
+  return { dist: d.sources, notices: (n && n.sources) || {} };
+}
 async function loadNotices(){
   try{
-    const j = await (await fetch('dist_snapshot.txt', {cache:'no-store'})).json();
+    let j;
+    try { j = await liveBoardJson(); }
+    catch(e){ j = await (await fetch('dist_snapshot.txt', {cache:'no-store'})).json(); }
     board = boardOf(j, kstToday()); drawBoard(false);
   }catch(e){ drawBoard(true); }
 }
