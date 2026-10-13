@@ -87,6 +87,8 @@ body.detail .amt{display:block}
     교환비율 <code>XRP-KRW/KAIA-KRW=이름 @49,50,v41</code> (v=하한)<br>
     집 PC 목록: 받은 <b>8글자 코드</b>를 칸에 적고 저장(또는 복사 후 📋). 한 번 넣으면 열 때마다 집 목록을 따라옵니다
   </div>
+  <label class="help"><input type="checkbox" id="showTotal"> 총평가 줄 보이기</label>
+  <label class="help"><input type="checkbox" id="showBoard"> 분배금 공지판 보이기</label><br>
   <button id="pasteBtn">📋 복사한 코드 붙여넣기</button><br style="margin-bottom:6px">
   <button id="saveBtn">저장</button><button class="ghost" id="cancelBtn">취소</button>
   <button class="ghost" id="resetBtn">기본값</button>
@@ -445,7 +447,7 @@ document.getElementById('pasteBtn').onclick = async () => {
 const eok = v => (v / 1e8).toFixed(2) + '억';
 async function loadTotal(){
   const code = store.get('tk_code', null), T = document.getElementById('total');
-  if (!code){ T.style.display = 'none'; return; }
+  if (!code || !store.get('tk_show_total', true)){ T.style.display = 'none'; return; }
   try{
     const j = await (await fetch(RELAY + '?total=' + encodeURIComponent(code), {cache:'no-store'})).json();
     const t = j.total; if (!t || !t.value) throw 0;
@@ -464,6 +466,18 @@ async function loadTotal(){
   }
 }
 loadTotal(); setInterval(() => { if (document.visibilityState === 'visible') loadTotal(); }, 120000);
+
+// 총평가·공지판 켜고 끄기(2026-10-13 사용자: "위젯 총평가 같은 메뉴는 켜고 끌 수 있게"). PC 위젯 설정과 같은 두 칸.
+function applyShow(){
+  document.getElementById('notice').style.display = store.get('tk_show_board', true) ? '' : 'none';
+  loadTotal();
+}
+[['showTotal', 'tk_show_total'], ['showBoard', 'tk_show_board']].forEach(([id, key]) => {
+  const el = document.getElementById(id);
+  el.checked = store.get(key, true);
+  el.onchange = () => { store.set(key, el.checked); applyShow(); };
+});
+applyShow();
 
 build(); load();
 if (imported) document.getElementById('hint').textContent = `집 PC 목록 ${imported}종목으로 맞췄습니다`;
