@@ -154,6 +154,8 @@ DEFAULT = {
     "ratio_band": {},                    # 교환비율 -> (날짜, 30일 최저, 최고)
     "coin_base": {},                     # 코인 -> (날짜, 국내 기준가). 등락률 기준
     "detail_open": False,
+    "show_total": True,                  # 맨 아래 총평가 줄 보이기 (설정·오른쪽 클릭 메뉴에서 켜고 끔)
+    "show_board": True,                  # 분배금 공지판 보이기
     "notice_seen": [],                   # 이미 본 분배금 공지(날짜|운용사|제목). 새것만 강조한다                # 밑줄(오늘 금액·전일값)을 펼쳐 놨나. 전 종목 한꺼번에
 }
 
@@ -972,6 +974,14 @@ board_line.append(tk.Label(notice, text="", bg=panel_bg(), fg=DIM, font=("Malgun
 board_line[0].pack(fill="x", pady=(2, 0))
 
 
+def apply_sections():
+    """공지판 켜고 끄기(2026-10-13 사용자: "위젯 총평가 같은 메뉴는 켜고 끌 수 있게"). 총평가는 build() 가 본다."""
+    if cfg.get("show_board", True):
+        notice.pack(fill="x", padx=6, pady=(0, 4), after=body)
+    else:
+        notice.pack_forget()
+
+
 def sync_back(_=None):
     """배경 창을 글자 창에 딱 붙인다 — 자리·크기·보임 여부까지 전부.
     둘이 따로 놀면 한쪽 모니터에 바탕만, 다른 쪽에 글자만 남는다(2026-08-24에 겪음).
@@ -1064,7 +1074,7 @@ def build():
             r += 2
     # 맨 아래 총평가 줄(사용자 지정 2026-10-07: "맨 위 말고 맨 아래"). 코드가 있는 PC 에서만.
     total_w.clear()
-    if total_code():
+    if total_code() and cfg.get("show_total", True):
         tk.Frame(body, bg=LINE, height=1).grid(row=r, column=0, columnspan=4, sticky="ew", pady=(2, 1))
         nm = tk.Label(body, text="총평가", bg=panel_bg(), fg=FG, font=("Malgun Gothic", 8, "bold"))
         p = tk.Label(body, text="…", bg=panel_bg(), fg=FG, font=("Consolas", 9))
@@ -1402,6 +1412,12 @@ def settings(_=None):
     tk.Checkbutton(win, text="항상 위에 표시", variable=top, bg=BG, fg=FG, selectcolor=FIELD,
                    activebackground=BG, activeforeground=FG, bd=0, highlightthickness=0,
                    font=("Malgun Gothic", 9)).pack(anchor="w", padx=8)
+    show_total = tk.BooleanVar(value=cfg.get("show_total", True))
+    show_board = tk.BooleanVar(value=cfg.get("show_board", True))
+    for _txt, _var in (("총평가 줄 보이기", show_total), ("분배금 공지판 보이기", show_board)):
+        tk.Checkbutton(win, text=_txt, variable=_var, bg=BG, fg=FG, selectcolor=FIELD,
+                       activebackground=BG, activeforeground=FG, bd=0, highlightthickness=0,
+                       font=("Malgun Gothic", 9)).pack(anchor="w", padx=8)
     was = (cfg["bg_op"], cfg["text_op"], cfg["bg_color"])
 
     def slider(label, key, lo):
@@ -1474,9 +1490,13 @@ def settings(_=None):
         except ValueError:
             err.config(text="갱신 주기는 숫자로")
             return
-        cfg.update(tickers=tickers, refresh_sec=n, topmost=top.get())
+        cfg.update(tickers=tickers, refresh_sec=n, topmost=top.get(),
+                   show_total=show_total.get(), show_board=show_board.get())
         save(cfg)
+        _mv_total.set(cfg["show_total"])
+        _mv_board.set(cfg["show_board"])
         root.attributes("-topmost", cfg["topmost"])
+        apply_sections()
         build()
         refresh()
         win.destroy()
@@ -1641,6 +1661,22 @@ menu = tk.Menu(root, tearoff=0)
 menu.add_command(label="새로고침", command=refresh)
 menu.add_command(label="설정", command=settings)
 menu.add_command(label="숨기기/보이기", command=toggle)
+menu.add_separator()
+_mv_total = tk.BooleanVar(value=cfg.get("show_total", True))
+_mv_board = tk.BooleanVar(value=cfg.get("show_board", True))
+
+
+def _menu_flip(key, var):
+    cfg[key] = var.get()
+    save(cfg)
+    apply_sections()
+    build()
+    refresh()
+
+
+menu.add_checkbutton(label="총평가 줄", variable=_mv_total, command=lambda: _menu_flip("show_total", _mv_total))
+menu.add_checkbutton(label="분배금 공지판", variable=_mv_board, command=lambda: _menu_flip("show_board", _mv_board))
+menu.add_separator()
 menu.add_command(label="위치 초기화", command=lambda: (cfg.update(pos=None), save(cfg), place_panel()))
 menu.add_command(label="닫기", command=root.destroy)
 root.bind("<Button-3>", lambda e: menu.tk_popup(e.x_root, e.y_root))
@@ -1650,6 +1686,7 @@ back.bind("<Button-3>", lambda e: menu.tk_popup(e.x_root, e.y_root))
 for _ev in ("<Button-1>", "<ButtonRelease-1>", "<Button-3>"):
     back.bind(_ev, lambda e: sync_back(), add="+")
 
+apply_sections()
 build()
 refresh()
 blink()
