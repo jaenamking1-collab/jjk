@@ -3,6 +3,12 @@
 두 대의 Windows PC(직장 / 집)에서 Claude Code로 번갈아 작업할 때 대화 맥락을 이어받기 위한 작업 로그.
 각 항목은 장소(직장/집)로 구분한다. **최신 항목이 맨 위**에 오도록 추가한다. 세션 시작 시 이 파일을 먼저 읽고, 세션 종료 시 맨 위에 새 항목을 추가한다. 과거 항목은 수정하지 않는다.
 
+## 2026-10-13 (263) / 원격 — 위젯 총평가·공지판 **켜고 끄기**
+
+- 사용자: "위젯 총평가 같은 메뉴는 켜고 끌 수 있게". `tools/ticker.pyw`: cfg `show_total`·`show_board`(기본 켬). 설정 창 체크 2개 + 오른쪽 클릭 메뉴 체크 2개(서로 맞춤). 공지판은 `apply_sections()`(pack/pack_forget), 총평가는 build() 가 본다.
+- `ticker.html`(폰): 편집 패널 체크 2개, localStorage `tk_show_total`·`tk_show_board`.
+- 시험: 가짜 tkinter 로 실제 시작 경로 끝까지(mainloop 도달) + 세 조합(켬켬·끔끔·켬끔) 기대대로 / 기존 test_ticker_sources ✅ / 폰은 실제 크롬: 끄기→새로고침 뒤에도 유지, JS 오류 0.
+
 ## 2026-10-13 (262) / 원격 — 위젯 공지판 안 깜박임 + **끝단 대조 점검** (사용자: "점검을 이리 많이 하는데 문제가 계속 나오는 건 제대로 확인을 안 하는 거 아냐?")
 
 - 위젯: 공지판이 `dist_snapshot.txt` 만 읽는데 public-snapshot 예약(cron 7,37)이 **실제로는 4~7시간 간격**(10/12~13 실행 기록). 07:35 판이라 KODEX·TIGER·ACE 가 안 켜졌다. → `tools/ticker.pyw` `fetch_live()`·`ticker.html` `liveBoardJson()`: 백엔드 공개 액션(getDistributionAll·getEtfNoticesAll)을 먼저, 실패 시 예비본. 실제 응답으로 board_of 시험 → 6곳 켜짐. 위젯은 자기 갱신으로 받는다(exe 재빌드 불필요). smoke-ticker ✅. 예비본도 수동 갱신(03:03Z).
