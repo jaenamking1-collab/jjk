@@ -218,7 +218,12 @@ NOTICE_PATH = "dist_snapshot.txt"
 NOTICE_SRC = (("https://raw.githubusercontent.com/%s/main/%s" % (REPO, NOTICE_PATH), "raw"),
               ("https://api.github.com/repos/%s/contents/%s?ref=main" % (REPO, NOTICE_PATH), "api"),
               ("https://cdn.jsdelivr.net/gh/%s@main/%s" % (REPO, NOTICE_PATH), "jsdelivr"))
-NOTICE_SEC = 600                         # 10분마다. 예비본 자체가 30분 간격이라 이보다 자주 볼 이유가 없다
+NOTICE_SEC = 600                         # 10분마다
+# 2026-10-13: 예비본은 "30분마다"인데 GitHub 예약이 실제로는 4~7시간에 한 번만 돌아, 10:00 에 들어온
+# KODEX·TIGER·ACE 10월 중순 공지가 위젯에서 안 깜박였다. → 공개 분배금공지 페이지와 같은 **공개 액션**
+# (토큰 없음)으로 백엔드에서 직접 받고, 못 받을 때만 예비본을 쓴다.
+LIVE_API = ("https://script.google.com/macros/s/"
+            "AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec")
 # ── 총평가(시세 맨 아래 한 줄) ── 휴대폰 시세(ticker.html)와 같은 값을 중계에서 받는다.
 # 대시보드 '평가금' 식(보유 수량 × 대시보드 getLivePrices 현재가)과 오늘 등락. 예수금은 빠진다.
 # 금액이라 코드가 있어야 준다 — 코드는 비공개 claude-memory/ticker/phone_code.txt(두 PC 동기화)에서 읽는다.
@@ -447,8 +452,28 @@ def board_of(j, today):
     return out
 
 
+def fetch_live():
+    """백엔드 공개 액션에서 지금 값. 예비본과 같은 모양 {dist, notices}. 못 받으면 None."""
+    try:
+        get = lambda a: json.loads(urllib.request.urlopen(urllib.request.Request(
+            LIVE_API + "?action=" + a, headers={"User-Agent": "Mozilla/5.0"}), timeout=40).read().decode("utf-8"))
+        d = get("getDistributionAll")
+        if d.get("sources"):
+            try:
+                n = get("getEtfNoticesAll").get("sources") or {}
+            except Exception:
+                n = {}
+            return {"dist": d["sources"], "notices": n}
+    except Exception:
+        pass
+    return None
+
+
 def fetch_snapshot():
-    """공개 예비본. 위젯 코드 갱신과 같은 우회 순서(raw→api→jsdelivr). 못 받으면 None."""
+    """지금 값(백엔드) 먼저, 안 되면 공개 예비본. 예비본은 위젯 코드 갱신과 같은 우회 순서(raw→api→jsdelivr)."""
+    live = fetch_live()
+    if live:
+        return live
     for url, name in NOTICE_SRC:
         try:
             raw = urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=10).read()
