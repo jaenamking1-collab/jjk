@@ -1176,7 +1176,7 @@ function renderFreshness(all){
   const staleH = times.length ? Math.floor((Date.now() - times[times.length - 1].getTime()) / 3600000) : 0;
   // portfolio.html의 distStaleLimitH와 같은 기준 — 공지창엔 30분마다, 그 밖엔 새벽 1회만 돈다.
   const _d = new Date().getDate();
-  const limitH = ((_d >= 8 && _d <= 12) || _d >= 23) ? 6 : 30;
+  const limitH = ((_d >= 8 && _d <= 16) || _d >= 23) ? 6 : 30;
   el.textContent = `· 데이터 ${t}${t ? ' 기준' : ''}`
     + (staleH >= limitH ? ` · 🚨 ${staleH}시간째 갱신 안 됨`
        : off.length ? ` · ⚠️ 서버 응답 없음(${off.join('·')})`
