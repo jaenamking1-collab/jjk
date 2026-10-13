@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', 'checkDistNotices'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', 'checkDistNotices', '_noticeVsData'
 ];
 
 function runMaint(name, arg) {
@@ -1570,7 +1570,45 @@ function checkDistNotices() {
   // 그래서 30분마다 목록도 새로 받는다(배경 실행이라 앱 요청을 막지 않는다. 실패하면 마지막 성공분이 남는다).
   const cache = CacheService.getScriptCache();
   DIST_SOURCE_IDS.forEach(s => { try { cache.remove('notices_v2_' + s); getEtfNotices(s); } catch (e) { console.log(s + ' 공지 목록 실패 ' + e); } });
+  try { _noticeVsData(); } catch (e) { console.log('공지↔데이터 대조 실패 ' + e); }
   return r;
+}
+
+// 끝에서 끝까지 대조(2026-10-13 사용자: "점검을 이리 많이 하는데 문제가 계속 나오는 건 제대로 확인을 안 하는 거 아냐?").
+// 그동안의 점검은 '돌고 있나'만 봤다. 이건 **게시판에 올라온 분배금 공지 날짜**와 **앱 데이터의 최신 공시일**을 운용사마다 비교해,
+// 게시판이 더 새로운 상태가 1시간 넘게 이어지면 캘린더로 한 번 알린다(같은 공지는 한 번만). 사용자가 게시판을 보고 먼저 아는 일을 막는다.
+function _noticeVsData() {
+  const props = PropertiesService.getScriptProperties(), now = new Date(), cache = CacheService.getScriptCache();
+  const today = new Date(Utilities.formatDate(now, 'Asia/Seoul', 'yyyy/MM/dd'));
+  const md = t => { const m = String(t || '').match(/(\d{1,2})\s*[월\/.]\s*(\d{1,2})/); if (!m) return null;
+    let d = new Date(today.getFullYear(), +m[1] - 1, +m[2]); if (d - today > 180 * 864e5) d.setFullYear(d.getFullYear() - 1); return d; };
+  const ymd = t => { const m = String(t || '').match(/(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/); return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null; };
+  const lines = [], gaps = [];
+  DIST_SOURCE_IDS.forEach(s => {
+    let nts = []; try { nts = (JSON.parse(cache.get('notices_v2_' + s) || '{}').items) || []; } catch (e) {}
+    const n = nts.filter(x => /분배금/.test(x.title || '') && !/전환|변경|정정|상장폐지/.test(x.title || ''))
+                 .map(x => ({ d: ymd(x.date), t: x.title })).filter(x => x.d && today - x.d <= 3 * 864e5)
+                 .sort((a, b) => b.d - a.d)[0];
+    const key = 'NVD_' + s;
+    if (!n) { props.deleteProperty(key); return; }
+    let pubs = []; try { pubs = (getDistribution(s).items || []).map(it => md((it.sched || {})['공시일'])).filter(Boolean); } catch (e) {}
+    const dataPub = pubs.length ? new Date(Math.max.apply(null, pubs)) : null;
+    if (dataPub && dataPub >= n.d) { props.deleteProperty(key); return; }
+    const tag = Utilities.formatDate(n.d, 'Asia/Seoul', 'MM/dd');
+    let st = {}; try { st = JSON.parse(props.getProperty(key) || '{}'); } catch (e) {}
+    if (st.tag !== tag) st = { tag: tag, since: now.toISOString() };
+    const mins = (now - new Date(st.since)) / 60000;
+    gaps.push(s + ' ' + tag + '(' + Math.round(mins) + '분)');
+    if (mins >= 60 && !st.sent) {
+      lines.push('⚠️ ' + s.toUpperCase() + ' 게시판엔 ' + tag + ' 분배금 공지가 있는데 앱 데이터는 '
+        + (dataPub ? Utilities.formatDate(dataPub, 'Asia/Seoul', 'MM/dd') + ' 회차' : '없음') + ' — ' + Math.round(mins) + '분째 못 읽음. Claude 에게 "공지 못 읽는다"고 말해 주세요.');
+      st.sent = true;
+    }
+    props.setProperty(key, JSON.stringify(st));
+  });
+  console.log(' | 공지↔데이터 대조: 어긋남 ' + gaps.length + (gaps.length ? ' — ' + gaps.join(', ') : '') + ' · 알림 ' + lines.length);
+  if (lines.length) _notifyCal(lines);
+  return { gaps: gaps.length, sent: lines.length };
 }
 
 // 트리거 설정은 파일 맨 아래 '수동 실행' 섹션의 setupDistTriggers() 참고.
