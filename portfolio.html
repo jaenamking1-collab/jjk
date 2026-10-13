@@ -3428,7 +3428,7 @@ function renderPlChart() {
       ${(()=>{const ci=_plCash&&_plCash.info[acc]; if(!ci) return '';
         const s2=_plCash.start.slice(5).replace('-','/');
         return `<div style="font-size:9px;margin-bottom:4px;font-family:var(--mono);color:var(--text)" title="${s2} 뒤 들어온 분배금(지급일 기준)·매매로 생긴 현금을 그래프에 더했다">${s2} 뒤 분배금 +${Math.round(ci.div).toLocaleString()} · 현금 ${sg(ci.cum)}${ci.skip?` · 다시 등록으로 보인 변동 ${ci.skip}건 제외`:''}</div>`
-          + (ci.short ? `<div style="font-size:9px;margin-bottom:4px;color:#b45309" title="기준일 예수금과 그 뒤 분배금보다 더 샀다. 다른 데서 입금했거나 분배금을 아직 안 넣은 것">⚠ 예수금보다 ${Math.round(ci.short).toLocaleString()} 더 매수 — 외부 입금이면 알려 주세요</div>` : '');})()}
+          + (ci.short ? `<div style="font-size:9px;margin-bottom:4px;color:#b45309" title="기준일 예수금과 그 뒤 분배금보다 더 샀다. 따로 넣은 돈은 말씀하신 것만 넣으므로, 분배금 입력이 빠졌거나 지급 전에 산 것">⚠ 예수금보다 ${Math.round(ci.short).toLocaleString()} 더 매수 — 분배금 입력 누락?</div>` : '');})()}
       <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;overflow:visible">${yWm}${mWm}${yLines}${mSep}${xSvg}${path}</svg>
     </div>`;
   };
@@ -4611,20 +4611,22 @@ async function loadScorecard() {
     const inkind = +s.inkind || 0;
     // 기준일 뒤 매매·분배금으로 예수금을 굴린다. 모자라면 그만큼 밖에서 넣은 돈이다.
     const id = s.account_id.toString(), ad = roll.adj[id] || {};
-    let cash = (+s.cash || 0) + (+s.cash_usd || 0) * er, added = 0;
-    const addFlows = [];
+    // 사용자 원칙(2026-10-13): 따로 넣은 돈은 항상 말해 준다(→ 외부입금 시트). 그 밖의 매수는 **전부 분배금 예수금**이다.
+    // 그래서 예수금이 모자라도 투자원금에 더하지 않는다 — 모자란 만큼 예수금이 마이너스로 남고, 분배금 입력 누락을 뜻한다.
+    let cash = (+s.cash || 0) + (+s.cash_usd || 0) * er, minCash = 0;
     roll.ev.filter(e => e.acc.toString() === id).forEach(e => {
       cash += e.amt;
-      if (cash < 0) { added -= cash; addFlows.push({ account_id: id, date: e.date, amount: cash }); cash = 0; }
+      minCash = Math.min(minCash, cash);
     });
-    const deposit = (+s.deposit || 0) + (+s.transfer || 0) + inkind + added + (depSum[id] || 0);
+    const added = -minCash;   // 모자랐던 최대 금액(투자원금엔 안 더한다)
+    const deposit = (+s.deposit || 0) + (+s.transfer || 0) + inkind + (depSum[id] || 0);
     const div = (+s.div || 0) + (+s.interest || 0) + (ad.div || 0);
     const unreal = value - invest, realized = (+s.realized || 0) + (ad.realized || 0);
     return { name: s.name, id: s.account_id, deposit, inkind, cash, asset: value + cash,
              value, invest, unreal, realized, profit: unreal + realized, div, div12: +s.div12 || 0,
              tax: +s.tax || 0, total: unreal + realized + div, added,
              buys: ad.buys || 0, sells: ad.sells || 0, ndiv: ad.ndiv || 0,
-             flows: (flows || []).filter(f => f.account_id.toString() === id).concat(addFlows)
+             flows: (flows || []).filter(f => f.account_id.toString() === id)
                .concat(extDepEvents(extDeps).filter(d => d.acc === id).map(d => ({ account_id: id, date: d.date, amount: -d.amt }))) };   // 넣은 돈 −
   };
   // 계좌요약에 없는 새 계좌(예: 새로 연 IRP)도 0에서 시작해 굴린다 — 산 만큼이 곧 넣은 돈이다
@@ -4657,8 +4659,8 @@ async function loadScorecard() {
          n(r.deposit) + (r.inkind ? ' *' : '')) +
       td('g', '보유 종목 현재가 × 수량 (포트폴리오 탭의 총 평가금과 같은 값)', n(r.value)) +
       td('', '계좌에 남은 현금. 거래내역(' + SCORECARD_ASOF + ') 잔고에서 그 뒤 매수 ' + r.buys + '건·매도 ' +
-           r.sells + '건·분배금 ' + r.ndiv + '건으로 굴린 값' + (r.added ? '. 모자란 ' + n(r.added) +
-           '원은 새로 넣은 돈으로 보고 투자원금에 더했다' : ''), n(r.cash)) +
+           r.sells + '건·분배금 ' + r.ndiv + '건으로 굴린 값' + (r.added ? '. 한때 ' + n(r.added) +
+           '원 모자랐다 — 따로 넣은 돈은 없다고 보므로(말씀하신 것만 외부입금) 분배금 입력이 빠졌거나 지급 전에 산 것' : ''), n(r.cash)) +
       td('', '주식 + 예수금', n(r.asset)) +
       td('g', '평가금 − 총매입. 아직 안 판 것의 손익 (포트폴리오 탭의 수익금과 같은 값)', sgn(r.unreal)) +
       td('', '이미 판 것에서 실제로 남긴 차익' + (r.sells ? '. 기준일 뒤 매도 ' + r.sells +
