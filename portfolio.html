@@ -3131,10 +3131,11 @@ async function loadPlCash() {
   const START = SCORECARD_ASOF;
   const now = new Date(), months = [];
   for (let d = new Date(+START.slice(0, 4), +START.slice(5, 7) - 1, 1); d <= now; d.setMonth(d.getMonth() + 1)) months.push(d.getMonth() + 1);
-  const [hlog, divs, sum, ...dms] = await Promise.all([
+  const [hlog, divs, sum, extDeps, ...dms] = await Promise.all([
     api({ action: 'getHoldingLog' }).catch(() => ({})),
     (state.dashData && state.dashData.divsAll) ? Promise.resolve(state.dashData.divsAll) : api({ action: 'getDividends' }).catch(() => []),
     api({ action: 'getAccountSummary' }).catch(() => []),
+    api({ action: 'getExtDeposits' }).catch(() => []),
     ...months.map(m => api({ action: 'getDistributionMonth', m }).catch(() => ({})))
   ]);
   const er = state.exchangeRate || 1400, krw = (v, cur, r) => cur === 'USD' ? v * (r || er) : v;
@@ -3190,12 +3191,15 @@ async function loadPlCash() {
                     : y + '-' + String(m).padStart(2, '0') + '-' + String(new Date(y, m, 0).getDate()).padStart(2, '0');
     if (date > START) add(accId, date, krw(amt, d.currency, parseFloat(d.rate)), 'div');
   });
+  // 외부 입금(사용자가 말해 준 개인돈) — 매매 검사(bad) 뒤에 넣는다. 매매가 아니라 들어온 돈이다
+  extDepEvents(extDeps).forEach(d => add(d.acc, d.date, d.amt, 'dep'));
   // 기준일 예수금으로 '산 만큼 돈이 있었나' 검사
   const startCash = {}; (sum || []).forEach(s => { const n = accName[String(s.account_id)]; if (n) startCash[n] = (+s.cash || 0) + (+s.cash_usd || 0) * er; });
   const info = {};
   Object.keys(ev).forEach(n => {
-    // 같은 날이면 분배금 먼저(들어온 돈으로 산다)
-    ev[n].sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : (a.kind === 'div' ? 0 : 1) - (b.kind === 'div' ? 0 : 1));
+    // 같은 날이면 분배금·외부 입금 먼저(들어온 돈으로 산다)
+    const inFirst = e => (e.kind === 'div' || e.kind === 'dep') ? 0 : 1;
+    ev[n].sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : inFirst(a) - inFirst(b));
     let c = 0, lo = 0; ev[n].forEach(e => { c += e.amt; lo = Math.min(lo, (startCash[n] || 0) + c); });
     info[n] = { cum: c, short: lo < 0 ? -lo : 0, div: ev[n].filter(e => e.kind === 'div').reduce((t, e) => t + e.amt, 0), skip: skipped[n] || 0 };
   });
@@ -4483,6 +4487,13 @@ function xirr(flows, endValue, endDate) {
 // 그래서 앱에서 고친 것이 트리거를 기다리지 않고 바로 반영된다.
 // ⚠️ 거래내역을 새로 받아 두 시트를 다시 만들면 이 날짜를 그 거래내역의 마지막 날로 바꾼다.
 const SCORECARD_ASOF = '2026-09-28';
+// 외부 입금·출금(getExtDeposits, 비공개 시트 '외부입금') → [{acc, date, amt}]. 기준일 뒤 것만. 계좌는 이름으로 맞춘다(띄어쓰기 무시).
+function extDepEvents(deps) {
+  const key = s => String(s || '').replace(/\s/g, ''), idOf = {};
+  (state.accounts || []).forEach(a => idOf[key(a.name)] = a.id.toString());
+  return (Array.isArray(deps) ? deps : []).map(d => ({ acc: idOf[key(d.account)], date: String(d.date).slice(0, 10), amt: +d.amount || 0 }))
+    .filter(d => d.acc && d.amt && d.date > SCORECARD_ASOF);
+}
 function rollScorecard(log, divs, priceMap, er, lateTk) {
   const toKrw = (v, cur, rate) => cur === 'USD' ? v * (rate || er) : v;
   const at = {}, ev = [], adj = {};
@@ -4548,13 +4559,14 @@ function rollScorecard(log, divs, priceMap, er, lateTk) {
 async function loadScorecard() {
   const box = document.getElementById('scorecardBox');
   box.innerHTML = '<div class="loading"><span class="spinner"></span>불러오는 중...</div>';
-  const [sum, flows, sheet, hlog, divs, distM] = await Promise.all([
+  const [sum, flows, sheet, hlog, divs, distM, extDeps] = await Promise.all([
     api({ action: 'getAccountSummary' }).catch(() => []),
     api({ action: 'getAccountFlows' }).catch(() => []),
     fetchPriceItems(),
     api({ action: 'getHoldingLog' }).catch(() => ({})),
     api({ action: 'getDividends' }).catch(() => []),
-    api({ action: 'getDistributionMonth', m: +SCORECARD_ASOF.slice(5, 7) }).catch(() => ({}))
+    api({ action: 'getDistributionMonth', m: +SCORECARD_ASOF.slice(5, 7) }).catch(() => ({})),
+    api({ action: 'getExtDeposits' }).catch(() => [])
   ]);
   if (!sum || !sum.length) {
     box.innerHTML = '<div class="empty"><p>계좌요약 시트를 읽지 못했습니다.</p></div>';
@@ -4574,6 +4586,10 @@ async function loadScorecard() {
     if (m && +m[1] > 20) lateTk.add(String(it.ticker || '').trim().toUpperCase());
   }));
   const roll = rollScorecard((hlog && hlog.items) || [], divs, priceMap, er, lateTk);
+  // 외부 입금은 예수금에 들어오고(같은 날이면 매수보다 먼저) 투자원금에 더한다
+  const depSum = {};
+  extDepEvents(extDeps).forEach(d => { roll.ev.push({ date: d.date, acc: d.acc, amt: d.amt, dep: true }); depSum[d.acc] = (depSum[d.acc] || 0) + d.amt; });
+  roll.ev.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : (b.dep ? 1 : 0) - (a.dep ? 1 : 0));
 
   const n = v => Math.round(v).toLocaleString();
   const col = v => v > 0 ? '#dc2626' : v < 0 ? '#2563eb' : '#111827';
@@ -4599,14 +4615,15 @@ async function loadScorecard() {
       cash += e.amt;
       if (cash < 0) { added -= cash; addFlows.push({ account_id: id, date: e.date, amount: cash }); cash = 0; }
     });
-    const deposit = (+s.deposit || 0) + (+s.transfer || 0) + inkind + added;
+    const deposit = (+s.deposit || 0) + (+s.transfer || 0) + inkind + added + (depSum[id] || 0);
     const div = (+s.div || 0) + (+s.interest || 0) + (ad.div || 0);
     const unreal = value - invest, realized = (+s.realized || 0) + (ad.realized || 0);
     return { name: s.name, id: s.account_id, deposit, inkind, cash, asset: value + cash,
              value, invest, unreal, realized, profit: unreal + realized, div, div12: +s.div12 || 0,
              tax: +s.tax || 0, total: unreal + realized + div, added,
              buys: ad.buys || 0, sells: ad.sells || 0, ndiv: ad.ndiv || 0,
-             flows: (flows || []).filter(f => f.account_id.toString() === id).concat(addFlows) };
+             flows: (flows || []).filter(f => f.account_id.toString() === id).concat(addFlows)
+               .concat(extDepEvents(extDeps).filter(d => d.acc === id).map(d => ({ account_id: id, date: d.date, amount: -d.amt }))) };   // 넣은 돈 −
   };
   // 계좌요약에 없는 새 계좌(예: 새로 연 IRP)도 0에서 시작해 굴린다 — 산 만큼이 곧 넣은 돈이다
   const rows = state.accounts.map(a => sum.find(x => x.account_id.toString() === a.id.toString()) ||
