@@ -77,6 +77,12 @@
             "command": "p=python; command -v python >/dev/null 2>&1 || p=python3; \"$p\" \"${USERPROFILE:-$HOME}/claude-memory/hooks/index_transcripts.py\" brief 2>/dev/null; exit 0",
             "timeout": 30,
             "statusMessage": "다른 PC 대화 기록 확인 중"
+          },
+          {
+            "type": "command",
+            "command": "[ -f tools/ensure_jjk_guard.sh ] && bash tools/ensure_jjk_guard.sh; exit 0",
+            "timeout": 90,
+            "statusMessage": "jjk-guard 모드 확인 중"
           }
         ]
       }
