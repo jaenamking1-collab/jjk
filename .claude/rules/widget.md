@@ -1,0 +1,19 @@
+---
+paths:
+  - "tools/ticker*"
+  - "tools/test_ticker*"
+  - "ticker.html"
+  - "ticker*.gs"
+  - "ticker.webmanifest"
+  - "docs/시세위젯*"
+---
+# 시세 위젯(PC `tools/ticker.pyw`) · 휴대폰 시세(`ticker.html`) 규칙
+
+> 2026-10-14 새로 만듦(WORKLOG 221·240·255·262·263 에 흩어져 있던 것).
+
+- **둘은 짝이다 — 한쪽을 고치면 같은 턴에 다른 쪽도.** 총평가 줄·분배금 공지판·켜고 끄기(설정)·공지 받는 순서가 같아야 한다.
+- **공지판은 백엔드 공개 액션(getDistributionAll·getEtfNoticesAll)에서 먼저 받고, 실패하면 예비본 `dist_snapshot.txt`.** 예비본 갱신(GitHub 예약)은 '30분'이라 적혀 있어도 실제로 4~7시간 간격이다(2026-10-13 실측) — 예비본만 믿지 마라.
+- **PC 위젯은 저장소에서 자기 코드를 받아 갱신한다**(`self_update`). 남에게 준 exe(`ticker_launcher.py`)는 `TICKER_LAUNCHER` 가 있으면 자기 갱신을 건너뛰고 런처가 받는다 — 위젯 코드를 고쳐도 exe 재빌드 불필요(WORKLOG 255). 사용자에게 바로 보이려면 '껐다 켜기'가 필요하다고 말한다.
+- **총평가는 금액이라 코드(claude-memory/ticker/phone_code.txt·폰 tk_code)가 있을 때만** 보인다. 남에게 준 사본에선 줄이 아예 안 생긴다 — 이 경계를 깨지 마라.
+- **시험**: 이 컨테이너엔 tkinter 가 없다 → `python3 tools/test_ticker_sources.py`(가짜 tkinter, 실제 refresh 경로)와 필요한 시험을 같은 방식으로 만든다. 폰은 실제 크롬(`/opt/pw-browsers`)으로 연다. **'문법 통과'만으로 됐다고 하지 마라.**
+- 공지판 칸은 '공시일 ≤ 오늘 ≤ 지급일' 동안 켜지고, 새로 켜진 칸은 누를 때까지 깜박인다(`board_of`·`boardOf`). HANARO 는 월말만 있다.
