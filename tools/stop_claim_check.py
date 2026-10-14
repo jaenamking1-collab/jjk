@@ -4,6 +4,8 @@ import json, re, sys
 
 CLAIM = re.compile(r'(됐습니다|되었습니다|고쳤습니다|해결했습니다|완료했습니다|끝냈습니다|반영했습니다|배포했습니다|수정했습니다|넣었습니다)')
 
+QUOTED = re.compile(r'"[^"\n]*"|“[^”]*”|‘[^’]*’|「[^」]*」|`[^`]*`|```.*?```', re.S)
+
 
 def turn_tool_count(path):
     """마지막 '사람이 친' 메시지 뒤로 assistant 가 부른 도구 수."""
@@ -29,6 +31,8 @@ def judge(inp):
     if inp.get('stop_hook_active'):
         return None  # 이미 한 번 되돌렸다 — 무한 반복 금지
     text = inp.get('last_assistant_message') or ''
+    # 따옴표·코드 안의 말은 장담이 아니다(기능 이름 '"됐습니다" 검사'에 걸린 오작동, 2026-10-14)
+    text = QUOTED.sub('', text)
     if not CLAIM.search(text):
         return None
     p = inp.get('transcript_path')
