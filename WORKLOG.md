@@ -3,6 +3,13 @@
 두 대의 Windows PC(직장 / 집)에서 Claude Code로 번갈아 작업할 때 대화 맥락을 이어받기 위한 작업 로그.
 각 항목은 장소(직장/집)로 구분한다. **최신 항목이 맨 위**에 오도록 추가한다. 세션 시작 시 이 파일을 먼저 읽고, 세션 종료 시 맨 위에 새 항목을 추가한다. 과거 항목은 수정하지 않는다.
 
+## 2026-10-14 (267) / 원격 — 266 의 '확인 못 한 것' 확인: 규칙 파일 자동 로드 ✅
+
+- 새 세션에서 파일을 몇 줄씩만 열어 맥락에 규칙이 들어오는지 봤다(8곳 모두 ✅):
+  - `Code.gs` → `.claude/rules/` deploy·public-page·screens·backend 4개 / `ticker.html` → widget.md
+  - `watchdog/watchdog.gs` → watchdog/CLAUDE.md / `mods/jjk-guard/hooks/hooks.json` → 그 폴더 CLAUDE.md / `desktop-cat/cat_brain.py` → 그 폴더 CLAUDE.md
+- 시작할 때는 루트 CLAUDE.md 하나만 읽히고, 규칙 파일은 해당 파일을 열 때만 붙는다(토큰 절약 그대로).
+
 ## 2026-10-14 (266) / 원격 — 일하는 방식 점검: CLAUDE.md 를 **공통 절차 + 작업별 규칙 + 폴더별 규칙**으로 나눔
 
 - 사용자: "생각을 안 하고 작업하는 것 같아 … 작업별 규칙이 있냐, CLAUDE.md 만 읽냐" → 실측: CLAUDE.md 하나(263줄·48KB)만 통째로 읽고, 스킬은 한 줄 설명만, `.claude/rules`·폴더 CLAUDE.md 없음. 그날 `dist-public-release` 스킬을 한 번도 안 불렀다.
