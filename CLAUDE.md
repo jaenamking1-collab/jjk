@@ -32,6 +32,7 @@ Claude 앱은 긴 링크를 화면에 `앞부분…뒷부분` 으로 **줄여 �
 루틴 `CLAUDE.md 월간 프롬프트 점검`(`trig_012uVFsY3S2BxvkQSEaypzAz`, 매월 1일 08:53 KST)이 새 세션에서 Opus 로 `/doctor prompt-audit CLAUDE.md` 를 돌려 '적용 권고 / 보류'로 보고한다. **파일은 사용자 승인 뒤에만 고친다.**
 - 적용: 저장소가 직접 반박하는 사실 오류·문서 안 모순·낡은 절차.
 - 보류: 날짜·사용자 인용·WORKLOG 번호는 **규칙의 이유라 남긴다**. ⛔ 강조 줄이기도 보류(사용자 결정).
+- 함께 본다(2026-10-14): ① 지난 한 달 고친 파일 중 **맞는 규칙 파일이 없던 것**(`git log --since=1.month --name-only` ↔ `.claude/rules/*` 의 paths) → "규칙 만들까요?" ② CLAUDE.md 가 200줄을 넘었나 ③ 규칙 파일끼리 어긋나는 곳.
 
 ## 0-2. 출력 모드 — 메시지 앞의 `/모드` 를 따른다 (2026-10-03 사용자 지정)
 
@@ -68,6 +69,30 @@ Claude 앱은 긴 링크를 화면에 `앞부분…뒷부분` 으로 **줄여 �
 - ⛔ **점검은 끝에서 끝까지 대조한다 — '돌고 있나'가 아니라 '원본과 화면이 같은가'**(2026-10-13 사용자: *"점검을 이리 많이 하는데 문제가 계속 나오는 건 제대로 확인을 안 하는 거 아냐?"*). 그날 세 건이 전부 단계 사이 틈이었다(공지창 날짜·목록 캐시·예비본 지연). 새 자동화를 만들면 **원본(운용사 게시판 등) ↔ 사용자 화면 값**을 비교하는 감시를 같이 단다 — 예: `_noticeVsData`.
 - **검증·감시는 사용자가 실제로 보는 결과로 한다.** 수식 칸 하나가 정상인지가 아니라 "현재가 72칸 중 71칸 채워짐"처럼
   화면·시트에 보이는 값을 센다(2026-09-29: 공급 칸만 보고 '정상'이라 했는데, 다른 세션이 결과 칸을 세어 확인한 방식이 맞았다).
+
+## ⛔ 0-5. 작업 시작 공통 절차 — 어떤 일이든, 처음 하는 일이어도 (2026-10-14)
+
+사용자 말(2026-10-14): *"일단 생각을 안 하고 작업을 하는 것 같아 … 맨날 실수하는 거 지겹다"*. 규칙을 읽고도 작업하는 순간에 안 꺼내 봐서
+실수가 반복됐다(그날: 공개 페이지에 닿는 분배 데이터를 고치며 `dist-public-release` 스킬을 한 번도 안 불렀다). 그래서 **매 작업 이 순서**:
+
+1. **규칙·스킬부터.** 아래 목록에서 이 작업에 맞는 규칙 파일이 있으면 읽고, 맞는 스킬(`gas-deploy`·`dist-public-release`·`private-sheet-apply`·출력 모드 등)이 있으면 **먼저 부른다**.
+   규칙 파일은 그 파일을 만지면 자동으로 읽히지만, **고치기 전에 계획할 때** 이미 알고 있어야 한다.
+2. **없으면 시작 전에 세 줄을 적는다**(사용자에게 보이게): 원본은 무엇인가(운용사 게시판·증권사 내역…) / 사용자가 보는 화면은 어디인가 / 무엇과 무엇을 대조해서 "됐다"고 할 것인가.
+3. **고칠 때**: 이전 것과 바뀐 부분을 보여준다(사용자 설정). 파일은 Edit(패치)로 고친다.
+4. **끝낼 때**: 원본 ↔ 사용자 화면을 대조한 증거를 내놓고, 다시 생기면 알리는 장치까지 붙인다. 지난달·다른 화면(PC/폰/공개)처럼 **옆에서 같이 깨질 곳**도 본다.
+5. **새 종류의 일이었으면** 2번에서 적은 것을 `.claude/rules/<주제>.md`(paths 로 그 파일들 지정)나 그 폴더의 `CLAUDE.md` 로 남기고 아래 목록에 한 줄 더한다.
+6. **실수가 나면** 그 작업의 규칙 파일에 한 줄 더한다(여기 CLAUDE.md 에 쌓지 않는다 — 200줄 이내 유지).
+
+**규칙 목록** (`.claude/rules/` 는 그 파일을 만질 때, 폴더 `CLAUDE.md` 는 그 폴더를 열 때 자동으로 읽힌다)
+
+| 파일 | 언제 | 내용 |
+|---|---|---|
+| `.claude/rules/deploy.md` | `Code.gs`·워크플로 | 배포 절차·트리거 재설치·버전 상한·runMaint·/exec 403 |
+| `.claude/rules/backend.md` | `Code.gs`·앱·공개 페이지 | 시트 ID·액션 목록·공개 액션·탭 |
+| `.claude/rules/screens.md` | `portfolio.html`·`m.html`·`calc.js` | PC↔모바일 동시·통화·회색·계좌 그래프·외부입금·숨김 |
+| `.claude/rules/public-page.md` | `dist_notice.html`·분배 파서 | 앱 먼저·실데이터로 이번 달+지난달 표·smoke 통과 |
+| `.claude/rules/widget.md` | `tools/ticker*`·`ticker.html` | PC 위젯↔폰 짝·공지 받는 순서·시험 방법 |
+| `watchdog/CLAUDE.md` · `mods/jjk-guard/CLAUDE.md` · `desktop-cat/CLAUDE.md` | 그 폴더 | 각 별도 프로젝트 |
 
 ## What this is
 
@@ -106,100 +131,13 @@ There is **no build system, package manager, test suite, or lint config**. The f
 **Frontend (`portfolio.html`)** ⇄ **Google Apps Script backend (`Code.gs`)**, a Google Sheets–backed web app.
 
 - The backend URL is the `API` constant at the top of `portfolio.html`'s `<script>` (`https://script.google.com/macros/s/.../exec`). All persistence lives in Google Sheets behind it — this repo has no database.
-- `Code.gs` is the source of the deployed Apps Script. **Editing it here does NOT deploy it.**
-  - ⛔ **배포는 에이전트가 clasp로 한다. 사용자에게 "편집기에 붙여넣고 재배포하세요"라고 시키지 마라.** 두 PC(직장/집) 모두 clasp로 배포한다. `clasp`가 없으면 **묻지 말고 설치해라**: `npm i -g @google/clasp` (2026-08-19 집 PC에서 이것 때문에 헛되이 붙여넣기를 요청했다가 지적받음 — 환경 차이는 내가 메꾼다). 사용자 몫은 `clasp login` 브라우저 '허용' 1회뿐(구글 인증은 에이전트가 못 한다).
-  - **`clasp` is set up** (`.clasp.json` → project `포트폴리오관리`, id `1yYeK3W1aHUY…`). `clasp push` from the repo root uploads **only `Code.gs`** — `.claspignore` blocks everything else, which matters because `okx_nft_alert.gs` and `public_dist_proxy.gs` are **separate** Apps Script projects and `portfolio.html`/`dist_notice.html` are frontend files. Verify the file set any time with `clasp status` (should list `Code.gs` alone).
-  - **`clasp push` updates the editor content, not the deployment.** Only manual `▶` runs in the editor use the saved code. **The `/exec` web app and the time-driven triggers (installed via `maint` → `resetAllTriggers`) run the deployed version** — so any `Code.gs` change they run needs a redeploy.
-  - **배포 절차 (그대로 따라라)**:
-    1. 임시 폴더에 `.clasp.json`만 복사해 `clasp pull` → 원격이 내 작업 전 로컬과 같은지 확인. (**저장소 안에서 `clasp pull` 금지** — 로컬 `Code.gs`가 옛 원격본으로 덮인다.)
-    2. `clasp push --force` — **`--force` 없으면 매니페스트 확인 프롬프트에서 `Skipping push.`로 끝난다.** 비대화형이라 `echo y |` 파이프도 안 먹는다.
-    3. `clasp deploy -i AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s -d "<note>"` — 라이브 배포에 새 버전을 물린다. **`-i`(기존 배포 ID) 없이 `clasp deploy` 만 치면 URL이 새로 생긴다 — 금지.** (clasp 2.4.2 엔 `redeploy` 명령이 없다.)
-    4. 다시 `clasp pull`로 원격에 변경분이 들어갔는지 확인.
-    5. ⛔ **배포 직후 `resetAllTriggers` 를 반드시 돌린다 — 배포의 일부다, 빼먹지 마라.**
-       `clasp push`로 스코프가 바뀌면 **기존 트리거가 전부 `Authorization is required to perform that
-       action.`으로 죽는다.** 트리거 목록에는 그대로 보이고 실패 메일도 한 번 오고 마니, **아무도
-       모르는 채로 몇 주가 흐른다.** 재인증만으로는 안 살아나고 트리거를 다시 만들어야 한다.
-       이건 이미 세 번 일어났다: 7/24~8/26 전면 정지(WORKLOG 128 부근), `snapshotPrices` **8/19→9/11
-       3주 정지**, 그리고 9/8 배포 → **9/10 15:16 전면 정지**(WORKLOG 149). 매번 사용자가 "왜 안
-       보이냐"고 물어서 발견됐다. 이 한 줄을 빼먹으면 그게 또 반복된다.
-       - ✅ **내가 돌린다. 사용자에게 ▶ 를 부탁하지 마라** (2026-09-12 확인). `maint` 워크플로로
-         `fn=resetAllTriggers` 를 돌리면 된다 — 웹앱은 소유자 권한으로 돌기 때문에 트리거 설치가
-         **된다**(13개 함수 전부 ✅, 트리거 15개 재설치를 로그로 확인). `clasp run-function` 이
-         안 되는 것과는 별개 통로다.
-       - 화면에는 감지 장치도 있다(`showDistDead`/`renderFreshness`): 데이터가 공지창엔 6시간,
-         그 밖의 날엔 30시간 넘게 안 바뀌면 분배금공지 탭에 🚨 배너가 뜬다. 배너는 안전망이지
-         예방책이 아니다 — 배포 직후에 `maint` 를 돌려라.
-    공개 분배금공지 페이지가 같은 `/exec` URL을 쓴다. 기존 액션의 응답 계약을 바꾸는 배포라면 먼저 알린다(액션 추가처럼 덧붙이기만 하는 변경은 그냥 배포한다).
-  - ⛔ **버전 200개가 상한이고, 넘으면 `clasp deploy` 가 통째로 막힌다** (2026-09-21에 걸렸다).
-    - ✅ **개수는 앱 머리글 `GAS 버전 N/200` 에 뜬다**(2026-10-01). `script-versions.yml` 이 매일 09:17 KST·배포 직후 세어 `script_versions.json` 을 커밋하고, 190개↑면 카톡+메일로 알린다. 이틀 넘게 안 갱신되면 배지가 회색 ⚠ 로 바뀐다.
-    `Cannot create more versions: Script has reached the limit of 200 versions.` **버전을 지우는
-    API는 없다** — `DELETE .../versions/N` 은 404 고, 안 쓰는 배포를 `clasp undeploy` 로 지워도
-    버전 수는 안 줄었다(6개 지워 봤다). 사람이 편집기에서 지워야 한다.
-    - **트리거도 배포본을 돈다**(2026-09-29 실측, WORKLOG 200). `resetAllTriggers` 로 깐 시간 트리거는
-      push 한 저장본이 아니라 **배포본**을 실행한다(편집기 ▶ 만 저장본). 그래서 트리거가 쓰는 코드를 바꿔도
-      새 버전이 필요하고, **버전 상한에 걸리면 트리거용 변경도 막힌다** — 사용자에게 버전 삭제를 바로 부탁해라.
-    - **웹앱(`/exec`)만은 새 버전이 필요하다.** 프론트가 쓰는 액션을 고쳤으면 배포가 뚫릴 때까지
-      화면엔 반영되지 않는다. 그땐 사용자에게 삭제를 부탁하는 수밖에 없다(구글 계정 안에서만
-      되는 일이다 — 근거를 같이 줘라). **부탁할 땐 아래를 그대로 준다:**
-      - 프로젝트 주소: `https://script.google.com/d/1yYeK3W1aHUYd6ok9N-dvt0YRmbB4pxX7AL0kMmZBS4-qFpRxHNASUJvG/edit`
-        ⚠️ **"자산"(시트에 붙은 별개 스크립트)과 헷갈리기 쉽다** — 2026-09-21에 그쪽을 여셨다.
-        구분법: "자산" 쪽 `Code.gs` 첫 줄이 `// ── 분배금 입력칸 자동 하이라이트`다.
-      - 왼쪽 **🕐 프로젝트 기록** → **`버전 일괄 삭제`**(하나씩은 버전 옆 ⋮ → `이 버전 삭제`).
-      - **활성 배포가 쓰는 버전은 못 지운다.** 먼저 안 쓰는 배포를 `clasp undeploy` 로 치워
-        두면(저장소에서 `grep -o 'AKfycb[A-Za-z0-9_-]*'` 로 실제 쓰이는 것만 남긴다) 라이브
-        하나만 묶이고 나머지는 다 지워진다.
-    - 교훈: **배포를 습관처럼 하지 마라.** 프론트 파일만 바뀐 변경은 배포 대상이 아니다. `Code.gs` 가 바뀌었으면 위 규칙대로 배포한다.
-  - ✅ **원격(클라우드) 세션은 `deploy.yml` 로 배포한다**(Actions, `CLASPRC_JSON` Secret — `actions_run_trigger` 로 실행). 컨테이너에서 clasp OAuth 로그인은 구글이 '확인되지 않은 앱'으로 막는다(2026-09-11 확인, `deploy.yml` 머리말). "원격이라 배포 못 한다"고 말하지 마라. **토큰은 저장소에 절대 남기지 않는다.**
-  - **원격 컨테이너에서 운용사 사이트가 막혀도(`connect_rejected`) 포기하지 마라** — `fetch.yml` 워크플로에 URL 을 주면 Actions 러너가 받아 `probe-out` 브랜치에 원본(HTML·이미지·JSON·인증서 체인 `tls.txt`)을 올린다. 읽기는 `curl -H 'Accept: application/vnd.github.raw' https://api.github.com/repos/jaenamking1-collab/jjk/contents/<파일>?ref=probe-out` (raw.githubusercontent 는 캐시돼 늦다). 2026-10-01 HANARO·KIWOOM 을 이걸로 뚫었다.
-- ⛔ **`/exec` 가 구글 'Access Denied — You need access'(403)면 소유자 승인 만료다**(9/28·10/6·10/13 반복). 원인: OAuth 동의 화면이 '테스트 중'이라 7일마다 만료 → 2026-10-13 **프로덕션으로 게시**(개인정보처리방침 `privacy.html`). 재배포로는 안 풀린다 — 사용자 편집기 `resetAllTriggers` ▶ + 허용만 된다(WORKLOG 258).
-- **`clasp run-function` does not work** here — it needs the script deployed as an API executable. 하지만 **그게 "사람이 눌러야 한다"는 뜻은 아니다**: 웹앱(`/exec`)은 소유자 권한으로 도니 아래 `runMaint` 로 실행한다. `MAINT_ALLOW` 에 이름만 추가하면 트리거 설치 함수(`setupKeepWarm` 등)도 마찬가지다.
-  - ✅ **진단·복구 함수는 `runMaint` 로 내가 직접 돌린다 — 소유자에게 ▶ 를 부탁하지 마라** (2026-09-12). `Code.gs` 의 `runMaint(fn, arg)` 가 `MAINT_ALLOW` 화이트리스트 함수를 실행하고 `console.log` 를 가로채 **로그까지 응답에 실어 준다.** `APP_TOKEN` 이 필요하다(`PUBLIC_ACTIONS` 아님). 실행 통로는 `.github/workflows/maint.yml`(`APP_TOKEN` Secret) — `actions_run_trigger` 로 `maint.yml` 을 `fn`/`arg` 와 함께 돌리고 로그를 읽는다.
-    - 함수를 새로 만들면 **`MAINT_ALLOW` 에 이름을 추가**해야 부를 수 있다.
-    - ✅ **`resetAllTriggers` 도 여기서 돈다**(2026-09-12 확인). 배포 직후 `maint` 로 돌려라 — 위 '배포 절차' 5단계.
-  - One-time per machine: `npm i -g @google/clasp`(에이전트가 함) + `clasp login`과 `script.google.com/home/usersettings`의 **Apps Script API** 토글(구글 계정 행위 — 소유자가 함). 자격증명은 `~/.clasprc.json`.
-  - **`portfolio.html`·`m.html`·`dist_notice.html`은 clasp 배포 대상이 아니다**(`.claspignore`가 막는다). 웹으로 서빙되니 `main` 에 푸시하면 끝.
-- The Apps Script reads/writes two spreadsheets by ID: the app's own DB sheet (`SHEET_ID`, tabs `accounts`/`holdings`/`dividends`/`config`/`stocks` + logs/caches) and an external "주식상황"/"분배금" sheet (hardcoded ID in `getSheetData`/`getDivSheetData`) that the sync features diff against.
-- `doGet` routes `?action=` reads; `doPost` routes JSON-body writes. `getDistribution(source)` scrapes eight ETF issuers (KODEX/TIGER/ACE/RISE/PLUS/SOL + 2026-10-01 HANARO/KIWOOM) with per-issuer parsers (HANARO = 공지 본문 HTML 표, KIWOOM = '분배금 정보' 종목별 JSON API — 인증서 체인이 깨져 `validateHttpsCertificates:false`), a smarttoday.co.kr news fallback, an adaptive sheet cache (`분배캐시`, keyed by billing "cycle"), and optional Google Vision OCR (needs `VISION_API_KEY` script property) for schedules embedded in notice images. `checkAndLogAlerts` fingerprints each parse to detect structure changes and writes to the `알림로그` sheet. Several time-driven triggers exist (`snapshotPrices`, `snapshotPortfolio`, `compactPriceLog`, `refreshAllDistributions`, `checkDistNotices`).
-- **Functions meant to be run by hand from the Apps Script editor go at the very bottom of `Code.gs`, under the `===== 수동 실행 =====` banner** (`setupDistTriggers`, `setupPortfolioTriggers`, `_testNoticeWindow`). Don't scatter them mid-file — they're hard to find in the editor's function dropdown otherwise. Leave a one-line pointer where the code logically belongs.
-- Two client helpers wrap every call:
-  - `api(params)` — GET via `API + '?' + URLSearchParams`, returns JSON. Used for all reads.
-  - `apiPost(data)` — POST with JSON body. Used for all writes.
-- `state` (global object) holds the in-memory cache: `accounts`, `holdings`, `dividends`, `exchangeRate`, `currentYear`, `stockList`. Most tabs re-fetch from the API on activation rather than trusting the cache.
-
-### Backend action contract
-
-Reads (`api`): `getExchangeRate`, `getAccounts`, `getHoldings`, `getDividends`, `getSheetData`, `getDivSheetData`, `getDistribution`, `getDistributionAll`, `getPortfolioLog`, `getPriceLog`, `getStockPrice`, `getEtfScreener`, `getEtfNotices`, `getEtfNoticesAll`, `getStockList`, `getAlerts`, `markAlertRead`, `checkAlerts`, `hitCounter`.
-
-**공개 액션**(`PUBLIC_ACTIONS`, `APP_TOKEN` 없이 열림 — 공개 분배금공지 페이지가 쓴다): `getDistribution`, `getDistributionAll`, `getDistributionMonth`, `getEtfNotices`, `getEtfNoticesAll`, `hitCounter`, `getPricesCsv`, `getNoticeChanges`(알림로그 중 공지변경만·24시간). 나머지는 전부 토큰이 필요하고, 서로 다른 오답 5개가 쌓이면 5분간 잠긴다.
-
-`getDistributionAll` 은 `DIST_SOURCE_IDS` 의 운용사 전부를 한 번에 준다(개별 호출 대신 시트 1회 읽기). 운용사별로 `stale`(캐시가 낡음)과 `savedAt`(분배캐시에 쓰인 시각)이 함께 오고, 화면 헤더의 '데이터 기준 시각'이 이 값을 쓴다. ⚠️ `_파서메타`의 `itemCount` 는 **직전 2회차가 병합된** 건수라 분배캐시 행의 건수(이번 회차만)와 다르다.
-
-Writes (`apiPost`): `addAccount` / `updateAccount` / `deleteAccount`, `addHolding` / `updateHolding` / `deleteHolding`, `saveDividend`.
-
-`getSheetData` / `getDivSheetData` return the raw Google Sheet contents used by the **sync** features to diff against app data before applying changes.
-
-### Tabs (`showTab(name)` toggles `.page` elements)
-
-1. **포트폴리오** (`tab-accounts`) — account list, per-person and combined summaries (invested / valuation / P&L / dividends / yield), category-weight tables.
-2. **종목관리** (`tab-holdings`) — holdings by account or aggregated by ticker; add/edit/delete; "스프레드시트 동기화" diffs the sheet and lets you apply changes.
-3. **분배금** (`tab-dividends`) — editable year×account grid of monthly dividend amounts (`.div-grid` / `.div-cell`); USD rows entered in dollars, everything totaled in KRW via `state.exchangeRate`.
-4. **대시보드** (`tab-dashboard`) — goal progress bar + D-Day, stat cards, monthly-dividend chart, per-account cumulative return chart (day/month/year), top/bottom 5 by return.
-5. **월배당 스크리너** (`tab-screener`) — searchable/filterable monthly-dividend ETF list from `getEtfScreener`.
-6. **분배금공지** (`tab-distributions`) — issuer notices + distribution-schedule calendar + the 🔔 alerts panel.
-7. **엑셀** (`tab-excel`) — import/export holdings and dividends via SheetJS.
+- **배포·실행·진단(clasp, deploy.yml, maint/runMaint, 버전 상한, /exec 403)** → `.claude/rules/deploy.md` (Code.gs·워크플로를 만지면 자동으로 읽힌다).
+- **시트 ID·액션 목록·공개 액션·탭 구성** → `.claude/rules/backend.md`.
 
 ### Conventions to preserve
 
-- **Currency display**: KRW amounts are shown as plain numbers (no ₩ symbol); USD amounts keep a `$` prefix. The `USD ? '$' : ''` ternary and bare `toLocaleString()` are intentional — do not reintroduce a ₩ prefix on displayed values. The `₩` still inside the two `replace(/[₩$,↑↓▲▼+\s]/g,'')` regexes is functional (strips symbols before parsing a price) and must stay.
-- **Font sizing**: dividend-grid cells use `font-size:1em` so the "글자" range slider (`applyDivFont`) can scale the whole grid uniformly. Avoid hardcoding px font sizes inside the grid.
-- **CDN dependencies**: SheetJS (`xlsx.full.min.js`) and Pretendard font, both loaded from CDN in `<head>`.
-- ⛔ **회색은 '살아 있지 않은 값' 전용이다.** 회색(`var(--text3)`·`muted`)은 **못 받은 값·아직 안 된 값·누락**에만 쓴다 — 시세없음, 예정(공시 전), 상류 응답 없음 같은 것. **살아 있는 실제 값은 작게 쓰더라도 본문색(`var(--text)`)으로 둔다.** 사용자는 회색을 "죽었거나 아직 안 됐거나 빠진 것"으로 읽는다(2026-09-21 본인 확인: *"회색은 죽은거나 아직 안된거나 누락일때 써"*). 2026-09-21에 계좌 국내/해외 금액을 회색으로 썼다가 지적받았다. **2026-10-01 또 지적: 분배금공지 '공지 종목 전체' 표의 머리글·회사명·종목 수·0.0% 가 회색이었다 → "그냥 검정색해". 표의 글자는 기본 검정으로 쓰고, 회색을 쓰고 싶으면 '이게 정말 죽은 값인가'를 먼저 따져라.**
-- **계좌 그래프(대시보드) = 보유 평가액 + 기준일 뒤 현금**(2026-10-02 사용자 결정). 분배금은 **입력한 날이 아니라 지급일**에 더하고, 매수는 빼고 매도는 더한다(`loadPlCash`).
-  사용자 원칙: *"다른 곳에서 입금하면 말해 줄게, 그 외에는 다 분배금 예수금으로 산 거야."* · *"매도나 외부에서 돈 넣었으면 앞으로 너에게 얘기할게"*(2026-10-02).
-  ⛔ 들은 금액을 **저장소·Actions 로그(maint 의 arg 는 로그에 찍힌다)에 남기지 마라** — 공개다. ✅ **통로 있음(2026-10-13)**: 들으면 비공개 시트 **'외부입금'**(`EXT_DEP_SHEET_ID`, 열: 계좌이름·날짜·금액(+입금 −출금)·메모)에 한 줄 넣는다 — 드라이브 커넥터는 칸 수정이 안 되니 새 줄이 필요하면 시트를 새로 만들어 ID 를 바꾸거나 사용자에게 한 줄 추가를 부탁한다. 성적표 투자원금·예수금·XIRR 과 계좌 그래프 현금에 들어간다. 확인은 `maint _diagExtDeposits`(건수·이름 불일치만). ⛔ **말씀 안 하신 매수는 전부 분배금 예수금으로 산 것이다 — 예수금이 모자라도 투자원금에 더하지 마라**(2026-10-13 사용자: *"따로 입금하고 사는 상황이면 항상 얘기할 테니까 분배금 받은 걸로 사는 건 니가 계산해야 한다"*). 모자라면 예수금이 마이너스로 남고 화면에 ⚠ '분배금 입력 누락?' 으로 밝힌다.
-- **없는 종목(수량 0)은 숨긴다**(2026-10-02 사용자 두 번 지적: *"없는 주식은 숨김처리하라고 했잖아"* — 0으로 바꾸는 게 아니라 숨김). 앱 올해 화면은 수량 0 **무조건** 숨김(원금월별 보유 달이 늦게 남아 '마지막 배당 전'으로 오판했던 `soldDone` 은 버림). 시트 분배금 탭은 `hideSoldDivRows`(매일 08:30)가 마지막 배당이 들어온 판 종목 줄을 숨긴다. 지우지 않는다.
-- **IRP 분배금은 자동 입력**(`autoFillIrpDivs`, 매일 08:30 markInputCells 끝): 분배락 전 수량 × 좌당 분배금, 빈 칸만, 메모 '자동: N주 × M원'. 월배당은 기준월 칸, 분기·반기는 지급월 칸(사용자 시트 방식).
-- **국내/해외는 나눠 보여준다.** 증권사 앱은 '국내 잔고'와 '해외 잔고'를 다른 화면에 둔다. 계좌 표는 **합계 / ㄴ국내 / ㄴ해외 세 줄**이고 수익금·분배금·분배율까지 각 줄의 투자금 기준으로 따로 낸다. 해외가 섞인 계좌만 세 줄이고 국내뿐이면 한 줄이다. 합쳐서만 보여주면 증권사 화면과 대조가 안 돼 **값이 맞는데도 틀린 것처럼 보인다**(2026-09-21).
+- 통화 표시·글자 크기·회색 규칙·계좌 그래프·외부입금·숨김·IRP 자동입력·국내/해외 나눔 → `.claude/rules/screens.md` (portfolio.html·m.html·calc.js 를 만지면 자동).
+
 
 ## ⛔ 사용자에게 시키기 전에 — 먼저 해보고 말해라
 
@@ -230,34 +168,11 @@ Adapted from the [Karpathy coding guidelines](https://x.com/karpathy/status/2015
 
 ## Files
 
-- `portfolio.html` — the entire frontend (desktop). Redirects to `m.html` when the viewport is ≤768px unless `?pc=1` is present; the redirect sits in `<head>` so it runs before the password gate.
-- ⛔ **PC 화면(`portfolio.html`)에 기능·값을 넣으면 같은 턴에 모바일(`m.html`)에도 넣는다. 묻지 마라**(2026-10-06 사용자: *"모바일은 당연히 해야지 묻지도 마라"*). 마우스 롤오버(title)는 폰에서 안 보이니 모바일은 탭해서 펼치는 상세(`detail`)에 넣는다.
-- `m.html` — **phone-only frontend** (bottom tab bar; 홈 / 종목 / 분배금 / 더보기). Same backend, same actions, same origin — so it reuses the `jjk_pw_v1` password fingerprint and needs no separate login. Design: `docs/superpowers/specs/2026-08-13-mobile-view-design.md`.
-  - ⚠️ 계산식은 `calc.js` 한 곳에 있다(PC·폰 공용, 2026-10-12). 서버는 평가금액/손익을 주지 않고 브라우저가 계산한다. 고치면 `node tools/calc_test.js` 를 돌리고,
-    숫자를 일부러 바꿨으면 `--update` 로 정답을 갱신한다. 푸시마다 `calc-test.yml` 도 돈다. 공개 페이지(`dist_notice.html`)는 `calc.js` 를 쓰지 않는다.
-    `calc.js` 를 고치면 두 화면의 `calc.js?v=N` 숫자를 올린다(브라우저가 옛 파일을 쓰지 않게).
-- `dist_notice.html` — public standalone copy of the 분배금공지 tab (calendar + 운용사별 일정 + notices). `renderMasterCalendar`·`renderDistGrid`·`renderNotices`·`distIssueNotices` 가 `portfolio.html` 에도 같은 이름으로 있다.
-  - ⚠️ **두 파일은 일부러 다르다**(2026-09-15 실측) — `renderMasterCalendar` 만 159줄이 다르고 그게 전부 의도된 것이다: **앱만 보유종목을 안다**(`isHeld`·`보유X`·보유 종목 우선 마킹 — 공개 페이지엔 그 개념 자체가 없다), **공개 페이지만 좁은 칸용 `shortLabel` 을 쓴다.** 이걸 "동기화"한다고 합치면 공개 페이지에 남의 보유내역 개념이 들어간다.
-  - ✅ **반드시 같아야 하는 건 '데이터 해석 규칙'뿐이다** — 회차 판정(기준일의 '일', 20일 이하=월중), 예정 합의 문턱(`roundBest.n >= 3`), `uncertain`→`?` 배지, `fillRakil`·`parseDay`. 2026-09-15 확인 시점엔 이 넷이 줄 단위로 같았다. **여기가 갈리면 두 화면이 같은 날짜를 다르게 말한다.**
-  - 🔎 두 화면이 달라 보이면 **먼저 데이터를 의심해라.** 2026-09-15 에 `PLUS?`(앱) vs `PLUS`(공개)로 갈린 건 렌더 차이가 아니라 그 순간 받은 분배 데이터가 달랐던 것이고, 뿌리는 PLUS 가 6월 기사를 물고 있던 것이었다(WORKLOG 162).
-  - ⛔ **우선순위: 앱(`portfolio.html`)이 먼저다. 공개 페이지는 실수 없게**(2026-10-01 사용자: *"원래 앱이 우선 작업이고 공지페이지는 실수없게 해야 한다"*).
-    분배금공지의 **보기 방식**(공지 표·칸 높이·선·글자색·전달 분배금 칸 등)을 공개 페이지에 바꾸면 **같은 턴에 앱의 분배금공지 탭에도** 옮긴다.
-    2026-10-01에 공개 페이지만 고치고 앱을 빼먹어 "내 포트폴리오 앱은 왜 안 바꿨어?"를 들었다. 일부러 다른 건 보유종목 관련(`isHeld` 등)뿐이다.
-    ⛔ **순서: ① 앱(`portfolio.html`)을 먼저 고친다 → ② 앱을 실데이터로 그려 확인하고 `main` 에 올린다 → ③ 앱에 이상 없음을 본 뒤에야 공개 페이지(`dist_notice.html`)에 적용한다.**
-    공개 페이지에서 먼저 시험하지 마라 — 공개 페이지는 많은 사람이 보는 '완성본'이고, 실수가 나면 사용자가 망신을 당한다
-    (2026-10-01 같은 날 두 번 지적: *"앱이 우선이고 공지페이지가 앱의 무결성을 본 뒤 적용해야 한다 … 그래야 내가 쪽팔린 상황을 면할 수 있어. 내 입장도 좀 생각해라"*).
-  - ✅ **공개 페이지 예비본**: `public-snapshot.yml` 이 30분마다 `dist_snapshot.txt`(분배·공지 묶음)를 커밋하고, 페이지는 그걸로 먼저 그린다 — 서버가 죽어도 빈 칸이 안 된다(2026-10-01 요청 *"꼭 이전 버전이라도 보여야 해"*). 정상 데이터일 때만 덮어쓴다.
-  - ⛔ **공개 페이지는 지금도 많은 사람이 본다 — 확인 없이 내보내지 마라**(2026-10-01 사용자: *"먼저 버전은 안전하게 해놓고 업데이트한 게 문제없으면 보내줘야지 … 이게 무슨 망신이야"*).
-    그날 백엔드 응답만 보고 '정상'이라 했는데 방문자 화면엔 9월 말이 통째로 '예정'으로 나왔다(묶음 요청이 33초 끝에 404 → 개별 요청 줄서기 → 한두 곳 빈칸).
-    ① `dist_notice.html` 은 **실제 응답(fetch.yml 로 받은 getDistributionAll·getEtfNoticesAll)을 넣어 로컬 크롬으로 먼저 그려 본다** — 응답을 비워 넣은 테스트는 테스트가 아니다.
-    ② 푸시·배포 뒤엔 **`smoke-public.yml`(실제 공개 주소를 실제 크롬으로 열어 'N곳 최신'·공지 표·달력·JS 오류 검사, 스크린샷은 probe-out/smoke/) 통과를 확인하고서야** 됐다고 말한다. 매시간 자동으로도 돌고, 실패하면 카톡이 온다.
-  - ⭐ **공개 주소는 `https://jjk.distributionjn.workers.dev/` 하나다**(2026-09-14에 옮겼다. 옛 주소는 계정명이 드러나서 안 쓰기로 했다 — WORKLOG 156·159). 이 저장소의 `dist_notice.html` 을 **Cloudflare Workers 가 그대로 서빙**하므로 **고쳐서 `main` 에 푸시하면 자동 반영**이고, 미러도 배포도 필요 없다(설정: `wrangler.toml`·`.assetsignore`·`_redirects`. `.assetsignore` 가 이 파일 하나만 올리도록 막는다 — 개인 앱과 일지는 그 주소에서 404).
-  - 옛 주소 `https://jaenamking1-collab.github.io/jjk-dist/`(별도 저장소 `jjk-dist` 의 `index.html`)도 **아직 살아 있다** — 아래 미러가 30분마다 돌기 때문이다. 예비로 둔 것이니 굳이 끄지 않지만, **알림·카톡·문서가 가리키는 주소는 위의 것 하나다**(`Code.gs` 의 `_NOTICE_PAGE_URL`).
-  - ✅ **미러는 자동이다 — 손으로 복사하지 마라**(2026-09-14). `jjk-dist/.github/workflows/mirror.yml` 이 30분마다 이 파일을 받아 `index.html` 로 커밋한다(비밀값 불필요: `jjk` 가 공개라 raw 로 받고, 쓰기는 그 저장소의 기본 `GITHUB_TOKEN`). 고친 직후 바로 반영하려면 `actions_run_trigger` 로 `jjk-dist` 의 `mirror.yml` 을 돌려라.
-  - 이 자동화를 만든 이유: 그전까지 **손으로 복사**해야 했고 **이미 네 번 빠뜨렸다**(7/13·8/27·9/12 두 번). 그때마다 공개 페이지만 조용히 옛 버전으로 남아, 달력 백지·느린 첫 화면이 고쳐진 뒤에도 사용자 눈엔 그대로였다. 2026-09-14에 "모바일 로딩이 한참 걸린다"는 지적으로 드러났다 — 원인은 9/4 판이 스냅샷 첫 화면 코드를 안 갖고 있었던 것.
+- `portfolio.html`·`m.html`·`calc.js` — 앱(PC·모바일). **PC 를 고치면 같은 턴에 모바일도, 묻지 않는다.** 상세는 `.claude/rules/screens.md`.
+- `dist_notice.html` — 공개 분배금공지 페이지(많은 사람이 본다). 상세는 `.claude/rules/public-page.md`. 주소 `https://jjk.distributionjn.workers.dev/`.
 - `Code.gs` — the Google Apps Script backend (mirror of the deployed script; not auto-deployed).
 - `okx_nft_alert.gs` — unrelated to the portfolio app: an OKX NFT (Kaia) Legendary/Mystic listing watcher that writes Google Calendar alerts. Mirror of a **separate** Apps Script project — do not merge it into `Code.gs` (its 30-min trigger would steal the portfolio backend's execution slots; see WORKLOG 85·86). Also not auto-deployed. Design: `docs/superpowers/specs/2026-08-08-okx-nft-legendary-alert-design.md`.
-- `watchdog/` — **별도** Apps Script 프로젝트 '백엔드감시'(ID `watchdog/script_id.txt`). 30분마다 본체 `/exec` 를 보고, 응답 없음·갱신 멈춤이 두 번 연속이면 **구글 캘린더 일정 1개**(멈춤 한 번에 하나, 복구 알림 없음). 본체 안의 알림은 본체와 같이 죽기 때문에 만들었다(2026-10-06). ⛔ Code.gs 와 합치지 마라. 올리기는 `watchdog-deploy.yml`(main 에 `watchdog/**` 푸시하면 자동). 사용자는 카톡 알림이 안 울리고 캘린더가 울린다고 했다 — 알림은 캘린더로, 횟수는 최소로.
-- `mods/jjk-guard/` — Claude Code mod(2026-10-12). 실행 직전에 막는다: `clasp deploy` 에 라이브 `-i` 없음, 저장소 안 `clasp pull`, 명령·파일의 토큰 모양 문자열. `deploy.yml` 실행 뒤 `maint resetAllTriggers` 전까지 상태줄 경고. 상태줄에 `컨텍스트 N% · 5시간 N% · 7일 N%`(80%·90% 첫 도달 때 알림). 시험 `claude plugin test mods/jjk-guard`. `.claude/settings.json` 의 `enabledPlugins` 로 자동 설치된다(안 깔렸으면 `/plugin install jjk-guard --marketplace jaenamking1-collab/jjk`).
+- `watchdog/`·`mods/jjk-guard/`·`desktop-cat/` — 각 폴더의 `CLAUDE.md` 에 규칙(그 폴더 파일을 열면 자동).
+- `tools/ticker.pyw`·`ticker.html` — 시세 위젯(PC·폰 짝). 상세는 `.claude/rules/widget.md`.
 - `WORKLOG.md` — running work log for syncing across the two PCs; append a dated entry each session.
 - `README.md` — one line (`# jjk`); no other docs.
