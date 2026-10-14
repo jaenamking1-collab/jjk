@@ -1,5 +1,5 @@
 import { test, expect } from 'claude-code/testing'
-import { judgeCommand, judgeWrite } from './register'
+import { judgeCommand, judgeWrite, cacheLabel, turnLabel } from './register'
 
 const LIVE = 'AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s'
 
@@ -36,4 +36,12 @@ test('session.measure: 상태줄에 컨텍스트·5시간·7일 사용량', asyn
   on('session.measure', (_$, e) => ({ changed: e.changed }))
   await $.session.measure({ context: { window: 200000, percent: 85 }, rateLimits: [{ kind: 'five_hour', percentUsed: 31 }, { kind: 'seven_day', percentUsed: 12 }], changed: ['context'] } as never)
   expect(seen.join('|')).toContain('컨텍스트 85% · 5시간 31% · 7일 12%')
+})
+
+test('캐시 남은 시간·이번 답 사용량 표시', () => {
+  expect(cacheLabel(0, 5)).toBe('')
+  expect(cacheLabel(1000, 1000 + 18 * 60000)).toBe('캐시 42분')
+  expect(cacheLabel(1000, 1000 + 61 * 60000)).toBe('캐시 만료')
+  expect(turnLabel(31, 33.5)).toBe('이번 답 +2.5%')
+  expect(turnLabel(undefined, 33)).toBe('')
 })

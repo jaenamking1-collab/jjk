@@ -35,8 +35,21 @@ export function judgeWrite(path: string, text: string): string | undefined {
 let deployPending = false
 let usageText = ''
 const warned: Record<string, number> = {}
+// Token Weather 처럼: 프롬프트 캐시 남은 시간(마지막 응답 뒤 1시간), 이번 답이 쓴 5시간 한도
+const CACHE_MS = 60 * 60 * 1000
+let lastReplyAt = 0, nowMs = 0, fiveNow: number | undefined, fiveAtPrompt: number | undefined, turnText = ''
+export function cacheLabel(lastAt: number, now: number): string {
+  if (!lastAt) return ''
+  const left = Math.ceil((lastAt + CACHE_MS - now) / 60000)
+  return left > 0 ? '캐시 ' + left + '분' : '캐시 만료'
+}
+export function turnLabel(before?: number, after?: number): string {
+  if (before === undefined || after === undefined) return ''
+  const d = Math.round((after - before) * 10) / 10
+  return '이번 답 ' + (d > 0 ? '+' : '') + d + '%'
+}
 function paint($: { ui: { status: (t?: string) => unknown } }) {
-  const parts = [deployPending ? '⚠ 배포 뒤 resetAllTriggers 안 함' : '', usageText].filter(Boolean)
+  const parts = [deployPending ? '⚠ 배포 뒤 resetAllTriggers 안 함' : '', usageText, turnText, cacheLabel(lastReplyAt, nowMs)].filter(Boolean)
   $.ui.status(parts.length ? parts.join(' · ') : undefined)
 }
 
@@ -64,7 +77,21 @@ export const register: Register = on => {
     return next(e)
   }).catch(($, e, next) => (next.called ? next(e) : { deny: 'jjk-guard: 검사 중 오류 — 안전을 위해 막았다' }))
 
-  on('turn.complete', ($, e, next) => {
+  on('session.start', async ($, e, next) => {
+    nowMs = await $.clock.now()
+    $.clock.every(60000, async () => { nowMs = await $.clock.now(); paint($) })
+    return next(e)
+  })
+
+  on('prompt.submit', ($, e, next) => {
+    fiveAtPrompt = fiveNow
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  on('turn.complete', async ($, e, next) => {
+    lastReplyAt = nowMs = await $.clock.now()
+    turnText = turnLabel(fiveAtPrompt, fiveNow)
+    paint($)
     if (deployPending) $.ui.toast('jjk-guard: 배포했는데 resetAllTriggers 를 안 돌렸다 — 트리거가 조용히 죽는다')
     return next(e)
   })
@@ -74,6 +101,7 @@ export const register: Register = on => {
     const lim = (k: string) => e.rateLimits.find(r => r.kind === k)
     const pct = (v?: number) => (v === undefined ? '-' : Math.round(v) + '%')
     const f = lim('five_hour'), w = lim('seven_day')
+    fiveNow = f?.percentUsed
     usageText = '컨텍스트 ' + pct(e.context.percent) + ' · 5시간 ' + pct(f?.percentUsed) + ' · 7일 ' + pct(w?.percentUsed)
     paint($)
     for (const [name, v] of [['컨텍스트', e.context.percent], ['5시간 한도', f?.percentUsed], ['7일 한도', w?.percentUsed]] as const) {
