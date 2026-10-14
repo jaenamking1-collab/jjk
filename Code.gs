@@ -2968,7 +2968,9 @@ function fetchDist_kiwoom() {
     const names = {}; prods.forEach(p => names[p.gcode] = p.name);
     const ocr = _kiwoomNoticeOcr(items, names);
     if (ocr && ocr.items.length) {
-      const keep = items.filter(it => it.cycle !== ocr.cycle);
+      // 지난 회차(같은 '월중'이라도 9월분)는 남긴다 — 월별 일정표가 그걸로 그 달을 그린다.
+      // 2026-10-13 첫판은 같은 회차를 통째로 지워 '9월 운용사별 일정'의 KIWOOM 9월 월중이 '공시 전'이 됐다(사용자 지적).
+      const keep = items.filter(it => !ocr.items.some(o => o.ticker === it.ticker && (it.sched || {})['기준일'] === o.sched['기준일']));
       return { success: true, items: ocr.items.concat(keep), schedule: ocr.sched, title: 'KIWOOM 분배금 (공지 그림 OCR — 종목 API 갱신 전)', _source: 'ocr' };
     }
     if (!items.length) return { items: [], error: 'KIWOOM: 최근 45일 분배 0건 (종목 ' + prods.length + '개 조회)' };
