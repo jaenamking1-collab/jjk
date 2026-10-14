@@ -1265,6 +1265,16 @@ function attachDistHistory(source, payload, rows) {
     // 입력을 그대로 고치지 않도록 복사본에서 걸러낸다 — 캐시 시트에서 읽어온 객체일 수 있다.
     const base = JSON.parse(JSON.stringify(payload));
     base.items = _dropJunkItems(base.items);
+    // 뉴스(스마트투데이) 대체 행은 종목코드·분배락·기준일이 없다. 자사 공지에서 읽은 같은 이름 종목이 있으면 버린다.
+    // 2026-10-14: ACE 가 아침 한 번 사이트 실패 → 뉴스 4행이 정상 4행 앞에 섞여, 운용사별 일정·달력의 10월 월중이
+    // 분배락·기준 '·'로 비었다(공개 페이지, 사용자 지적). 남는 뉴스 일정의 빈 칸도 같은 회차 정상 행으로 채운다.
+    const nm = x => String(x || '').replace(/\s+/g, '');
+    const withCode = base.items.filter(it => it.ticker);
+    const named = new Set(withCode.map(it => nm(it.name)));
+    base.items = base.items.filter(it => it.ticker || !named.has(nm(it.name)));
+    const sc = base.schedule || {};
+    const twin = withCode.find(it => it.sched && sc['지급일'] && it.sched['지급일'] === sc['지급일']);
+    if (twin) ['공시일', '분배락일', '기준일', '지급일'].forEach(k => { if (!sc[k] && twin.sched[k]) sc[k] = twin.sched[k]; });
     const cur = currentCycleKey();
     if (!rows) rows = _distCacheSheet().getDataRange().getValues();
     const hist = [];
