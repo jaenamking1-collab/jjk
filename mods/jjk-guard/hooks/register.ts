@@ -48,6 +48,12 @@ export function turnLabel(before?: number, after?: number): string {
   const d = Math.round((after - before) * 10) / 10
   return '이번 답 ' + (d > 0 ? '+' : '') + d + '%'
 }
+// 컨텍스트를 날씨로: 대화가 길수록 단계마다 다시 읽는 양이 커진다(사용량의 2/3 — 2026-10-14 보고서)
+export function weather(p?: number): string {
+  if (p === undefined) return ''
+  return p < 30 ? '☀️' : p < 50 ? '⛅' : p < 70 ? '☁️' : p < 85 ? '🌧️' : '⛈️'
+}
+let compactHinted = false
 function paint($: { ui: { status: (t?: string) => unknown } }) {
   const parts = [deployPending ? '⚠ 배포 뒤 resetAllTriggers 안 함' : '', usageText, turnText, cacheLabel(lastReplyAt, nowMs)].filter(Boolean)
   $.ui.status(parts.length ? parts.join(' · ') : undefined)
@@ -102,8 +108,13 @@ export const register: Register = on => {
     const pct = (v?: number) => (v === undefined ? '-' : Math.round(v) + '%')
     const f = lim('five_hour'), w = lim('seven_day')
     fiveNow = f?.percentUsed
-    usageText = '컨텍스트 ' + pct(e.context.percent) + ' · 5시간 ' + pct(f?.percentUsed) + ' · 7일 ' + pct(w?.percentUsed)
+    usageText = weather(e.context.percent) + ' 컨텍스트 ' + pct(e.context.percent) + ' · 5시간 ' + pct(f?.percentUsed) + ' · 7일 ' + pct(w?.percentUsed)
     paint($)
+    // 50% 를 처음 넘으면 한 번: 압축 또는 새 대화 권유
+    if (!compactHinted && (e.context.percent ?? 0) >= 50) {
+      compactHinted = true
+      $.ui.toast('jjk-guard: 대화가 길어졌습니다(컨텍스트 ' + Math.round(e.context.percent as number) + '%) — 같은 일이면 /compact, 주제가 바뀌면 새 대화가 쌉니다', { timeoutMs: 15000 })
+    }
     for (const [name, v] of [['컨텍스트', e.context.percent], ['5시간 한도', f?.percentUsed], ['7일 한도', w?.percentUsed]] as const) {
       const step = v === undefined ? 0 : v >= 90 ? 90 : v >= 80 ? 80 : 0
       if (step > (warned[name] ?? 0)) $.ui.toast('jjk-guard: ' + name + ' ' + Math.round(v as number) + '% 사용')
