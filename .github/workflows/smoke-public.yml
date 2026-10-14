@@ -66,7 +66,23 @@ jobs:
               return { fresh: m ? +m[1] : 0, cards, chips, total: (typeof DIST_SOURCES !== 'undefined') ? DIST_SOURCES.length : 0 };
             });
             await p.screenshot({ path: 'shot.png' });
+            // 운용사별 일정 표 칸 검사(2026-10-14: ACE 10월 월중 분배락·기준 '·', KIWOOM 9월 월중 '공시 전'을 사용자가 먼저 봤다).
+            //  · 이번 달: 공시가 난 줄('(예정)' 아님)은 공시·분배락·기준·지급 네 칸이 모두 날짜여야 한다.
+            //  · 지난달: 모든 줄이 공시 난 줄이어야 한다('공시 전'·'(예정)'이 남으면 그 달 자료가 빠진 것).
+            const rowsOf = () => p.evaluate(() => { let cur = ''; return [...document.querySelectorAll('#distScheduleList tbody tr')].map(r => {
+              const s = r.querySelector('td[rowspan] span'); if (s) cur = s.innerText.trim();
+              const c = [...r.cells].map(x => x.innerText.trim()); return { who: cur, label: c[c.length - 5], dates: c.slice(-4) }; }); });
+            const cellBad = [];
+            const full = r => r.dates.every(d => /^\d{1,2}\/\d{1,2}$/.test(d));
+            (await rowsOf()).filter(x => !/예정/.test(x.label) && !full(x)).forEach(x => cellBad.push(`${x.who} ${x.label} 빈 칸(${x.dates.join(' ')})`));
+            try {
+              await p.evaluate(() => schedShiftMonth(-1)); await p.waitForTimeout(1500);
+              (await rowsOf()).filter(x => /예정/.test(x.label) || !full(x)).forEach(x => cellBad.push(`지난달 ${x.who} ${x.label} 빠짐(${x.dates.join(' ')})`));
+              await p.evaluate(() => schedShiftMonth(1));
+            } catch (e) { cellBad.push('지난달 표 열기 실패 ' + e.message); }
+            r.cellBad = cellBad;
             const bad = [];
+            cellBad.slice(0, 4).forEach(x => bad.push(x));
             if (errs.length) bad.push('JS 오류: ' + errs.slice(0, 2).join(' / '));
             if (r.fresh !== r.total) bad.push(`최신 ${r.fresh}/${r.total}곳`);
             r.cards.filter(c => !c.dated && c.announced).forEach(c => bad.push(c.name + ' 공지 비어 있음'));
