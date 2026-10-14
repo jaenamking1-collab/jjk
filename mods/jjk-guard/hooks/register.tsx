@@ -75,6 +75,9 @@ export function todoLines(worklog: string): string[] {
 }
 let bandLines: string[] = []
 // tools/mods/new.txt: new-mods.yml 이 매일 쌓는 새 공식 모드(한 줄에 하나)
+export function nowStale(at: number, now: number): boolean {
+  return now - at > 2 * 24 * 3600 * 1000
+}
 export function newModsCount(text: string): number {
   return text.split(/\r?\n/).filter(l => l.trim()).length
 }
@@ -118,6 +121,12 @@ export const register: Register = on => {
       if (n) bandLines.push('🆕 새 모드 ' + n + '개가 나왔습니다 — "새 모드 봐줘"라고 하시면 쓸 만한 것만 골라 드립니다')
     } catch {
       // 파일이 없으면 띄울 것 없음
+    }
+    try {
+      const at = Number((await $.fs.read('tools/mods/checked.txt')).trim()) * 1000
+      if (at && nowStale(at, await $.clock.now())) bandLines.push('⚠ 새 모드 확인(new-mods)이 이틀 넘게 안 돌았습니다')
+    } catch {
+      // 아직 한 번도 안 돈 상태
     }
     nowMs = await $.clock.now()
     $.clock.every(60000, async () => { nowMs = await $.clock.now(); paint($) })

@@ -1,5 +1,5 @@
 import { test, expect } from 'claude-code/testing'
-import { judgeCommand, judgeWrite, cacheLabel, turnLabel, weather, todoLines, newModsCount } from './register'
+import { judgeCommand, judgeWrite, cacheLabel, turnLabel, weather, todoLines, newModsCount, nowStale } from './register'
 
 const LIVE = 'AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s'
 
@@ -78,4 +78,9 @@ test('할 일 띠: WORKLOG 맨 위 항목의 제목·다음 할 일', () => {
 test('새 모드 개수', () => {
   expect(newModsCount('')).toBe(0)
   expect(newModsCount('a — x\nb — y\n')).toBe(2)
+})
+
+test('새 모드 확인 멈춤 감지', () => {
+  expect(nowStale(0, 3 * 24 * 3600 * 1000)).toBe(true)
+  expect(nowStale(0, 1 * 24 * 3600 * 1000)).toBe(false)
 })
