@@ -9,6 +9,9 @@ have=$(ver_of)
 # 두 PC 공통으로 쓰는 공식 모드(사용자 범위 — 모든 프로젝트). 2026-10-14 사용자 승인: hookify·session-report
 EXTRA="hookify session-report"
 missing=""; for x in $EXTRA; do grep -q "\"$x@claude-plugins-official\"" "$reg" 2>/dev/null || missing="$missing $x"; done
+# 모든 프로젝트에서 쓰이게 사용자 범위로 깐다(2026-10-14). 예전 프로젝트 범위 설치면 다시 깐다
+scope=$(awk '/"jjk-guard@jjk"/{f=1} f&&/"scope"/{print;exit} f&&/\]/{exit}' "$reg" 2>/dev/null | grep -o 'user\|project')
+[ "$scope" = "user" ] || have=""
 [ -n "$want" ] && [ "$want" = "$have" ] && [ -z "$missing" ] && exit 0
 # PATH 의 claude 는 옛판일 수 있다(2.1.201 은 이 모드 형식을 모른다) — 앱에 든 최신 claude.exe 를 먼저 쓴다
 c=$(ls -d "${APPDATA:-/nonexistent}"/Claude/claude-code/*/*/claude.exe 2>/dev/null | sort -V | tail -1)
@@ -20,8 +23,9 @@ if [ -n "$want" ] && [ "$want" = "$have" ]; then
   exit 0
 fi
 "$c" plugin marketplace update jjk >/dev/null 2>&1
-if [ -z "$have" ]; then "$c" plugin install jjk-guard@jjk --scope project >/dev/null 2>&1
-else "$c" plugin update jjk-guard@jjk --scope project >/dev/null 2>&1; fi
+if [ "$scope" = "project" ]; then "$c" plugin uninstall jjk-guard@jjk --scope project >/dev/null 2>&1; fi
+if [ -z "$have" ]; then "$c" plugin install jjk-guard@jjk --scope user >/dev/null 2>&1
+else "$c" plugin update jjk-guard@jjk --scope user >/dev/null 2>&1; fi
 # 설치가 settings.json 키 순서만 바꿔 놓는다 — 되돌려 쓸데없는 커밋을 막는다
 cp "${TMPDIR:-/tmp}/jjk-settings.bak" .claude/settings.json 2>/dev/null
 now=$(ver_of)
