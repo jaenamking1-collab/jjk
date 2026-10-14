@@ -1,0 +1,29 @@
+# 공식 모드 목록에서 새로 나온 것을 매일 찾아 tools/mods/new.txt 에 쌓는다(사용자 요청 2026-10-14: "계속 새로 나온다며? 매일").
+# AI 를 안 쓰는 단순 비교라 사용량이 들지 않는다. 알림은 따로 없다 — jjk-guard 할 일 띠에 '🆕 새 모드 N개'로 뜬다.
+# 한계: claude.ai 커뮤니티 디렉터리(Token Weather 같은 것)는 공개 목록이 없어 못 본다.
+name: new-mods
+
+on:
+  schedule:
+    - cron: '37 23 * * *'         # 매일 08:37 KST
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: 새 모드 찾기
+        run: python3 tools/mods/check_new.py
+      - name: 커밋
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add tools/mods
+          git commit -qm "새 모드 목록 갱신" || exit 0
+          for i in 1 2 3; do git pull -q --rebase origin main && git push -q origin HEAD:main && break; sleep 5; done

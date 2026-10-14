@@ -74,6 +74,10 @@ export function todoLines(worklog: string): string[] {
   return ['📌 직전: ' + clip(title, 110), ...todo.map(t => '   ' + t)]
 }
 let bandLines: string[] = []
+// tools/mods/new.txt: new-mods.yml 이 매일 쌓는 새 공식 모드(한 줄에 하나)
+export function newModsCount(text: string): number {
+  return text.split(/\r?\n/).filter(l => l.trim()).length
+}
 function paint($: { ui: { status: (t?: string) => unknown } }) {
   const parts = [deployPending ? '⚠ 배포 뒤 resetAllTriggers 안 함' : '', usageText, turnText, cacheLabel(lastReplyAt, nowMs)].filter(Boolean)
   $.ui.status(parts.length ? parts.join(' · ') : undefined)
@@ -108,6 +112,12 @@ export const register: Register = on => {
       bandLines = todoLines(await $.fs.read('WORKLOG.md'))
     } catch {
       bandLines = []
+    }
+    try {
+      const n = newModsCount(await $.fs.read('tools/mods/new.txt'))
+      if (n) bandLines.push('🆕 새 모드 ' + n + '개가 나왔습니다 — "새 모드 봐줘"라고 하시면 쓸 만한 것만 골라 드립니다')
+    } catch {
+      // 파일이 없으면 띄울 것 없음
     }
     nowMs = await $.clock.now()
     $.clock.every(60000, async () => { nowMs = await $.clock.now(); paint($) })
