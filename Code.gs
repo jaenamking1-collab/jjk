@@ -2973,6 +2973,17 @@ function fetchDist_kiwoom() {
         if (x.stdDt > newest) { newest = x.stdDt; schedule = sched; }
       });
     });
+    // 지난달 회차도 hist 로 남긴다 — 위는 회차마다 최근 달만 담아서, 10월 월중이 들어오면 9월 월중이 통째로 사라졌다
+    // (2026-10-14 공개 페이지 '9월 운용사별 일정' KIWOOM 9월 월중 '공시 전'. 다른 회사는 분배캐시 지난 행이 메우지만
+    // KIWOOM 은 10/1 에 붙어 9월 중순 행이 없다).
+    rows.filter(r => latest[r.cycle] && r.x.stdDt.slice(0, 7) !== latest[r.cycle].slice(0, 7)).forEach(({ p, x, cycle }) => {
+      const amount = Number(String(x.dividendAmt).replace(/,/g, ''));
+      if (isNaN(amount)) return;
+      const lock = ymd(x.payRockDt), sched = { '기준일': _mdLabel(x.stdDt), '지급일': _mdLabel(x.payDt || x.cashPayDt), '분배락일': _mdLabel(x.payRockDt) };
+      if (lock) { do { lock.setDate(lock.getDate() - 1); } while (_isOffDay(lock)); sched['공시일'] = (lock.getMonth() + 1) + '월 ' + lock.getDate() + '일'; }
+      const rate = parseFloat(x.dividendRate);
+      items.push({ name: p.name, ticker: p.gcode, amount, rate: isNaN(rate) ? null : rate, cycle, sched, hist: true });
+    });
     // 종목 API 는 공지보다 늦게 바뀐다(2026-10-13: 10/13 공지가 떴는데 14시에도 9월 값, SEIBRO 도 없음).
     // 그 틈엔 공지 본문 그림(일정·종목표)을 OCR 로 읽어 이번 회차를 채운다.
     const names = {}; prods.forEach(p => names[p.gcode] = p.name);
