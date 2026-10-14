@@ -1,5 +1,5 @@
 import { test, expect } from 'claude-code/testing'
-import { judgeCommand, judgeWrite, cacheLabel, turnLabel, weather } from './register'
+import { judgeCommand, judgeWrite, cacheLabel, turnLabel, weather, todoLines } from './register'
 
 const LIVE = 'AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s'
 
@@ -53,4 +53,24 @@ test('컨텍스트 날씨', () => {
   expect(weather(60)).toBe('☁️')
   expect(weather(80)).toBe('🌧️')
   expect(weather(90)).toBe('⛈️')
+})
+
+test('할 일 띠: WORKLOG 맨 위 항목의 제목·다음 할 일', () => {
+  const w = `# WORKLOG
+설명
+
+## 2026-10-14 (268) / 집 — **모드** 정리(확인 못 한 것 점검)
+
+- 한 일
+- 다음 할 일: 학교 PC 확인
+- ⚠️ 확인 못 한 것: 화면
+
+## 2026-10-13 (267) / 원격 — 옛 일
+- 다음 할 일: 옛것
+`
+  const r = todoLines(w)
+  expect(r[0]).toBe('📌 직전: 2026-10-14 (268) / 집 — 모드 정리(확인 못 한 것 점검)')
+  expect(r.length).toBe(3)
+  expect(r.join('|')).not.toContain('옛것')
+  expect(todoLines('')).toEqual([])
 })

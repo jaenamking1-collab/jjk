@@ -54,6 +54,26 @@ export function weather(p?: number): string {
   return p < 30 ? '☀️' : p < 50 ? '⛅' : p < 70 ? '☁️' : p < 85 ? '🌧️' : '⛈️'
 }
 let compactHinted = false
+
+// 할 일 띠: 세션을 열면 WORKLOG 맨 위 항목의 제목과 '다음 할 일'·'확인 못 한 것' 줄을 입력창 위에 보여준다.
+// 첫 질문을 보내면 사라진다. "어디까지 했더라"를 사용자가 기억하지 않아도 되게(2026-10-14).
+export function todoLines(worklog: string): string[] {
+  const start = worklog.search(/^## /m)
+  if (start < 0) return []
+  const rest = worklog.slice(start)
+  const end = rest.slice(3).search(/^## /m)
+  const entry = end < 0 ? rest : rest.slice(0, end + 3)
+  const lines = entry.split(/\r?\n/)
+  const clip = (t: string, n: number) => (t.length > n ? t.slice(0, n - 1) + '…' : t)
+  const title = lines[0].replace(/^##\s*/, '').replace(/\*\*/g, '')
+  const todo = lines
+    .slice(1)
+    .filter(l => /다음 할 일|확인 못|^- 다음:/.test(l))
+    .map(l => clip(l.replace(/^[-\s]*/, '').replace(/\*\*/g, ''), 110))
+    .slice(0, 2)
+  return ['📌 직전: ' + clip(title, 110), ...todo.map(t => '   ' + t)]
+}
+let bandLines: string[] = []
 function paint($: { ui: { status: (t?: string) => unknown } }) {
   const parts = [deployPending ? '⚠ 배포 뒤 resetAllTriggers 안 함' : '', usageText, turnText, cacheLabel(lastReplyAt, nowMs)].filter(Boolean)
   $.ui.status(parts.length ? parts.join(' · ') : undefined)
@@ -84,12 +104,21 @@ export const register: Register = on => {
   }).catch(($, e, next) => (next.called ? next(e) : { deny: 'jjk-guard: 검사 중 오류 — 안전을 위해 막았다' }))
 
   on('session.start', async ($, e, next) => {
+    try {
+      bandLines = todoLines(await $.fs.read('WORKLOG.md'))
+    } catch {
+      bandLines = []
+    }
     nowMs = await $.clock.now()
     $.clock.every(60000, async () => { nowMs = await $.clock.now(); paint($) })
     return next(e)
   })
 
   on('prompt.submit', ($, e, next) => {
+    if (bandLines.length) {
+      bandLines = []
+      $.ui.invalidate('ui.render')
+    }
     fiveAtPrompt = fiveNow
     return next(e)
   }).catch(($, e, next) => next(e))
@@ -121,5 +150,17 @@ export const register: Register = on => {
       warned[name] = step
     }
     return next(e)
+  })
+
+  on('ui.render', { component: 'AbovePrompt' }, ($, e, next) => {
+    if (!bandLines.length || e.props.hasSurvey) return next(e)
+    const { Box, Text } = $.ui.resolve(e)
+    return (
+      <Box flexDirection="column">
+        {bandLines.map((l, i) => (
+          <Text key={String(i)} dimColor={i > 0}>{l}</Text>
+        ))}
+      </Box>
+    )
   })
 }
