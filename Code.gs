@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', 'checkDistNotices', '_noticeVsData'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', 'checkDistNotices', '_noticeVsData', '_seedMaturityAlertTo'
 ];
 
 function runMaint(name, arg) {
@@ -518,7 +518,17 @@ function deleteSaving(id) { deleteRowById('은경저축', id); return { success:
 // installMaturityTrigger()로 매일 1회 실행 → 만기 임박 저축 계좌를 이메일로 알림.
 // 시점: 6개월·3개월·1개월 진입 시 각 1회 → 만기 7일 전부터 매일(7·6·…·1일) → 만기 당일.
 // (계좌 + 만기일 + 시점) 조합마다 1회만 발송. 발송 이력은 Script 속성에 기록해 중복 방지.
-const MATURITY_ALERT_TO = 'REDACTED_EMAIL,REDACTED_EMAIL';
+// 수신 주소는 스크립트 속성 'MATURITY_ALERT_TO' 에만 둔다 — 공개 저장소라 코드에 적지 않는다(2026-10-16).
+function _maturityAlertTo() {
+  return PropertiesService.getScriptProperties().getProperty('MATURITY_ALERT_TO') || '';
+}
+// 일회성: 옛 상수 값을 속성으로 옮긴다. 옮긴 뒤 다음 배포에서 이 함수와 상수를 지운다.
+const _OLD_MATURITY_ALERT_TO = 'REDACTED_EMAIL,REDACTED_EMAIL';
+function _seedMaturityAlertTo() {
+  const pr = PropertiesService.getScriptProperties();
+  if (!pr.getProperty('MATURITY_ALERT_TO')) pr.setProperty('MATURITY_ALERT_TO', _OLD_MATURITY_ALERT_TO);
+  return { success: true, count: _maturityAlertTo().split(',').filter(String).length };
+}
 
 // 오늘(KST) 자정 기준 만기까지 남은 일수. 날짜 형식 아니면 null.
 function _matDaysLeft(matDate) {
@@ -557,6 +567,8 @@ function _matAlertBody(s, days, bucket) {
 
 // 실제 발송(트리거·수동 실행). 조건 충족 + 미발송 건만 메일. 제목 예:[만기알림][SMART-1][6개월]
 function sendMaturityAlerts() {
+  const to = _maturityAlertTo();
+  if (!to) return { success: false, error: "스크립트 속성 MATURITY_ALERT_TO 가 비어 있음" };
   const savings = getSavings();
   const props = PropertiesService.getScriptProperties();
   let sent; try { sent = JSON.parse(props.getProperty('sentMaturityAlerts') || '{}'); } catch(e) { sent = {}; }
@@ -569,7 +581,7 @@ function sendMaturityAlerts() {
     const key = s.id + '|' + s.mat_date + '|' + bucket; // 만기일 포함 → 재예치 시 새 회차로 재알림
     if (sent[key]) return;
     const subject = '[만기알림][' + (s.name || '이름없음') + '][' + bucket + ']';
-    MailApp.sendEmail({ to: MATURITY_ALERT_TO, subject: subject, body: _matAlertBody(s, days, bucket) });
+    MailApp.sendEmail({ to: to, subject: subject, body: _matAlertBody(s, days, bucket) });
     sent[key] = new Date().toISOString();
     outbox.push(subject);
   });
@@ -588,7 +600,7 @@ function previewMaturityAlerts() {
     const key = bucket ? (s.id + '|' + s.mat_date + '|' + bucket) : null;
     return { name: s.name, mat_date: s.mat_date, days: days, bucket: bucket, willSend: !!(bucket && !sent[key]) };
   });
-  return { to: MATURITY_ALERT_TO, candidates: rows.filter(function(r){ return r.willSend; }), all: rows };
+  return { toCount: _maturityAlertTo().split(',').filter(String).length, candidates: rows.filter(function(r){ return r.willSend; }), all: rows };
 }
 
 // 하루 1회(오전 8시 KST) 트리거 설치 — 편집기에서 한 번만 실행하면 됨.
