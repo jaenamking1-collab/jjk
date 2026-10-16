@@ -111,10 +111,15 @@ export const register: Register = on => {
   }).catch(($, e, next) => (next.called ? next(e) : { deny: 'jjk-guard: 검사 중 오류 — 안전을 위해 막았다' }))
 
   on('session.start', async ($, e, next) => {
-    try {
-      bandLines = todoLines(await $.fs.read('WORKLOG.md'))
-    } catch {
-      bandLines = []
+    // 일지는 비공개 claude-memory 로 옮겼다(2026-10-16). PC 는 ~/Documents/jjk, 원격은 /home/user/jjk 라 두 깊이를 본다.
+    bandLines = []
+    for (const p of ['../../claude-memory/jjk/WORKLOG.md', '../claude-memory/jjk/WORKLOG.md']) {
+      try {
+        bandLines = todoLines(await $.fs.read(p))
+        break
+      } catch {
+        // 다음 후보
+      }
     }
     try {
       const n = newModsCount(await $.fs.read('tools/mods/new.txt'))
