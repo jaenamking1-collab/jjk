@@ -5520,6 +5520,7 @@ function keepWarm() {
   // 터지면 5분 뒤 다시 해 보되, 실패한 이유는 로그에 남긴다.
   // 전일종가 기준을 '직전 거래일'로 바꿨다 → 오늘 몫을 한 번 다시 돌려야 색이 살아난다.
   try { _redoTrendOnce(); } catch (e) { console.log('_redoTrendOnce 실패 — ' + e); }
+  try { _fixDivTotalsOnce(); } catch (e) { console.log('_fixDivTotalsOnce 실패 — ' + e); }
 
   try {
     const pr = PropertiesService.getScriptProperties();
@@ -5890,6 +5891,22 @@ function _redoTrendOnce() {
   pr.deleteProperty('assetDone');
   pr.setProperty(TREND_REDO_KEY, 'done');
   _fixLog('전일종가 기준을 직전 거래일로 변경 — 자산 시트 일일 작업 표식을 지워 다시 돌린다');
+}
+
+// 분배금 시트 3행 합계·판 종목 줄·앱 중복 정리를 한 번 돌린다(2026-10-19). 이 PC 에선 maint 를 못 불러 keepWarm 에 물린다.
+// 결과는 복구로그 탭에 남긴다. 다시 돌려도 같은 결과라(이미 된 건 건너뜀) 실패해도 한 번만 시도한다.
+const DIV_TOTALS_FIX_KEY = 'div_totals_fix_20261019';
+function _fixDivTotalsOnce() {
+  const pr = PropertiesService.getScriptProperties();
+  if (pr.getProperty(DIV_TOTALS_FIX_KEY)) return;
+  pr.setProperty(DIV_TOTALS_FIX_KEY, 'started');
+  try {
+    const r = fixDivSheetTotals('');
+    _fixLog('분배금 합계 정리: 중복 ' + r.dup + '건 삭제 · 판 종목 줄 ' + r.add + '개 되살림 · 3행 검산 맞음 ' + r.ok + ' 틀림 ' + r.ng);
+    const c = _divSheetVsApp(false);
+    _fixLog('시트↔앱 올해 분배금 대조: ' + (c.bad.length ? c.bad.length + '건 — ' + c.bad.join(', ') : '전부 일치'));
+    pr.setProperty(DIV_TOTALS_FIX_KEY, 'done');
+  } catch (e) { _fixLog('분배금 합계 정리 실패 — ' + e); pr.setProperty(DIV_TOTALS_FIX_KEY, 'failed'); }
 }
 
 const HOLD_FIX_KEY = 'hold_fix_20260926';
