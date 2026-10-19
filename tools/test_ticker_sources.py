@@ -74,6 +74,9 @@ src=open("tools/ticker.pyw",encoding="utf-8").read()
 src=src.replace("\nself_update()\n", "\n", 1)          # 테스트에서는 자기 갱신을 끈다
 import os, tempfile
 d=tempfile.mkdtemp(); f=os.path.join(d,"ticker.pyw"); open(f,"w",encoding="utf-8").write(src)
+# ⛔ 공용 종목 목록(~/claude-memory/ticker)을 건드리지 않게 설정 파일을 임시 폴더로 돌린다.
+#    이게 없어서 시험용 3종목이 실제 목록을 덮어쓰고 push 됐다(2026-10-19, 사용자 위젯에서 종목이 사라짐).
+os.environ["TICKER_CONFIG"]=os.path.join(d,"cfg.json")
 g={"__name__":"__main__","__file__":f}
 exec(compile(src,f,"exec"),g)
 g["get"]=fake_get
