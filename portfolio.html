@@ -1491,6 +1491,32 @@ function divKrwOf(amt, cur, rowRate, er) {   // 식은 calc.js
   return Calc.divKrw(amt, cur, rowRate, er);
 }
 
+// 표에서 숨긴 종목(올해 판 0주)도 받은 분배금은 월 합계에 넣는다 — 스프레드시트 3행 합계와 같게(2026-10-19).
+// 줄은 숨기고 '판 종목' 한 줄로만 보여준다. monthTotalsKrw 에 더하고 그 줄 html 을 돌려준다.
+function soldDivRow(pool, shown, divMap, er, monthTotalsKrw) {
+  const shownIds = new Set(shown.map(h => String(h.id)));
+  const t = Array(12).fill(0); let n = 0;
+  pool.forEach(h => {
+    if (shownIds.has(String(h.id))) return;
+    let had = false;
+    for (let m = 1; m <= 12; m++) {
+      const d = divMap[`${h.id}_${m}`], amt = d ? parseFloat(d.amount) : 0;
+      if (amt > 0) { t[m-1] += divKrwOf(amt, d.currency || h.currency, d.rate, er); had = true; }
+    }
+    if (had) n++;
+  });
+  if (!n) return '';
+  t.forEach((v, i) => { monthTotalsKrw[i] += v; });
+  return `<tr style="background:var(--bg4)">
+    <td></td>
+    <td style="padding:4px 10px;font-size:1em;color:#111827" title="수량 0이라 표에서 숨긴 종목의 분배금 — 월 합계에 들어가 있습니다">ㄴ 판 종목 ${n}개 (숨김)</td>
+    ${t.map(v => `<td class="div-total" style="color:#111827">${v ? Math.round(v).toLocaleString() : ''}</td>`).join('')}
+    <td class="div-total" style="color:#111827">${Math.round(t.reduce((a,b)=>a+b,0)).toLocaleString()}</td>
+    <td class="div-total">-</td>
+    <td class="div-total">-</td>
+  </tr>`;
+}
+
 // 종목별 연간 분배금 투영 — 대시보드 loadDashboard와 동일 알고리즘.
 // 반환: { holding_id: 연 투영액 }  (금액은 저장된 그대로=KRW 취급, 대시보드와 동일)
 function projectAnnualDist(holdings, dividends, year) {   // 식은 calc.js (m.html 과 같이 쓴다)
@@ -2226,6 +2252,7 @@ async function loadDividendGrid() {
 
   let holdings = allHoldings || [];
   if (accountId) holdings = holdings.filter(h => h.account_id === accountId);
+  const pool = holdings;   // 숨기기 전 — 판 종목 분배금을 월 합계에 넣을 때 쓴다
   // **그 해에 갖고 있던 종목만** 보여준다. 판단 근거 두 가지:
   //   ① 그 해에 배당을 받았다  ② 원금월별(costMap)에 그 해 보유수량이 있다
   // 올해 화면만 예외로 '지금 보유 중'도 포함한다(막 사서 아직 배당 전인 종목).
@@ -2381,6 +2408,7 @@ async function loadDividendGrid() {
     }
   }
 
+  const soldRow = soldDivRow(pool, holdings, divMap, er, monthTotalsKrw);
   const totalRow = `<tr style="background:var(--bg3)">
     <td style="padding:8px 10px;font-size:1em;font-weight:600;color:var(--text2)"></td>
     <td style="padding:8px 10px;font-size:1em;font-weight:600;color:var(--text2)">월 합계 (원화환산)</td>
@@ -2401,7 +2429,7 @@ async function loadDividendGrid() {
         <th style="color:var(--accent)">실분배율</th>
         <th style="color:var(--accent)">환산분배율</th>
       </tr></thead>
-      <tbody>${totalRow}${rows}</tbody>
+      <tbody>${totalRow}${soldRow}${rows}</tbody>
     </table>
     </div>
   `;
@@ -2452,6 +2480,7 @@ async function loadDivRateGrid() {
 
   let holdings = allHoldings || [];
   if (accountId) holdings = holdings.filter(h => h.account_id === accountId);
+  const pool = holdings;   // 숨기기 전 — 판 종목 분배금을 월 합계에 넣을 때 쓴다
   // **그 해에 갖고 있던 종목만** 보여준다. 판단 근거 두 가지:
   //   ① 그 해에 배당을 받았다  ② 원금월별(costMap)에 그 해 보유수량이 있다
   // 올해 화면만 예외로 '지금 보유 중'도 포함한다(막 사서 아직 배당 전인 종목).
@@ -2643,6 +2672,7 @@ async function loadDivRateGrid() {
     }
   }
 
+  const soldRow = soldDivRow(pool, holdings, divMap, er, monthTotalsKrw);
   const totalRow = `<tr style="background:var(--bg3)">
     <td style="padding:8px 10px;font-size:1em;font-weight:600;color:var(--text2)"></td>
     <td style="padding:8px 10px;font-size:1em;font-weight:600;color:var(--text2)">월 합계 (원화환산)</td>
@@ -2669,7 +2699,7 @@ async function loadDivRateGrid() {
         <th style="color:var(--accent)">실분배율</th>
         <th style="color:var(--accent)">환산분배율</th>
       </tr></thead>
-      <tbody>${totalRow}${rows}</tbody>
+      <tbody>${totalRow}${soldRow}${rows}</tbody>
     </table>
     </div>
   `;
