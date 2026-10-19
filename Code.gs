@@ -5544,7 +5544,8 @@ function keepWarm() {
     const dow = Number(Utilities.formatDate(now, 'Asia/Seoul', 'u'));
     const lastDay = pr.getProperty('fundNavApplied') || '';
     if (dow <= 5 && Number(Utilities.formatDate(now, 'Asia/Seoul', 'H')) >= 15 && pr.getProperty('fundNavAlertDay') !== today
-        && lastDay && (now - new Date(lastDay + 'T00:00:00+09:00')) > 3 * 86400000) {
+        // 월요일엔 마지막 반영이 금요일이라 사흘을 늘 넘는다 → 닷새로(2026-10-19 오경보).
+        && lastDay && (now - new Date(lastDay + 'T00:00:00+09:00')) > (dow === 1 ? 5 : 3) * 86400000) {
       pr.setProperty('fundNavAlertDay', today);
       sendKakaoMemo('IRP 펀드 기준가가 ' + lastDay + ' 이후 반영되지 않았습니다. GitHub Actions 의 fund_nav 실행 기록을 확인해야 합니다.');
     }
