@@ -5536,16 +5536,15 @@ function keepWarm() {
   try { _fixIrpOnce(); } catch (e) { _fixLog('IRP 칸 정리 실패 — ' + e); }
 
   // IRP 펀드 기준가 감시 — 받아오는 건 GitHub Actions(fund_nav.yml)가 한다(FunETF 가 Apps Script 를
-  // 403 으로 막는다, 2026-09-30). 여기서는 평일 15시 이후 마지막 반영이 사흘 넘게 묵었으면 하루 한 번 카톡.
+  // 403 으로 막는다, 2026-09-30). 여기서는 영업일 15시 이후, 마지막 반영일과 오늘 사이에 영업일이 둘 이상
+  // 비었으면 하루 한 번 카톡. 달력 날수로 세면 주말·명절 뒤마다 오경보가 난다(2026-10-19 월요일 오경보).
   try {
     const pr = PropertiesService.getScriptProperties();
     const now = new Date();
     const today = Utilities.formatDate(now, 'Asia/Seoul', 'yyyy-MM-dd');
-    const dow = Number(Utilities.formatDate(now, 'Asia/Seoul', 'u'));
     const lastDay = pr.getProperty('fundNavApplied') || '';
-    if (dow <= 5 && Number(Utilities.formatDate(now, 'Asia/Seoul', 'H')) >= 15 && pr.getProperty('fundNavAlertDay') !== today
-        // 월요일엔 마지막 반영이 금요일이라 사흘을 늘 넘는다 → 닷새로(2026-10-19 오경보).
-        && lastDay && (now - new Date(lastDay + 'T00:00:00+09:00')) > (dow === 1 ? 5 : 3) * 86400000) {
+    if (Number(Utilities.formatDate(now, 'Asia/Seoul', 'H')) >= 15 && pr.getProperty('fundNavAlertDay') !== today
+        && lastDay && _fundNavMissedBizDays(lastDay, today) >= 2) {
       pr.setProperty('fundNavAlertDay', today);
       sendKakaoMemo('IRP 펀드 기준가가 ' + lastDay + ' 이후 반영되지 않았습니다. GitHub Actions 의 fund_nav 실행 기록을 확인해야 합니다.');
     }
