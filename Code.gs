@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp', '_syncDivRates'
 ];
 
 function runMaint(name, arg) {
@@ -4177,6 +4177,7 @@ function markInputCells() {
     try { autoFillIrpDivs(); } catch (e) { console.log('IRP 자동 입력 실패 — ' + e); }
     try { fillMissingDivCycles(); } catch (e) { console.log('배당주기 채우기 실패 — ' + e); }
     try { hideSoldDivRows(); } catch (e) { console.log('판 종목 숨김 실패 — ' + e); }
+    try { _syncDivRates(); } catch (e) { console.log('받은 달 환율 갱신 실패 — ' + e); }
     try { _divSheetVsApp(true); } catch (e) { console.log('시트↔앱 분배금 대조 실패 — ' + e); }
     try { refreshKodexTax(); } catch (e) { console.log('KODEX 세율 자동 실패 — ' + e); } return; }
 
@@ -4200,6 +4201,7 @@ function markInputCells() {
   try { autoFillIrpDivs(); } catch (e) { console.log('IRP 자동 입력 실패 — ' + e); }   // 매일 08:30 함께
   try { fillMissingDivCycles(); } catch (e) { console.log('배당주기 채우기 실패 — ' + e); }
   try { hideSoldDivRows(); } catch (e) { console.log('판 종목 숨김 실패 — ' + e); }
+  try { _syncDivRates(); } catch (e) { console.log('받은 달 환율 갱신 실패 — ' + e); }
   try { _divSheetVsApp(true); } catch (e) { console.log('시트↔앱 분배금 대조 실패 — ' + e); }
   try { refreshKodexTax(); } catch (e) { console.log('KODEX 세율 자동 실패 — ' + e); }
 }
@@ -5895,12 +5897,13 @@ function _redoTrendOnce() {
 
 // 분배금 시트 3행 합계·판 종목 줄·앱 중복 정리를 한 번 돌린다(2026-10-19). 이 PC 에선 maint 를 못 불러 keepWarm 에 물린다.
 // 결과는 복구로그 탭에 남긴다. 다시 돌려도 같은 결과라(이미 된 건 건너뜀) 실패해도 한 번만 시도한다.
-const DIV_TOTALS_FIX_KEY = 'div_totals_fix_20261019';
+const DIV_TOTALS_FIX_KEY = 'div_totals_fix_20261019b';   // b: 4행 받은 달 환율 추가
 function _fixDivTotalsOnce() {
   const pr = PropertiesService.getScriptProperties();
   if (pr.getProperty(DIV_TOTALS_FIX_KEY)) return;
   pr.setProperty(DIV_TOTALS_FIX_KEY, 'started');
   try {
+    _syncDivRates();
     const r = fixDivSheetTotals('');
     _fixLog('분배금 합계 정리: 중복 ' + r.dup + '건 삭제 · 판 종목 줄 ' + r.add + '개 되살림 · 3행 검산 맞음 ' + r.ok + ' 틀림 ' + r.ng);
     const c = _divSheetVsApp(false);
@@ -7955,6 +7958,40 @@ function _divSheetVsApp(notify) {
   return { bad };
 }
 
+// 4행 = 그 달 달러 배당의 '받은 달 환율'(2026-10-19 사용자: *"한달전 환율은 한달전 환율로 계산해야"*).
+// 앱은 달러 배당마다 받은 달 환율(rate)을 저장하고 그걸로 원화를 낸다. 시트는 B1(오늘 환율) 하나를 곱해
+// 지난달 합계가 매일 바뀌었다. 그래서 달마다 앱 기록의 환율을 금액 가중평균해 4행에 적고, 3행 합계와 달러 줄 합계가
+// 그 칸을 쓰게 한다 → 시트와 앱이 원 단위까지 같다. 앱에 그 달 달러 기록이 없으면 그 달 종가(monthlyUsdKrw), 앞으로 올 달은 빈칸.
+function _syncDivRates() {
+  const sh = SpreadsheetApp.openById(ASSET_SHEET_ID).getSheetByName('분배금');
+  const v = sh.getDataRange().getValues();
+  const now = new Date(), cy = +Utilities.formatDate(now, 'Asia/Seoul', 'yyyy'), cm = +Utilities.formatDate(now, 'Asia/Seoul', 'M');
+  const hById = {}; getHoldings().forEach(h => hById[h.id] = h);
+  let n = 0;
+  for (let c0 = 0; c0 < (v[0] || []).length; c0++) {
+    const lab = /^(\d{4})년$/.exec(String(v[0][c0] || '').replace(/\s/g, '')); if (!lab) continue;
+    const y = +lab[1], sum = Array(12).fill(0), w = Array(12).fill(0), seen = {};
+    getDividends(y).forEach(d => {
+      if (d.currency !== 'USD' || !hById[d.holding_id]) return;
+      const k = d.holding_id + '_' + d.month; if (seen[k]) return; seen[k] = 1;
+      const a = parseFloat(d.amount) || 0, r = parseFloat(d.rate) || 0; if (!a || !r) return;
+      sum[d.month - 1] += a; w[d.month - 1] += a * r;
+    });
+    const out = sum.map((a, i) => a ? w[i] / a : (y < cy || (y === cy && i + 1 <= cm)) ? monthlyUsdKrw(y, i + 1) : '');
+    sh.getRange(4, c0 + 1, 1, 12).setValues([out]).setNumberFormat('#,##0.00');
+    sh.getRange(4, c0 + 1).setNote('4행 = 그 달 달러 배당을 받은 달 환율(앱 기록 금액 가중평균). 3행 합계와 달러 줄 합계가 이 환율을 쓴다. 매일 08:30 자동.');
+    // 달러 줄의 연 합계(13번째 칸) '=$B$1*sum(G:R)' → 달마다 4행 환율
+    const tc = c0 + 12, G = sh.getRange(4, c0 + 1).getA1Notation().replace(/\d+$/, ''), R = sh.getRange(4, c0 + 12).getA1Notation().replace(/\d+$/, '');
+    for (let i = 4; i < v.length; i++) {
+      const f = sh.getRange(i + 1, tc + 1).getFormula();
+      if (!/\$B\$1\s*\*\s*sum\(/i.test(f)) continue;
+      sh.getRange(i + 1, tc + 1).setFormula('=ARRAYFORMULA(SUMPRODUCT(' + G + (i + 1) + ':' + R + (i + 1) + ',IF(' + G + '$4:' + R + '$4>0,' + G + '$4:' + R + '$4,$B$1)))');
+      n++;
+    }
+  }
+  console.log('받은 달 환율(4행) 갱신 · 달러 줄 합계 수식 ' + n + '개 바꿈');
+}
+
 // 3행 합계 수식 교체 + 시트에서 지워진 판 종목 줄 되살리기 + 앱 분배금 중복 기록 삭제. arg='dry' 면 세기만.
 function fixDivSheetTotals(arg) {
   const dry = arg === 'dry';
@@ -8019,7 +8056,7 @@ function fixDivSheetTotals(arg) {
       if (dry) continue;
       if (m === 12) { cell.setFormula('=SUM(' + sh.getRange(3, c0 + 1).getA1Notation() + ':' + sh.getRange(3, c0 + 12).getA1Notation() + ')'); continue; }
       cell.setFormula('=ARRAYFORMULA(SUM(IF(ISNUMBER(' + L + '$5:' + L + ')*(SCAN("",$A$5:$A,LAMBDA(a,c,IF(c="",a,TRIM(c))))<>"아버지"),'
-        + L + '$5:' + L + '*IF(REGEXMATCH(TO_TEXT($B$5:$B),"^[A-Za-z]+$"),$B$1,1),0)))');
+        + L + '$5:' + L + '*IF(REGEXMATCH(TO_TEXT($B$5:$B),"^[A-Za-z]+$"),IF(' + L + '$4>0,' + L + '$4,$B$1),1),0)))');
     }
   });
   console.log('3행 합계 수식 ' + starts.length + '개 블록' + (dry ? ' (dry)' : ' 교체'));
@@ -8033,7 +8070,8 @@ function fixDivSheetTotals(arg) {
   starts.forEach(c0 => {
     for (let m = 0; m < 12; m++) {
       let s = 0;
-      rows.forEach(r => { const x = parseFloat(v[r.row - 1][c0 + m]) || 0; s += _dsUsd(r.tick) ? x * rate : x; });
+      const rm = parseFloat(v[3][c0 + m]) > 0 ? parseFloat(v[3][c0 + m]) : rate;   // 4행 = 받은 달 환율
+      rows.forEach(r => { const x = parseFloat(v[r.row - 1][c0 + m]) || 0; s += _dsUsd(r.tick) ? x * rm : x; });
       if (Math.abs((parseFloat(v[2][c0 + m]) || 0) - s) < 1) ok++; else ng++;
     }
   });
