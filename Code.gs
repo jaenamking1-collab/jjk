@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp', '_syncDivRates'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp', '_syncDivRates', '_fillPastDivFromApp'
 ];
 
 function runMaint(name, arg) {
@@ -5897,12 +5897,13 @@ function _redoTrendOnce() {
 
 // 분배금 시트 3행 합계·판 종목 줄·앱 중복 정리를 한 번 돌린다(2026-10-19). 이 PC 에선 maint 를 못 불러 keepWarm 에 물린다.
 // 결과는 복구로그 탭에 남긴다. 다시 돌려도 같은 결과라(이미 된 건 건너뜀) 실패해도 한 번만 시도한다.
-const DIV_TOTALS_FIX_KEY = 'div_totals_fix_20261019b';   // b: 4행 받은 달 환율 추가
+const DIV_TOTALS_FIX_KEY = 'div_totals_fix_20261019c';  // c: 지난 연도 빈 칸 채움   // b: 4행 받은 달 환율 추가
 function _fixDivTotalsOnce() {
   const pr = PropertiesService.getScriptProperties();
   if (pr.getProperty(DIV_TOTALS_FIX_KEY)) return;
   pr.setProperty(DIV_TOTALS_FIX_KEY, 'started');
   try {
+    _fixLog(_fillPastDivFromApp());
     _syncDivRates();
     const r = fixDivSheetTotals('');
     _fixLog('분배금 합계 정리: 중복 ' + r.dup + '건 삭제 · 판 종목 줄 ' + r.add + '개 되살림 · 3행 검산 맞음 ' + r.ok + ' 틀림 ' + r.ng);
@@ -7990,6 +7991,37 @@ function _syncDivRates() {
     }
   }
   console.log('받은 달 환율(4행) 갱신 · 달러 줄 합계 수식 ' + n + '개 바꿈');
+}
+
+// 지난 연도 블록의 빈 칸을 앱 기록으로 채운다(2026-10-19). 되살린 판 종목 줄엔 올해 금액만 넣어 2025 칸이 비어 있었다.
+// 지난 해는 앱이 기록이므로 **빈 칸만** 채우고, 값이 있는데 다르면 건드리지 않고 알린다. 올해 블록은 시트가 입력처라 손대지 않는다.
+function _fillPastDivFromApp() {
+  const sh = SpreadsheetApp.openById(ASSET_SHEET_ID).getSheetByName('분배금');
+  const v = sh.getDataRange().getValues(), cy = +Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy');
+  const accName = {}; getAccounts().forEach(a => accName[a.id] = a.name);
+  const hById = {}; getHoldings().forEach(h => hById[h.id] = h);
+  const rows = _divSheetRows(v);
+  let filled = 0; const diff = [], noRow = {};
+  for (let c0 = 0; c0 < (v[0] || []).length; c0++) {
+    const lab = /^(\d{4})년$/.exec(String(v[0][c0] || '').replace(/\s/g, '')); if (!lab || +lab[1] >= cy) continue;
+    const y = +lab[1], app = {};
+    getDividends(y).forEach(d => { const h = hById[d.holding_id], x = parseFloat(d.amount) || 0; if (!h || !x) return;
+      app[accName[h.account_id] + '|' + _dsTick(h.ticker) + '|' + d.month] = x; });
+    const used = {};
+    rows.forEach(r => {
+      if (!r.acc) return;
+      for (let m = 1; m <= 12; m++) {
+        const k = r.acc + '|' + r.tick + '|' + m; if (!(k in app) || used[k]) continue; used[k] = 1;
+        const cur = v[r.row - 1][c0 + m - 1];
+        if (cur === '' || cur == null) { sh.getRange(r.row, c0 + m).setValue(app[k]); filled++; }
+        else if (Math.abs((parseFloat(cur) || 0) - app[k]) > 0.005) diff.push(y + ' ' + k);
+      }
+    });
+    Object.keys(app).forEach(k => { if (!used[k]) noRow[y + ' ' + k.replace(/\|\d+$/, '')] = 1; });
+  }
+  const msg = '지난 연도 빈 칸 채움 ' + filled + '개' + (diff.length ? ' · 값 다름(안 고침) ' + diff.join(', ') : '') + (Object.keys(noRow).length ? ' · 시트에 줄 없음 ' + Object.keys(noRow).join(', ') : '');
+  console.log(msg);
+  return msg;
 }
 
 // 3행 합계 수식 교체 + 시트에서 지워진 판 종목 줄 되살리기 + 앱 분배금 중복 기록 삭제. arg='dry' 면 세기만.
