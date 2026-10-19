@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp'
 ];
 
 function runMaint(name, arg) {
@@ -4177,6 +4177,7 @@ function markInputCells() {
     try { autoFillIrpDivs(); } catch (e) { console.log('IRP 자동 입력 실패 — ' + e); }
     try { fillMissingDivCycles(); } catch (e) { console.log('배당주기 채우기 실패 — ' + e); }
     try { hideSoldDivRows(); } catch (e) { console.log('판 종목 숨김 실패 — ' + e); }
+    try { _divSheetVsApp(true); } catch (e) { console.log('시트↔앱 분배금 대조 실패 — ' + e); }
     try { refreshKodexTax(); } catch (e) { console.log('KODEX 세율 자동 실패 — ' + e); } return; }
 
   // 2) 지급이 임박한 회차의 달 칸만 칠한다.
@@ -4199,6 +4200,7 @@ function markInputCells() {
   try { autoFillIrpDivs(); } catch (e) { console.log('IRP 자동 입력 실패 — ' + e); }   // 매일 08:30 함께
   try { fillMissingDivCycles(); } catch (e) { console.log('배당주기 채우기 실패 — ' + e); }
   try { hideSoldDivRows(); } catch (e) { console.log('판 종목 숨김 실패 — ' + e); }
+  try { _divSheetVsApp(true); } catch (e) { console.log('시트↔앱 분배금 대조 실패 — ' + e); }
   try { refreshKodexTax(); } catch (e) { console.log('KODEX 세율 자동 실패 — ' + e); }
 }
 
@@ -7865,6 +7867,166 @@ function fixDivSheetIrp(arg) {
   console.log('S열 고침 ' + fixed + '줄 · 색 규칙 ' + removed + '개에서 아래 칸 범위 뺌' + (dry ? ' (dry)' : ''));
   if (!dry) sh.setConditionalFormatRules(keep);
   return { fixed, removed };
+}
+
+// ── 분배금 탭 3행 합계 ↔ 앱 월 합계 맞추기 (2026-10-19) ──────────────────
+// 3행 합계가 '=sum(G5:G25)+SUM(G29:G62)+…' 처럼 줄 번호를 박아 둬서, 나중에 넣은 줄(26행 AGNC·63행 RISE·IRP)이
+// 빠지고 10월이 약 31만 원 적게 나왔다. 사용자 결정: **IRP 는 넣고, 아버지는 철저히 뺀다. 판 종목 배당도 양쪽에 넣는다.**
+// 그래서 합계는 줄 번호 대신 'A열 계좌 이름이 아버지가 아닌 모든 줄'을 더한다(영문 티커는 B1 환율을 곱한다).
+// 판 종목 중 시트에서 줄이 지워진 것(앱에만 있음)은 그 계좌 칸 끝에 숨긴 줄로 되살린다(올해 금액만).
+// 시트 계좌 이름 → 앱 계좌 이름. 여기 없는 이름(아버지 제외)은 대조에서 '못 맞춤'으로 알린다.
+const DIV_SHEET_ACC = {
+  '재남 ISA': '재남 키움 ISA', '재남 연금저축': '재남 키움 연금저축', '재남 일반계좌': '재남 키움 일반계좌',
+  '재남 IRP': '재남 미래에셋 IRP', '은경 미래에셋 ISA': '은경 미래에셋 ISA',
+  '은경 미래에셋 연금저축계좌(신)': '은경 미래에셋 연금저축', '은경 미래에셋 일반계좌': '은경 미래에셋 일반계좌',
+  '은경 키움': '은경 키움 일반계좌', '은경 IRP': '은경 미래에셋 IRP'
+};
+const _dsNorm = s => String(s || '').replace(/\s+/g, ' ').trim();
+const _dsTick = t => { t = String(t == null ? '' : t).replace(/^'/, '').replace(/\.0$/, '').trim(); return /^\d{1,5}$/.test(t) ? ('000000' + t).slice(-6) : t; };
+const _dsUsd = t => /^[A-Za-z]+$/.test(t);
+
+// 시트 분배금 탭의 줄 목록: [{row(1부터), acc(앱 이름|null), label, tick}] — 아버지 칸은 뺀다.
+function _divSheetRows(v) {
+  const out = []; let label = '';
+  for (let i = 4; i < v.length; i++) {
+    if (_dsNorm(v[i][0])) label = _dsNorm(v[i][0]);
+    const tick = _dsTick(v[i][1]);
+    if (!label || !tick || label === '아버지') continue;
+    out.push({ row: i + 1, label, acc: DIV_SHEET_ACC[label] || null, tick });
+  }
+  return out;
+}
+
+// 시트와 앱의 올해 분배금을 계좌·종목·월 단위로 대조한다. 원화는 원, 달러는 달러로 비교한다(환율 방식이 달라서).
+// 금액은 로그에 남기지 않는다(Actions 로그가 공개다). notify=true 면 어긋남이 바뀌었을 때 카톡.
+function _divSheetVsApp(notify) {
+  const y = +Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy');
+  const sh = SpreadsheetApp.openById(ASSET_SHEET_ID).getSheetByName('분배금');
+  const v = sh.getDataRange().getValues();
+  const b0 = _yearBlockStart(false, v, y);
+  if (b0 < 0) { console.log(y + '년 블록 없음'); return { bad: ['블록 없음'] }; }
+  const sMap = {}, bad = [];
+  _divSheetRows(v).forEach(r => {
+    if (!r.acc) { bad.push('시트 계좌 이름 못 맞춤: ' + r.label); return; }
+    for (let m = 1; m <= 12; m++) {
+      const x = parseFloat(v[r.row - 1][b0 + m - 1]) || 0;
+      if (x) { const k = r.acc + '|' + r.tick + '|' + m; sMap[k] = (sMap[k] || 0) + x; }
+    }
+  });
+  const accName = {}; getAccounts().forEach(a => accName[a.id] = a.name);
+  const hById = {}; getHoldings().forEach(h => hById[h.id] = h);
+  const aMap = {}, seen = {};
+  getDividends(y).forEach(d => {
+    const h = hById[d.holding_id]; if (!h) return;                       // 지운 종목의 기록은 앱 화면에도 안 나온다
+    const sk = d.holding_id + '_' + d.month; if (seen[sk]) return; seen[sk] = 1;   // 같은 칸 중복은 화면처럼 하나만
+    const x = parseFloat(d.amount) || 0; if (!x) return;
+    const k = accName[h.account_id] + '|' + _dsTick(h.ticker) + '|' + d.month;
+    aMap[k] = (aMap[k] || 0) + x;
+  });
+  Object.keys(Object.assign({}, sMap, aMap)).forEach(k => {
+    const a = aMap[k] || 0, s = sMap[k] || 0;
+    if (Math.abs(a - s) > (_dsUsd(k.split('|')[1]) ? 0.005 : 0.5)) bad.push(k.replace(/\|(\d+)$/, ' $1월') + (a && !s ? ' (시트에 없음)' : !a && s ? ' (앱에 없음)' : ' (금액 다름)'));
+  });
+  console.log('시트↔앱 ' + y + '년 분배금 대조: ' + (bad.length ? bad.length + '건 어긋남 — ' + bad.slice(0, 15).join(', ') : '전부 일치'));
+  if (notify) {
+    const props = PropertiesService.getScriptProperties(), sig = bad.join(';');
+    if (sig !== (props.getProperty('DSVA_SIG') || '')) {
+      props.setProperty('DSVA_SIG', sig);
+      if (bad.length) try { sendKakaoMemo('[분배금] 시트와 앱이 ' + bad.length + '곳 다릅니다: ' + bad.slice(0, 3).join(', ')); } catch (e) { console.log('카톡 실패 — ' + e); }
+    }
+  }
+  return { bad };
+}
+
+// 3행 합계 수식 교체 + 시트에서 지워진 판 종목 줄 되살리기 + 앱 분배금 중복 기록 삭제. arg='dry' 면 세기만.
+function fixDivSheetTotals(arg) {
+  const dry = arg === 'dry';
+  const y = +Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy');
+  const sh = SpreadsheetApp.openById(ASSET_SHEET_ID).getSheetByName('분배금');
+
+  // ① 앱 dividends 중복(같은 종목·해·달) — 금액까지 같을 때만 뒤엣것을 지운다.
+  const ds = getSheet('dividends'), dv = ds.getDataRange().getValues(), first = {}, del = [];
+  for (let i = 1; i < dv.length; i++) {
+    if (!dv[i][0]) continue;
+    const k = dv[i][1] + '_' + dv[i][2] + '_' + dv[i][3];
+    if (first[k] == null) { first[k] = i; continue; }
+    if (+dv[first[k]][4] === +dv[i][4]) del.push(i + 1);
+    else console.log('중복인데 금액이 다름 — 안 지움: ' + dv[i][2] + '-' + dv[i][3] + ' 종목 ' + dv[i][1]);
+  }
+  console.log('앱 분배금 중복 ' + del.length + '건' + (dry ? '' : ' 삭제'));
+  if (!dry) del.sort((a, b) => b - a).forEach(r => ds.deleteRow(r));
+
+  // ② 시트에 줄이 없는 앱 분배금(올해) → 그 계좌 칸 끝에 숨긴 줄로 넣는다.
+  let v = sh.getDataRange().getValues();
+  const b0 = _yearBlockStart(false, v, y);
+  if (b0 < 0) throw new Error(y + '년 블록 없음');
+  const have = {}; _divSheetRows(v).forEach(r => { if (r.acc) have[r.acc + '|' + r.tick] = 1; });
+  const toLabel = {}; Object.keys(DIV_SHEET_ACC).forEach(l => toLabel[DIV_SHEET_ACC[l]] = l);
+  const accName = {}; getAccounts().forEach(a => accName[a.id] = a.name);
+  const hById = {}; getHoldings().forEach(h => hById[h.id] = h);
+  const add = {};   // acc|tick → {h, m:[12]}
+  getDividends(y).forEach(d => {
+    const h = hById[d.holding_id], x = parseFloat(d.amount) || 0; if (!h || !x) return;
+    const acc = accName[h.account_id], k = acc + '|' + _dsTick(h.ticker);
+    if (have[k]) return;
+    if (!toLabel[acc]) { console.log('시트에 없는 계좌라 못 넣음: ' + acc); return; }
+    (add[k] = add[k] || { h, acc, m: Array(12).fill('') }).m[d.month - 1] = x;
+  });
+  Object.keys(add).forEach(k => {
+    const a = add[k], tick = _dsTick(a.h.ticker), usd = _dsUsd(tick);
+    if (dry) { console.log('되살릴 줄: ' + k); return; }
+    v = sh.getDataRange().getValues();
+    const s = v.findIndex((r, i) => i >= 4 && _dsNorm(r[0]) === toLabel[a.acc]);
+    if (s < 0) { console.log('칸 못 찾음: ' + a.acc); return; }
+    let e = s; while (e + 1 < v.length && !_dsNorm(v[e + 1][0]) && _dsTick(v[e + 1][1])) e++;   // 칸 마지막 줄(0부터)
+    let at = e;                                                    // 원화 줄은 그 칸 달러 줄들 앞에 넣는다
+    if (!usd) { for (let i = s; i <= e; i++) if (_dsUsd(_dsTick(v[i][1]))) { at = i - 1; break; } }
+    sh.insertRowAfter(at + 1);
+    const row = at + 2;
+    sh.getRange(row, 2, 1, 3).setValues([["'" + tick, a.h.name || tick, String(a.h.div_cycle || '').split('|')[0]]]);
+    sh.getRange(row, b0 + 1, 1, 12).setValues([a.m]);
+    const G = sh.getRange(row, b0 + 1).getA1Notation(), R = sh.getRange(row, b0 + 12).getA1Notation();
+    sh.getRange(row, b0 + 13).setFormula(usd ? '=$B$1*SUM(' + G + ':' + R + ')' : '=SUM(' + G + ':' + R + ')');
+    sh.hideRows(row);
+    console.log(row + '행에 되살림(숨김): ' + k);
+  });
+
+  // ③ 각 연도 블록 3행 합계를 '아버지 빼고 전부' 수식으로.
+  v = sh.getDataRange().getValues();
+  const starts = []; for (let hr = 0; hr < 3; hr++) (v[hr] || []).forEach((x, c) => { if (/^\d{4}년$/.test(String(x).replace(/\s/g, ''))) starts.push(c); });
+  const old = {};
+  starts.forEach(c0 => {
+    for (let m = 0; m < 13; m++) {
+      const cell = sh.getRange(3, c0 + 1 + m), L = cell.getA1Notation().replace(/\d+$/, '');
+      old[cell.getA1Notation()] = cell.getFormula() || cell.getValue();
+      if (dry) continue;
+      if (m === 12) { cell.setFormula('=SUM(' + sh.getRange(3, c0 + 1).getA1Notation() + ':' + sh.getRange(3, c0 + 12).getA1Notation() + ')'); continue; }
+      cell.setFormula('=ARRAYFORMULA(SUM(IF(ISNUMBER(' + L + '$5:' + L + ')*(SCAN("",$A$5:$A,LAMBDA(a,c,IF(c="",a,TRIM(c))))<>"아버지"),'
+        + L + '$5:' + L + '*IF(REGEXMATCH(TO_TEXT($B$5:$B),"^[A-Za-z]+$"),$B$1,1),0)))');
+    }
+  });
+  console.log('3행 합계 수식 ' + starts.length + '개 블록' + (dry ? ' (dry)' : ' 교체'));
+  if (dry) return { dry, dup: del.length, add: Object.keys(add).length, blocks: starts.length };
+
+  // ④ 수식이 제대로 계산되나 — 같은 규칙으로 스크립트가 직접 더한 값과 비교. 하나라도 다르면 옛 수식으로 되돌린다.
+  SpreadsheetApp.flush();
+  v = sh.getDataRange().getValues();
+  const rate = parseFloat(v[0][1]) || 0, rows = _divSheetRows(v);
+  let ok = 0, ng = 0;
+  starts.forEach(c0 => {
+    for (let m = 0; m < 12; m++) {
+      let s = 0;
+      rows.forEach(r => { const x = parseFloat(v[r.row - 1][c0 + m]) || 0; s += _dsUsd(r.tick) ? x * rate : x; });
+      if (Math.abs((parseFloat(v[2][c0 + m]) || 0) - s) < 1) ok++; else ng++;
+    }
+  });
+  console.log('3행 합계 검산: 맞음 ' + ok + ' · 틀림 ' + ng);
+  if (ng) {
+    Object.keys(old).forEach(a1 => { const o = old[a1]; if (String(o).charAt(0) === '=') sh.getRange(a1).setFormula(o); else sh.getRange(a1).setValue(o); });
+    console.log('검산이 틀려 옛 수식으로 되돌림');
+  }
+  _divSheetVsApp(false);
+  return { dup: del.length, add: Object.keys(add).length, ok, ng };
 }
 
 function fixIrpRows(arg) {
