@@ -122,6 +122,17 @@
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/design-skill.js",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   },
   "extraKnownMarketplaces": {
