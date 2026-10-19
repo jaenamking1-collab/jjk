@@ -1043,11 +1043,17 @@ def build():
         strip.grid(row=r, column=0, columnspan=4, sticky="ew")
         r += 1
         bar = tk.Frame(strip, bg=LINE, height=1)
-        bar.pack(fill="x", expand=True, pady=4)
+        bar.pack(fill="x", expand=True, pady=7 if shut else 4)
         # place로 띄워서 창 크기에 영향 없음. 평소엔 숨김, 마우스 올리면 왼쪽에 나타남
-        cap = tk.Label(strip, text="▸%d" % len(group) if shut else "▾", bg=panel_bg(), fg=ACC,
-                       font=("Segoe UI Symbol", 7), cursor="hand2")
+        # 접힌 묶음은 '▸ 코스피 외 5' 를 늘 띄운다 — 선 한 줄만 남기면 종목이 사라진 줄 안다
+        # (2026-10-19 사용자: "다른 데이터는 다 어디 감").
+        first = split(group[0])[1]
+        cap = tk.Label(strip, text=("▸ %s 외 %d" % (cut(first), len(group) - 1)) if shut else "▾",
+                       bg=panel_bg(), fg=ACC, font=("Malgun Gothic", 7), cursor="hand2")
+        cap.shut = shut
         caps.append(cap)
+        if shut:
+            cap.place(x=0, rely=0.5, anchor="w")
         for w in (strip, cap, bar):
             w.bind("<Button-1>", lambda e, i=gi: fold(i))
         if shut:
@@ -1114,7 +1120,7 @@ def build():
 
 def hover(show):
     for cap in caps:
-        if show:
+        if show or cap.shut:
             cap.place(x=0, rely=0.5, anchor="w")
         else:
             cap.place_forget()
