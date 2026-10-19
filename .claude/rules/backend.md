@@ -38,3 +38,7 @@ Writes (`apiPost`): `addAccount` / `updateAccount` / `deleteAccount`, `addHoldin
 5. **월배당 스크리너** (`tab-screener`) — searchable/filterable monthly-dividend ETF list from `getEtfScreener`.
 6. **분배금공지** (`tab-distributions`) — issuer notices + distribution-schedule calendar + the 🔔 alerts panel.
 7. **엑셀** (`tab-excel`) — import/export holdings and dividends via SheetJS.
+
+### 날짜 기준 감시·계산은 영업일로 (2026-10-19)
+- "며칠 묵었나"를 셀 때 **달력 날수를 쓰지 마라.** `KR_HOLIDAYS`·`_isOffDay`(주말+공휴일)로 영업일을 센다. 달력 날수로 센 IRP 기준가 감시가 월요일마다 오경보를 냈다.
+- ⛔ 그때 "명절 뒤 오경보는 1년에 몇 번뿐이라 안 막았다"고 넘어가려다 사용자에게 크게 지적받았다(*"1년에 몇번뿐인 오경보는 오경보가 아니냐"*). **작은 오류라도 막을 수 있으면 막는다. 내가 먼저 '괜찮다'고 하지 마라.**
