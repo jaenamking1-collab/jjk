@@ -10,6 +10,8 @@ skills-lock.json
 !.claude/settings.json
 # 출력 모드(/brief 등) — 두 PC·원격이 같은 명령을 쓰도록 저장소에 둔다(CLAUDE.md 0-2)
 !.claude/skills/
+# 훅 스크립트(디자인 요청 → 디자인 스킬 자동 연결 등) — settings.json 이 부르므로 같이 공유
+!.claude/hooks/
 # 작업별 규칙(paths 로 자동 로드) — 두 PC·원격이 같은 규칙을 읽어야 한다(CLAUDE.md 0-5, 2026-10-14)
 !.claude/rules/
 
