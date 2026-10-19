@@ -45,6 +45,7 @@ body.detail .amt{display:block}
 @keyframes fu{50%{background:rgba(255,59,71,.28)}} @keyframes fd{50%{background:rgba(61,155,255,.28)}}
 #notice{margin-top:6px;border-top:1px solid var(--line);padding-top:4px}
 .brow{display:flex;align-items:center;gap:8px;margin:3px 0}
+.brow .cys{display:flex;flex-direction:column;gap:8px;flex:none}
 .brow .cy{font-weight:700;font-size:15px;color:#3a404a;width:38px;flex:none}
 .brow .cy.on{color:var(--fg)}
 /* 포트폴리오 앱 분배금 달력의 회사 배지와 같은 모양: 이름 전체, 회사 색 바탕, 흰 굵은 글자, 각진 모서리. 4곳씩 두 줄 */
@@ -365,22 +366,26 @@ function drawBoard(stale){
   let seen = store.get('tk_seen2', null);
   if (!seen){ seen = Object.values(board).filter(b => b.lit).map(b => b.key); store.set('tk_seen2', seen); }
   N.innerHTML = '';
-  CYCLES.forEach(c => {
-    const row = document.createElement('div'); row.className = 'brow';
-    const any = Object.values(board).some(b => b.cyc === c && b.lit);
-    row.innerHTML = `<span class="cy${any ? ' on' : ''}">${c}</span><div class="chips"></div>`;
-    const grid = row.querySelector('.chips');
-    Object.entries(ISSUER).forEach(([k, t]) => {
-      const b = board[k + '|' + c], ch = document.createElement('span');
-      ch.className = 'chip' + (b && b.lit ? ' lit' + (seen.includes(b.key) ? '' : ' new') : '');
-      ch.textContent = t; ch.title = ISSUER[k]; ch.style.setProperty('--c', CHIP_COLOR[k]);
-      ch.onclick = () => { if (!b || !b.lit) return;
-        seen = [b.key, ...seen.filter(x => x !== b.key)].slice(0, 100); store.set('tk_seen2', seen);
-        ch.classList.remove('new'); if (b.url) window.open(b.url, '_blank', 'noopener'); };
-      grid.appendChild(ch);
-    });
-    N.appendChild(row);
+  // 배지는 한 벌: 왼쪽 '월중/월말' 중 지금 해당하는 쪽만 켜지고 배지는 그 회차로 칠한다
+  // (10/19 사용자: "4줄일 필요 없이"). 둘 다 켜졌으면 더 최근 공시 쪽.
+  const litAll = Object.values(board).filter(b => b.lit);
+  const cyc = litAll.length ? litAll.sort((a, b) => (b.pub || b.pay) - (a.pub || a.pay))[0].cyc : null;
+  const row = document.createElement('div'); row.className = 'brow';
+  row.innerHTML = '<div class="cys">' + CYCLES.map(c => `<span class="cy${c === cyc ? ' on' : ''}">${c}</span>`).join('') +
+                  '</div><div class="chips"></div>';
+  const grid = row.querySelector('.chips');
+  Object.entries(ISSUER).forEach(([k, t]) => {
+    const b = cyc ? board[k + '|' + cyc] : null, ch = document.createElement('span');
+    // 깜박임은 지급기준일까지만(10/19 요청). 지난 뒤엔 불만 지급일까지 켜 둔다
+    const blink = b && b.lit && !seen.includes(b.key) && (!b.base || kstToday() <= b.base);
+    ch.className = 'chip' + (b && b.lit ? ' lit' + (blink ? ' new' : '') : '');
+    ch.textContent = t; ch.title = ISSUER[k]; ch.style.setProperty('--c', CHIP_COLOR[k]);
+    ch.onclick = () => { if (!b || !b.lit) return;
+      seen = [b.key, ...seen.filter(x => x !== b.key)].slice(0, 100); store.set('tk_seen2', seen);
+      ch.classList.remove('new'); if (b.url) window.open(b.url, '_blank', 'noopener'); };
+    grid.appendChild(ch);
   });
+  N.appendChild(row);
   const t = kstToday();
   const pool = Object.values(board).filter(b => (b.pub || b.pay) <= t);
   const line = document.createElement('div'); line.id = 'bline';

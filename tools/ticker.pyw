@@ -403,7 +403,7 @@ def band_toggle(sym=None):
 #   09.28 KODEX 9월 월말배당     가장 최근 공지 한 줄(공시일·회사·몇 월 무슨 배당까지만).
 board = {}                               # (회사, 회차) -> {pub, pay, base, url, key, lit}
 board_new = set()                        # 새로 켜졌는데 아직 안 누른 칸의 키
-chips = {}                               # (회사, 회차) -> 라벨
+chips = {}                               # 회사 -> 라벨(한 벌. 지금 켜진 회차 기준으로 칠한다)
 cyc_lbl = {}                             # 회차 -> 줄 이름 라벨
 board_line = []                          # 맨 아래 한 줄 라벨
 board_on = [False]
@@ -511,12 +511,18 @@ def board_paint(j):
             cfg["notice_seen"] = seen
             save(cfg)
         board_new.clear()
-        board_new.update(b["key"] for b in board.values() if b["lit"] and b["key"] not in seen)
+        # 깜박임은 **분배금 지급기준일까지만**. 지난 뒤엔 누르지 않았어도 멈추고 불만 지급일까지 켜 둔다
+        # (2026-10-19 사용자: "월중 깜빡이는 게 너무 오랫동안 깜빡인다, 기준일 지나면 없애도록").
+        t = kst_today()
+        board_new.update(b["key"] for b in board.values()
+                         if b["lit"] and b["key"] not in seen and (not b["base"] or t <= b["base"]))
     else:
         # 못 받았어도 날짜는 흐른다 — 지급일이 지난 칸은 끈다
         t = kst_today()
         for b in board.values():
             b["lit"] = (b["pub"] is None or b["pub"] <= t) and t <= b["pay"]
+            if b["base"] and t > b["base"]:
+                board_new.discard(b["key"])
     draw_board(j is None)
 
 
@@ -533,12 +539,21 @@ def board_text(stale=False):
     return text + (" · 못 받음" if stale else ""), bool(lit)
 
 
+def active_cycle():
+    """지금 켜진 회차(월중/월말). 둘 다 켜졌으면 더 최근에 공시된 쪽. 없으면 None.
+    배지를 회차마다 두 벌 두지 않고 한 벌만 두므로(2026-10-19 사용자: "4줄일 필요 없이"),
+    어느 회차로 칠할지 여기서 정한다."""
+    lit = [((b["pub"] or b["pay"]), c) for (k, c), b in board.items() if b["lit"]]
+    return max(lit)[1] if lit else None
+
+
 def draw_board(stale=False):
     if not chips:
         return
     on = board_on[0]
-    for (k, c), lbl in chips.items():
-        b = board.get((k, c))
+    cyc = active_cycle()
+    for k, lbl in chips.items():
+        b = board.get((k, cyc)) if cyc else None
         lit = bool(b and b["lit"])
         blink = lit and b["key"] in board_new and on
         col = CHIP_COLOR[k]
@@ -547,16 +562,16 @@ def draw_board(stale=False):
                    fg="#ffffff" if lit and not blink else (col if lit else LINE),
                    highlightbackground=col if lit else LINE)
     for c, lbl in cyc_lbl.items():
-        any_lit = any(b["lit"] for (k, cc), b in board.items() if cc == c)
-        lbl.config(fg=THEME["fg"] if any_lit else LINE, bg=panel_bg())
+        lbl.config(fg=THEME["fg"] if c == cyc else LINE, bg=panel_bg())
     text, lit = board_text(stale)
     if board_line:
         board_line[0].config(text=text, fg=THEME["fg"] if lit else THEME["dim"], bg=panel_bg())
 
 
-def chip_click(k, c):
+def chip_click(k):
     """켜진 칸을 누르면 그 공지 원문을 열고, 깜박임을 멈춘다."""
-    b = board.get((k, c))
+    cyc = active_cycle()
+    b = board.get((k, cyc)) if cyc else None
     if not b:
         return
     if b["key"] in board_new:
@@ -954,22 +969,25 @@ body.pack(fill="both", padx=6, pady=(0, 4))
 notice = tk.Frame(root, bg=panel_bg())
 notice.pack(fill="x", padx=6, pady=(0, 4))
 tk.Frame(notice, bg=LINE, height=1).pack(fill="x", pady=(0, 3))
-# 칸 = 포트폴리오 앱 분배금 달력의 회사 배지(이름 전체·회사 색 바탕·흰 굵은 글자). 8곳이 한 줄엔
-# 안 들어가 앱 달력처럼 칸을 나눠 4곳씩 두 줄로 놓는다(2026-10-03 사용자가 앱 화면을 보여주며 지정).
+# 칸 = 포트폴리오 앱 분배금 달력의 회사 배지(이름 전체·회사 색 바탕·흰 굵은 글자), 4곳씩 두 줄.
+# 배지는 **한 벌**: 왼쪽 '월중/월말' 중 지금 해당하는 쪽만 켜지고, 배지는 그 회차로 칠한다
+# (2026-10-19 사용자: "월중 월말 중 하나만 켜지게 하고 그에 해당하는 불만 켜 주면 되잖아, 4줄일 필요 없이").
+_row = tk.Frame(notice, bg=panel_bg())
+_row.pack(fill="x", pady=(1, 2))
+_cyc = tk.Frame(_row, bg=panel_bg())
+_cyc.pack(side="left", padx=(0, 4))
 for _c in CYCLES:
-    _row = tk.Frame(notice, bg=panel_bg())
-    _row.pack(fill="x", pady=(1, 2))
-    cyc_lbl[_c] = tk.Label(_row, text=_c, bg=panel_bg(), fg=LINE, font=("Malgun Gothic", 8, "bold"))
-    cyc_lbl[_c].pack(side="left", padx=(0, 4))
-    _grid = tk.Frame(_row, bg=panel_bg())
-    _grid.pack(side="left")
-    for _n, (_k, _t) in enumerate(ISSUER.items()):
-        _l = tk.Label(_grid, text=_t, bg=panel_bg(), fg=LINE, font=("Malgun Gothic", 7, "bold"),
-                      width=7, padx=0, pady=0, highlightthickness=1, highlightbackground=LINE,
-                      cursor="hand2")
-        _l.grid(row=_n // 4, column=_n % 4, padx=1, pady=1)
-        _l.bind("<Button-1>", lambda e, k=_k, c=_c: chip_click(k, c))
-        chips[(_k, _c)] = _l
+    cyc_lbl[_c] = tk.Label(_cyc, text=_c, bg=panel_bg(), fg=LINE, font=("Malgun Gothic", 8, "bold"))
+    cyc_lbl[_c].pack()
+_grid = tk.Frame(_row, bg=panel_bg())
+_grid.pack(side="left")
+for _n, (_k, _t) in enumerate(ISSUER.items()):
+    _l = tk.Label(_grid, text=_t, bg=panel_bg(), fg=LINE, font=("Malgun Gothic", 7, "bold"),
+                  width=7, padx=0, pady=0, highlightthickness=1, highlightbackground=LINE,
+                  cursor="hand2")
+    _l.grid(row=_n // 4, column=_n % 4, padx=1, pady=1)
+    _l.bind("<Button-1>", lambda e, k=_k: chip_click(k))
+    chips[_k] = _l
 board_line.append(tk.Label(notice, text="", bg=panel_bg(), fg=DIM, font=("Malgun Gothic", 8), anchor="w"))
 board_line[0].pack(fill="x", pady=(2, 0))
 
