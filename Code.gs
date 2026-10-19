@@ -1863,6 +1863,16 @@ function onOrPrevBizDay(year, mon, day) {
   while (_isOffDay(d)) d.setDate(d.getDate() - 1);
   return { m: d.getMonth() + 1, d: d.getDate() };
 }
+// IRP 기준가 감시용: 마지막 반영일(last)과 오늘(today) 사이(양끝 제외)의 영업일 수. 오늘이 휴일이면 0.
+// 오늘 치 기준가는 오후에야 올라오는 날이 있어 오늘은 세지 않는다. 날짜는 'yyyy-MM-dd'.
+function _fundNavMissedBizDays(last, today) {
+  const p = s => { const a = s.split('-').map(Number); return new Date(a[0], a[1] - 1, a[2]); };
+  const d = p(last), end = p(today);
+  if (_isOffDay(end)) return 0;
+  let n = 0;
+  for (d.setDate(d.getDate() + 1); d < end; d.setDate(d.getDate() + 1)) if (!_isOffDay(d)) n++;
+  return n;
+}
 
 function fetchDist_kodex() {
   try {
