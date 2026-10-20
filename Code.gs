@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp', '_syncDivRates', '_fillPastDivFromApp'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp', '_syncDivRates', '_fillPastDivFromApp', 'setKrwCost'
 ];
 
 function runMaint(name, arg) {
@@ -401,30 +401,68 @@ function getHoldings(account_id) {
     quantity: r[5],
     currency: r[6],
     div_cycle: r[7],
-    created_at: r[8]
+    created_at: r[8],
+    krw_cost: parseFloat(r[9]) || 0
   }));
+}
+// J열 krw_cost = 달러 종목의 원화 원금(산 날 환율). 2026-10-20 사용자: 30일 전·50일 전 산 것을 오늘 환율로
+// 계산하면 원금이 매일 바뀐다. 처음 값은 증권사 '원화 매입금액'(setKrwCost), 그 뒤 매수는 저장하는 날 환율로 더하고
+// 매도는 수량 비율만큼 뺀다. 0이면 화면은 예전처럼 오늘 환율로 계산한다.
+function _krwCostAfter(cur, oldQty, oldAvg, oldCost, qty, avg) {
+  if (cur !== 'USD') return '';
+  if (!oldCost) return oldQty ? '' : qty * avg * fetchExchangeRate();   // 기준값 없는 옛 종목은 그대로 둔다
+  if (qty > oldQty) return oldCost + (qty * avg - oldQty * oldAvg) * fetchExchangeRate();
+  if (qty < oldQty) return oldQty ? oldCost * qty / oldQty : 0;
+  return oldCost;                                                       // 평단만 고침 = 원금 그대로
 }
 function addHolding(data) {
   const sheet = getSheet('holdings');
   const id = new Date().getTime().toString();
-  sheet.appendRow([id, data.account_id, "'" + (data.ticker||'').toString().trim(), data.name, data.avg_price, data.quantity, data.currency, data.div_cycle, new Date().toISOString()]);
+  const qty = parseFloat(data.quantity) || 0, avg = parseFloat(data.avg_price) || 0;
+  sheet.appendRow([id, data.account_id, "'" + (data.ticker||'').toString().trim(), data.name, data.avg_price, data.quantity, data.currency, data.div_cycle, new Date().toISOString(),
+    _krwCostAfter(data.currency, 0, 0, 0, qty, avg)]);
   return { success: true, id };
 }
+// 보내온 칸만 고친다. 폰(m.html)은 수량·평단만 보내는데, 예전엔 빠진 칸(티커·이름·통화)을 빈 값으로 덮었다.
 function updateHolding(data) {
   const sheet = getSheet('holdings');
   const rows = sheet.getDataRange().getValues();
   for (let i = 1; i < rows.length; i++) {
     if (rows[i][0].toString() === data.id.toString()) {
-      sheet.getRange(i+1, 3).setValue("'" + (data.ticker||'').toString().trim());
-      sheet.getRange(i+1, 4).setValue(data.name);
-      sheet.getRange(i+1, 5).setValue(data.avg_price);
-      sheet.getRange(i+1, 6).setValue(data.quantity);
-      sheet.getRange(i+1, 7).setValue(data.currency);
-      sheet.getRange(i+1, 8).setValue(data.div_cycle);
+      const r = rows[i].slice(0, 10); while (r.length < 10) r.push('');
+      if (data.ticker !== undefined) r[2] = "'" + (data.ticker||'').toString().trim();
+      if (data.name !== undefined) r[3] = data.name;
+      if (data.avg_price !== undefined) r[4] = data.avg_price;
+      if (data.quantity !== undefined) r[5] = data.quantity;
+      if (data.currency !== undefined) r[6] = data.currency;
+      if (data.div_cycle !== undefined) r[7] = data.div_cycle;
+      if (data.ticker === undefined) r[2] = "'" + _padTicker(rows[i][2]);
+      r[9] = _krwCostAfter(r[6], parseFloat(rows[i][5]) || 0, parseFloat(rows[i][4]) || 0, parseFloat(rows[i][9]) || 0,
+        parseFloat(r[5]) || 0, parseFloat(r[4]) || 0);
+      sheet.getRange(i+1, 3, 1, 8).setValues([r.slice(2, 10)]);
       return { success: true };
     }
   }
   return { error: 'Not found' };
+}
+
+// 증권사 '원화 매입금액'을 J열에 넣는다. arg = 비공개 시트 ID, 첫 탭 열: 앱계좌, 티커, 원화매입금액.
+// 금액은 로그에 남기지 않는다(Actions 로그 공개) — 건수만.
+function setKrwCost(sheetId) {
+  const src = SpreadsheetApp.openById(sheetId).getSheets()[0].getDataRange().getValues().slice(1).filter(r => r[0] && r[1]);
+  const accId = {}; getAccounts().forEach(a => accId[a.name.toString().trim()] = a.id.toString());
+  const sheet = getSheet('holdings');
+  if (!sheet.getRange(1, 10).getValue()) sheet.getRange(1, 10).setValue('krw_cost');
+  const rows = sheet.getDataRange().getValues();
+  let ok = 0; const miss = [];
+  src.forEach(s => {
+    const aid = accId[s[0].toString().trim()], t = s[1].toString().trim().toUpperCase(), v = parseFloat(String(s[2]).replace(/,/g, ''));
+    const i = rows.findIndex((r, k) => k > 0 && r[1].toString() === aid && _padTicker(r[2]).toUpperCase() === t);
+    if (i < 1 || !(v > 0)) { miss.push(s[0] + ' ' + t); return; }
+    sheet.getRange(i + 1, 10).setValue(v); ok++;
+  });
+  console.log('원화 원금 넣음 ' + ok + '건' + (miss.length ? ' · 못 맞춤 ' + miss.join(', ') : ''));
+  return { ok, miss };
 }
 function deleteHolding(id) { deleteRowById('holdings', id); return { success: true }; }
 

@@ -18,13 +18,21 @@ const Calc = (() => {
     return cur === 'USD' ? a * (parseFloat(rowRate) || er) : a;
   }
 
+  // 원금(원화). 달러 종목은 산 날 환율로 고정한 krw_cost(holdings J열)가 있으면 그걸 쓴다 — 오늘 환율을
+  // 곱하면 30일 전에 산 것의 원금이 매일 바뀐다(2026-10-20 사용자). 없으면 예전처럼 오늘 환율.
+  function costKrw(h, rate) {
+    const k = parseFloat(h.krw_cost) || 0;
+    if (h.currency === 'USD' && k > 0) return k;
+    return toKrw((parseFloat(h.avg_price) || 0) * (parseFloat(h.quantity) || 0), h.currency, rate);
+  }
+
   // 종목 하나. 현재가가 없으면 매수평균가로 대신 계산한다(=손익 0, isLive=false).
   function holding(h, priceMap, rate) {
     const qty = parseFloat(h.quantity) || 0;
     const avg = parseFloat(h.avg_price) || 0;
     const live = priceMap[(h.ticker || '').toString().trim().toUpperCase()];
     const price = live || avg;
-    const invest = toKrw(avg * qty, h.currency, rate);
+    const invest = costKrw(h, rate);
     const value  = toKrw(price * qty, h.currency, rate);
     return { qty, avg, price, isLive: !!live, invest, value, pl: value - invest };
   }
@@ -155,6 +163,6 @@ const Calc = (() => {
     return { run, base, fromNotice, noData };
   }
 
-  return { divKrw, holding, investValue, projectAnnual, projectMonths, goalRun };
+  return { divKrw, costKrw, holding, investValue, projectAnnual, projectMonths, goalRun };
 })();
 if (typeof module !== 'undefined') module.exports = Calc;   // node tools/calc_test.js 용

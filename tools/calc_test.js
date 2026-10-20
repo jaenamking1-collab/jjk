@@ -49,6 +49,14 @@ if (process.argv.includes('--update')) {
     bad(`${k} 값이 바뀌었다\n   정답 ${JSON.stringify(want[k]).slice(0, 400)}\n   지금 ${JSON.stringify(got[k]).slice(0, 400)}`); });
 }
 
+// ①-2 달러 원금은 산 날 환율로 고정한 krw_cost 를 쓰고, 오늘 환율이 바뀌어도 그대로다(2026-10-20)
+{
+  const h = { quantity:'10', avg_price:'20', currency:'USD', krw_cost:'270000', ticker:'US1' };
+  const a = Calc.holding(h, priceMap, 1400), b = Calc.holding(h, priceMap, 1500);
+  if (a.invest !== 270000 || b.invest !== 270000) bad('krw_cost 가 있는데 원금이 오늘 환율로 바뀐다');
+  if (Calc.costKrw({ quantity:'10', avg_price:'20', currency:'USD' }, 1400) !== 280000) bad('krw_cost 없는 달러 종목은 오늘 환율이어야 한다');
+}
+
 // ② 화면 파일 구조
 ['portfolio.html', 'm.html'].forEach(f => {
   const src = fs.readFileSync(path.join(root, f), 'utf8');
