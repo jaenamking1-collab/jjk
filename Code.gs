@@ -5561,6 +5561,7 @@ function keepWarm() {
   // 전일종가 기준을 '직전 거래일'로 바꿨다 → 오늘 몫을 한 번 다시 돌려야 색이 살아난다.
   try { _redoTrendOnce(); } catch (e) { console.log('_redoTrendOnce 실패 — ' + e); }
   try { _fixDivTotalsOnce(); } catch (e) { console.log('_fixDivTotalsOnce 실패 — ' + e); }
+  try { _krwCostOnce(); } catch (e) { console.log('_krwCostOnce 실패 — ' + e); }
 
   try {
     const pr = PropertiesService.getScriptProperties();
@@ -5936,6 +5937,18 @@ function _redoTrendOnce() {
 // 분배금 시트 3행 합계·판 종목 줄·앱 중복 정리를 한 번 돌린다(2026-10-19). 이 PC 에선 maint 를 못 불러 keepWarm 에 물린다.
 // 결과는 복구로그 탭에 남긴다. 다시 돌려도 같은 결과라(이미 된 건 건너뜀) 실패해도 한 번만 시도한다.
 const DIV_TOTALS_FIX_KEY = 'div_totals_fix_20261019c';  // c: 지난 연도 빈 칸 채움   // b: 4행 받은 달 환율 추가
+// 달러 종목 원화원금 첫 값(2026-10-20). 금융 폴더 거래내역 + 보유변동으로 매수일 환율을 곱해 만든 비공개 시트.
+// 이 PC엔 maint 통로가 없어 keepWarm 이 한 번 넣는다. 결과는 복구로그에 건수만.
+const KRW_COST_SHEET_ID = '1Sp79USzTzMPgS32KXHdHLXxtnKygjd5ttp6Mg6tNNsY';
+function _krwCostOnce() {
+  const pr = PropertiesService.getScriptProperties(), key = 'krw_cost_' + KRW_COST_SHEET_ID.slice(0, 8);
+  if (pr.getProperty(key)) return;
+  pr.setProperty(key, 'started');
+  const r = setKrwCost(KRW_COST_SHEET_ID);
+  _fixLog('달러 원화원금 넣음 ' + r.ok + '건' + (r.miss.length ? ' · 못 맞춤 ' + r.miss.join(', ') : ''));
+  pr.setProperty(key, r.miss.length ? 'partial' : 'done');
+}
+
 function _fixDivTotalsOnce() {
   const pr = PropertiesService.getScriptProperties();
   if (pr.getProperty(DIV_TOTALS_FIX_KEY)) return;
