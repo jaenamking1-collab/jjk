@@ -15,7 +15,7 @@ if (!/[?&]pc=1/.test(location.search) && window.innerWidth <= 768) {
 <!-- SheetJS(약 900KB)는 엑셀 탭에서만 쓴다. head 에서 동기 로드하면 그동안 첫 화면이
      통째로 멈춘다 → defer. 순서는 지켜지고 DOMContentLoaded 전에 실행되므로 탭 진입 시엔 준비돼 있다. -->
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="calc.js?v=2"></script>
+<script src="calc.js?v=3"></script>
 <style>
   :root {
     --bg: #f4f7ff;
@@ -2060,8 +2060,7 @@ async function renderHoldingsTable(holdings) {
   // holding_id → 연배당률(%) 맵
   const annualRateMap = {};
   holdings.forEach(h => {
-    const invest = (parseFloat(h.avg_price)||0) * (parseFloat(h.quantity)||0);
-    const investKrw = h.currency === 'USD' ? invest * state.exchangeRate : invest;
+    const investKrw = Calc.costKrw(h, state.exchangeRate);
     const er3 = state.exchangeRate || 1400;
     const divs = divByHolding[h.id] || [];
     let total = 0; const filledM = new Set();
@@ -2128,8 +2127,7 @@ async function renderHoldingsTable(holdings) {
       ${holdings.map((h, idx) => {
         const avg = parseFloat(h.avg_price) || 0;
         const qty = parseFloat(h.quantity) || 0;
-        const invest = avg * qty;
-        const investKrw = h.currency === 'USD' ? invest * state.exchangeRate : invest;
+        const investKrw = Calc.costKrw(h, state.exchangeRate);
         const acc = state.accounts.find(a => a.id === h.account_id);
         const curr = h.currency === 'USD' ? '$' : '';
         const prevH = idx > 0 ? holdings[idx-1] : null;
@@ -2316,8 +2314,7 @@ async function loadDividendGrid() {
 
     const prevH = idx > 0 ? holdings[idx-1] : null;
     const isUsdBorder = h.currency === 'USD' && prevH?.account_id === h.account_id && prevH?.currency === 'KRW';
-    const invest = (parseFloat(h.avg_price)||0) * (parseFloat(h.quantity)||0);
-    const investKrw = h.currency === 'USD' ? invest * er : invest;
+    const investKrw = Calc.costKrw(h, er);
     const isUsd = h.currency === 'USD';
     // 월배당만 '지나간 달 미입력'을 노랗게 한다. 분기·반기는 어느 달이 회차인지 공지 없이는 모른다.
     const cycStr0 = (h.div_cycle || '').split('|')[0];
@@ -2335,7 +2332,7 @@ async function loadDividendGrid() {
       const displayVal = amt ? (isUsd ? amt.toFixed(2) : Math.round(amt).toLocaleString()) : '';
       const rawVal = div ? (div.raw_formula || displayVal) : '';
       const cb = (costMap || {})[key];
-      const invM = cb ? (cb.cur === 'USD' ? cb.cost * er : cb.cost) : investKrw;
+      const invM = cb ? (cb.cur === 'USD' ? cb.cost * (parseFloat(div && div.rate) || er) : cb.cost) : investKrw;   // 그 달 원금은 그 달 환율
       if (amtKrw && invM > 0) { invSum += invM; invN++; }
       const monthRate = (invM > 0 && amtKrw > 0) ? (amtKrw / invM * 100).toFixed(2) : '';
       const dol = isUsd && amt ? `<span style="font-size:1em;color:#92400e;font-weight:700;margin-right:2px">$</span>` : '';
@@ -2539,8 +2536,7 @@ async function loadDivRateGrid() {
 
     const prevH = idx > 0 ? holdings[idx-1] : null;
     const isUsdBorder = h.currency === 'USD' && prevH?.account_id === h.account_id && prevH?.currency === 'KRW';
-    const invest = (parseFloat(h.avg_price)||0) * (parseFloat(h.quantity)||0);
-    const investKrw = h.currency === 'USD' ? invest * er : invest;
+    const investKrw = Calc.costKrw(h, er);
     const isUsd = h.currency === 'USD';
 
     // 월별 금액·분배율 선계산
@@ -2556,7 +2552,7 @@ async function loadDivRateGrid() {
       amtArr[m-1] = amt;
       if (amtKrw) { rowTotalKrw += amtKrw; monthTotalsKrw[m-1] += amtKrw; accMonthKrw[m-1] += amtKrw; }
       const cb = (costMap || {})[`${h.id}_${m}`];
-      const invM = cb ? (cb.cur === 'USD' ? cb.cost * er : cb.cost) : investKrw;
+      const invM = cb ? (cb.cur === 'USD' ? cb.cost * (parseFloat(div && div.rate) || er) : cb.cost) : investKrw;   // 그 달 원금은 그 달 환율
       // 그달 보유수량 — 주당 분배금(= 금액 ÷ 수량)의 분모.
       // ⚠️ **이력이 없는 달은 주당을 계산하지 않는다.** 예전엔 지금 수량으로 폴백했는데,
       // 그러면 그때 50주였던 종목을 150주로 나눠 과거 주당이 1/3로 줄고 '3배 증가'로 보인다
@@ -3000,7 +2996,7 @@ async function loadDashboard() {
   const perHolding = [], perAcc = {};   // 계좌별 원금·평가 — 계좌 그래프 머리글을 포트폴리오 탭 손익과 같게(2026-10-02)
   holdings.forEach(h => {
     const qty = parseFloat(h.quantity)||0, avg = parseFloat(h.avg_price)||0;
-    const costK = (h.currency==='USD'? avg*qty*rate : avg*qty);
+    const costK = Calc.costKrw(h, rate);
     costAll += costK;
     const p = priceMap[(h.ticker||'').toString().trim().toUpperCase()];
     const cur = (p && parseFloat(p.current)) ? parseFloat(p.current) : avg; // 현재가 없으면 평단가
@@ -6155,7 +6151,7 @@ async function loadHoldingPrices(holdings) {
         if (valEl) {
           const qty2 = parseFloat(h.quantity) || 0;
           const valKrw = h.currency === 'USD' ? cur * qty2 * (state.exchangeRate||1450) : cur * qty2;
-          const investKrw2 = h.currency === 'USD' ? avg * qty2 * (state.exchangeRate||1450) : avg * qty2;
+          const investKrw2 = Calc.costKrw(h, state.exchangeRate||1450);
           const plKrw = valKrw - investKrw2;
           const plColor = plKrw >= 0 ? '#dc2626' : '#2563eb';
           const plSign = plKrw >= 0 ? '+' : '';
