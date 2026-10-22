@@ -308,7 +308,7 @@ function getAccountSummary() {
 // 외부 입금·출금(2026-10-13): 사용자가 "OO계좌에 개인돈 넣었다"고 말해 준 것. 성적표 투자원금·예수금, 계좌 그래프 현금에 들어간다.
 // 그 전엔 '예수금보다 더 산 만큼'을 매수일에 입금으로 짐작했다 — 쌓인 분배금 예수금이 먼저 쓰여 투자원금이 덜 잡혔다.
 // ⛔ 금액은 비공개 시트에만 둔다(저장소·로그 금지). 시트 [계좌이름, 날짜 yyyy-MM-dd, 금액(+입금 −출금), 메모].
-const EXT_DEP_SHEET_ID = '1bN_8bquEhZdJ6Exy1pNcqeSre2jK5xkaHxsZ8GtajQQ';
+const EXT_DEP_SHEET_ID = '1V28M_daCPy-i62EuWj9GwUaht5G-jjGi78aSoQAYAlM';   // v2 2026-10-22 (커넥터는 칸 추가가 안 돼 새 시트로 옮김)
 function getExtDeposits() {
   let rows;
   try { rows = SpreadsheetApp.openById(EXT_DEP_SHEET_ID).getSheets()[0].getDataRange().getValues(); } catch (e) { return []; }
