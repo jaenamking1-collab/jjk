@@ -5550,6 +5550,7 @@ function clearAllYellowNow() {
 // "메뉴 들어갈 때마다 30초"의 정체가 이것이었다. 콜드스타트는 오래 안 쓰다 열 때 1회지만
 // 이건 5분마다였으므로, 자기호출을 없애고 가벼운 워밍만 남긴다.
 function keepWarm() {
+  const _kw0 = Date.now();   // 2026-10-22 진단: 20초 넘게 걸리면 무거운 단계별 초를 복구로그에
   try { SpreadsheetApp.openById(SHEET_ID).getName(); } catch (e) {}
 
   // ── 자산 시트 일일 작업 따라잡기 (하루 한 번) ────────────────────
@@ -5586,9 +5587,13 @@ function keepWarm() {
   try { _attachOrphanDivsOnce(); } catch (e) { _fixLog('고아 배당 연결 실패 — ' + e); }
   try { _nameOrphansOnce(); } catch (e) { _fixLog('고아 배당 이름 채우기 실패 — ' + e); }
   try { _refreshImportOnce(); } catch (e) { _fixLog('IMPORTDATA 새로고침 실패 — ' + e); }
+  const _kwA = Date.now();
   try { _fillRowFormulas(); } catch (e) { console.log('주식상황 수식 채우기 실패 — ' + e); }
+  const _kwB = Date.now();
   try { _healImportData(); } catch (e) { console.log('IMPORTDATA 자가복구 실패 — ' + e); }
+  const _kwC = Date.now();
   try { _perfWatch(); } catch (e) { console.log('월별 성과 감시 실패 — ' + e); }
+  const _kwD = Date.now();
   try { _fixIrpOnce(); } catch (e) { _fixLog('IRP 칸 정리 실패 — ' + e); }
 
   // IRP 펀드 기준가 감시 — 받아오는 건 GitHub Actions(fund_nav.yml)가 한다(FunETF 가 Apps Script 를
@@ -5623,6 +5628,9 @@ function keepWarm() {
       pr.setProperty('sectorNoonDay', today);
     }
   } catch (e) { console.log('섹터 등락표 실패 — ' + e); }
+  const _kwS = Math.round((Date.now() - _kw0) / 1000), sec = (a, b) => Math.round((b - a) / 1000) + '초';
+  if (_kwS >= 20) _fixLog('keepWarm ' + _kwS + '초 — 앞부분 ' + sec(_kw0, _kwA) + ' · 수식채우기 ' + sec(_kwA, _kwB)
+    + ' · IMPORTDATA ' + sec(_kwB, _kwC) + ' · 월별성과 ' + sec(_kwC, _kwD) + ' · 나머지 ' + sec(_kwD, Date.now()));
 }
 
 // ── 섹터별 등락표 (아침 보고용) ──────────────────────────────────
