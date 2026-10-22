@@ -113,6 +113,7 @@ function runMaint(name, arg) {
 
 function doGet(e) {
   if (!e || !e.parameter) return ContentService.createTextOutput('ok');
+  const _t0 = Date.now();   // t=1 이면 서버 실행 시간(ms)을 _ms 로 붙인다 — 느림이 서버 일인지 줄서기인지 가르는 용(2026-10-22)
   const action = e.parameter.action;
   if (!_authOk(action, e.parameter.token)) return _unauthorized();
   // 별도 프로젝트 '백엔드감시'(watchdog/)가 30분마다 wd=1 을 붙여 부른다 → 감시의 생존 표시(hitCounter 의 wd)
@@ -183,6 +184,7 @@ function doGet(e) {
   } catch(err) {
     result = { error: err.toString() };
   }
+  if (e.parameter.t === '1' && result && typeof result === 'object' && !Array.isArray(result)) result._ms = Date.now() - _t0;
   const output = ContentService.createTextOutput(JSON.stringify(result));
   output.setMimeType(ContentService.MimeType.JSON);
   return output;
