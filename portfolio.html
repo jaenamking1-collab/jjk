@@ -1264,7 +1264,34 @@ function showApiDown(on) {
   b.textContent = '🚨 서버 연결 끊김 — 지금 보이는 숫자는 마지막 저장값입니다. 새 데이터·저장이 안 됩니다.';
   document.body.appendChild(b);
 }
+// 탭을 열 때마다 같은 종목·분배금을 다시 받느라 기다렸다(2026-10-22: 서버가 요청을 받기까지 2~19초 —
+// 코드가 커져 준비가 느리다. 계산 자체는 0초). 읽기 몇 가지는 10분 안에 받은 게 있으면 그걸 바로 주고
+// 최신 값은 뒤에서 받아 둔다(다음에 쓰인다). 무언가 저장하면(apiPost) 통째로 비운다.
+const API_MEMO = new Set(['getHoldings', 'getDividends', 'getCostBasis', 'getPriceLog', 'getNavMap']);
+let _apiMemo = {}, _apiGen = 0, _apiFly = {};   // gen: 저장 전에 떠난 요청이 저장 뒤에 옛 값을 다시 넣지 못하게
 async function api(params) {
+  if (API_MEMO.has(params.action)) {
+    const k = _apiKey(params);
+    const g = _apiGen, m = _apiMemo[k];
+    // 같은 요청이 이미 가는 중이면(미리 받기 등) 하나만 보낸다
+    const fresh = () => _apiFly[k] || (_apiFly[k] = _apiFetch(params)
+      .then(j => { if (g === _apiGen) _apiMemo[k] = { j: structuredClone(j), at: Date.now() }; return j; })
+      .finally(() => { delete _apiFly[k]; }));
+    if (m && Date.now() - m.at < 600000) { fresh().catch(() => {}); return structuredClone(m.j); }   // 복사본: 화면 코드가 받은 배열을 고쳐도 저장본은 그대로
+    return structuredClone(await fresh());
+  }
+  return _apiFetch(params);
+}
+const _apiKey = p => JSON.stringify(Object.keys(p).sort().map(x => [x, String(p[x])]));
+function _apiSeed(params, j) { _apiMemo[_apiKey(params)] = { j: structuredClone(j), at: Date.now() }; }
+// 종목관리·분배금 탭이 쓸 것을 미리 받아 둔다(이미 10분 안에 받은 건 다시 안 받는다)
+function _apiPrefetch() {
+  [{ action:'getCostBasis', year: state.currentYear }, { action:'getPriceLog' }, { action:'getNavMap' }].forEach(p => {
+    const m = _apiMemo[_apiKey(p)];
+    if (!m || Date.now() - m.at >= 600000) api(p).catch(() => {});
+  });
+}
+async function _apiFetch(params) {
   if (Date.now() < _apiDownUntil) throw new Error('서버 응답 없음 (잠시 뒤 다시 시도)');
   const url = API + '?' + new URLSearchParams({ ...params, token: APP_TOKEN });
   let last;
@@ -1295,6 +1322,7 @@ async function apiPost(data) {
   });
   // 뭔가 썼으니 대시보드가 재사용하던 종목·분배금은 낡았다. 다음 대시보드는 다시 받아 온다.
   state.dashData = null;
+  _apiMemo = {}; _apiFly = {}; _apiGen++;
   return res.json();
 }
 
@@ -1409,6 +1437,13 @@ function applyBootstrap(b, sheet) {
   renderAccountStats(b.holdings || [], divsYear, sheet, divsAll);
   _snapSet({ exchangeRate: state.exchangeRate, accounts: state.accounts,
              holdings: b.holdings || [], divs: divsYear, sheet: sheet || { items: [] }, divsFull: divsAll });
+  // 부팅에서 받은 것을 api 저장본으로 넣고, 탭이 쓸 나머지는 미리 받아 둔다 → 종목관리·분배금 탭이 바로 열린다
+  if (b.holdings) {
+    _apiSeed({ action:'getHoldings' }, b.holdings);
+    _apiSeed({ action:'getDividends', year: state.currentYear }, divsYear);
+    _apiSeed({ action:'getDividends' }, divsAll);
+  }
+  _apiPrefetch();
 }
 
 async function loadExchangeRate() {
@@ -1534,6 +1569,7 @@ async function loadAccountStats() {
   // 다음 실행 즉시 렌더용 스냅샷 저장
   _snapSet({ exchangeRate: state.exchangeRate, accounts: state.accounts,
              holdings: allHoldings||[], divs: allDivs||[], sheet: sheet||{items:[]}, divsFull: allDivsFull||[] });
+  _apiPrefetch();
 }
 
 // 계좌 통계 렌더(순수 함수): 캐시 즉시 렌더와 최신 렌더 양쪽에서 호출한다.
@@ -1938,7 +1974,8 @@ async function loadHoldings() {
   // 예전엔 그 예외를 아무도 안 받아서 스피너가 영원히 도는 '무한 로딩'으로 보였다.
   let data, stale = false;
   try {
-    data = await api({ action:'getHoldings', account_id: accountId === 'ALL' ? '' : accountId });
+    data = await api({ action:'getHoldings' });   // 전부 받아 여기서 거른다 — 계좌마다 따로 받으면 저장본을 못 쓴다
+    if (accountId !== 'ALL') data = (data || []).filter(h => String(h.account_id) === String(accountId));
   } catch (e) {
     // 서버가 죽어도 마지막 저장본이 있으면 그걸 보여 준다(2026-09-28 /exec 403 때 스피너만 돌았다).
     const snapH = ((_snapGet() || {}).holdings) || [];
