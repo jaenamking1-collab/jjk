@@ -3524,8 +3524,17 @@ function _sendTelegram(text) {
   return ok;
 }
 // 토큰이 생기면 keepWarm 이 한 번 시험 메시지를 보내고 결과를 복구로그에 남긴다(사람이 ▶ 누를 필요 없게)
+// 편집기 '스크립트 속성' 화면은 속성이 50개를 넘으면 읽기 전용이 된다(2026-10-23) → 사용자는 DB 시트 config 탭에
+// 'telegram_token | <토큰>' 한 줄을 넣고, 여기서 속성으로 옮긴 뒤 그 줄을 지운다(토큰이 시트에 남지 않게).
 function _telegramTestOnce() {
   const pr = PropertiesService.getScriptProperties();
+  const cfg = getSheet('config'), rows = cfg.getDataRange().getValues();
+  for (let i = rows.length - 1; i >= 1; i--) {
+    if (String(rows[i][0]).trim().toLowerCase() !== 'telegram_token') continue;
+    const t = String(rows[i][1]).trim();
+    cfg.deleteRow(i + 1);
+    if (t) { pr.setProperty('TELEGRAM_TOKEN', t); ['TELEGRAM_CHAT', 'TELEGRAM_TESTED', 'TELEGRAM_TEST_FAIL_LOGGED'].forEach(k => pr.deleteProperty(k)); _fixLog('텔레그램 토큰을 시트에서 받아 저장하고 시트 줄은 지움'); }
+  }
   if (!pr.getProperty('TELEGRAM_TOKEN') || pr.getProperty('TELEGRAM_TESTED')) return;
   const ok = _sendTelegram('✅ 포트폴리오 알림이 이제 텔레그램으로 옵니다.');
   if (ok) { pr.setProperty('TELEGRAM_TESTED', new Date().toISOString()); _fixLog('텔레그램 시험 발송 성공'); }
