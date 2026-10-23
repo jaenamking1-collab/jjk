@@ -3506,21 +3506,24 @@ function _kakaoAccessToken() {
 // 텔레그램(2026-10-23 사용자: "카톡은 알림이 안 울려서 소용없음"). 카톡 '나에게 보내기'는 폰에서 소리가 안 난다.
 // 스크립트 속성 TELEGRAM_TOKEN(사용자가 직접 넣는 봇 토큰)이 있으면 텔레그램으로 보내고, 성공하면 카톡은 건너뛴다.
 // 받을 대화방(chat id)은 사용자가 봇에 /start 를 보낸 뒤 getUpdates 로 한 번 찾아 TELEGRAM_CHAT 에 둔다.
+let _tgWhy = '';   // 마지막 실패 이유(토큰 값은 절대 안 담는다) — _telegramTestOnce 가 복구로그에 적는다
 function _sendTelegram(text) {
   const pr = PropertiesService.getScriptProperties(), token = pr.getProperty('TELEGRAM_TOKEN');
   if (!token) return false;
   const api = 'https://api.telegram.org/bot' + token + '/';
   let chat = pr.getProperty('TELEGRAM_CHAT');
   if (!chat) {
-    const u = JSON.parse(UrlFetchApp.fetch(api + 'getUpdates', { muteHttpExceptions: true }).getContentText() || '{}');
+    const r = UrlFetchApp.fetch(api + 'getUpdates', { muteHttpExceptions: true });
+    const u = JSON.parse(r.getContentText() || '{}');
+    if (!u.ok) { _tgWhy = 'getUpdates ' + r.getResponseCode() + ' ' + (u.description || '') + ' (토큰 모양: ' + token.length + '자, 콜론 ' + (token.indexOf(':') > 0 ? '있음' : '없음') + ')'; return false; }
     const last = ((u.result || []).filter(x => x.message && x.message.chat).pop() || {}).message;
-    if (!last) { console.log('텔레그램: 봇에 /start 를 먼저 보내야 대화방을 찾는다'); return false; }
+    if (!last) { _tgWhy = '봇에 온 메시지가 없음 — 봇 대화방에서 /start(시작)를 눌러야 대화방을 찾는다'; return false; }
     chat = String(last.chat.id); pr.setProperty('TELEGRAM_CHAT', chat);
   }
   const res = UrlFetchApp.fetch(api + 'sendMessage', { method: 'post', muteHttpExceptions: true,
     payload: { chat_id: chat, text: String(text).slice(0, 3500) + '\n' + _NOTICE_PAGE_URL, disable_web_page_preview: 'true' } });
   const ok = res.getResponseCode() === 200;
-  if (!ok) console.log('텔레그램 발송 실패', res.getResponseCode());   // 응답 본문엔 토큰이 없지만 그래도 코드만
+  if (!ok) { _tgWhy = 'sendMessage ' + res.getResponseCode() + ' ' + ((JSON.parse(res.getContentText() || '{}')).description || ''); console.log('텔레그램 발송 실패 — ' + _tgWhy); }
   return ok;
 }
 // 토큰이 생기면 keepWarm 이 한 번 시험 메시지를 보내고 결과를 복구로그에 남긴다(사람이 ▶ 누를 필요 없게)
@@ -3533,12 +3536,12 @@ function _telegramTestOnce() {
     if (String(rows[i][0]).trim().toLowerCase() !== 'telegram_token') continue;
     const t = String(rows[i][1]).trim();
     cfg.deleteRow(i + 1);
-    if (t) { pr.setProperty('TELEGRAM_TOKEN', t); ['TELEGRAM_CHAT', 'TELEGRAM_TESTED', 'TELEGRAM_TEST_FAIL_LOGGED'].forEach(k => pr.deleteProperty(k)); _fixLog('텔레그램 토큰을 시트에서 받아 저장하고 시트 줄은 지움'); }
+    if (t) { pr.setProperty('TELEGRAM_TOKEN', t); ['TELEGRAM_CHAT', 'TELEGRAM_TESTED', 'TELEGRAM_LAST_WHY'].forEach(k => pr.deleteProperty(k)); _fixLog('텔레그램 토큰을 시트에서 받아 저장하고 시트 줄은 지움'); }
   }
   if (!pr.getProperty('TELEGRAM_TOKEN') || pr.getProperty('TELEGRAM_TESTED')) return;
   const ok = _sendTelegram('✅ 포트폴리오 알림이 이제 텔레그램으로 옵니다.');
   if (ok) { pr.setProperty('TELEGRAM_TESTED', new Date().toISOString()); _fixLog('텔레그램 시험 발송 성공'); }
-  else if (!pr.getProperty('TELEGRAM_TEST_FAIL_LOGGED')) { pr.setProperty('TELEGRAM_TEST_FAIL_LOGGED', '1'); _fixLog('텔레그램 시험 발송 실패 — 봇에 /start 를 보냈는지 확인'); }
+  else if (pr.getProperty('TELEGRAM_LAST_WHY') !== _tgWhy) { pr.setProperty('TELEGRAM_LAST_WHY', _tgWhy); _fixLog('텔레그램 시험 발송 실패 — ' + _tgWhy); }   // 이유가 바뀔 때만(5분마다 같은 줄 쌓지 않게)
 }
 
 function sendKakaoMemo(text) {
@@ -7526,7 +7529,9 @@ function _fixLog(msg) {
     const ss = SpreadsheetApp.openById(SHEET_ID);
     let t = ss.getSheetByName('복구로그');
     if (!t) { t = ss.insertSheet('복구로그'); t.appendRow(['시각', '내용']); }
-    t.appendRow([Utilities.formatDate(new Date(), 'Asia/Seoul', 'MM-dd HH:mm:ss'), String(msg).slice(0, 900)]);
+    // 새 줄은 맨 위(2행)에 — Drive 커넥터는 탭의 앞 몇 줄만 보여 줘서, 끝에 붙이면 최신 로그를 못 읽는다(2026-10-23)
+    t.insertRowBefore(2);
+    t.getRange(2, 1, 1, 2).setValues([[Utilities.formatDate(new Date(), 'Asia/Seoul', 'MM-dd HH:mm:ss'), String(msg).slice(0, 900)]]);
   } catch (e) {}
   console.log(msg);
 }
