@@ -5464,6 +5464,16 @@ function aptRefresh(arg) {
   }
 }
 
+// 트리거가 조용히 죽으면(이 프로젝트에서 세 번 있었다) 갱신 시각이 멈춘다 → 30시간 넘으면 텔레그램 한 번(keepWarm)
+function _aptStaleCheck() {
+  const pr = PropertiesService.getScriptProperties(), at = pr.getProperty('APT_AT');
+  if (!at || Date.now() - new Date(at) < 30 * 36e5) { pr.deleteProperty('APT_STALE_SENT'); return; }
+  if (pr.getProperty('APT_STALE_SENT') === at) return;
+  pr.setProperty('APT_STALE_SENT', at);
+  _sendTelegram('⚠ 아파트 실거래 갱신이 30시간 넘게 멈췄습니다(마지막 ' + Utilities.formatDate(new Date(at), 'Asia/Seoul', 'MM-dd HH:mm') + '). 트리거 확인 필요', APT_PAGE_URL);
+  _fixLog('아파트 실거래 갱신 멈춤 알림 보냄');
+}
+
 // apt.html 용: 해제 안 된 거래만, 필요한 칸만. [sgg, umd, apt, dong, area, floor, ymd, price, build]
 function getApt() {
   const pr = PropertiesService.getScriptProperties();
@@ -5750,6 +5760,7 @@ function keepWarm() {
   try { _krwCostOnce(); } catch (e) { console.log('_krwCostOnce 실패 — ' + e); }
   try { _telegramTestOnce(); } catch (e) { console.log('_telegramTestOnce 실패 — ' + e); }
   try { _molitKeyOnce(); } catch (e) { console.log('_molitKeyOnce 실패 — ' + e); }
+  try { _aptStaleCheck(); } catch (e) { console.log('_aptStaleCheck 실패 — ' + e); }
 
   try {
     const pr = PropertiesService.getScriptProperties();
