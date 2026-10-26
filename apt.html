@@ -46,7 +46,7 @@
 const API = 'https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec';
 const PY = 3.3058;   // ㎡ → 평
 // 알림 단지(Code.gs APT_WATCH 와 같게): 단지, 전용㎡ 범위, 이름
-const WATCH = [['신일유토빌플러스', 84.5, 84.8, '신일유토빌플러스 84㎡'], ['서초한빛삼성', 99, 99.2, '서초한빛삼성 99㎡']];
+const WATCH = [['신일유토빌플러스', 75.4, 75.7, '신일유토빌플러스 29평형'], ['서초한빛삼성', 99, 99.2, '서초한빛삼성 38평형']];
 // 역별 대장 단지 — 2026-10-26 최근 1년 실거래(거래 수·㎡당 가격)로 고름. 망월사역이 호원동의 기준
 const STATIONS = [
   ['망월사역', '호원동 기준', ['신일유토빌플러스', '신일유토빌', '한아름월드']],
@@ -91,52 +91,59 @@ function render(r) {
   drawChart();
 }
 
-// ① 알림 단지: 같은 평형 최근 거래
+// 면적 표시: 전용㎡(전용 평). 사람들이 말하는 'OO평형'은 공급면적이라 전용 평보다 크다(29평형 = 전용 22.8평)
+function ar(a) { return a.toFixed(1) + '㎡(' + (a / PY).toFixed(1) + '평)'; }
+const NODONG = '<span title="국토부 원본에 동이 비어 있음">–</span>';
+
+// ① 알림 단지: 같은 평형 거래 + 거래가 드물면 같은 단지 다른 평형의 ㎡당 가격으로 본 참고 추정가
 function watchHtml() {
   return WATCH.map(([apt, lo, hi, label]) => {
     const rows = T.filter(t => t[2] === apt && t[4] >= lo && t[4] <= hi).sort((a, b) => a[6] < b[6] ? 1 : -1);
-    const y1 = addDays(TODAY, -365), y2 = addDays(TODAY, -730);
+    const area = rows.length ? rows[0][4] : (lo + hi) / 2;
+    const y1 = addDays(TODAY, -365), y2 = addDays(TODAY, -730), m6 = addDays(TODAY, -183);
     const now = rows.filter(t => t[6] >= y1).map(t => t[7]), ago = rows.filter(t => t[6] >= y2 && t[6] < y1).map(t => t[7]);
-    const body = rows.slice(0, 12).map(t => '<tr><td>' + t[6] + (t[6] >= PEND ? ' <span class="tag">신고 중</span>' : '') + '</td><td>' + (t[3] ? t[3] + '동' : '') + '</td><td>' + t[5] + '층</td><td>' + won(t[7]) + '</td></tr>').join('');
-    return '<div class="card"><h2>' + label + '</h2><div class="sub">최근 1년 ' + now.length + '건, 중앙값 ' + (now.length ? won(Math.round(med(now))) : '–') + ' · 그 전 1년 대비 ' + pct(med(now), med(ago)) + ' · 새 신고가 들어오면 텔레그램으로 알림</div>'
-      + '<div class="wrap"><table><thead><tr><th>계약일</th><th>동</th><th>층</th><th>가격</th></tr></thead><tbody>' + (body || '<tr><td colspan="4">거래 없음</td></tr>') + '</tbody></table></div></div>';
+    const other = T.filter(t => t[2] === apt && (t[4] < lo || t[4] > hi) && t[6] >= m6);
+    const est = other.length ? med(other.map(t => t[7] / t[4])) * area : null;
+    const blank = rows.some(t => !t[3]);
+    const body = rows.slice(0, 20).map(t => '<tr><td>' + t[6] + (t[6] >= PEND ? ' <span class="tag">신고 중</span>' : '') + '</td><td>' + (t[3] ? t[3] + '동' : NODONG) + '</td><td>' + t[5] + '층</td><td>' + won(t[7]) + '</td></tr>').join('');
+    return '<div class="card"><h2>' + label + ' <span style="font-weight:400;font-size:13px">전용 ' + ar(area) + '</span></h2>'
+      + '<div class="sub">' + (now.length ? '최근 1년 ' + now.length + '건, 중앙값 ' + won(Math.round(med(now))) + ' · 그 전 1년 대비 ' + pct(med(now), med(ago)) : '최근 1년 이 평형 거래 없음' + (rows[0] ? ' — 마지막 ' + rows[0][6] + ' ' + won(rows[0][7]) : ''))
+      + (est ? '<br>참고 추정가 <b>' + won(Math.round(est / 100) * 100) + '</b> = 같은 단지 다른 평형 최근 6개월 거래 ' + other.length + '건의 ㎡당 가격 × ' + area.toFixed(1) + '㎡' : '')
+      + '<br>같은 평형 새 신고가 들어오면 텔레그램으로 알림(비슷한 층은 ⭐)</div>'
+      + '<div class="wrap"><table><thead><tr><th>계약일</th><th>동</th><th>층</th><th>가격</th></tr></thead><tbody>' + (body || '<tr><td colspan="4">거래 없음</td></tr>') + '</tbody></table></div>'
+      + (blank ? '<div class="sub" style="margin:6px 0 0">동 칸 – = 국토부 원본에 동이 비어 있는 거래(신고 때 동을 안 적은 경우). 원본에 채워지면 다음 갱신 때 자동으로 채워집니다.</div>' : '') + '</div>';
   }).join('');
 }
 
-// ② 역별 대장 단지: 84㎡대(전용 80~86㎡) 기준
+// ② 역별 대장 단지: 평형별(전용면적 1㎡ 단위로 묶음) 최근 3개월 중앙값 vs 1년 전 같은 3개월
 function stationHtml() {
   const m3 = addDays(TODAY, -91), m15 = addDays(TODAY, -456), m12 = addDays(TODAY, -365);
-  return STATIONS.map(([st, note, apts]) => '<div class="card"><h2>' + st + ' 대장 단지 <span class="tag">' + note + '</span></h2><div class="sub">전용 84㎡대 거래 기준. 최근 3개월 중앙값과 1년 전 같은 3개월을 비교</div><div class="grid">'
+  const main = WATCH[0];
+  return STATIONS.map(([st, note, apts]) => '<div class="card"><h2>' + st + ' 대장 단지 <span class="tag">' + note + '</span></h2><div class="sub">평형별 실거래(최근 2년). 면적은 전용㎡(전용 평). 3개월 = 최근 3개월 중앙값, 1년 대비 = 1년 전 같은 3개월과 비교</div><div class="grid">'
     + apts.map(a => {
-      const all = T.filter(t => t[2] === a && t[0] === '41150'), r84 = all.filter(t => t[4] >= 80 && t[4] <= 86).sort((x, y) => x[6] < y[6] ? 1 : -1);
-      if (!all.length) return '<div class="cx"><div class="nm">' + a + '</div><div class="meta">거래 기록 없음</div></div>';
-      const now = med(r84.filter(t => t[6] >= m3).map(t => t[7])), ago = med(r84.filter(t => t[6] >= m15 && t[6] < m12).map(t => t[7]));
-      const last = r84[0];
+      const all = T.filter(t => t[2] === a && t[0] === '41150' && t[6] >= Y2);
+      if (!all.length) return '<div class="cx"><div class="nm">' + a + '</div><div class="meta">최근 2년 매매 기록 없음</div></div>';
+      const g = {};
+      all.forEach(t => (g[Math.round(t[4])] = g[Math.round(t[4])] || []).push(t));
+      const rows = Object.keys(g).map(Number).sort((x, y) => x - y).map(k => {
+        const r = g[k].sort((x, y) => x[6] < y[6] ? 1 : -1), area = med(r.map(t => t[4]));
+        const now = med(r.filter(t => t[6] >= m3).map(t => t[7])), ago = med(r.filter(t => t[6] >= m15 && t[6] < m12).map(t => t[7]));
+        const mine = a === main[0] && area >= main[1] && area <= main[2];
+        return '<tr' + (mine ? ' class="sel"' : '') + '><td>' + ar(area) + (mine ? ' ⭐' : '') + '</td><td>' + (now ? won(Math.round(now)) : '–') + '</td><td>' + pct(now, ago) + '</td><td>' + r[0][6].slice(2) + '<br>' + r[0][5] + '층 ' + won(r[0][7]) + '</td></tr>';
+      }).join('');
       return '<div class="cx"><div class="nm">' + a + '</div><div class="meta">' + all[0][1] + ' · ' + all[0][8] + '년 준공 · 최근 1년 ' + all.filter(t => t[6] >= m12).length + '건</div>'
-        + '<div class="row" style="margin-top:6px"><span>최근 3개월</span><span class="big">' + (now ? won(Math.round(now)) : '–') + '</span></div>'
-        + '<div class="row"><span>1년 전 대비</span><span>' + pct(now, ago) + '</span></div>'
-        + '<div class="row"><span>마지막 거래</span><span>' + (last ? last[6].slice(2) + ' ' + last[5] + '층 ' + won(last[7]) : '84㎡ 없음') + '</span></div>'
-        + spark(r84) + '</div>';
+        + '<div class="wrap" style="margin-top:6px"><table style="font-size:12px"><thead><tr><th>전용</th><th>3개월</th><th>1년 대비</th><th>마지막 거래</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>';
     }).join('') + '</div></div>').join('');
-}
-function spark(rows) {   // 월별 중앙값 24개월
-  const ms = []; const d = new Date(); for (let i = 23; i >= 0; i--) { const x = new Date(d.getFullYear(), d.getMonth() - i, 1); ms.push(x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0')); }
-  const v = ms.map(m => med(rows.filter(t => t[6].slice(0, 7) === m).map(t => t[7])));
-  const ok = v.filter(x => x != null); if (ok.length < 2) return '';
-  const lo = Math.min(...ok), hi = Math.max(...ok), W = 260, H = 44, y = x => H - 4 - (hi > lo ? (x - lo) / (hi - lo) * (H - 8) : (H - 8) / 2);
-  const pts = v.map((x, i) => x == null ? null : [i / 23 * W, y(x)]).filter(Boolean);
-  return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="margin-top:6px"><polyline fill="none" stroke="var(--accent)" stroke-width="1.6" points="' + pts.map(p => p.join(',')).join(' ') + '"/>'
-    + pts.map(p => '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="1.8" fill="var(--accent)"/>').join('') + '</svg><div class="meta">2년간 월별 중앙값 ' + won(Math.round(lo)) + ' ~ ' + won(Math.round(hi)) + '</div>';
 }
 
 // ③ 동별 주간: 그 주까지 4주간 거래의 평당가 중앙값(만원/3.3㎡)
 // 단지 구성 보정: 각 거래를 '그 단지 2년 평당 중앙값' 대비 비율로 바꾼 뒤 중앙값을 내고, 동 전체 평당 중앙값을 곱한다.
 // 그냥 중앙값을 내면 비싼 새 단지 거래가 몰린 주에 동 시세가 튄다(의정부동 1년 +47% 로 보였다 — 2026-10-26).
-const _cxMed = {};
-function cxMed(a) { if (_cxMed[a] == null) _cxMed[a] = med(T.filter(t => t[2] === a && t[0] === '41150').map(pyeong)); return _cxMed[a]; }
+const _cxMed = {}, Y2 = addDays(TODAY, -730);   // 옛 거래(_aptHistory)가 섞여도 기준값은 최근 2년으로
+function cxMed(a) { if (_cxMed[a] == null) _cxMed[a] = med(T.filter(t => t[2] === a && t[0] === '41150' && t[6] >= Y2).map(pyeong)); return _cxMed[a]; }
 function weekly(umd) {
   const rows = T.filter(t => t[0] === '41150' && t[1] === umd);
-  const base = med(rows.map(pyeong));
+  const base = med(rows.filter(t => t[6] >= Y2).map(pyeong));
   const end = monday(TODAY), out = [];
   for (let i = 64; i >= 0; i--) {   // 표의 '1년' 칸이 마지막 확정 주보다 52주 앞을 봐야 해서 넉넉히
     const w = addDays(end, -7 * i), from = addDays(w, -21), to = addDays(w, 6);
