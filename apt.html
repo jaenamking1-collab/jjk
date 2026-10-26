@@ -130,13 +130,18 @@ function spark(rows) {   // 월별 중앙값 24개월
 }
 
 // ③ 동별 주간: 그 주까지 4주간 거래의 평당가 중앙값(만원/3.3㎡)
+// 단지 구성 보정: 각 거래를 '그 단지 2년 평당 중앙값' 대비 비율로 바꾼 뒤 중앙값을 내고, 동 전체 평당 중앙값을 곱한다.
+// 그냥 중앙값을 내면 비싼 새 단지 거래가 몰린 주에 동 시세가 튄다(의정부동 1년 +47% 로 보였다 — 2026-10-26).
+const _cxMed = {};
+function cxMed(a) { if (_cxMed[a] == null) _cxMed[a] = med(T.filter(t => t[2] === a && t[0] === '41150').map(pyeong)); return _cxMed[a]; }
 function weekly(umd) {
   const rows = T.filter(t => t[0] === '41150' && t[1] === umd);
+  const base = med(rows.map(pyeong));
   const end = monday(TODAY), out = [];
   for (let i = 64; i >= 0; i--) {   // 표의 '1년' 칸이 마지막 확정 주보다 52주 앞을 봐야 해서 넉넉히
     const w = addDays(end, -7 * i), from = addDays(w, -21), to = addDays(w, 6);
-    const p = rows.filter(t => t[6] >= from && t[6] <= to).map(pyeong);
-    out.push({ w: w, v: med(p), n: p.length, pend: to >= PEND });
+    const p = rows.filter(t => t[6] >= from && t[6] <= to).map(t => pyeong(t) / cxMed(t[2]));
+    out.push({ w: w, v: p.length ? med(p) * base : null, n: p.length, pend: to >= PEND });
   }
   return out;
 }
@@ -150,7 +155,7 @@ function umdHtml() {
   }).join('');
   window.umdTable = () => { const h = umdHtml(); return h.slice(h.indexOf('<div class="wrap" id="umdT">'), h.indexOf('<!--/umdT-->')); };
   const s = weekly(selUmd), k = done(s);
-  return '<div class="card"><h2>의정부 동별 주간 시세</h2><div class="sub">평당가(3.3㎡당 만원) = 그 주까지 4주간 거래의 중앙값. 기준 주 ' + (s[k] ? s[k].w : '') + ' 시작 주(신고가 거의 다 들어온 마지막 주). 단지 구성이 주마다 달라 들쭉날쭉할 수 있습니다. 줄을 누르면 아래 그래프가 바뀝니다.</div>'
+  return '<div class="card"><h2>의정부 동별 주간 시세</h2><div class="sub">평당가(3.3㎡당 만원) = 그 주까지 4주간 거래를 각 단지의 평소 가격과 견준 값의 중앙값(비싼 새 단지 거래가 몰린 주에 튀지 않게 보정). 기준 주 ' + (s[k] ? s[k].w : '') + ' 시작 주(신고가 거의 다 들어온 마지막 주). 줄을 누르면 아래 그래프가 바뀝니다.</div>'
     + '<div class="wrap" id="umdT"><table><thead><tr><th>법정동</th><th>평당가</th><th>1주</th><th>4주</th><th>12주</th><th>1년</th><th>4주 거래</th></tr></thead><tbody>' + body + '</tbody></table></div><!--/umdT-->'
     + '<div id="chart" style="margin-top:12px"></div></div>';
 }
