@@ -43,6 +43,23 @@
   tr.sel td { background:#f3f0ff; } tr.click { cursor:pointer; }
   svg { width:100%; height:auto; display:block; }
   details summary { cursor:pointer; color:var(--accent); font-size:13px; margin-top:6px; }
+  /* 동 지도: 올리면 그 동만 종이처럼 떠오르고, 누르면 확대 + 대장 단지 지시선·말풍선 */
+  #map { height:min(70vh,600px); background:#f8f7ff; border-radius:10px; touch-action:manipulation; }
+  @media (max-width:639px) { #map { height:560px; } }
+  #map .dong { stroke:#fff; stroke-width:1.5; vector-effect:non-scaling-stroke; cursor:pointer; transform-box:fill-box; transform-origin:center;
+               transition:transform .18s ease, filter .18s ease, opacity .25s ease; outline:none; }
+  #map.hov .dong, #map.zoom .dong { opacity:.4; }
+  #map .dong.hot { opacity:1; transform:translateY(-1.5%) scale(1.03); filter:drop-shadow(0 6px 8px rgba(40,30,120,.35)); }
+  #map .dong.on { opacity:1; stroke:var(--accent); stroke-width:2.5; }
+  #map .dong:focus-visible { stroke:var(--text); stroke-width:3; }
+  #map .lbl { pointer-events:none; text-anchor:middle; font-weight:700; transition:opacity .2s; }
+  #map.zoom .lbl { opacity:0; }
+  #map .call { opacity:0; transition:opacity .25s ease .05s; } #map .call.in { opacity:1; }
+  #map .call div { box-sizing:border-box; height:100%; background:#fff; border:1px solid var(--accent); border-radius:.8em; padding:.45em .7em; line-height:1.35; overflow:hidden; }
+  #map .call b { font-size:1.08em; } #map .call .m { color:var(--text2); }
+  .mapbar { display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:28px; }
+  .mapbar button { font:inherit; font-size:13px; color:var(--accent); background:#eef1ff; border:0; border-radius:8px; padding:4px 10px; cursor:pointer; }
+  @media (prefers-reduced-motion:reduce) { #map .dong, #map .call, #map .lbl { transition:none; } }
 </style>
 </head>
 <body>
@@ -54,8 +71,9 @@ const PY = 3.3058;   // ㎡ → 평
 // 알림 단지(Code.gs APT_WATCH 와 같게): 단지, 전용㎡ 범위, 이름
 const WATCH = [['신일유토빌플러스', 75.4, 75.7, '신일유토빌플러스 29평형'], ['서초한빛삼성', 99, 99.2, '서초한빛삼성 38평형']];
 // 동별 대장 단지 — 2026-10-27 사용자: 역이 아니라 동 기준. 최근 1년 거래 LEAD_MIN건 이상 단지 중 2년 평당 중앙값 상위 3
+// 지도는 행정동 경계(apt_dong.json, vuski/admdongkor 2026-10 판 단순화)이고, 단지는 서버가 지번으로 찾은 좌표(xy)로 그 안에 넣는다
 const LEAD_MIN = 5;
-let T = [], selUmd = '호원동';
+let T = [], XY = {}, DONG = [], selUmd = '호원동';
 
 function won(p) { const e = Math.floor(p / 10000), r = p % 10000; return e ? e + '억' + (r ? ' ' + r.toLocaleString() : '') : r.toLocaleString() + '만'; }
 function pyeong(t) { return t[7] / t[4] * PY; }   // 평당 만원
@@ -80,7 +98,9 @@ async function load() {
   try { r = await api({ action: 'getApt' }); }
   catch (e) { document.getElementById('main').innerHTML = '<div class="card" style="color:var(--red)">서버 응답 없음 — 잠시 뒤 새로고침해 주세요 (' + e.message + ')</div>'; return; }
   if (!r.success) { document.getElementById('main').innerHTML = '<div class="card" style="color:var(--red)">' + (r.error || '오류') + '</div>'; return; }
-  T = r.trades; render(r);
+  T = r.trades; XY = r.xy || {};
+  try { DONG = await (await fetch('apt_dong.json')).json(); } catch (e) { DONG = []; }
+  render(r);
 }
 
 function render(r) {
@@ -89,8 +109,8 @@ function render(r) {
   const alive = (ageH > 30 || r.err)
     ? '<span class="alive bad">⚠ 갱신이 멈췄습니다 — 마지막 갱신 ' + fmt + (r.err ? ' · ' + r.err : '') + '</span>'
     : '<span class="alive">국토부 실거래(계약일 기준) · 마지막 갱신 ' + fmt + ' · 매일 아침 7시 40분</span>';
-  document.getElementById('main').innerHTML = '<div class="card">' + alive + '</div>' + watchHtml() + leaderHtml() + umdHtml();
-  drawChart();
+  document.getElementById('main').innerHTML = '<div class="card">' + alive + '</div>' + watchHtml() + mapHtml() + umdHtml();
+  initMap(); drawChart();
 }
 
 // 면적 표시: 전용㎡(전용 평). 사람들이 말하는 'OO평형'은 공급면적이라 전용 평보다 크다(29평형 = 전용 22.8평)
@@ -117,31 +137,132 @@ function watchHtml() {
   }).join('');
 }
 
-// ② 동별 대장 단지(아래 동별 표에서 고른 동): 평형별(전용면적 1㎡ 단위로 묶음) 최근 3개월 중앙값 vs 1년 전 같은 3개월
-function leaders(umd) {
-  const m12 = addDays(TODAY, -365), g = {};
-  T.filter(t => t[0] === '41150' && t[1] === umd && t[6] >= Y2).forEach(t => (g[t[2]] = g[t[2]] || []).push(t));
-  return Object.keys(g).filter(a => g[a].filter(t => t[6] >= m12).length >= LEAD_MIN).sort((a, b) => cxMed(b) - cxMed(a)).slice(0, 3);
+// ② 동 지도: 올리면 그 동이 떠오르고, 누르면 확대돼 대장 단지(최근 1년 LEAD_MIN건↑ 중 2년 평당가 상위 3)에 지시선·말풍선
+const MW = 1000;
+let B, MH, VIEW, mapSel = null;
+function inRing(x, y, r) { let c = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) if ((r[i][1] > y) !== (r[j][1] > y) && x < (r[j][0] - r[i][0]) * (y - r[i][1]) / (r[j][1] - r[i][1]) + r[i][0]) c = !c; return c; }
+function dongOf(lat, lng) { const d = DONG.find(d => d.p.some(r => inRing(lng, lat, r))); return d ? d.n : null; }
+function P(lng, lat) { return [(lng - B.x0) * B.kx * B.s, (B.y1 - lat) * B.s]; }
+function mapData() {
+  const all = DONG.flatMap(d => d.p.flat()), xs = all.map(p => p[0]), ys = all.map(p => p[1]);
+  B = { x0: Math.min(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
+  B.kx = Math.cos((B.y0 + B.y1) / 2 * Math.PI / 180); B.s = MW / ((Math.max(...xs) - B.x0) * B.kx); MH = (B.y1 - B.y0) * B.s;
+  const m12 = addDays(TODAY, -365), cx = {};   // 단지 키 'sgg|umd|apt' → { dong, xy, trades }
+  T.forEach(t => {
+    if (t[0] !== '41150' || t[6] < Y2) return;
+    const k = t[0] + '|' + t[1] + '|' + t[2], xy = XY[k];
+    if (!xy) return;
+    (cx[k] = cx[k] || { k: k, apt: t[2], xy: xy, dong: dongOf(xy[0], xy[1]), tr: [] }).tr.push(t);
+  });
+  const byDong = {};
+  Object.values(cx).forEach(c => { c.ppy = med(c.tr.map(pyeong)); c.n1 = c.tr.filter(t => t[6] >= m12).length; if (c.dong) (byDong[c.dong] = byDong[c.dong] || []).push(c); });
+  DONG.forEach(d => {
+    const cs = byDong[d.n] || [];
+    d.ppy = med(cs.flatMap(c => c.tr.map(pyeong)));
+    d.cs = cs; d.lead = cs.filter(c => c.n1 >= LEAD_MIN).sort((a, b) => b.ppy - a.ppy).slice(0, 3);
+    const r = d.p.reduce((a, b) => a.length > b.length ? a : b).map(q => P(q[0], q[1]));
+    let A = 0, X = 0, Y = 0;
+    r.forEach((q, i) => { const o = r[(i + 1) % r.length], f = q[0] * o[1] - o[0] * q[1]; A += f; X += (q[0] + o[0]) * f; Y += (q[1] + o[1]) * f; });
+    d.c = [X / (3 * A), Y / (3 * A)];
+    const pts = d.p.flat().map(q => P(q[0], q[1]));
+    d.bb = [Math.min(...pts.map(q => q[0])), Math.min(...pts.map(q => q[1])), Math.max(...pts.map(q => q[0])), Math.max(...pts.map(q => q[1]))];
+  });
+  return Object.keys(cx).length;
 }
-function leaderHtml() {
-  const m3 = addDays(TODAY, -91), m15 = addDays(TODAY, -456), m12 = addDays(TODAY, -365);
-  const main = WATCH[0], apts = leaders(selUmd);
-  return '<div class="card" id="lead"><h2>' + selUmd + ' 대장 단지 <span class="tag">평당가 상위 3</span></h2><div class="sub">' + selUmd + '에서 최근 1년 거래 ' + LEAD_MIN + '건 이상인 단지 중 최근 2년 평당가가 높은 순. 아래 동별 표에서 동을 누르면 바뀝니다. 면적은 전용㎡(전용 평). 3개월 = 최근 3개월 중앙값, 1년 대비 = 1년 전 같은 3개월과 비교</div><div class="grid">'
-    + (apts.length ? '' : '<div class="cx"><div class="meta">최근 1년 거래 ' + LEAD_MIN + '건 이상인 단지가 없습니다</div></div>')
-    + apts.map(a => {
-      const all = T.filter(t => t[2] === a && t[0] === '41150' && t[6] >= Y2);
-      if (!all.length) return '<div class="cx"><div class="nm">' + a + '</div><div class="meta">최근 2년 매매 기록 없음</div></div>';
-      const g = {};
-      all.forEach(t => (g[Math.round(t[4])] = g[Math.round(t[4])] || []).push(t));
-      const rows = Object.keys(g).map(Number).sort((x, y) => x - y).map(k => {
-        const r = g[k].sort((x, y) => x[6] < y[6] ? 1 : -1), area = med(r.map(t => t[4]));
-        const now = med(r.filter(t => t[6] >= m3).map(t => t[7])), ago = med(r.filter(t => t[6] >= m15 && t[6] < m12).map(t => t[7]));
-        const mine = a === main[0] && area >= main[1] && area <= main[2];
-        return '<tr' + (mine ? ' class="sel"' : '') + '><td>' + ar(area, 1) + (mine ? ' ⭐' : '') + '</td><td>' + (now ? won(Math.round(now)) : '–') + '</td><td>' + pct(now, ago) + '</td><td>' + r[0][6].slice(2) + '<br>' + r[0][5] + '층 ' + won(r[0][7]) + '</td></tr>';
-      }).join('');
-      return '<div class="cx"><div class="nm">' + a + '</div><div class="meta">' + all[0][8] + '년 준공 · 평당 ' + Math.round(cxMed(a)).toLocaleString() + '만 · 최근 1년 ' + all.filter(t => t[6] >= m12).length + '건</div>'
-        + '<div class="wrap" style="margin-top:6px"><table style="font-size:12px"><thead><tr><th>전용</th><th>3개월</th><th>1년 대비</th><th>마지막 거래</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>';
-    }).join('') + '</div></div>';
+function mapHtml() {
+  if (!DONG.length) return '<div class="card"><h2>의정부 동 지도</h2><div class="sub" style="color:var(--red)">동 경계 파일(apt_dong.json)을 못 받았습니다 — 새로고침해 주세요</div></div>';
+  const n = mapData(), total = new Set(T.filter(t => t[0] === '41150' && t[6] >= Y2).map(t => t[1] + '|' + t[2])).size;
+  return '<div class="card"><div class="mapbar"><h2 id="mapT" style="margin:0">의정부 동 지도</h2><button id="mapBack" hidden onclick="zoomTo(null)">← 의정부 전체</button></div>'
+    + '<div class="sub" id="mapS" style="margin:4px 0 8px">' + mapHint() + '</div>'
+    + (n < total ? '<div class="sub" style="margin-top:-4px">위치를 찾은 단지 ' + n + '/' + total + '곳' + (n ? '' : ' — 서버가 단지 위치를 찾는 중입니다(처음 한 번, 30분쯤)') + '</div>' : '')
+    + '<svg id="map" viewBox="0 0 ' + MW + ' ' + MH.toFixed(0) + '" role="group" aria-label="의정부 행정동 지도"></svg></div>';
+}
+function mapHint() { return '동에 마우스를 올리면 떠오르고, 누르면 그 동의 대장 단지가 나옵니다. 색이 진할수록 평당가(2년 중앙값)가 높습니다.'; }
+function initMap() {
+  const svg = document.getElementById('map'); if (!svg) return;
+  const v = DONG.map(d => d.ppy).filter(x => x), lo = Math.min(...v), hi = Math.max(...v);
+  const mix = t => 'rgb(' + [[236, 234, 254], [91, 91, 240]].reduce((a, b) => a.map((x, i) => Math.round(x + (b[i] - x) * t))) + ')';
+  const path = d => d.p.map(r => 'M' + r.map(q => P(q[0], q[1]).map(x => x.toFixed(1)).join(',')).join('L') + 'Z').join('');
+  svg.innerHTML = '<g id="mapD">' + DONG.map((d, i) => { const t = d.ppy ? (d.ppy - lo) / ((hi - lo) || 1) : 0; d.t = t;
+      return '<path class="dong" data-i="' + i + '" tabindex="0" role="button" aria-label="' + d.n + (d.ppy ? ' 평당 ' + Math.round(d.ppy).toLocaleString() + '만' : '') + '" d="' + path(d) + '" fill="' + (d.ppy ? mix(t) : '#f1f0f7') + '"/>'; }).join('') + '</g>'
+    + '<g id="mapL">' + DONG.map(d => '<text class="lbl" x="' + d.c[0].toFixed(1) + '" y="' + d.c[1].toFixed(1) + '" font-size="15" fill="' + (d.t > .55 ? '#fff' : 'var(--text)') + '">' + d.n
+      + (d.ppy ? '<tspan x="' + d.c[0].toFixed(1) + '" dy="17" font-weight="500" font-size="13">' + Math.round(d.ppy).toLocaleString() + '만</tspan>' : '') + '</text>').join('') + '</g><g id="mapC"></g>';
+  VIEW = [0, 0, MW, MH]; mapSel = null;
+  const hot = el => { svg.querySelectorAll('.dong.hot').forEach(x => x.classList.remove('hot')); svg.classList.toggle('hov', !!el);
+    if (!el) { document.getElementById('mapS').textContent = mapSel ? selHint(mapSel) : mapHint(); return; }
+    el.classList.add('hot'); if (el.nextSibling) el.parentNode.appendChild(el);
+    const d = DONG[el.dataset.i];
+    document.getElementById('mapS').textContent = d.n + ' · ' + (d.ppy ? '평당 ' + Math.round(d.ppy).toLocaleString() + '만 · ' : '') + '단지 ' + d.cs.length + '곳' + (mapSel === d ? '' : ' — 누르면 대장 단지'); };
+  svg.querySelectorAll('.dong').forEach(el => {
+    el.addEventListener('mouseenter', () => hot(el)); el.addEventListener('focus', () => hot(el));
+    el.addEventListener('mouseleave', () => hot(null)); el.addEventListener('blur', () => hot(null));
+    el.addEventListener('click', () => zoomTo(mapSel === DONG[el.dataset.i] ? null : DONG[el.dataset.i]));
+    el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.dispatchEvent(new Event('click')); } });
+  });
+}
+function selHint(d) { return d.n + ' 대장 단지 — 최근 1년 거래 ' + LEAD_MIN + '건 이상인 단지 중 평당가 상위 ' + d.lead.length + '곳. 3개월 = 가장 많이 팔린 평형의 최근 3개월 중앙값, 1년 대비 = 1년 전 같은 3개월과 비교'; }
+// 확대 화면 배치: 넓으면 동 오른쪽에 말풍선 세로 줄, 좁으면(폰) 동 아래에 쌓는다. k = 화면 1px 이 지도 몇 단위인가
+function layout(d) {
+  const svg = document.getElementById('map'), cw = svg.clientWidth, ch = svg.clientHeight, wide = cw >= 640;
+  const [x1, y1, x2, y2] = d.bb, w = x2 - x1, h = y2 - y1, n = Math.max(d.lead.length, 1);
+  let Vw, k, view, box = [];
+  if (wide) {
+    const bw = 250, bh = 112, gap = 10, need = 40 + bw + 60;   // 화면 px
+    Vw = Math.max(w / (1 - need / cw), (h / (1 - 60 / ch)) * cw / ch); k = Vw / cw;
+    const Vh = Vw * ch / cw, extra = Vw - (w + need * k), colX = x2 + 40 * k;
+    view = [x1 - 20 * k - extra / 2, (y1 + y2) / 2 - Vh / 2, Vw, Vh];
+    const top = (y1 + y2) / 2 - (n * bh + (n - 1) * gap) * k / 2;
+    d.lead.slice().sort((a, b) => P(a.xy[1], a.xy[0])[1] - P(b.xy[1], b.xy[0])[1]).forEach((c, i) => box.push({ c: c, x: colX, y: top + i * (bh + gap) * k, w: bw * k, h: bh * k, ax: colX, ay: top + (i * (bh + gap) + bh / 2) * k }));
+  } else {
+    const bh = 96, gap = 8, band = n * (bh + gap) + 24;
+    Vw = Math.max(w * 1.1, h * cw / (ch - band - 30)); k = Vw / cw;
+    const Vh = Vw * ch / cw;
+    view = [(x1 + x2) / 2 - Vw / 2, y1 - 15 * k - Math.max(0, Vh - h - (band + 30) * k) / 2, Vw, Vh];
+    const top = y2 + 15 * k;
+    // 선은 왼쪽 여백(gx)을 따라 내려가 말풍선 옆으로 들어간다. 가장 아래 점 → 맨 위 말풍선·안쪽 여백 순이어야 선끼리 안 엇갈린다
+    d.lead.slice().sort((a, b) => P(b.xy[1], b.xy[0])[1] - P(a.xy[1], a.xy[0])[1]).forEach((c, i) => box.push({ c: c, x: view[0] + 20 * k, y: top + i * (bh + gap) * k, w: (cw - 32) * k, h: bh * k, gx: view[0] + (14 - 4 * i) * k, ax: view[0] + 20 * k, ay: top + (i * (bh + gap) + bh / 2) * k }));
+  }
+  return { view: view, box: box, k: k, wide: wide };
+}
+function callHtml(c, i) {
+  const m3 = addDays(TODAY, -91), m15 = addDays(TODAY, -456), m12 = addDays(TODAY, -365), g = {};
+  c.tr.forEach(t => (g[Math.round(t[4])] = g[Math.round(t[4])] || []).push(t));
+  const main = Object.values(g).sort((a, b) => b.filter(t => t[6] >= m12).length - a.filter(t => t[6] >= m12).length)[0];
+  const now = med(main.filter(t => t[6] >= m3).map(t => t[7])), ago = med(main.filter(t => t[6] >= m15 && t[6] < m12).map(t => t[7]));
+  const last = c.tr.slice().sort((a, b) => a[6] < b[6] ? 1 : -1)[0], area = med(main.map(t => t[4]));
+  return '<b>' + (i + 1) + '. ' + c.apt + '</b><br><span class="m">' + last[8] + '년 · 평당 ' + Math.round(c.ppy).toLocaleString() + '만 · 1년 ' + c.n1 + '건</span><br>'
+    + '전용 ' + area.toFixed(0) + '㎡(' + (area / PY).toFixed(0) + '평) 3개월 <b>' + (now ? won(Math.round(now)) : '–') + '</b> ' + pct(now, ago)
+    + '<br><span class="m">마지막 ' + last[6].slice(2) + ' ' + last[5] + '층 ' + won(last[7]) + '</span>';
+}
+function zoomTo(d) {
+  const svg = document.getElementById('map'), C = document.getElementById('mapC');
+  C.innerHTML = ''; mapSel = d;
+  svg.classList.toggle('zoom', !!d);
+  svg.querySelectorAll('.dong').forEach(el => el.classList.toggle('on', DONG[el.dataset.i] === d));
+  document.getElementById('mapBack').hidden = !d;
+  document.getElementById('mapT').textContent = d ? d.n + ' 대장 단지' : '의정부 동 지도';
+  document.getElementById('mapS').textContent = d ? selHint(d) : mapHint();
+  const L = d ? layout(d) : { view: [0, 0, MW, MH] };
+  const from = VIEW.slice(), to = L.view, t0 = performance.now(), dur = matchMedia('(prefers-reduced-motion:reduce)').matches ? 0 : 450;
+  const step = now => {
+    const p = dur ? Math.min(1, (now - t0) / dur) : 1, e = 1 - Math.pow(1 - p, 3);
+    VIEW = from.map((v, i) => v + (to[i] - v) * e);
+    svg.setAttribute('viewBox', VIEW.map(x => x.toFixed(2)).join(' '));
+    if (p < 1) return requestAnimationFrame(step);
+    if (!d) return;
+    const k = L.k, ns = 'http://www.w3.org/2000/svg';
+    if (!d.lead.length) { C.innerHTML = '<text x="' + d.c[0] + '" y="' + (d.bb[3] + 24 * k) + '" text-anchor="middle" font-size="' + 13 * k + '" fill="var(--text)">최근 1년 거래 ' + LEAD_MIN + '건 이상인 단지가 없습니다</text>'; return; }
+    C.innerHTML = L.box.map(b => {
+      const i = d.lead.indexOf(b.c), [px, py] = P(b.c.xy[1], b.c.xy[0]);
+      const line = L.wide ? [[px, py], [b.ax - 24 * k, b.ay], [b.ax, b.ay]] : [[px, py], [b.gx, py], [b.gx, b.ay], [b.ax, b.ay]];
+      return '<g class="call"><polyline points="' + line.map(q => q.map(x => x.toFixed(2)).join(',')).join(' ') + '" fill="none" stroke="var(--text)" stroke-width="1.2" vector-effect="non-scaling-stroke"/>'
+        + '<circle cx="' + px + '" cy="' + py + '" r="' + 6 * k + '" fill="var(--text)" stroke="#fff" stroke-width="2" vector-effect="non-scaling-stroke"/>'
+        + '<text x="' + px + '" y="' + (py - 10 * k) + '" text-anchor="middle" font-size="' + 12 * k + '" font-weight="700" fill="var(--text)" paint-order="stroke" stroke="#fff" stroke-width="3" vector-effect="non-scaling-stroke">' + (i + 1) + '</text>'
+        + '<foreignObject x="' + b.x + '" y="' + b.y + '" width="' + b.w + '" height="' + b.h + '"><div xmlns="http://www.w3.org/1999/xhtml" style="font-size:' + 12.5 * k + 'px">' + callHtml(b.c, i) + '</div></foreignObject></g>';
+    }).join('');
+    requestAnimationFrame(() => C.querySelectorAll('.call').forEach(g => g.classList.add('in')));
+  };
+  requestAnimationFrame(step);
 }
 
 // ③ 동별 주간: 그 주까지 4주간 거래의 평당가 중앙값(만원/3.3㎡)
@@ -166,7 +287,7 @@ function umdHtml() {
   const body = umds.map(u => {
     const s = weekly(u), k = done(s), c = s[k] || {};
     const at = j => (k - j >= 0 ? s[k - j].v : null);
-    return '<tr class="click' + (u === selUmd ? ' sel' : '') + '" onclick="selUmd=\'' + u + '\';document.getElementById(\'umdT\').outerHTML=umdTable();document.getElementById(\'lead\').outerHTML=leaderHtml();drawChart()"><td>' + u + '</td><td>' + (c.v ? Math.round(c.v).toLocaleString() : '–') + '</td><td>' + pct(c.v, at(1)) + '</td><td>' + pct(c.v, at(4)) + '</td><td>' + pct(c.v, at(12)) + '</td><td>' + pct(c.v, at(52)) + '</td><td>' + (c.n || 0) + '</td></tr>';
+    return '<tr class="click' + (u === selUmd ? ' sel' : '') + '" onclick="selUmd=\'' + u + '\';document.getElementById(\'umdT\').outerHTML=umdTable();drawChart()"><td>' + u + '</td><td>' + (c.v ? Math.round(c.v).toLocaleString() : '–') + '</td><td>' + pct(c.v, at(1)) + '</td><td>' + pct(c.v, at(4)) + '</td><td>' + pct(c.v, at(12)) + '</td><td>' + pct(c.v, at(52)) + '</td><td>' + (c.n || 0) + '</td></tr>';
   }).join('');
   window.umdTable = () => { const h = umdHtml(); return h.slice(h.indexOf('<div class="wrap" id="umdT">'), h.indexOf('<!--/umdT-->')); };
   const s = weekly(selUmd), k = done(s);
