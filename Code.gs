@@ -9,7 +9,7 @@ const SHEET_ID = '1iNlOU1YBRyJ6redmVoLDE4q6VfnWqL22s32IQHdSKN8';
 // 그 시트가 공유되는 순간 토큰이 새고, 그러면 계좌·보유·분배금 **쓰기까지** 열린다.
 // 여기로 나가는 건 보유 티커와 공개 시세뿐이고 수량·금액·계좌는 안 나가므로 공개가 더 안전하다
 // (2026-09-11 소유자 확인).
-const PUBLIC_ACTIONS = ['getDistribution', 'getDistributionAll', 'getDistributionMonth', 'getEtfNotices', 'getEtfNoticesAll', 'hitCounter', 'getPricesCsv', 'getNoticeChanges'];
+const PUBLIC_ACTIONS = ['getDistribution', 'getDistributionAll', 'getDistributionMonth', 'getEtfNotices', 'getEtfNoticesAll', 'hitCounter', 'getPricesCsv', 'getNoticeChanges', 'getApt'];
 // 오답 잠금: 공개 저장소의 지난 기록에 옛 비밀번호가 남아 있어, 값을 하나씩 넣어보는
 // 자동 시도를 막는다. 서로 다른 오답이 5개 쌓이면 5분간 개인 액션을 전부 막는다
 // (그동안은 맞는 비밀번호도 막힌다 — 맞았는지 알려주는 것 자체가 힌트라서).
@@ -179,7 +179,7 @@ function doGet(e) {
       // 유지보수 함수 실행. 토큰 필요(PUBLIC_ACTIONS 에 없다) + 화이트리스트만.
       case 'runMaint':        result = runMaint(e.parameter.fn, e.parameter.arg); break;
       case 'getTaxRates':     result = getTaxRates(); break;   // 토큰 필요 — 보유 종목명이 드러난다
-      case 'getApt':          result = getApt(); break;        // 아파트 실거래(apt.html) — 토큰 필요
+      case 'getApt':          result = getApt(); break;        // 아파트 실거래(apt.html) — 공개(국토부 공개 자료뿐)
       default: result = { error: 'Unknown action' };
     }
   } catch(err) {
@@ -5480,6 +5480,15 @@ function _diagApt(name) {
   const byUmd = {};
   r.trades.forEach(x => { if (x[0] === '41150') byUmd[x[1]] = (byUmd[x[1]] || 0) + 1; });
   console.log('의정부 동별: ' + JSON.stringify(byUmd));
+  // 'top:호원동' → 그 동 단지별 최근 1년 거래 수·㎡당 중앙값(만원)·준공연도 (대장 단지 고르기용)
+  if (name && name.indexOf('top:') === 0) {
+    const umd = name.slice(4), since = Utilities.formatDate(new Date(Date.now() - 365 * 864e5), 'Asia/Seoul', 'yyyy-MM-dd');
+    const g = {};
+    r.trades.filter(x => x[1] === umd && x[6] >= since).forEach(x => { (g[x[2]] = g[x[2]] || { b: x[8], p: [] }).p.push(x[7] / x[4]); });
+    Object.keys(g).map(k => { const p = g[k].p.sort((a, b) => a - b); return [k, p.length, Math.round(p[p.length >> 1]), g[k].b]; })
+      .sort((a, b) => b[2] - a[2]).slice(0, 40).forEach(x => console.log(x.join(' / ')));
+    return { at: r.at, n: r.trades.length };
+  }
   if (name) r.trades.filter(x => x[2].indexOf(name) >= 0).sort((a, b) => a[6] < b[6] ? 1 : -1).slice(0, 30)
     .forEach(x => console.log([x[6], x[2], x[3], x[4], x[5] + '층', x[7]].join(' ')));
   return { at: r.at, err: r.err, n: r.trades.length };
