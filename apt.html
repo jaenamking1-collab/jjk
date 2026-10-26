@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>의정부 아파트 시세</title>
+<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+  /* 앱(m.html)과 같은 색. 회색(--text3)은 '아직 신고가 덜 된 값'에만 쓴다(screens.md) */
+  :root { --bg:#f4f7ff; --card:#fff; --border:#e3ddf3; --text:#1a1330; --text2:#4b5563; --text3:#9ca3af;
+          --accent:#5b5bf0; --green:#059669; --red:#dc2626; --up:#dc2626; --down:#2563eb; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:'Pretendard Variable',Pretendard,system-ui,sans-serif; font-size:14px; line-height:1.45; }
+  header { position:sticky; top:0; z-index:5; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 16px;
+           background:linear-gradient(100deg,#fff0f7,#eef1ff 50%,#e9fff6); border-bottom:1px solid var(--border); }
+  header h1 { margin:0; font-size:16px; }
+  header a { color:var(--accent); text-decoration:none; font-size:13px; }
+  main { max-width:980px; margin:0 auto; padding:12px 16px 40px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:14px; margin-bottom:14px; }
+  .card h2 { margin:0 0 4px; font-size:15px; }
+  .sub { color:var(--text2); font-size:12px; margin-bottom:10px; }
+  .alive { font-size:12px; color:var(--text2); }
+  .alive.bad { color:#fff; background:var(--red); padding:6px 10px; border-radius:8px; display:block; margin-bottom:10px; }
+  table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+  th, td { padding:6px 6px; border-bottom:1px solid var(--border); text-align:right; white-space:nowrap; }
+  th { font-size:12px; color:var(--text2); font-weight:600; }
+  th:first-child, td:first-child { text-align:left; }
+  tbody tr:last-child td { border-bottom:1px solid var(--border); }
+  .wrap { overflow-x:auto; }
+  .up { color:var(--up); } .down { color:var(--down); } .pend { color:var(--text3); }
+  .tag { display:inline-block; font-size:11px; padding:1px 6px; border-radius:6px; background:#eef1ff; color:var(--accent); margin-left:4px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:10px; }
+  .cx { border:1px solid var(--border); border-radius:10px; padding:10px; }
+  .cx .nm { font-weight:700; } .cx .meta { font-size:12px; color:var(--text2); }
+  .big { font-size:18px; font-weight:700; }
+  .row { display:flex; justify-content:space-between; gap:8px; font-size:13px; }
+  tr.sel td { background:#f3f0ff; } tr.click { cursor:pointer; }
+  svg { width:100%; height:auto; display:block; }
+  details summary { cursor:pointer; color:var(--accent); font-size:13px; margin-top:6px; }
+</style>
+</head>
+<body>
+<header><h1>의정부 아파트 시세</h1><a href="m.html">← 포트폴리오</a></header>
+<main id="main"><div class="card">불러오는 중…</div></main>
+<script>
+const API = 'https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec';
+const PY = 3.3058;   // ㎡ → 평
+// 알림 단지(Code.gs APT_WATCH 와 같게): 단지, 전용㎡ 범위, 이름
+const WATCH = [['신일유토빌플러스', 84.5, 84.8, '신일유토빌플러스 84㎡'], ['서초한빛삼성', 99, 99.2, '서초한빛삼성 99㎡']];
+// 역별 대장 단지 — 2026-10-26 최근 1년 실거래(거래 수·㎡당 가격)로 고름. 망월사역이 호원동의 기준
+const STATIONS = [
+  ['망월사역', '호원동 기준', ['신일유토빌플러스', '신일유토빌', '한아름월드']],
+  ['회룡역', 'GTX 영향권', ['힐스테이트회룡역파크뷰', '회룡역풍림아이원', 'I-PARK']],
+  ['의정부역', 'GTX-C 정차역', ['의정부역센트럴자이앤위브캐슬', '의정부역푸르지오더센트럴', '의정부롯데캐슬골드파크1단지', '의정부롯데캐슬골드파크2단지']]
+];
+let T = [], selUmd = '호원동';
+
+function won(p) { const e = Math.floor(p / 10000), r = p % 10000; return e ? e + '억' + (r ? ' ' + r.toLocaleString() : '') : r.toLocaleString() + '만'; }
+function pyeong(t) { return t[7] / t[4] * PY; }   // 평당 만원
+function med(a) { if (!a.length) return null; const s = a.slice().sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; }
+function pct(a, b) { if (a == null || b == null || !b) return '<span class="pend">–</span>'; const v = (a / b - 1) * 100; return '<span class="' + (v > 0.05 ? 'up' : v < -0.05 ? 'down' : '') + '">' + (v > 0 ? '+' : '') + v.toFixed(1) + '%</span>'; }
+function ymd(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function addDays(s, n) { const d = new Date(s + 'T00:00:00'); d.setDate(d.getDate() + n); return ymd(d); }
+function monday(s) { const d = new Date(s + 'T00:00:00'); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return ymd(d); }
+const TODAY = ymd(new Date()), PEND = addDays(TODAY, -30);   // 계약 후 30일 안 신고 → 최근 30일은 덜 찼다
+
+async function api(p) {
+  const url = API + '?' + new URLSearchParams(p);   // getApt 는 공개 액션(국토부 공개 자료뿐)
+  let last;
+  for (let i = 0; i < 3; i++) {
+    try { const r = await fetch(url, { redirect: 'follow' }); if (!r.ok) throw new Error('HTTP ' + r.status); return await r.json(); }
+    catch (e) { last = e; await new Promise(r => setTimeout(r, 1500)); }
+  }
+  throw last;
+}
+async function load() {
+  let r;
+  try { r = await api({ action: 'getApt' }); }
+  catch (e) { document.getElementById('main').innerHTML = '<div class="card" style="color:var(--red)">서버 응답 없음 — 잠시 뒤 새로고침해 주세요 (' + e.message + ')</div>'; return; }
+  if (!r.success) { document.getElementById('main').innerHTML = '<div class="card" style="color:var(--red)">' + (r.error || '오류') + '</div>'; return; }
+  T = r.trades; render(r);
+}
+
+function render(r) {
+  const at = r.at ? new Date(r.at) : null, ageH = at ? (Date.now() - at) / 36e5 : 999;
+  const fmt = at ? at.toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '없음';
+  const alive = (ageH > 30 || r.err)
+    ? '<span class="alive bad">⚠ 갱신이 멈췄습니다 — 마지막 갱신 ' + fmt + (r.err ? ' · ' + r.err : '') + '</span>'
+    : '<span class="alive">국토부 실거래(계약일 기준) · 마지막 갱신 ' + fmt + ' · 매일 아침 7시 40분</span>';
+  document.getElementById('main').innerHTML = '<div class="card">' + alive + '</div>' + watchHtml() + stationHtml() + umdHtml();
+  drawChart();
+}
+
+// ① 알림 단지: 같은 평형 최근 거래
+function watchHtml() {
+  return WATCH.map(([apt, lo, hi, label]) => {
+    const rows = T.filter(t => t[2] === apt && t[4] >= lo && t[4] <= hi).sort((a, b) => a[6] < b[6] ? 1 : -1);
+    const y1 = addDays(TODAY, -365), y2 = addDays(TODAY, -730);
+    const now = rows.filter(t => t[6] >= y1).map(t => t[7]), ago = rows.filter(t => t[6] >= y2 && t[6] < y1).map(t => t[7]);
+    const body = rows.slice(0, 12).map(t => '<tr><td>' + t[6] + (t[6] >= PEND ? ' <span class="tag">신고 중</span>' : '') + '</td><td>' + (t[3] ? t[3] + '동' : '') + '</td><td>' + t[5] + '층</td><td>' + won(t[7]) + '</td></tr>').join('');
+    return '<div class="card"><h2>' + label + '</h2><div class="sub">최근 1년 ' + now.length + '건, 중앙값 ' + (now.length ? won(Math.round(med(now))) : '–') + ' · 그 전 1년 대비 ' + pct(med(now), med(ago)) + ' · 새 신고가 들어오면 텔레그램으로 알림</div>'
+      + '<div class="wrap"><table><thead><tr><th>계약일</th><th>동</th><th>층</th><th>가격</th></tr></thead><tbody>' + (body || '<tr><td colspan="4">거래 없음</td></tr>') + '</tbody></table></div></div>';
+  }).join('');
+}
+
+// ② 역별 대장 단지: 84㎡대(전용 80~86㎡) 기준
+function stationHtml() {
+  const m3 = addDays(TODAY, -91), m15 = addDays(TODAY, -456), m12 = addDays(TODAY, -365);
+  return STATIONS.map(([st, note, apts]) => '<div class="card"><h2>' + st + ' 대장 단지 <span class="tag">' + note + '</span></h2><div class="sub">전용 84㎡대 거래 기준. 최근 3개월 중앙값과 1년 전 같은 3개월을 비교</div><div class="grid">'
+    + apts.map(a => {
+      const all = T.filter(t => t[2] === a && t[0] === '41150'), r84 = all.filter(t => t[4] >= 80 && t[4] <= 86).sort((x, y) => x[6] < y[6] ? 1 : -1);
+      if (!all.length) return '<div class="cx"><div class="nm">' + a + '</div><div class="meta">거래 기록 없음</div></div>';
+      const now = med(r84.filter(t => t[6] >= m3).map(t => t[7])), ago = med(r84.filter(t => t[6] >= m15 && t[6] < m12).map(t => t[7]));
+      const last = r84[0];
+      return '<div class="cx"><div class="nm">' + a + '</div><div class="meta">' + all[0][1] + ' · ' + all[0][8] + '년 준공 · 최근 1년 ' + all.filter(t => t[6] >= m12).length + '건</div>'
+        + '<div class="row" style="margin-top:6px"><span>최근 3개월</span><span class="big">' + (now ? won(Math.round(now)) : '–') + '</span></div>'
+        + '<div class="row"><span>1년 전 대비</span><span>' + pct(now, ago) + '</span></div>'
+        + '<div class="row"><span>마지막 거래</span><span>' + (last ? last[6].slice(2) + ' ' + last[5] + '층 ' + won(last[7]) : '84㎡ 없음') + '</span></div>'
+        + spark(r84) + '</div>';
+    }).join('') + '</div></div>').join('');
+}
+function spark(rows) {   // 월별 중앙값 24개월
+  const ms = []; const d = new Date(); for (let i = 23; i >= 0; i--) { const x = new Date(d.getFullYear(), d.getMonth() - i, 1); ms.push(x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0')); }
+  const v = ms.map(m => med(rows.filter(t => t[6].slice(0, 7) === m).map(t => t[7])));
+  const ok = v.filter(x => x != null); if (ok.length < 2) return '';
+  const lo = Math.min(...ok), hi = Math.max(...ok), W = 260, H = 44, y = x => H - 4 - (hi > lo ? (x - lo) / (hi - lo) * (H - 8) : (H - 8) / 2);
+  const pts = v.map((x, i) => x == null ? null : [i / 23 * W, y(x)]).filter(Boolean);
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="margin-top:6px"><polyline fill="none" stroke="var(--accent)" stroke-width="1.6" points="' + pts.map(p => p.join(',')).join(' ') + '"/>'
+    + pts.map(p => '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="1.8" fill="var(--accent)"/>').join('') + '</svg><div class="meta">2년간 월별 중앙값 ' + won(Math.round(lo)) + ' ~ ' + won(Math.round(hi)) + '</div>';
+}
+
+// ③ 동별 주간: 그 주까지 4주간 거래의 평당가 중앙값(만원/3.3㎡)
+function weekly(umd) {
+  const rows = T.filter(t => t[0] === '41150' && t[1] === umd);
+  const end = monday(TODAY), out = [];
+  for (let i = 52; i >= 0; i--) {
+    const w = addDays(end, -7 * i), from = addDays(w, -21), to = addDays(w, 6);
+    const p = rows.filter(t => t[6] >= from && t[6] <= to).map(pyeong);
+    out.push({ w: w, v: med(p), n: p.length, pend: to >= PEND });
+  }
+  return out;
+}
+function umdHtml() {
+  const umds = [...new Set(T.filter(t => t[0] === '41150').map(t => t[1]))].sort((a, b) => a === '호원동' ? -1 : b === '호원동' ? 1 : a.localeCompare(b));
+  const done = s => { for (let i = s.length - 1; i >= 0; i--) if (!s[i].pend) return i; return -1; };
+  const body = umds.map(u => {
+    const s = weekly(u), k = done(s), c = s[k] || {};
+    const at = j => (k - j >= 0 ? s[k - j].v : null);
+    return '<tr class="click' + (u === selUmd ? ' sel' : '') + '" onclick="selUmd=\'' + u + '\';document.getElementById(\'umdT\').outerHTML=umdTable();drawChart()"><td>' + u + '</td><td>' + (c.v ? Math.round(c.v).toLocaleString() : '–') + '</td><td>' + pct(c.v, at(1)) + '</td><td>' + pct(c.v, at(4)) + '</td><td>' + pct(c.v, at(12)) + '</td><td>' + pct(c.v, at(52)) + '</td><td>' + (c.n || 0) + '</td></tr>';
+  }).join('');
+  window.umdTable = () => { const h = umdHtml(); return h.slice(h.indexOf('<div class="wrap" id="umdT">'), h.indexOf('<!--/umdT-->')); };
+  const s = weekly(selUmd), k = done(s);
+  return '<div class="card"><h2>의정부 동별 주간 시세</h2><div class="sub">평당가(3.3㎡당 만원) = 그 주까지 4주간 거래의 중앙값. 기준 주 ' + (s[k] ? s[k].w : '') + ' 시작 주(신고가 거의 다 들어온 마지막 주). 단지 구성이 주마다 달라 들쭉날쭉할 수 있습니다. 줄을 누르면 아래 그래프가 바뀝니다.</div>'
+    + '<div class="wrap" id="umdT"><table><thead><tr><th>법정동</th><th>평당가</th><th>1주</th><th>4주</th><th>12주</th><th>1년</th><th>4주 거래</th></tr></thead><tbody>' + body + '</tbody></table></div><!--/umdT-->'
+    + '<div id="chart" style="margin-top:12px"></div></div>';
+}
+function drawChart() {
+  const s = weekly(selUmd), ok = s.filter(x => x.v != null);
+  const el = document.getElementById('chart'); if (!el || ok.length < 2) { if (el) el.innerHTML = ''; return; }
+  const lo = Math.min(...ok.map(x => x.v)), hi = Math.max(...ok.map(x => x.v)), W = 640, H = 180, L = 44;
+  const X = i => L + i / (s.length - 1) * (W - L - 8), Y = v => H - 22 - (v - lo) / ((hi - lo) || 1) * (H - 40);
+  let path = '', pend = '';
+  s.forEach((x, i) => { if (x.v == null) return; const p = X(i).toFixed(1) + ',' + Y(x.v).toFixed(1); if (x.pend) pend += (pend ? ' ' : '') + p; else path += (path ? ' ' : '') + p; });
+  const lastDone = s.map(x => !x.pend && x.v != null).lastIndexOf(true);
+  if (pend && lastDone >= 0) pend = X(lastDone).toFixed(1) + ',' + Y(s[lastDone].v).toFixed(1) + ' ' + pend;
+  const ticks = [0, 13, 26, 39, 52].map(i => '<text x="' + X(i) + '" y="' + (H - 4) + '" font-size="11" text-anchor="middle" fill="#4b5563">' + s[i].w.slice(5) + '</text>').join('');
+  el.innerHTML = '<div class="row"><b>' + selUmd + ' 1년 주간 평당가</b><span class="meta" style="font-size:12px;color:var(--text2)">점선 = 아직 신고 중인 최근 주</span></div>'
+    + '<svg viewBox="0 0 ' + W + ' ' + H + '"><text x="0" y="' + (Y(hi) + 4) + '" font-size="11" fill="#4b5563">' + Math.round(hi).toLocaleString() + '</text><text x="0" y="' + (Y(lo) + 4) + '" font-size="11" fill="#4b5563">' + Math.round(lo).toLocaleString() + '</text>'
+    + '<line x1="' + L + '" x2="' + W + '" y1="' + (H - 22) + '" y2="' + (H - 22) + '" stroke="#e3ddf3"/>'
+    + '<polyline fill="none" stroke="var(--accent)" stroke-width="2" points="' + path + '"/>'
+    + (pend ? '<polyline fill="none" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 4" points="' + pend + '"/>' : '') + ticks + '</svg>';
+}
+
+load();
+</script>
+</body>
+</html>
