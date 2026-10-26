@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp', '_syncDivRates', '_fillPastDivFromApp', 'setKrwCost', 'aptRefresh', '_molitKeyOnce', '_diagApt', '_aptHistory'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp', '_syncDivRates', '_fillPastDivFromApp', 'setKrwCost', 'aptRefresh', '_molitKeyOnce', '_diagApt', '_aptHistory', '_aptGeoBackfill'
 ];
 
 function runMaint(name, arg) {
@@ -5398,7 +5398,7 @@ function _aptFetch(sgg, ym) {
       area: parseFloat(v(it, 'excluUseAr')) || 0, floor: parseInt(v(it, 'floor'), 10) || 0,
       ymd: v(it, 'dealYear') + '-' + ('0' + v(it, 'dealMonth')).slice(-2) + '-' + ('0' + v(it, 'dealDay')).slice(-2),
       price: parseInt(v(it, 'dealAmount').replace(/,/g, ''), 10) || 0, build: v(it, 'buildYear'),
-      cancel: v(it, 'cdealDay'), rgst: v(it, 'rgstDate')
+      cancel: v(it, 'cdealDay'), rgst: v(it, 'rgstDate'), jibun: v(it, 'jibun')
     }));
     const total = parseInt((bodyEl.getChildText('totalCount') || '0'), 10);
     if (page * 1000 >= total) break;
@@ -5433,6 +5433,7 @@ function aptRefresh(arg) {
         const ym = Utilities.formatDate(d, 'Asia/Seoul', 'yyyyMM');
         const list = _aptFetch(sgg, ym).filter(t => !keep || keep.indexOf(t.apt) >= 0);
         counts[sgg + ':' + ym] = list.length;
+        try { _aptGeoFill(sgg, list); } catch (e) { console.log('단지 좌표 못 찾음 — ' + e); }   // 지도용, 실패해도 갱신은 계속
         const dup = {};   // 같은 날·층·값 거래가 둘이면(드묾) n번째끼리 짝짓는다
         list.forEach(t => {
           const k = k0(sgg, t.apt, t.area, t.floor, t.ymd, t.price);
@@ -5514,13 +5515,57 @@ function _aptHistory(arg) {
   return { added: add.length };
 }
 
+// 지도용 단지 좌표(2026-10-27): 국토부 지번 → Apps Script 지오코더. 단지마다 한 번만 찾아 '아파트좌표' 탭에 둔다.
+// 못 찾은 단지도 빈 좌표로 적어 매일 다시 묻지 않는다(다시 찾게 하려면 그 줄을 지운다).
+const APT_GEO_SHEET = '아파트좌표';
+const APT_SGG_NAME = { '41150': '경기도 의정부시', '11650': '서울특별시 서초구' };
+function _aptGeoFill(sgg, list) {
+  let sh = getSheet(APT_GEO_SHEET);
+  if (!sh) { sh = SpreadsheetApp.openById(SHEET_ID).insertSheet(APT_GEO_SHEET); sh.appendRow(['sgg', 'umd', 'apt', 'jibun', 'lat', 'lng']); }
+  const have = {};
+  sh.getDataRange().getValues().slice(1).forEach(r => { have[r[0] + '|' + r[1] + '|' + r[2]] = 1; });
+  const geo = Maps.newGeocoder().setRegion('kr').setLanguage('ko'), add = [];
+  list.forEach(t => {
+    const k = sgg + '|' + t.umd + '|' + t.apt;
+    if (have[k] || !t.jibun) return;
+    have[k] = 1;
+    const r = geo.geocode(APT_SGG_NAME[sgg] + ' ' + t.umd + ' ' + t.jibun), loc = r.status === 'OK' ? r.results[0].geometry.location : null;
+    add.push([sgg, t.umd, t.apt, t.jibun, loc ? loc.lat : '', loc ? loc.lng : '']);
+  });
+  if (add.length) sh.getRange(sh.getLastRow() + 1, 1, add.length, 6).setNumberFormat('@').setValues(add.map(r => r.map(String)));
+  return add.length;
+}
+// 처음 한 번: 의정부 최근 months 개월(기본 24) 거래의 단지 좌표를 채운다(매일 갱신은 최근 3개월 단지만 본다).
+function _aptGeoBackfill(arg) {
+  const months = parseInt(arg, 10) || 24, now = new Date();
+  let n = 0;
+  for (let m = 0; m < months; m++) n += _aptGeoFill('41150', _aptFetch('41150', Utilities.formatDate(new Date(now.getFullYear(), now.getMonth() - m, 1), 'Asia/Seoul', 'yyyyMM')));
+  const rows = getSheet(APT_GEO_SHEET).getDataRange().getValues().slice(1);
+  console.log('단지 좌표 새로 ' + n + '곳, 전체 ' + rows.length + '곳 중 못 찾음 ' + rows.filter(r => !r[4]).length + '곳');
+  return { added: n, total: rows.length };
+}
+
+// maint 통로 없는 PC용: keepWarm 이 5분마다 4개월씩 _aptGeoBackfill 몫을 채운다(24개월 다 하면 멈춤). 진행 = 속성 APT_GEO_M
+function _aptGeoOnce() {
+  const pr = PropertiesService.getScriptProperties(), m0 = parseInt(pr.getProperty('APT_GEO_M') || '0', 10);
+  if (m0 >= 24) return;
+  const now = new Date();
+  let n = 0;
+  for (let m = m0; m < m0 + 4; m++) n += _aptGeoFill('41150', _aptFetch('41150', Utilities.formatDate(new Date(now.getFullYear(), now.getMonth() - m, 1), 'Asia/Seoul', 'yyyyMM')));
+  pr.setProperty('APT_GEO_M', String(m0 + 4));
+  if (m0 + 4 >= 24) { const rows = getSheet(APT_GEO_SHEET).getDataRange().getValues().slice(1); _fixLog('단지 좌표 채움 끝: ' + rows.length + '곳 중 못 찾음 ' + rows.filter(r => !r[4]).length + '곳'); }
+  else _fixLog('단지 좌표 ' + (m0 + 4) + '/24개월, 이번에 ' + n + '곳');
+}
+
 // apt.html 용: 해제 안 된 거래만, 필요한 칸만. [sgg, umd, apt, dong, area, floor, ymd, price, build]
 function getApt() {
   const pr = PropertiesService.getScriptProperties();
   const sh = getSheet(APT_SHEET);
   const rows = sh ? sh.getDataRange().getValues().slice(1) : [];
   const t = rows.filter(r => !r[10]).map(r => [String(r[1]), String(r[2]), String(r[3]), String(r[4]), +r[5], +r[6], String(r[7]), +r[8], String(r[9])]);
-  return { success: true, at: pr.getProperty('APT_AT') || '', err: pr.getProperty('APT_ERR') || '', trades: t };
+  const g = getSheet(APT_GEO_SHEET), xy = {};   // 'sgg|umd|apt' → [lat, lng]
+  if (g) g.getDataRange().getValues().slice(1).forEach(r => { if (r[4] !== '') xy[r[0] + '|' + r[1] + '|' + r[2]] = [+r[4], +r[5]]; });
+  return { success: true, at: pr.getProperty('APT_AT') || '', err: pr.getProperty('APT_ERR') || '', trades: t, xy: xy };
 }
 
 // 확인용: 시트 건수와 단지별 최근 거래 몇 줄
@@ -5800,6 +5845,7 @@ function keepWarm() {
   try { _krwCostOnce(); } catch (e) { console.log('_krwCostOnce 실패 — ' + e); }
   try { _telegramTestOnce(); } catch (e) { console.log('_telegramTestOnce 실패 — ' + e); }
   try { _molitKeyOnce(); } catch (e) { console.log('_molitKeyOnce 실패 — ' + e); }
+  try { _aptGeoOnce(); } catch (e) { _fixLog('단지 좌표 채우기 실패 — ' + e); }
   try { _aptStaleCheck(); } catch (e) { console.log('_aptStaleCheck 실패 — ' + e); }
 
   try {
