@@ -22,14 +22,20 @@
   .alive { font-size:12px; color:var(--text2); }
   .alive.bad { color:#fff; background:var(--red); padding:6px 10px; border-radius:8px; display:block; margin-bottom:10px; }
   table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
-  th, td { padding:6px 6px; border-bottom:1px solid var(--border); text-align:right; white-space:nowrap; }
+  table { table-layout:auto; }
+  th, td { padding:6px 4px; border-bottom:1px solid var(--border); text-align:right; white-space:nowrap; }
+  td.wr, th.wr { white-space:normal; }
+  .cx table td, .cx table th { white-space:normal; padding:5px 3px; }
+  @media (max-width:420px) { th, td { padding:5px 2px; font-size:12.5px; } }
+  @media (max-width:360px) { main { padding:10px 10px 30px; } .card { padding:10px; } .cx { padding:8px; } th, td { padding:4px 1px; font-size:11.5px; } }
   th { font-size:12px; color:var(--text2); font-weight:600; }
   th:first-child, td:first-child { text-align:left; }
   tbody tr:last-child td { border-bottom:1px solid var(--border); }
-  .wrap { overflow-x:auto; }
+  .wrap { overflow-x:visible; }
   .up { color:var(--up); } .down { color:var(--down); } .pend { color:var(--text3); }
   .tag { display:inline-block; font-size:11px; padding:1px 6px; border-radius:6px; background:#eef1ff; color:var(--accent); margin-left:4px; }
-  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:10px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,290px),1fr)); gap:10px; }
+  .cx { min-width:0; }
   .cx { border:1px solid var(--border); border-radius:10px; padding:10px; }
   .cx .nm { font-weight:700; } .cx .meta { font-size:12px; color:var(--text2); }
   .big { font-size:18px; font-weight:700; }
@@ -92,7 +98,7 @@ function render(r) {
 }
 
 // 면적 표시: 전용㎡(전용 평). 사람들이 말하는 'OO평형'은 공급면적이라 전용 평보다 크다(29평형 = 전용 22.8평)
-function ar(a) { return a.toFixed(1) + '㎡(' + (a / PY).toFixed(1) + '평)'; }
+function ar(a, br) { return a.toFixed(1) + '㎡' + (br ? '<br>' : '') + '(' + (a / PY).toFixed(1) + '평)'; }
 const NODONG = '<span title="국토부 원본에 동이 비어 있음">–</span>';
 
 // ① 알림 단지: 같은 평형 거래 + 거래가 드물면 같은 단지 다른 평형의 ㎡당 가격으로 본 참고 추정가
@@ -129,7 +135,7 @@ function stationHtml() {
         const r = g[k].sort((x, y) => x[6] < y[6] ? 1 : -1), area = med(r.map(t => t[4]));
         const now = med(r.filter(t => t[6] >= m3).map(t => t[7])), ago = med(r.filter(t => t[6] >= m15 && t[6] < m12).map(t => t[7]));
         const mine = a === main[0] && area >= main[1] && area <= main[2];
-        return '<tr' + (mine ? ' class="sel"' : '') + '><td>' + ar(area) + (mine ? ' ⭐' : '') + '</td><td>' + (now ? won(Math.round(now)) : '–') + '</td><td>' + pct(now, ago) + '</td><td>' + r[0][6].slice(2) + '<br>' + r[0][5] + '층 ' + won(r[0][7]) + '</td></tr>';
+        return '<tr' + (mine ? ' class="sel"' : '') + '><td>' + ar(area, 1) + (mine ? ' ⭐' : '') + '</td><td>' + (now ? won(Math.round(now)) : '–') + '</td><td>' + pct(now, ago) + '</td><td>' + r[0][6].slice(2) + '<br>' + r[0][5] + '층 ' + won(r[0][7]) + '</td></tr>';
       }).join('');
       return '<div class="cx"><div class="nm">' + a + '</div><div class="meta">' + all[0][1] + ' · ' + all[0][8] + '년 준공 · 최근 1년 ' + all.filter(t => t[6] >= m12).length + '건</div>'
         + '<div class="wrap" style="margin-top:6px"><table style="font-size:12px"><thead><tr><th>전용</th><th>3개월</th><th>1년 대비</th><th>마지막 거래</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>';
@@ -163,7 +169,7 @@ function umdHtml() {
   window.umdTable = () => { const h = umdHtml(); return h.slice(h.indexOf('<div class="wrap" id="umdT">'), h.indexOf('<!--/umdT-->')); };
   const s = weekly(selUmd), k = done(s);
   return '<div class="card"><h2>의정부 동별 주간 시세</h2><div class="sub">평당가(3.3㎡당 만원) = 그 주까지 4주간 거래를 각 단지의 평소 가격과 견준 값의 중앙값(비싼 새 단지 거래가 몰린 주에 튀지 않게 보정). 기준 주 ' + (s[k] ? s[k].w : '') + ' 시작 주(신고가 거의 다 들어온 마지막 주). 줄을 누르면 아래 그래프가 바뀝니다.</div>'
-    + '<div class="wrap" id="umdT"><table><thead><tr><th>법정동</th><th>평당가</th><th>1주</th><th>4주</th><th>12주</th><th>1년</th><th>4주 거래</th></tr></thead><tbody>' + body + '</tbody></table></div><!--/umdT-->'
+    + '<div class="wrap" id="umdT"><table><thead><tr><th>법정동</th><th>평당가</th><th>1주</th><th>4주</th><th>12주</th><th>1년</th><th>거래</th></tr></thead><tbody>' + body + '</tbody></table></div><!--/umdT-->'
     + '<div id="chart" style="margin-top:12px"></div></div>';
 }
 function drawChart() {
