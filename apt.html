@@ -53,12 +53,8 @@ const API = 'https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKA
 const PY = 3.3058;   // ㎡ → 평
 // 알림 단지(Code.gs APT_WATCH 와 같게): 단지, 전용㎡ 범위, 이름
 const WATCH = [['신일유토빌플러스', 75.4, 75.7, '신일유토빌플러스 29평형'], ['서초한빛삼성', 99, 99.2, '서초한빛삼성 38평형']];
-// 역별 대장 단지 — 2026-10-26 최근 1년 실거래(거래 수·㎡당 가격)로 고름. 망월사역이 호원동의 기준
-const STATIONS = [
-  ['망월사역', '호원동 기준', ['신일유토빌플러스', '신일유토빌', '한아름월드']],
-  ['회룡역', 'GTX 영향권', ['힐스테이트회룡역파크뷰', '회룡역풍림아이원', 'I-PARK']],
-  ['의정부역', 'GTX-C 정차역', ['의정부역센트럴자이앤위브캐슬', '의정부역푸르지오더센트럴', '의정부롯데캐슬골드파크1단지', '의정부롯데캐슬골드파크2단지']]
-];
+// 동별 대장 단지 — 2026-10-27 사용자: 역이 아니라 동 기준. 최근 1년 거래 LEAD_MIN건 이상 단지 중 2년 평당 중앙값 상위 3
+const LEAD_MIN = 5;
 let T = [], selUmd = '호원동';
 
 function won(p) { const e = Math.floor(p / 10000), r = p % 10000; return e ? e + '억' + (r ? ' ' + r.toLocaleString() : '') : r.toLocaleString() + '만'; }
@@ -93,7 +89,7 @@ function render(r) {
   const alive = (ageH > 30 || r.err)
     ? '<span class="alive bad">⚠ 갱신이 멈췄습니다 — 마지막 갱신 ' + fmt + (r.err ? ' · ' + r.err : '') + '</span>'
     : '<span class="alive">국토부 실거래(계약일 기준) · 마지막 갱신 ' + fmt + ' · 매일 아침 7시 40분</span>';
-  document.getElementById('main').innerHTML = '<div class="card">' + alive + '</div>' + watchHtml() + stationHtml() + umdHtml();
+  document.getElementById('main').innerHTML = '<div class="card">' + alive + '</div>' + watchHtml() + leaderHtml() + umdHtml();
   drawChart();
 }
 
@@ -121,11 +117,17 @@ function watchHtml() {
   }).join('');
 }
 
-// ② 역별 대장 단지: 평형별(전용면적 1㎡ 단위로 묶음) 최근 3개월 중앙값 vs 1년 전 같은 3개월
-function stationHtml() {
+// ② 동별 대장 단지(아래 동별 표에서 고른 동): 평형별(전용면적 1㎡ 단위로 묶음) 최근 3개월 중앙값 vs 1년 전 같은 3개월
+function leaders(umd) {
+  const m12 = addDays(TODAY, -365), g = {};
+  T.filter(t => t[0] === '41150' && t[1] === umd && t[6] >= Y2).forEach(t => (g[t[2]] = g[t[2]] || []).push(t));
+  return Object.keys(g).filter(a => g[a].filter(t => t[6] >= m12).length >= LEAD_MIN).sort((a, b) => cxMed(b) - cxMed(a)).slice(0, 3);
+}
+function leaderHtml() {
   const m3 = addDays(TODAY, -91), m15 = addDays(TODAY, -456), m12 = addDays(TODAY, -365);
-  const main = WATCH[0];
-  return STATIONS.map(([st, note, apts]) => '<div class="card"><h2>' + st + ' 대장 단지 <span class="tag">' + note + '</span></h2><div class="sub">평형별 실거래(최근 2년). 면적은 전용㎡(전용 평). 3개월 = 최근 3개월 중앙값, 1년 대비 = 1년 전 같은 3개월과 비교</div><div class="grid">'
+  const main = WATCH[0], apts = leaders(selUmd);
+  return '<div class="card" id="lead"><h2>' + selUmd + ' 대장 단지 <span class="tag">평당가 상위 3</span></h2><div class="sub">' + selUmd + '에서 최근 1년 거래 ' + LEAD_MIN + '건 이상인 단지 중 최근 2년 평당가가 높은 순. 아래 동별 표에서 동을 누르면 바뀝니다. 면적은 전용㎡(전용 평). 3개월 = 최근 3개월 중앙값, 1년 대비 = 1년 전 같은 3개월과 비교</div><div class="grid">'
+    + (apts.length ? '' : '<div class="cx"><div class="meta">최근 1년 거래 ' + LEAD_MIN + '건 이상인 단지가 없습니다</div></div>')
     + apts.map(a => {
       const all = T.filter(t => t[2] === a && t[0] === '41150' && t[6] >= Y2);
       if (!all.length) return '<div class="cx"><div class="nm">' + a + '</div><div class="meta">최근 2년 매매 기록 없음</div></div>';
@@ -137,9 +139,9 @@ function stationHtml() {
         const mine = a === main[0] && area >= main[1] && area <= main[2];
         return '<tr' + (mine ? ' class="sel"' : '') + '><td>' + ar(area, 1) + (mine ? ' ⭐' : '') + '</td><td>' + (now ? won(Math.round(now)) : '–') + '</td><td>' + pct(now, ago) + '</td><td>' + r[0][6].slice(2) + '<br>' + r[0][5] + '층 ' + won(r[0][7]) + '</td></tr>';
       }).join('');
-      return '<div class="cx"><div class="nm">' + a + '</div><div class="meta">' + all[0][1] + ' · ' + all[0][8] + '년 준공 · 최근 1년 ' + all.filter(t => t[6] >= m12).length + '건</div>'
+      return '<div class="cx"><div class="nm">' + a + '</div><div class="meta">' + all[0][8] + '년 준공 · 평당 ' + Math.round(cxMed(a)).toLocaleString() + '만 · 최근 1년 ' + all.filter(t => t[6] >= m12).length + '건</div>'
         + '<div class="wrap" style="margin-top:6px"><table style="font-size:12px"><thead><tr><th>전용</th><th>3개월</th><th>1년 대비</th><th>마지막 거래</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>';
-    }).join('') + '</div></div>').join('');
+    }).join('') + '</div></div>';
 }
 
 // ③ 동별 주간: 그 주까지 4주간 거래의 평당가 중앙값(만원/3.3㎡)
@@ -164,7 +166,7 @@ function umdHtml() {
   const body = umds.map(u => {
     const s = weekly(u), k = done(s), c = s[k] || {};
     const at = j => (k - j >= 0 ? s[k - j].v : null);
-    return '<tr class="click' + (u === selUmd ? ' sel' : '') + '" onclick="selUmd=\'' + u + '\';document.getElementById(\'umdT\').outerHTML=umdTable();drawChart()"><td>' + u + '</td><td>' + (c.v ? Math.round(c.v).toLocaleString() : '–') + '</td><td>' + pct(c.v, at(1)) + '</td><td>' + pct(c.v, at(4)) + '</td><td>' + pct(c.v, at(12)) + '</td><td>' + pct(c.v, at(52)) + '</td><td>' + (c.n || 0) + '</td></tr>';
+    return '<tr class="click' + (u === selUmd ? ' sel' : '') + '" onclick="selUmd=\'' + u + '\';document.getElementById(\'umdT\').outerHTML=umdTable();document.getElementById(\'lead\').outerHTML=leaderHtml();drawChart()"><td>' + u + '</td><td>' + (c.v ? Math.round(c.v).toLocaleString() : '–') + '</td><td>' + pct(c.v, at(1)) + '</td><td>' + pct(c.v, at(4)) + '</td><td>' + pct(c.v, at(12)) + '</td><td>' + pct(c.v, at(52)) + '</td><td>' + (c.n || 0) + '</td></tr>';
   }).join('');
   window.umdTable = () => { const h = umdHtml(); return h.slice(h.indexOf('<div class="wrap" id="umdT">'), h.indexOf('<!--/umdT-->')); };
   const s = weekly(selUmd), k = done(s);
