@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp', '_syncDivRates', '_fillPastDivFromApp', 'setKrwCost', 'aptRefresh', '_molitKeyOnce', '_diagApt'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp', '_syncDivRates', '_fillPastDivFromApp', 'setKrwCost', 'aptRefresh', '_molitKeyOnce', '_diagApt', '_aptHistory'
 ];
 
 function runMaint(name, arg) {
@@ -5363,7 +5363,9 @@ function testScreener() {
 const APT_SHEET = '아파트실거래';
 const APT_PAGE_URL = 'https://jaenamking1-collab.github.io/jjk/apt.html';
 const APT_REGIONS = [['41150', null], ['11650', ['서초한빛삼성']]];   // [시군구코드, 남길 단지(null=전부)]
-const APT_WATCH = [['서초한빛삼성', 99, 99.2], ['신일유토빌플러스', 84.5, 84.8]];   // 새 신고 알림: 단지, 전용㎡ 범위
+const APT_WATCH = [['서초한빛삼성', 99, 99.2], ['신일유토빌플러스', 75.4, 75.7]];   // 새 신고 알림: 단지, 전용㎡ 범위
+// 알림 '비슷한 층'(±3) 기준층은 공개 코드에 두지 않고 비공개 시트(소유자 드라이브 '아파트 알림 기준층': 단지,층)에서 읽는다
+const APT_FLOOR_SHEET_ID = '1-IZF8Yzl_VSSwQZmTmKrkO2_h_fQ4QI8e-3044z6Fys';
 const APT_COLS = ['key', 'sgg', 'umd', 'apt', 'dong', 'area', 'floor', 'ymd', 'price', 'build', 'cancel', 'rgst', 'seen'];
 
 function _molitKeyOnce() {
@@ -5414,8 +5416,14 @@ function aptRefresh(arg) {
     let sh = getSheet(APT_SHEET);
     if (!sh) { sh = SpreadsheetApp.openById(SHEET_ID).insertSheet(APT_SHEET); sh.appendRow(APT_COLS); }
     const data = sh.getDataRange().getValues();
-    const idx = {};
-    for (let i = 1; i < data.length; i++) idx[data[i][0]] = i;
+    // 같은 거래 판정 = 시군구·단지·면적·층·계약일·가격(+같은 게 여럿이면 순번). 동은 빼다 —
+    // 국토부가 신고 뒤에 동을 채우는 경우가 있어, 동을 넣으면 같은 거래가 두 줄이 된다(2026-10-26).
+    const k0 = (sgg, apt, area, floor, ymd, price) => [sgg, apt, area, floor, ymd, price].join('|');
+    const idx = {};   // k0 → 시트 행 번호 목록(순서대로)
+    for (let i = 1; i < data.length; i++) {
+      const k = k0(String(data[i][1]), String(data[i][3]), String(data[i][5]), String(data[i][6]), String(data[i][7]), String(data[i][8]));
+      (idx[k] = idx[k] || []).push(i);
+    }
     const now = new Date(), seen = Utilities.formatDate(now, 'Asia/Seoul', 'yyyy-MM-dd');
     const add = [], fresh = [], counts = {};
     let cancelFix = 0;
@@ -5425,18 +5433,22 @@ function aptRefresh(arg) {
         const ym = Utilities.formatDate(d, 'Asia/Seoul', 'yyyyMM');
         const list = _aptFetch(sgg, ym).filter(t => !keep || keep.indexOf(t.apt) >= 0);
         counts[sgg + ':' + ym] = list.length;
-        const dup = {};   // 같은 날·같은 동·층·값 거래가 둘이면(드묾) #2 를 붙여 따로 센다
+        const dup = {};   // 같은 날·층·값 거래가 둘이면(드묾) n번째끼리 짝짓는다
         list.forEach(t => {
-          const k0 = [sgg, t.apt, t.dong, t.area, t.floor, t.ymd, t.price].join('|');
-          dup[k0] = (dup[k0] || 0) + 1;
-          const key = k0 + (dup[k0] > 1 ? '#' + dup[k0] : '');
-          if (idx[key] != null && idx[key] >= 0) {
-            const r = data[idx[key]];
-            if (t.cancel && !r[10]) { sh.getRange(idx[key] + 1, 11).setValue(t.cancel); cancelFix++; }
-            if (t.rgst && !r[11]) sh.getRange(idx[key] + 1, 12).setValue(t.rgst);
+          const k = k0(sgg, t.apt, t.area, t.floor, t.ymd, t.price);
+          const n = dup[k] = (dup[k] || 0) + 1;
+          const rowsK = idx[k] || [];
+          if (n <= rowsK.length) {
+            const i = rowsK[n - 1];
+            if (i < 0) return;
+            const r = data[i];
+            if (t.cancel && !r[10]) { sh.getRange(i + 1, 11).setValue(t.cancel); cancelFix++; }
+            if (t.rgst && !r[11]) sh.getRange(i + 1, 12).setValue(t.rgst);
+            if (t.dong && !r[4]) sh.getRange(i + 1, 5).setValue(t.dong);   // 나중에 채워진 동
             return;
           }
-          idx[key] = -1;
+          (idx[k] = rowsK).push(-1);
+          const key = k + (n > 1 ? '#' + n : '');
           add.push([key, sgg, t.umd, t.apt, t.dong, t.area, t.floor, t.ymd, t.price, t.build, t.cancel, t.rgst, seen]);
           if (!t.cancel && APT_WATCH.some(w => w[0] === t.apt && t.area >= w[1] && t.area <= w[2])) fresh.push(t);
         });
@@ -5447,7 +5459,10 @@ function aptRefresh(arg) {
     }
     if (!silent && fresh.length) {
       const won = p => (p >= 10000 ? Math.floor(p / 10000) + '억' + (p % 10000 ? ' ' + (p % 10000).toLocaleString() + '만' : '') : p.toLocaleString() + '만');
-      _sendTelegram('🏠 새 실거래 신고\n' + fresh.map(t => '· ' + t.apt + (t.dong ? ' ' + t.dong + '동' : '') + ' ' + t.area + '㎡ ' + t.floor + '층 ' + won(t.price) + ' (' + t.ymd + ' 계약)').join('\n'), APT_PAGE_URL);
+      const base = {};
+      try { SpreadsheetApp.openById(APT_FLOOR_SHEET_ID).getSheets()[0].getDataRange().getValues().slice(1).forEach(r => { base[String(r[0]).trim()] = +r[1]; }); } catch (e) { console.log('기준층 시트 못 읽음 — ' + e); }
+      _sendTelegram('🏠 새 실거래 신고\n' + fresh.map(t => '· ' + t.apt + (t.dong ? ' ' + t.dong + '동' : '') + ' 전용 ' + t.area + '㎡(' + (t.area / 3.3058).toFixed(1) + '평) ' + t.floor + '층 ' + won(t.price) + ' (' + t.ymd + ' 계약)'
+        + (base[t.apt] && Math.abs(t.floor - base[t.apt]) <= 3 ? ' ⭐비슷한 층' : '')).join('\n'), APT_PAGE_URL);
     }
     pr.setProperty('APT_AT', now.toISOString()); pr.deleteProperty('APT_ERR');
     const msg = '실거래 갱신: 새 ' + add.length + '건, 해제 반영 ' + cancelFix + '건, 알림 ' + (silent ? '생략' : fresh.length + '건');
@@ -5472,6 +5487,31 @@ function _aptStaleCheck() {
   pr.setProperty('APT_STALE_SENT', at);
   _sendTelegram('⚠ 아파트 실거래 갱신이 30시간 넘게 멈췄습니다(마지막 ' + Utilities.formatDate(new Date(at), 'Asia/Seoul', 'MM-dd HH:mm') + '). 트리거 확인 필요', APT_PAGE_URL);
   _fixLog('아파트 실거래 갱신 멈춤 알림 보냄');
+}
+
+// 한 단지의 옛 거래를 더 받는다(매일 갱신은 최근 3개월, 백필은 24개월뿐). arg '단지명:시작연도[:끝연도]' — 의정부만.
+// 거래가 드문 평형(예: 75㎡)은 2년치로는 몇 건 안 돼서 만든 것. 이미 있는 건 건너뛴다.
+function _aptHistory(arg) {
+  const parts = String(arg || '').split(':'), apt = parts[0], y0 = parseInt(parts[1], 10);
+  if (!apt || !y0) throw new Error("arg 는 '단지명:시작연도'");
+  const sh = getSheet(APT_SHEET), data = sh.getDataRange().getValues(), have = {};
+  const k0 = (apt, area, floor, ymd, price) => ['41150', apt, area, floor, ymd, price].join('|');
+  for (let i = 1; i < data.length; i++) { const k = k0(String(data[i][3]), String(data[i][5]), String(data[i][6]), String(data[i][7]), String(data[i][8])); have[k] = (have[k] || 0) + 1; }
+  const now = new Date(), seen = Utilities.formatDate(now, 'Asia/Seoul', 'yyyy-MM-dd');
+  let stop = new Date(now.getFullYear(), now.getMonth() - 24, 1);
+  if (parts[2]) stop = new Date(Math.min(stop, new Date(parseInt(parts[2], 10) + 1, 0, 1)));   // '단지:2006:2015' 처럼 끝 연도(웹앱 6분 제한 때문에 나눠 돌림)
+  const add = [];
+  for (let d = new Date(y0, 0, 1); d < stop; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
+    const ym = Utilities.formatDate(d, 'Asia/Seoul', 'yyyyMM'), dup = {};
+    _aptFetch('41150', ym).filter(t => t.apt === apt).forEach(t => {
+      const k = k0(t.apt, t.area, t.floor, t.ymd, t.price), n = dup[k] = (dup[k] || 0) + 1;
+      if (n <= (have[k] || 0)) return;
+      add.push([k + (n > 1 ? '#' + n : ''), '41150', t.umd, t.apt, t.dong, t.area, t.floor, t.ymd, t.price, t.build, t.cancel, t.rgst, seen]);
+    });
+  }
+  if (add.length) sh.getRange(sh.getLastRow() + 1, 1, add.length, APT_COLS.length).setNumberFormat('@').setValues(add.map(r => r.map(String)));
+  console.log(apt + ' ' + y0 + '년~ 옛 거래 ' + add.length + '건 추가');
+  return { added: add.length };
 }
 
 // apt.html 용: 해제 안 된 거래만, 필요한 칸만. [sgg, umd, apt, dong, area, floor, ymd, price, build]
