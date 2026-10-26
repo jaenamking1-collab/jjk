@@ -133,7 +133,7 @@ function spark(rows) {   // 월별 중앙값 24개월
 function weekly(umd) {
   const rows = T.filter(t => t[0] === '41150' && t[1] === umd);
   const end = monday(TODAY), out = [];
-  for (let i = 52; i >= 0; i--) {
+  for (let i = 64; i >= 0; i--) {   // 표의 '1년' 칸이 마지막 확정 주보다 52주 앞을 봐야 해서 넉넉히
     const w = addDays(end, -7 * i), from = addDays(w, -21), to = addDays(w, 6);
     const p = rows.filter(t => t[6] >= from && t[6] <= to).map(pyeong);
     out.push({ w: w, v: med(p), n: p.length, pend: to >= PEND });
@@ -155,7 +155,7 @@ function umdHtml() {
     + '<div id="chart" style="margin-top:12px"></div></div>';
 }
 function drawChart() {
-  const s = weekly(selUmd), ok = s.filter(x => x.v != null);
+  const s = weekly(selUmd).slice(-53), ok = s.filter(x => x.v != null);
   const el = document.getElementById('chart'); if (!el || ok.length < 2) { if (el) el.innerHTML = ''; return; }
   const lo = Math.min(...ok.map(x => x.v)), hi = Math.max(...ok.map(x => x.v)), W = 640, H = 180, L = 44;
   const X = i => L + i / (s.length - 1) * (W - L - 8), Y = v => H - 22 - (v - lo) / ((hi - lo) || 1) * (H - 40);
