@@ -48,7 +48,10 @@
   @media (max-width:639px) { #map { height:560px; } }
   #map .dong { stroke:#fff; stroke-width:1.5; vector-effect:non-scaling-stroke; cursor:pointer; transform-box:fill-box; transform-origin:center;
                transition:transform .18s ease, filter .18s ease, opacity .25s ease; outline:none; }
+  #map .dong { fill-opacity:.72; }
+  #mapTiles { filter:saturate(.45) brightness(1.04); }
   #map.hov .dong, #map.zoom .dong { opacity:.4; }
+  #map .dong.on { fill-opacity:.1; }   /* 누른 동은 속이 비쳐 배경 지도(길·지명)가 보이게 */
   #map .dong.hot { opacity:1; transform:translateY(-1.5%) scale(1.03); filter:drop-shadow(0 6px 8px rgba(40,30,120,.35)); }
   #map .dong.on { opacity:1; stroke:var(--accent); stroke-width:2.5; }
   #map .dong:focus-visible { stroke:var(--text); stroke-width:3; }
@@ -142,11 +145,24 @@ const MW = 1000;
 let B, MH, VIEW, mapSel = null;
 function inRing(x, y, r) { let c = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) if ((r[i][1] > y) !== (r[j][1] > y) && x < (r[j][0] - r[i][0]) * (y - r[i][1]) / (r[j][1] - r[i][1]) + r[i][0]) c = !c; return c; }
 function dongOf(lat, lng) { const d = DONG.find(d => d.p.some(r => inRing(lng, lat, r))); return d ? d.n : null; }
-function P(lng, lat) { return [(lng - B.x0) * B.kx * B.s, (B.y1 - lat) * B.s]; }
+// 웹 지도(메르카토르) 좌표 — 배경 지도 타일과 동 경계가 정확히 겹치게. mx·my = 세계 0~1
+const mxOf = lng => (lng + 180) / 360, myOf = lat => { const s = Math.sin(lat * Math.PI / 180); return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI); };
+function P(lng, lat) { return [(mxOf(lng) - B.mx0) * B.W, (myOf(lat) - B.my0) * B.W]; }
+// 배경 지도: OpenStreetMap 기본 타일(CARTO 는 2026-10 기준 열쇠가 있어야 해서 'API KEY REQUIRED' 가 찍혔다).
+// 지금 보이는 범위·확대 정도에 맞는 타일만 깐다(화면 1px ≈ 타일 1px). 색은 CSS 로 눌러 앱 색과 맞춘다
+function tiles() {
+  const svg = document.getElementById('map'), g = document.getElementById('mapTiles'); if (!svg || !g) return;
+  const k = VIEW[2] / (svg.clientWidth || 1), z = Math.max(10, Math.min(18, Math.round(Math.log2(B.W / (256 * k))))), n = 2 ** z, sz = B.W / n;
+  const tx = v => Math.floor((v / B.W + B.mx0) * n), ty = v => Math.floor((v / B.W + B.my0) * n);
+  let h = '';
+  for (let x = tx(VIEW[0]); x <= tx(VIEW[0] + VIEW[2]); x++) for (let y = ty(VIEW[1]); y <= ty(VIEW[1] + VIEW[3]); y++)
+    h += '<image href="https://tile.openstreetmap.org/' + z + '/' + x + '/' + y + '.png" x="' + ((x / n - B.mx0) * B.W).toFixed(2) + '" y="' + ((y / n - B.my0) * B.W).toFixed(2) + '" width="' + (sz + 0.05).toFixed(3) + '" height="' + (sz + 0.05).toFixed(3) + '"/>';
+  g.innerHTML = h;
+}
 function mapData() {
   const all = DONG.flatMap(d => d.p.flat()), xs = all.map(p => p[0]), ys = all.map(p => p[1]);
-  B = { x0: Math.min(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
-  B.kx = Math.cos((B.y0 + B.y1) / 2 * Math.PI / 180); B.s = MW / ((Math.max(...xs) - B.x0) * B.kx); MH = (B.y1 - B.y0) * B.s;
+  B = { mx0: mxOf(Math.min(...xs)), my0: myOf(Math.max(...ys)) };
+  B.W = MW / (mxOf(Math.max(...xs)) - B.mx0); MH = (myOf(Math.min(...ys)) - B.my0) * B.W;
   const m12 = addDays(TODAY, -365), cx = {};   // 단지 키 'sgg|umd|apt' → { dong, xy, trades }
   T.forEach(t => {
     if (t[0] !== '41150' || t[6] < Y2) return;
@@ -175,7 +191,7 @@ function mapHtml() {
   return '<div class="card"><div class="mapbar"><h2 id="mapT" style="margin:0">의정부 동 지도</h2><button id="mapBack" hidden onclick="zoomTo(null)">← 의정부 전체</button></div>'
     + '<div class="sub" id="mapS" style="margin:4px 0 8px">' + mapHint() + '</div>'
     + (n < total ? '<div class="sub" style="margin-top:-4px">위치를 찾은 단지 ' + n + '/' + total + '곳' + (n ? '' : ' — 서버가 단지 위치를 찾는 중입니다(처음 한 번, 30분쯤)') + '</div>' : '')
-    + '<svg id="map" viewBox="0 0 ' + MW + ' ' + MH.toFixed(0) + '" role="group" aria-label="의정부 행정동 지도"></svg></div>';
+    + '<svg id="map" viewBox="0 0 ' + MW + ' ' + MH.toFixed(0) + '" role="group" aria-label="의정부 행정동 지도"></svg><div class="sub" style="margin:4px 0 0;text-align:right">배경 지도 © <a href="https://www.openstreetmap.org/copyright" style="color:inherit">OpenStreetMap</a> 기여자</div></div>';
 }
 function mapHint() { return '동에 마우스를 올리면 떠오르고, 누르면 그 동의 대장 단지가 나옵니다. 색이 진할수록 평당가(2년 중앙값)가 높습니다.'; }
 function initMap() {
@@ -183,11 +199,11 @@ function initMap() {
   const v = DONG.map(d => d.ppy).filter(x => x), lo = Math.min(...v), hi = Math.max(...v);
   const mix = t => 'rgb(' + [[236, 234, 254], [91, 91, 240]].reduce((a, b) => a.map((x, i) => Math.round(x + (b[i] - x) * t))) + ')';
   const path = d => d.p.map(r => 'M' + r.map(q => P(q[0], q[1]).map(x => x.toFixed(1)).join(',')).join('L') + 'Z').join('');
-  svg.innerHTML = '<g id="mapD">' + DONG.map((d, i) => { const t = d.ppy ? (d.ppy - lo) / ((hi - lo) || 1) : 0; d.t = t;
+  svg.innerHTML = '<g id="mapTiles"></g><g id="mapD">' + DONG.map((d, i) => { const t = d.ppy ? (d.ppy - lo) / ((hi - lo) || 1) : 0; d.t = t;
       return '<path class="dong" data-i="' + i + '" tabindex="0" role="button" aria-label="' + d.n + (d.ppy ? ' 평당 ' + Math.round(d.ppy).toLocaleString() + '만' : '') + '" d="' + path(d) + '" fill="' + (d.ppy ? mix(t) : '#f1f0f7') + '"/>'; }).join('') + '</g>'
     + '<g id="mapL">' + DONG.map(d => '<text class="lbl" x="' + d.c[0].toFixed(1) + '" y="' + d.c[1].toFixed(1) + '" font-size="15" fill="' + (d.t > .55 ? '#fff' : 'var(--text)') + '">' + d.n
       + (d.ppy ? '<tspan x="' + d.c[0].toFixed(1) + '" dy="17" font-weight="500" font-size="13">' + Math.round(d.ppy).toLocaleString() + '만</tspan>' : '') + '</text>').join('') + '</g><g id="mapC"></g>';
-  VIEW = [0, 0, MW, MH]; mapSel = null;
+  VIEW = [0, 0, MW, MH]; mapSel = null; tiles();
   const hot = el => { svg.querySelectorAll('.dong.hot').forEach(x => x.classList.remove('hot')); svg.classList.toggle('hov', !!el);
     if (!el) { document.getElementById('mapS').textContent = mapSel ? selHint(mapSel) : mapHint(); return; }
     el.classList.add('hot'); if (el.nextSibling) el.parentNode.appendChild(el);
@@ -214,7 +230,7 @@ function layout(d) {
     const top = (y1 + y2) / 2 - (n * bh + (n - 1) * gap) * k / 2;
     d.lead.slice().sort((a, b) => P(a.xy[1], a.xy[0])[1] - P(b.xy[1], b.xy[0])[1]).forEach((c, i) => box.push({ c: c, x: colX, y: top + i * (bh + gap) * k, w: bw * k, h: bh * k, ax: colX, ay: top + (i * (bh + gap) + bh / 2) * k }));
   } else {
-    const bh = 96, gap = 8, band = n * (bh + gap) + 24;
+    const bh = 112, gap = 8, band = n * (bh + gap) + 24;
     Vw = Math.max(w * 1.1, h * cw / (ch - band - 30)); k = Vw / cw;
     const Vh = Vw * ch / cw;
     view = [(x1 + x2) / 2 - Vw / 2, y1 - 15 * k - Math.max(0, Vh - h - (band + 30) * k) / 2, Vw, Vh];
@@ -249,6 +265,7 @@ function zoomTo(d) {
     VIEW = from.map((v, i) => v + (to[i] - v) * e);
     svg.setAttribute('viewBox', VIEW.map(x => x.toFixed(2)).join(' '));
     if (p < 1) return requestAnimationFrame(step);
+    tiles();
     if (!d) return;
     const k = L.k, ns = 'http://www.w3.org/2000/svg';
     if (!d.lead.length) { C.innerHTML = '<text x="' + d.c[0] + '" y="' + (d.bb[3] + 24 * k) + '" text-anchor="middle" font-size="' + 13 * k + '" fill="var(--text)">최근 1년 거래 ' + LEAD_MIN + '건 이상인 단지가 없습니다</text>'; return; }
