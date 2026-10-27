@@ -73,9 +73,10 @@ const API = 'https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKA
 const PY = 3.3058;   // ㎡ → 평
 // 알림 단지(Code.gs APT_WATCH 와 같게): 단지, 전용㎡ 범위, 이름
 const WATCH = [['신일유토빌플러스', 75.4, 75.7, '신일유토빌플러스 29평형'], ['서초한빛삼성', 99, 99.2, '서초한빛삼성 38평형']];
-// 동별 대장 단지 — 2026-10-27 사용자: 역이 아니라 동 기준. 최근 1년 거래 LEAD_MIN건 이상 단지 중 2년 평당 중앙값 상위 3
+// 동별 대장 단지 — 2026-10-27 사용자: 역이 아니라 동 기준. 최근 1년 거래 LEAD_MIN건 이상 단지 중 2년 평당 중앙값이
+// 그 동 1위의 LEAD_PCT 이상인 단지, 많아도 LEAD_MAX 곳(사용자 지정: 1위의 80%·5건·8곳)
 // 지도는 행정동 경계(apt_dong.json, vuski/admdongkor 2026-10 판 단순화)이고, 단지는 서버가 지번으로 찾은 좌표(xy)로 그 안에 넣는다
-const LEAD_MIN = 5;
+const LEAD_MIN = 5, LEAD_PCT = 0.8, LEAD_MAX = 8;
 let T = [], XY = {}, DONG = [], selUmd = '호원동';
 
 function won(p) { const e = Math.floor(p / 10000), r = p % 10000; return e ? e + '억' + (r ? ' ' + r.toLocaleString() : '') : r.toLocaleString() + '만'; }
@@ -140,7 +141,7 @@ function watchHtml() {
   }).join('');
 }
 
-// ② 동 지도: 올리면 그 동이 떠오르고, 누르면 확대돼 대장 단지(최근 1년 LEAD_MIN건↑ 중 2년 평당가 상위 3)에 지시선·말풍선
+// ② 동 지도: 올리면 그 동이 떠오르고, 누르면 확대돼 대장 단지(최근 1년 LEAD_MIN건↑ 중 평당가가 그 동 1위의 80%↑, 최대 8곳)에 지시선·말풍선
 const MW = 1000;
 let B, MH, VIEW, mapSel = null;
 function inRing(x, y, r) { let c = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) if ((r[i][1] > y) !== (r[j][1] > y) && x < (r[j][0] - r[i][0]) * (y - r[i][1]) / (r[j][1] - r[i][1]) + r[i][0]) c = !c; return c; }
@@ -175,7 +176,8 @@ function mapData() {
   DONG.forEach(d => {
     const cs = byDong[d.n] || [];
     d.ppy = med(cs.flatMap(c => c.tr.map(pyeong)));
-    d.cs = cs; d.lead = cs.filter(c => c.n1 >= LEAD_MIN).sort((a, b) => b.ppy - a.ppy).slice(0, 3);
+    const ok = cs.filter(c => c.n1 >= LEAD_MIN).sort((a, b) => b.ppy - a.ppy);
+    d.cs = cs; d.lead = ok.filter(c => c.ppy >= (ok[0] || c).ppy * LEAD_PCT).slice(0, LEAD_MAX);
     const r = d.p.reduce((a, b) => a.length > b.length ? a : b).map(q => P(q[0], q[1]));
     let A = 0, X = 0, Y = 0;
     r.forEach((q, i) => { const o = r[(i + 1) % r.length], f = q[0] * o[1] - o[0] * q[1]; A += f; X += (q[0] + o[0]) * f; Y += (q[1] + o[1]) * f; });
@@ -216,19 +218,23 @@ function initMap() {
     el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.dispatchEvent(new Event('click')); } });
   });
 }
-function selHint(d) { return d.n + ' 대장 단지 — 최근 1년 거래 ' + LEAD_MIN + '건 이상인 단지 중 평당가 상위 ' + d.lead.length + '곳. 3개월 = 가장 많이 팔린 평형의 최근 3개월 중앙값, 1년 대비 = 1년 전 같은 3개월과 비교'; }
+function selHint(d) { return d.n + ' 대장 단지 — 최근 1년 거래 ' + LEAD_MIN + '건 이상인 단지 중 평당가가 1위의 ' + LEAD_PCT * 100 + '% 이상인 ' + d.lead.length + '곳(많아도 ' + LEAD_MAX + '곳). 번호 = 평당가 순위. 3개월 = 가장 많이 팔린 평형의 최근 3개월 중앙값, 1년 대비 = 1년 전 같은 3개월과 비교'; }
 // 확대 화면 배치: 넓으면 동 오른쪽에 말풍선 세로 줄, 좁으면(폰) 동 아래에 쌓는다. k = 화면 1px 이 지도 몇 단위인가
 function layout(d) {
   const svg = document.getElementById('map'), cw = svg.clientWidth, ch = svg.clientHeight, wide = cw >= 640;
   const [x1, y1, x2, y2] = d.bb, w = x2 - x1, h = y2 - y1, n = Math.max(d.lead.length, 1);
   let Vw, k, view, box = [];
   if (wide) {
-    const bw = 250, bh = 112, gap = 10, need = 40 + bw + 60;   // 화면 px
-    Vw = Math.max(w / (1 - need / cw), (h / (1 - 60 / ch)) * cw / ch); k = Vw / cw;
-    const Vh = Vw * ch / cw, extra = Vw - (w + need * k), colX = x2 + 40 * k;
-    view = [x1 - 20 * k - extra / 2, (y1 + y2) / 2 - Vh / 2, Vw, Vh];
-    const top = (y1 + y2) / 2 - (n * bh + (n - 1) * gap) * k / 2;
-    d.lead.slice().sort((a, b) => P(a.xy[1], a.xy[0])[1] - P(b.xy[1], b.xy[0])[1]).forEach((c, i) => box.push({ c: c, x: colX, y: top + i * (bh + gap) * k, w: bw * k, h: bh * k, ax: colX, ay: top + (i * (bh + gap) + bh / 2) * k }));
+    // 4곳까지는 동 오른쪽 한 줄, 5곳부터는 왼쪽 점 → 왼쪽 줄·오른쪽 점 → 오른쪽 줄(한 줄 최대 4개)
+    const two = n > 4, bw = two ? 210 : 250, bh = 112, gap = 10, side = two ? 30 + bw + 20 : 40 + bw + 60;   // 화면 px
+    Vw = Math.max(w / (1 - (two ? 2 : 1) * side / cw), (h / (1 - 60 / ch)) * cw / ch); k = Vw / cw;
+    const Vh = Vw * ch / cw, extra = Vw - (w + (two ? 2 : 1) * side * k);
+    view = [x1 - (two ? side : 20) * k - extra / 2, (y1 + y2) / 2 - Vh / 2, Vw, Vh];
+    const byX = d.lead.slice().sort((a, b) => P(a.xy[1], a.xy[0])[0] - P(b.xy[1], b.xy[0])[0]), cut = two ? Math.floor(n / 2) : 0;
+    [[byX.slice(0, cut), 'L', x1 - 30 * k - bw * k], [byX.slice(cut), 'R', x2 + (two ? 30 : 40) * k]].forEach(([cs, sd, colX]) => {
+      const top = (y1 + y2) / 2 - (cs.length * bh + (cs.length - 1) * gap) * k / 2;
+      cs.sort((a, b) => P(a.xy[1], a.xy[0])[1] - P(b.xy[1], b.xy[0])[1]).forEach((c, i) => box.push({ c: c, sd: sd, x: colX, y: top + i * (bh + gap) * k, w: bw * k, h: bh * k, ax: sd === 'L' ? colX + bw * k : colX, ay: top + (i * (bh + gap) + bh / 2) * k }));
+    });
   } else {
     const bh = 112, gap = 8, band = n * (bh + gap) + 24;
     Vw = Math.max(w * 1.1, h * cw / (ch - band - 30)); k = Vw / cw;
@@ -236,7 +242,7 @@ function layout(d) {
     view = [(x1 + x2) / 2 - Vw / 2, y1 - 15 * k - Math.max(0, Vh - h - (band + 30) * k) / 2, Vw, Vh];
     const top = y2 + 15 * k;
     // 선은 왼쪽 여백(gx)을 따라 내려가 말풍선 옆으로 들어간다. 가장 아래 점 → 맨 위 말풍선·안쪽 여백 순이어야 선끼리 안 엇갈린다
-    d.lead.slice().sort((a, b) => P(b.xy[1], b.xy[0])[1] - P(a.xy[1], a.xy[0])[1]).forEach((c, i) => box.push({ c: c, x: view[0] + 20 * k, y: top + i * (bh + gap) * k, w: (cw - 32) * k, h: bh * k, gx: view[0] + (14 - 4 * i) * k, ax: view[0] + 20 * k, ay: top + (i * (bh + gap) + bh / 2) * k }));
+    d.lead.slice().sort((a, b) => P(b.xy[1], b.xy[0])[1] - P(a.xy[1], a.xy[0])[1]).forEach((c, i) => box.push({ c: c, x: view[0] + 20 * k, y: top + i * (bh + gap) * k, w: (cw - 32) * k, h: bh * k, gx: view[0] + (18 - 2 * i) * k, ax: view[0] + 20 * k, ay: top + (i * (bh + gap) + bh / 2) * k }));
   }
   return { view: view, box: box, k: k, wide: wide };
 }
@@ -258,6 +264,7 @@ function zoomTo(d) {
   document.getElementById('mapBack').hidden = !d;
   document.getElementById('mapT').textContent = d ? d.n + ' 대장 단지' : '의정부 동 지도';
   document.getElementById('mapS').textContent = d ? selHint(d) : mapHint();
+  svg.style.height = d && svg.clientWidth < 640 ? Math.max(560, d.lead.length * 120 + 300) + 'px' : '';   // 폰: 말풍선 수만큼 길게
   const L = d ? layout(d) : { view: [0, 0, MW, MH] };
   const from = VIEW.slice(), to = L.view, t0 = performance.now(), dur = matchMedia('(prefers-reduced-motion:reduce)').matches ? 0 : 450;
   const step = now => {
@@ -271,7 +278,7 @@ function zoomTo(d) {
     if (!d.lead.length) { C.innerHTML = '<text x="' + d.c[0] + '" y="' + (d.bb[3] + 24 * k) + '" text-anchor="middle" font-size="' + 13 * k + '" fill="var(--text)">최근 1년 거래 ' + LEAD_MIN + '건 이상인 단지가 없습니다</text>'; return; }
     C.innerHTML = L.box.map(b => {
       const i = d.lead.indexOf(b.c), [px, py] = P(b.c.xy[1], b.c.xy[0]);
-      const line = L.wide ? [[px, py], [b.ax - 24 * k, b.ay], [b.ax, b.ay]] : [[px, py], [b.gx, py], [b.gx, b.ay], [b.ax, b.ay]];
+      const line = L.wide ? [[px, py], [b.ax + (b.sd === 'L' ? 24 : -24) * k, b.ay], [b.ax, b.ay]] : [[px, py], [b.gx, py], [b.gx, b.ay], [b.ax, b.ay]];
       return '<g class="call"><polyline points="' + line.map(q => q.map(x => x.toFixed(2)).join(',')).join(' ') + '" fill="none" stroke="var(--text)" stroke-width="1.2" vector-effect="non-scaling-stroke"/>'
         + '<circle cx="' + px + '" cy="' + py + '" r="' + 6 * k + '" fill="var(--text)" stroke="#fff" stroke-width="2" vector-effect="non-scaling-stroke"/>'
         + '<text x="' + px + '" y="' + (py - 10 * k) + '" text-anchor="middle" font-size="' + 12 * k + '" font-weight="700" fill="var(--text)" paint-order="stroke" stroke="#fff" stroke-width="3" vector-effect="non-scaling-stroke">' + (i + 1) + '</text>'
