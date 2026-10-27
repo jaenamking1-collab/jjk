@@ -60,6 +60,7 @@
   #map .call { opacity:0; transition:opacity .25s ease .05s; } #map .call.in { opacity:1; }
   #map .call div { box-sizing:border-box; height:100%; background:#fff; border:1px solid var(--accent); border-radius:.8em; padding:.45em .7em; line-height:1.35; overflow:hidden; }
   #map .call b { font-size:1.08em; } #map .call .m { color:var(--text2); }
+  #map .call table.sz { width:100%; border-collapse:collapse; margin:.15em 0; } #map .call div > span, #map .call div > b:first-child { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } #map .call table.sz td { padding:0 .4em 0 0; border:0; white-space:nowrap; font-size:.95em; line-height:1.4; } #map .call table.sz b { font-size:1em; }
   .mapbar { display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:28px; }
   .mapbar button { font:inherit; font-size:13px; color:var(--accent); background:#eef1ff; border:0; border-radius:8px; padding:4px 10px; cursor:pointer; }
   @media (prefers-reduced-motion:reduce) { #map .dong, #map .call, #map .lbl { transition:none; } }
@@ -228,35 +229,46 @@ function layout(d) {
   let Vw, k, view, box = [];
   if (wide) {
     // 4곳까지는 동 오른쪽 한 줄, 5곳부터는 왼쪽 점 → 왼쪽 줄·오른쪽 점 → 오른쪽 줄(한 줄 최대 4개)
-    const two = n > 4, bw = two ? 210 : 250, bh = 112, gap = 10, side = two ? 30 + bw + 20 : 40 + bw + 60;   // 화면 px
+    const two = n > 4, bw = two ? 240 : 280, gap = 10, side = two ? 30 + bw + 20 : 40 + bw + 60;   // 화면 px
     Vw = Math.max(w / (1 - (two ? 2 : 1) * side / cw), (h / (1 - 60 / ch)) * cw / ch); k = Vw / cw;
     const Vh = Vw * ch / cw, extra = Vw - (w + (two ? 2 : 1) * side * k);
     view = [x1 - (two ? side : 20) * k - extra / 2, (y1 + y2) / 2 - Vh / 2, Vw, Vh];
     const byX = d.lead.slice().sort((a, b) => P(a.xy[1], a.xy[0])[0] - P(b.xy[1], b.xy[0])[0]), cut = two ? Math.floor(n / 2) : 0;
     [[byX.slice(0, cut), 'L', x1 - 30 * k - bw * k], [byX.slice(cut), 'R', x2 + (two ? 30 : 40) * k]].forEach(([cs, sd, colX]) => {
-      const top = (y1 + y2) / 2 - (cs.length * bh + (cs.length - 1) * gap) * k / 2;
-      cs.sort((a, b) => P(a.xy[1], a.xy[0])[1] - P(b.xy[1], b.xy[0])[1]).forEach((c, i) => box.push({ c: c, sd: sd, x: colX, y: top + i * (bh + gap) * k, w: bw * k, h: bh * k, ax: sd === 'L' ? colX + bw * k : colX, ay: top + (i * (bh + gap) + bh / 2) * k }));
+      let y = (y1 + y2) / 2 - (cs.reduce((s, c) => s + boxH(c), 0) + (cs.length - 1) * gap) * k / 2;
+      cs.sort((a, b) => P(a.xy[1], a.xy[0])[1] - P(b.xy[1], b.xy[0])[1]).forEach(c => { const bh = boxH(c); box.push({ c: c, sd: sd, x: colX, y: y, w: bw * k, h: bh * k, ax: sd === 'L' ? colX + bw * k : colX, ay: y + bh / 2 * k }); y += (bh + gap) * k; });
     });
   } else {
-    const bh = 112, gap = 8, band = n * (bh + gap) + 24;
+    const gap = 8, band = d.lead.reduce((s, c) => s + boxH(c) + gap, 0) + 24;
     Vw = Math.max(w * 1.1, h * cw / (ch - band - 30)); k = Vw / cw;
     const Vh = Vw * ch / cw;
     view = [(x1 + x2) / 2 - Vw / 2, y1 - 15 * k - Math.max(0, Vh - h - (band + 30) * k) / 2, Vw, Vh];
     const top = y2 + 15 * k;
     // 선은 왼쪽 여백(gx)을 따라 내려가 말풍선 옆으로 들어간다. 가장 아래 점 → 맨 위 말풍선·안쪽 여백 순이어야 선끼리 안 엇갈린다
-    d.lead.slice().sort((a, b) => P(b.xy[1], b.xy[0])[1] - P(a.xy[1], a.xy[0])[1]).forEach((c, i) => box.push({ c: c, x: view[0] + 20 * k, y: top + i * (bh + gap) * k, w: (cw - 32) * k, h: bh * k, gx: view[0] + (18 - 2 * i) * k, ax: view[0] + 20 * k, ay: top + (i * (bh + gap) + bh / 2) * k }));
+    let y = top;
+    d.lead.slice().sort((a, b) => P(b.xy[1], b.xy[0])[1] - P(a.xy[1], a.xy[0])[1]).forEach((c, i) => { const bh = boxH(c); box.push({ c: c, x: view[0] + 20 * k, y: y, w: (cw - 32) * k, h: bh * k, gx: view[0] + (18 - 2 * i) * k, ax: view[0] + 20 * k, ay: y + bh / 2 * k }); y += (bh + gap) * k; });
   }
   return { view: view, box: box, k: k, wide: wide };
 }
-function callHtml(c, i) {
-  const m3 = addDays(TODAY, -91), m15 = addDays(TODAY, -456), m12 = addDays(TODAY, -365), g = {};
+const SIZE_MAX = 4;   // 말풍선 한 개에 평형 줄 최대(2년 거래 많은 순)
+function sizes(c) {   // 전용면적(㎡ 반올림)별 거래 묶음, 작은 평형부터
+  if (c.sz) return c.sz;
+  const g = {};
   c.tr.forEach(t => (g[Math.round(t[4])] = g[Math.round(t[4])] || []).push(t));
-  const main = Object.values(g).sort((a, b) => b.filter(t => t[6] >= m12).length - a.filter(t => t[6] >= m12).length)[0];
-  const now = med(main.filter(t => t[6] >= m3).map(t => t[7])), ago = med(main.filter(t => t[6] >= m15 && t[6] < m12).map(t => t[7]));
-  const last = c.tr.slice().sort((a, b) => a[6] < b[6] ? 1 : -1)[0], area = med(main.map(t => t[4]));
-  return '<b>' + (i + 1) + '. ' + c.apt + '</b><br><span class="m">' + last[8] + '년 · 평당 ' + Math.round(c.ppy).toLocaleString() + '만 · 1년 ' + c.n1 + '건</span><br>'
-    + '전용 ' + area.toFixed(0) + '㎡(' + (area / PY).toFixed(0) + '평) 3개월 <b>' + (now ? won(Math.round(now)) : '–') + '</b> ' + pct(now, ago)
-    + '<br><span class="m">마지막 ' + last[6].slice(2) + ' ' + last[5] + '층 ' + won(last[7]) + '</span>';
+  return c.sz = Object.values(g).sort((a, b) => b.length - a.length).slice(0, SIZE_MAX).sort((a, b) => a[0][4] - b[0][4]);
+}
+function boxH(c) { return 40 + 19 * (2 + sizes(c).length); }   // 말풍선 높이(화면 px): 이름·설명·평형 줄·마지막 거래
+function callHtml(c, i) {
+  const m3 = addDays(TODAY, -91), m15 = addDays(TODAY, -456), m12 = addDays(TODAY, -365);
+  const last = c.tr.slice().sort((a, b) => a[6] < b[6] ? 1 : -1)[0];
+  const rows = sizes(c).map(g => {   // 평형마다 최근 3개월 중앙값과 1년 전 대비(3개월 거래가 없으면 그 평형 마지막 거래와 그 연월)
+    const area = med(g.map(t => t[4])), r3 = g.filter(t => t[6] >= m3), gl = g.slice().sort((a, b) => a[6] < b[6] ? 1 : -1)[0];
+    const now = r3.length ? med(r3.map(t => t[7])) : gl[7], ago = med(g.filter(t => t[6] >= m15 && t[6] < m12).map(t => t[7]));
+    return '<tr><td title="전용 ' + area.toFixed(1) + '㎡">전용 ' + (area / PY).toFixed(0) + '평</td><td><b>' + won(Math.round(now)) + '</b></td><td>' + (r3.length ? pct(now, ago) : '<span class="m">' + gl[6].slice(2, 7).replace('-', '.') + '</span>') + '</td><td class="m">' + g.length + '건</td></tr>';
+  }).join('');
+  return '<b>' + (i + 1) + '. ' + c.apt + '</b><span class="m">' + last[8] + '년 · 평당 ' + Math.round(c.ppy).toLocaleString() + '만 · 1년 ' + c.n1 + '건</span>'
+    + '<table class="sz">' + rows + '</table>'
+    + '<span class="m">마지막 ' + last[6].slice(2) + ' ' + Math.round(last[4] / PY) + '평 ' + last[5] + '층 ' + won(last[7]) + '</span>';
 }
 function zoomTo(d) {
   const svg = document.getElementById('map'), C = document.getElementById('mapC');
@@ -267,7 +279,12 @@ function zoomTo(d) {
   document.getElementById('mapBack').hidden = !d;
   document.getElementById('mapT').textContent = d ? d.n + ' 대장 단지' : '의정부 동 지도';
   document.getElementById('mapS').textContent = d ? selHint(d) : mapHint();
-  svg.style.height = d && svg.clientWidth < 640 ? Math.max(560, d.lead.length * 120 + 300) + 'px' : '';   // 폰: 말풍선 수만큼 길게
+  svg.style.height = '';
+  if (d) {   // 말풍선이 다 들어가게 지도를 길게(폰은 아래로 쌓고, PC 는 한 줄 최대 4개)
+    const hs = d.lead.map(boxH).sort((a, b) => b - a), wide = svg.clientWidth >= 640;
+    const need = wide ? hs.slice(0, d.lead.length > 4 ? Math.ceil(d.lead.length / 2) : d.lead.length).reduce((s, h) => s + h + 10, 60) : Math.max(560, hs.reduce((s, h) => s + h + 8, 300));
+    if (need > svg.clientHeight) svg.style.height = need + 'px';
+  }
   const L = d ? layout(d) : { view: [0, 0, MW, MH] };
   const from = VIEW.slice(), to = L.view, t0 = performance.now(), dur = matchMedia('(prefers-reduced-motion:reduce)').matches ? 0 : 450;
   const step = now => {
