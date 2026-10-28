@@ -5483,7 +5483,13 @@ function aptRefresh(arg) {
 // 트리거가 조용히 죽으면(이 프로젝트에서 세 번 있었다) 갱신 시각이 멈춘다 → 30시간 넘으면 텔레그램 한 번(keepWarm)
 function _aptStaleCheck() {
   const pr = PropertiesService.getScriptProperties(), at = pr.getProperty('APT_AT');
-  if (!at || Date.now() - new Date(at) < 30 * 36e5) { pr.deleteProperty('APT_STALE_SENT'); return; }
+  if (!at || Date.now() - new Date(at) < 26 * 36e5) { pr.deleteProperty('APT_STALE_SENT'); return; }
+  // 스스로 고친다(2026-10-28 07:40 갱신이 안 돌았다): 트리거가 없으면 다시 깔고, 여기서 직접 갱신해 본다
+  const trig = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'aptRefresh');
+  if (!trig) ScriptApp.newTrigger('aptRefresh').timeBased().atHour(7).nearMinute(40).everyDays(1).create();
+  try { const r = aptRefresh(); _fixLog('아파트 실거래 멈춤 → keepWarm 이 직접 갱신(새 ' + r.added + '건)' + (trig ? '' : ', 트리거 없어서 다시 깔음')); return; }
+  catch (e) { _fixLog('아파트 실거래 멈춤 → 직접 갱신도 실패 — ' + String(e).slice(0, 200)); }
+  if (Date.now() - new Date(at) < 30 * 36e5) return;
   if (pr.getProperty('APT_STALE_SENT') === at) return;
   pr.setProperty('APT_STALE_SENT', at);
   _sendTelegram('⚠ 아파트 실거래 갱신이 30시간 넘게 멈췄습니다(마지막 ' + Utilities.formatDate(new Date(at), 'Asia/Seoul', 'MM-dd HH:mm') + '). 트리거 확인 필요', APT_PAGE_URL);
