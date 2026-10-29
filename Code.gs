@@ -2680,16 +2680,31 @@ function _seibroDistItems(co) {
 // 그동안 TIGER 는 뉴스(smarttoday) 월중 기사 하나로 버텼고 10/28 월말 공시가 통째로 빠졌다.
 // SEIBRO 는 공시 당일에 월중·월말을 다 준다(10/29 확인: 기준일 10/30 미래에셋 88건).
 // SEIBRO 에 없는 분배율·공시일은 같은 종목·같은 기준일의 뉴스 값으로 채우고, 분배락일은 기준일 전 영업일.
+// ⚠️ SEIBRO 는 지급이 지난 회차를 일부만 남긴다(10/29: 10/15 기준 TIGER 10건, 뉴스엔 44건).
+// 그래서 회차마다 뉴스 쪽이 같은 기준일로 더 많이 갖고 있으면 그 회차는 뉴스 것을 쓴다.
+// 그래도 분배율이 없으면 네이버 ETF 목록의 NAV 로 계산한다(운용사 표는 기준일 전 기준가라 소수점 둘째 자리가 다를 수 있다).
 function _fetchDistTigerSeibro(force, siteErr) {
-  const items = _seibroDistItems('미래에셋').filter(it => /^TIGER/.test(it.name));
+  let items = _seibroDistItems('미래에셋').filter(it => /^TIGER/.test(it.name));
   if (!items.length) return { items: [] };
   let st = null;
   try { st = fetchDist_smarttoday(force)['tiger']; } catch(e) {}
   const md = s => { const m = String(s || '').match(/(\d{1,2})\D+(\d{1,2})/); return m ? Number(m[1]) + '/' + Number(m[2]) : ''; };
   const stSched = (st && st.schedule) || {};
+  const stItems = (st && st.items) || [];
+  ['월중', '월말'].forEach(c => {
+    const sei = items.filter(it => it.cycle === c), news = stItems.filter(x => x.cycle === c);
+    if (!sei.length || news.length <= sei.length) return;
+    if (md((news[0].sched || {})['기준일'] || stSched['기준일']) !== md(sei[0].sched['기준일'])) return;
+    items = items.filter(it => it.cycle !== c).concat(news.map(x => Object.assign({}, x, { sched: Object.assign({}, stSched, x.sched), _std: sei[0]._std })));
+  });
   const byT = {};
-  ((st && st.items) || []).forEach(x => { byT[x.ticker] = x; });
+  stItems.forEach(x => { byT[x.ticker] = x; });
+  let navs = null;
   items.forEach(it => {
+    if (it.rate == null && it.amount) {
+      if (!navs) { try { navs = getNavMap().navs || {}; } catch(e) { navs = {}; } }
+      if (navs[it.ticker]) it.rate = Math.round(it.amount / navs[it.ticker] * 10000) / 100;
+    }
     const x = byT[it.ticker], xs = (x && x.sched) || {};
     if (x && md(xs['기준일'] || stSched['기준일']) === md(it.sched['기준일'])) {
       if (x.rate != null) it.rate = x.rate;
