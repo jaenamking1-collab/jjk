@@ -2426,11 +2426,12 @@ function fetchDist_plus() {
       // 방어 2: 텍스트 표에서 못 얻으면 본문 이미지 OCR
       let dbg = 'n=' + entry.n + ' htmlLen=' + html.length + ' tbl=' + tables.length + ' out1=' + out.length;
       if (!out.length) {
-        const imgM = html.match(/<img[^>]+src=["'](https?:\/\/[^"']*\/upload\/[^"']+\.(?:png|jpg|jpeg|PNG|JPG))["']/i);
-        dbg += ' img=' + (imgM ? imgM[1].slice(-40) : 'NONE');
-        if (imgM) {
-          const ocrText = ocrImageText(imgM[1]);
-          dbg += ' ocr[' + _ocrDbg + ']';
+        // ⚠️ 그림이 여러 장일 수 있다. 2026-10-27 월말 공지는 1장=분배금 표, 2장=지급 일정으로 나뉘어
+        // 첫 장만 읽던 탓에 일정이 통째로 빠졌다(달력에 PLUS 대신 PLUS?). 전부 읽어 이어 붙인다.
+        const imgs = [...html.matchAll(/<img[^>]+src=["'](https?:\/\/[^"']*\/upload\/[^"']+\.(?:png|jpg|jpeg|PNG|JPG))["']/gi)].map(m => m[1]);
+        dbg += ' img=' + (imgs.length ? imgs.length + '장 ' + imgs[0].slice(-40) : 'NONE');
+        if (imgs.length) {
+          const ocrText = imgs.map(u => { const s = ocrImageText(u); dbg += ' ocr[' + _ocrDbg + ']'; return s || ''; }).join(' ').trim();
           if (ocrText) {
             usedOcr = true;
             plusOcrItems(ocrText, entry.cycle).forEach(it => out.push(it));
