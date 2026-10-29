@@ -3292,6 +3292,12 @@ function checkAndLogAlerts() {
       const noCyc = (result.items || []).filter(it => !it.cycle || it.cycle === '?').length;
       if (noCyc && _addAlert(logSheet, label, '파싱경고', `${label} 회차 미상 ${noCyc}건 — 월중/월말 분류 안 됨, 달력 누락 가능`, '경고', true))
         kakaoMsgs.push(`⚠️ ${label} 회차 미상 ${noCyc}건`);
+      // 공지는 읽었는데 기준일·지급일이 빈 항목 → 달력에 '?'(예정)로만 뜬다. 공지 모양이 바뀐 신호다
+      // (2026-10-27 PLUS 월말: 일정이 둘째 그림에 있어 못 읽었는데 아무 경고 없이 이틀을 갔다).
+      const noSched = (result.items || []).filter(it => !it.hist && (it.cycle === '월중' || it.cycle === '월말')
+        && (!(it.sched || {})['기준일'] || !(it.sched || {})['지급일'])).length;
+      if (noSched && _addAlert(logSheet, label, '파싱경고', `${label} 일정 빠짐 ${noSched}건 — 공지는 읽었는데 기준일·지급일 없음, 파서 점검`, '경고', true))
+        kakaoMsgs.push(`⚠️ ${label} 일정 빠짐 ${noSched}건 (파서 점검)`);
       if (fp.isOcr) _addAlert(logSheet, label, '파싱경고', `${label} 이미지 OCR로 처리됨 — 정확도 확인 권장`, '정보', true);
     }
 
