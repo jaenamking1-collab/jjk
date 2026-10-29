@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp', '_syncDivRates', '_fillPastDivFromApp', 'setKrwCost', 'aptRefresh', '_molitKeyOnce', '_diagApt', '_aptHistory', '_aptGeoBackfill'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_probeTiger', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp', '_syncDivRates', '_fillPastDivFromApp', 'setKrwCost', 'aptRefresh', '_molitKeyOnce', '_diagApt', '_aptHistory', '_aptGeoBackfill'
 ];
 
 function runMaint(name, arg) {
@@ -1051,6 +1051,17 @@ function seedLastNotices(only) {
   });
   const p = PropertiesService.getScriptProperties().getProperties();
   console.log(' | 저장된 곳: ' + DIST_SOURCE_IDS.filter(s => p['lastN_' + s]).join(', '));
+  return out;
+}
+
+// TIGER 목록을 구글 서버가 실제로 무엇으로 받는지 본다(runMaint 전용). 2026-10-29: 같은 요청이
+// 우리 PC 에선 20건 나오는데 서버에선 '0건' → 응답 코드·길이·앞부분을 찍어 차단 페이지인지 가린다.
+function _probeTiger() {
+  const fd = 'firstIndex=0&listCnt=20&pageIndex=1&detailsKey=&q=';
+  const r = UrlFetchApp.fetch('https://investments.miraeasset.com/tigeretf/ko/customer/notice/list.ajax', { method:'post', payload:fd, headers:{'Content-Type':'application/x-www-form-urlencoded','User-Agent':'Mozilla/5.0'}, muteHttpExceptions:true });
+  const html = r.getContentText('UTF-8');
+  const out = { code: r.getResponseCode(), len: html.length, li: html.split('<li').length - 1, head: html.slice(0, 400).replace(/\s+/g, ' ') };
+  console.log(' | ' + JSON.stringify(out));
   return out;
 }
 
