@@ -73,8 +73,8 @@
 const API = 'https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec';
 const PY = 3.3058;   // ㎡ → 평
 // 분양 평형(공급면적) 어림 — 국토부 자료엔 전용면적만 있다. 작은 집일수록 공용 비율이 커서 곱하기 하나로는 안 맞아
-// 공급 = 전용×1.16 + 9.5㎡ 로 59㎡=24·75.4㎡=29·84.9㎡=33·99㎡=38평형이 다 맞게 했다(2026-10-30 사용자: 59㎡는 24평형)
-function supPy(a) { return Math.round((a * 1.16 + 9.5) / PY); }
+// 공급 = 전용×1.16 + 9.8㎡ 로 59㎡=24·75.5㎡=29·84㎡=33·99㎡=38평형이 다 맞게 했다(2026-10-30 사용자: 59㎡는 24평형)
+function supPy(a) { return Math.round((a * 1.16 + 9.8) / PY); }
 // 알림 단지(Code.gs APT_WATCH 와 같게): 단지, 전용㎡ 범위, 이름
 const WATCH = [['신일유토빌플러스', 75.4, 75.7, '신일유토빌플러스 29평형'], ['서초한빛삼성', 99, 99.2, '서초한빛삼성 38평형']];
 // 동별 대장 단지 — 2026-10-27 사용자: 역이 아니라 동 기준. 최근 1년 거래 LEAD_MIN건 이상 단지 중 2년 평당 중앙값이
