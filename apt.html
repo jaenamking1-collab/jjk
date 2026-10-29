@@ -147,8 +147,18 @@ const MW = 1000;
 let B, MH, VIEW, mapSel = null;
 function inRing(x, y, r) { let c = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) if ((r[i][1] > y) !== (r[j][1] > y) && x < (r[j][0] - r[i][0]) * (y - r[i][1]) / (r[j][1] - r[i][1]) + r[i][0]) c = !c; return c; }
 function dongOf(lat, lng) { const d = DONG.find(d => d.p.some(r => inRing(lng, lat, r))); return d ? d.n : null; }
+// 경계선 20m 안쪽 단지는 단순화한 경계 탓에 옆 동에 잘못 들 수 있다(롯데캐슬골드파크1단지·동화: 법정동 의정부동인데 호원2동, 경계까지 15m).
+// 그 법정동 단지가 거의 없는 동(2곳↓)에 들었으면, 20m 안에 있는 그 법정동 단지가 많은(3곳↑) 동으로 옮긴다.
+function ringDist(x, y, r) { let b = 1e9; for (let i = 0, j = r.length - 1; i < r.length; j = i++) { const dx = r[i][0] - r[j][0], dy = r[i][1] - r[j][1], t = Math.max(0, Math.min(1, ((x - r[j][0]) * dx + (y - r[j][1]) * dy) / (dx * dx + dy * dy || 1))); b = Math.min(b, Math.hypot(x - r[j][0] - t * dx, y - r[j][1] - t * dy)); } return b * 90000; }   // 대략 m(의정부 위도)
+let _bdCnt = null;   // 법정동 → { 행정동: 단지 수 }
+function fixEdge(k, d) {
+  if (!_bdCnt) { _bdCnt = {}; for (const kk in XY) { const b = kk.split('|')[1], h = dongOf(XY[kk][0], XY[kk][1]); if (h) (_bdCnt[b] = _bdCnt[b] || {})[h] = (_bdCnt[b][h] || 0) + 1; } }
+  const c = _bdCnt[k.split('|')[1]] || {}; if (!d || c[d] > 2) return d;
+  const [lat, lng] = XY[k], near = DONG.filter(o => o.n !== d && (c[o.n] || 0) >= 3).map(o => ({ n: o.n, m: Math.min(...o.p.map(r => ringDist(lng, lat, r))) })).sort((a, b) => a.m - b.m)[0];
+  return near && near.m <= 20 ? near.n : d;
+}
 const _hd = {};   // 거래 → 지도와 같은 행정동(좌표 없는 단지는 null)
-function hdong(t) { const k = t[0] + '|' + t[1] + '|' + t[2]; if (!(k in _hd)) _hd[k] = XY[k] ? dongOf(XY[k][0], XY[k][1]) : null; return _hd[k]; }
+function hdong(t) { const k = t[0] + '|' + t[1] + '|' + t[2]; if (!(k in _hd)) _hd[k] = XY[k] ? fixEdge(k, dongOf(XY[k][0], XY[k][1])) : null; return _hd[k]; }
 // 웹 지도(메르카토르) 좌표 — 배경 지도 타일과 동 경계가 정확히 겹치게. mx·my = 세계 0~1
 const mxOf = lng => (lng + 180) / 360, myOf = lat => { const s = Math.sin(lat * Math.PI / 180); return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI); };
 function P(lng, lat) { return [(mxOf(lng) - B.mx0) * B.W, (myOf(lat) - B.my0) * B.W]; }
@@ -172,7 +182,7 @@ function mapData() {
     if (t[0] !== '41150' || t[6] < Y2) return;
     const k = t[0] + '|' + t[1] + '|' + t[2], xy = XY[k];
     if (!xy) return;
-    (cx[k] = cx[k] || { k: k, apt: t[2], xy: xy, dong: dongOf(xy[0], xy[1]), tr: [] }).tr.push(t);
+    (cx[k] = cx[k] || { k: k, apt: t[2], xy: xy, dong: hdong(t), tr: [] }).tr.push(t);
   });
   const byDong = {};
   Object.values(cx).forEach(c => { c.ppy = med(c.tr.map(pyeong)); c.n1 = c.tr.filter(t => t[6] >= m12).length; if (c.dong) (byDong[c.dong] = byDong[c.dong] || []).push(c); });
