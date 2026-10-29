@@ -849,6 +849,7 @@ function getEtfNotices(source) {
   if (cached) return JSON.parse(cached);
   try {
     let items = [];
+    let diag = '';   // '0건'일 때 상류가 무엇을 줬는지(응답 코드·길이) — 차단 페이지와 구조 변경을 가린다
     if (source === 'kodex') {
       const html = UrlFetchApp.fetch('https://www.samsungfund.com/etf/lounge/notice.do?category=DIVIDEND', { muteHttpExceptions: true }).getContentText('UTF-8');
       const matches = [...html.matchAll(/notice-view\.do\?no=(\d+)[^"]*"[^>]*>([\s\S]*?)<\/a>/g)];
@@ -893,7 +894,9 @@ function getEtfNotices(source) {
     } else if (source === 'tiger') {
       // 서버측 파싱(브라우저 CORS 회피). 공개 프록시가 이 액션을 중계한다.
       const fd = 'firstIndex=0&listCnt=20&pageIndex=1&detailsKey=&q=';
-      const html = UrlFetchApp.fetch('https://investments.miraeasset.com/tigeretf/ko/customer/notice/list.ajax', { method:'post', payload:fd, headers:{'Content-Type':'application/x-www-form-urlencoded','User-Agent':'Mozilla/5.0'}, muteHttpExceptions:true }).getContentText('UTF-8');
+      const res = UrlFetchApp.fetch('https://investments.miraeasset.com/tigeretf/ko/customer/notice/list.ajax', { method:'post', payload:fd, headers:{'Content-Type':'application/x-www-form-urlencoded','User-Agent':'Mozilla/5.0'}, muteHttpExceptions:true });
+      const html = res.getContentText('UTF-8');
+      diag = ' (HTTP ' + res.getResponseCode() + ', ' + html.length + '자, li ' + (html.split('<li').length - 1) + ', ' + html.slice(0, 120).replace(/\s+/g, ' ') + ')';
       html.split('<li').slice(1).forEach(b => {
         if (items.length >= NOTICE_MAX || !NOTICE_KEEP_RE.test(b)) return;
         const titleM = b.match(/class="txt"[^>]*>([\s\S]*?)<\//);
@@ -925,7 +928,7 @@ function getEtfNotices(source) {
         items.push({ title: txt.replace(date,'').trim(), date, url: 'https://www.plusetf.co.kr' + m[1] });
       }
     }
-    if (!items.length) return _noticeFallback(source, '0건');   // 상류는 응답했는데 못 읽은 경우
+    if (!items.length) return _noticeFallback(source, '0건' + diag);   // 상류는 응답했는데 못 읽은 경우
     const result = { success: true, items };
     cache.put(cacheKey, JSON.stringify(result), distCacheTtlSec()); // 0건은 캐시 안 함(일시 실패 장기 캐시 방지)
     _saveLastNotices(source, items);
