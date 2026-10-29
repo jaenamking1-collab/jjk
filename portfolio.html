@@ -5230,8 +5230,12 @@ function showDistOffline(list) {
   const cal = document.getElementById('distMasterCalendar');
   if (!cal) return;
   const off = (list || []).filter(c => c.data && c.data.offline && (c.data.items || []).length);
+  // 운용사 사이트를 못 읽어 대체 경로(예탁결제원·뉴스·블로그)로 채운 곳도 밝힌다. 데이터는 최신이라
+  // 'N곳 최신'에 묻혀 안 보였다(2026-10-29 TIGER: 미래에셋이 구글 서버를 막아 월말 공시가 하루 빠졌다).
+  const VIA = { seibro: '예탁결제원 자료', news: '뉴스 기사', blog: '운용사 블로그' };
+  const via = (list || []).filter(c => c.data && !c.data.offline && VIA[c.data._fallback] && (c.data.items || []).length);
   let b = document.getElementById('distOfflineBar');
-  if (!off.length) { if (b) b.remove(); return; }
+  if (!off.length && !via.length) { if (b) b.remove(); return; }
   if (!b) {
     b = document.createElement('div');
     b.id = 'distOfflineBar';
@@ -5239,8 +5243,11 @@ function showDistOffline(list) {
     cal.parentNode.insertBefore(b, cal);
   }
   const at = off.map(c => c.data.savedAt).filter(Boolean).sort().pop();
-  b.textContent = `⚠️ 서버 응답 없음 — ${off.map(c => c.name).join('·')}는 마지막으로 받은 일정입니다`
-    + (at ? ` (${at} 기준)` : '');
+  const lines = [];
+  if (off.length) lines.push(`⚠️ 서버 응답 없음 — ${off.map(c => c.name).join('·')}는 마지막으로 받은 일정입니다` + (at ? ` (${at} 기준)` : ''));
+  via.forEach(c => lines.push(`⚠️ ${c.name} 운용사 사이트 응답 없음 — ${VIA[c.data._fallback]}로 표시 중(공시일·분배율이 비거나 다를 수 있음)`));
+  b.textContent = lines.join('\n');
+  b.style.whiteSpace = 'pre-line';
 }
 
 // 백엔드가 **응답은 하는데 데이터가 멈춰 있는** 경우를 잡는다.
