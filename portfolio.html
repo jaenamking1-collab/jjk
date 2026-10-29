@@ -5818,7 +5818,7 @@ function renderMasterCalendar(allData) {
 }
 
 // 운용사 카드 하단 '특별 공지' 줄. 좌측 공지 패널이 쓰는 _noticeData를 그대로 재사용한다(새 데이터 소스 0).
-// 정기 월중·월말 회차는 위 표와 좌측 패널에 이미 있으니 빼고, **비정기 사건만** 최근 90일 최대 3건.
+// 정기 월중·월말 회차는 위 표와 좌측 패널에 이미 있으니 빼고, **비정기 사건만** 최근 30일 최대 3건(2026-10-29 90→30일: 효력이 끝난 9/2 TIGER 전환 안내가 두 달째 남아 있었다).
 // 제목 키워드로만 판정한다 — normalizeNoticeTitle의 cycle은 ACE 분기에서 특별 공지도 '월말'로 떨어진다.
 const NOTICE_COLOR = { kodex:'#2563eb', tiger:'#f97316', ace:'#059669', plus:'#7c3aed', rise:'#dc2626', sol:'#0891b2', hanaro:'#65a30d', kiwoom:'#db2777' };
 // ⚠️ 이 집합은 NOTICE_EVENT_RE 의 **상위집합**이어야 한다. 그래야 왼쪽 카드에서 빠진 공지가
@@ -5830,14 +5830,14 @@ function distIssueNotices(items, now) {
     .filter(n => {
       if (!DIST_ISSUE_RE.test(n.title || '')) return false;
       const m = String(n.date || '').match(/(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
-      return m ? (t - new Date(+m[1], +m[2] - 1, +m[3]).getTime()) < 90 * 86400000 : false;
+      return m ? (t - new Date(+m[1], +m[2] - 1, +m[3]).getTime()) < 30 * 86400000 : false;
     })
     .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
     .slice(0, 3);
 }
 // 🏢 운용사별 일정 패널 아래 '공지사항' 게시판. 좌측 공지 패널이 이미 받아둔 _noticeData를
 // 그대로 쓴다(새 데이터 소스 0). 정기 월중·월말 회차는 위 표·좌측 패널에 이미 있으니 빼고,
-// 특별분배·정정·상장폐지 같은 **비정기 건만** 6개사를 합쳐 최근 90일 최대 5건, 최신순.
+// 특별분배·정정·상장폐지 같은 **비정기 건만** 6개사를 합쳐 최근 30일 최대 5건, 최신순.
 // 비어 있어도 틀은 남긴다 — 안 그리면 자리가 있는지조차 화면에서 확인이 안 된다.
 function renderNoticeBoard() {
   const box = document.getElementById('distNoticeBoard');
