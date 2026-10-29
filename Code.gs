@@ -1337,12 +1337,16 @@ function attachDistHistory(source, payload, rows) {
     const out = base;
     const keyOf = (it, sched) => (it.ticker || it.name) + '|' + (it.cycle || '') + '|' + ((sched || {})['기준일'] || '');
     const seen = new Set(out.items.map(it => keyOf(it, it.sched)));
+    // 같은 공지(공시일)를 일정 없이 읽었던 옛 캐시 행은 지난 회차가 아니다 — 기준일만 달라 위 키를 빠져나가
+    // 같은 종목이 한 벌 더 붙었다(2026-10-29 PLUS 월말 22건).
+    const pubKey = (it, sched) => (it.ticker || it.name) + '|' + (it.cycle || '') + '|' + ((sched || {})['공시일'] || '');
+    const seenPub = new Set(out.items.map(it => pubKey(it, it.sched)));
     hist.slice(0, 2).forEach(h => {
       let p; try { p = JSON.parse(h.raw); } catch(e) { return; }
       (p.items || []).forEach(it => {
         const sched = (it.sched && Object.keys(it.sched).length) ? it.sched : (p.schedule || {});
         const key = keyOf(it, sched);
-        if (seen.has(key)) return;
+        if (seen.has(key) || (sched['공시일'] && seenPub.has(pubKey(it, sched)))) return;
         seen.add(key);
         const copy = JSON.parse(JSON.stringify(it));
         copy.sched = sched;
