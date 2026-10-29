@@ -1186,7 +1186,8 @@ function renderFreshness(all){
   const limitH = ((_d >= 8 && _d <= 16) || _d >= 23) ? 6 : 30;
   // 운용사 사이트를 못 읽어 대체 자료로 채운 곳 — 데이터 시각은 최신이라 'N곳 최신'에 묻혀 안 보였다
   // (2026-10-29 TIGER: 미래에셋이 막아 10/28 월말 공시가 하루 빠졌는데 화면은 '8곳 최신'이었다).
-  const VIA = { seibro: '예탁결제원 자료', news: '뉴스 기사', blog: '운용사 블로그' };
+  // RISE 'blog' 는 운용사 공식 블로그라 대체 자료로 치지 않는다(공시일도 채워진다).
+  const VIA = { seibro: '예탁결제원 자료', news: '뉴스 기사' };
   const via = has.filter(c => !c.data.offline && VIA[c.data._fallback]);
   el.textContent = `· 데이터 ${t}${t ? ' 기준' : ''}`
     + (staleH >= limitH ? ` · 🚨 ${staleH}시간째 갱신 안 됨`
