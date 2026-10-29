@@ -1141,8 +1141,12 @@ function getDistribution(source, force) {
     if (source === 'tiger') {
       result = fetchDist_tiger();
       if (!result || !result.items || !result.items.length) {
+        const siteErr = (result && result.error) || 'TIGER 자사 파서 empty';
+        try { result = _fetchDistTigerSeibro(force, siteErr); } catch(e) { console.log('TIGER SEIBRO 실패: ' + e); result = null; }
+        if (result && result.items && result.items.length) return finishDist(source, result, cache, cacheKey);
         const all = fetchDist_smarttoday(force);
         result = all[source] || { items: [], error: 'TIGER 양쪽 실패' };
+        if (result.items && result.items.length) { result._fallback = 'news'; result._siteError = siteErr; }
       }
       return finishDist(source, result, cache, cacheKey);
     }
@@ -2670,6 +2674,37 @@ function _seibroDistItems(co) {
     });
   });
   return out;
+}
+
+// 미래에셋 사이트가 2026-10-27 저녁부터 구글 서버 요청을 403 으로 막는다(국내 PC 에선 200).
+// 그동안 TIGER 는 뉴스(smarttoday) 월중 기사 하나로 버텼고 10/28 월말 공시가 통째로 빠졌다.
+// SEIBRO 는 공시 당일에 월중·월말을 다 준다(10/29 확인: 기준일 10/30 미래에셋 88건).
+// SEIBRO 에 없는 분배율·공시일은 같은 종목·같은 기준일의 뉴스 값으로 채우고, 분배락일은 기준일 전 영업일.
+function _fetchDistTigerSeibro(force, siteErr) {
+  const items = _seibroDistItems('미래에셋').filter(it => /^TIGER/.test(it.name));
+  if (!items.length) return { items: [] };
+  let st = null;
+  try { st = fetchDist_smarttoday(force)['tiger']; } catch(e) {}
+  const md = s => { const m = String(s || '').match(/(\d{1,2})\D+(\d{1,2})/); return m ? Number(m[1]) + '/' + Number(m[2]) : ''; };
+  const stSched = (st && st.schedule) || {};
+  const byT = {};
+  ((st && st.items) || []).forEach(x => { byT[x.ticker] = x; });
+  items.forEach(it => {
+    const x = byT[it.ticker], xs = (x && x.sched) || {};
+    if (x && md(xs['기준일'] || stSched['기준일']) === md(it.sched['기준일'])) {
+      if (x.rate != null) it.rate = x.rate;
+      ['공시일', '분배락일'].forEach(k => { const v = xs[k] || stSched[k]; if (v) it.sched[k] = v; });
+    }
+    if (!it.sched['분배락일']) {
+      const d = new Date(Number(it._std.slice(0, 4)), Number(it._std.slice(4, 6)) - 1, Number(it._std.slice(6, 8)));
+      do { d.setDate(d.getDate() - 1); } while (_isOffDay(d));
+      it.sched['분배락일'] = (d.getMonth() + 1) + '월 ' + d.getDate() + '일';
+    }
+  });
+  const latest = items.reduce((a, b) => (b._std > a._std ? b : a));
+  items.forEach(it => delete it._std);
+  return { success: true, items, schedule: latest.sched, title: 'TIGER 분배금 (예탁결제원 SEIBRO — 미래에셋 사이트 접속 실패)',
+           _fallback: 'seibro', _siteError: siteErr };
 }
 
 // SEIBRO 분배금지급현황 원본 행. 기준일이 오늘-back ~ 오늘+fwd 일 사이. 30건씩 쪽을 넘긴다.
