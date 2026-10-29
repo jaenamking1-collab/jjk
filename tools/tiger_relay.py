@@ -1,4 +1,5 @@
-# TIGER 공지 목록 중계 — 집·학교 PC 의 작업 스케줄러가 하루 2회 돈다(tiger_relay_setup.bat).
+# TIGER 공지 목록 중계 — 집·학교 PC 의 작업 스케줄러가 평일 9~18시 1시간마다 깨운다(tiger_relay_setup.bat).
+# 깨워도 대부분은 서버만 보고 끝난다: 다른 운용사 공지가 TIGER 보다 앞설 때만 미래에셋을 연다(need_fetch).
 #
 # 왜: 미래에셋 사이트가 2026-10-27 저녁부터 구글 서버(Apps Script) 요청을 403 으로 막는다.
 # 금액·날짜는 예탁결제원(SEIBRO)으로 받지만 공시일과 공지 제목·링크는 미래에셋에만 있다.
@@ -21,13 +22,28 @@ def log(msg):
         f.write(datetime.now(KST).strftime('%Y-%m-%d %H:%M ') + msg + '\n')
 
 
-def server_ok():
+def ymd(s):
+    m = re.search(r'(\d{4})\.(\d{2})\.(\d{2})', str(s or ''))
+    return m.group(1) + m.group(2) + m.group(3) if m else ''
+
+
+def need_fetch():
+    """미래에셋을 열어야 하나? — 다른 운용사 분배 공지가 TIGER 최신 공지보다 새로 나왔을 때만.
+    날짜를 정해 두는 것보다 낫다: 공시는 운용사들이 거의 같은 날(27·28일) 내니, 남들이 냈는데
+    TIGER 만 없으면 그때 확인하고, TIGER 가 따라잡으면 다음 회차까지 미래에셋을 열지 않는다."""
+    d = json.load(urllib.request.urlopen(API + '?action=getEtfNoticesAll', timeout=120))['sources']
+    t = d.get('tiger') or {}
+    if t.get('items') and not t.get('stale') and not t.get('fallback') and not t.get('relay'):
+        return False, '서버가 TIGER 를 직접 읽고 있음'
+    tiger_last = max([ymd(n.get('date')) for n in t.get('items') or []] + [''])
     try:
-        d = json.load(urllib.request.urlopen(API + '?action=getEtfNotices&source=tiger', timeout=120))
-        return bool(d.get('items')) and not d.get('fallback') and not d.get('relay')
-    except Exception as e:
-        log('서버 확인 실패(그래도 받는다): %s' % e)
-        return False
+        tiger_last = max([tiger_last] + [ymd(n.get('date')) for n in json.load(open(OUT, encoding='utf-8')).get('items', [])])
+    except Exception:
+        pass
+    others = max([ymd(n.get('date')) for k, v in d.items() if k != 'tiger' for n in (v.get('items') or []) if '분배' in (n.get('title') or '')] + [''])
+    if others <= tiger_last:
+        return False, '다른 운용사 새 공지 없음(다른 곳 %s, TIGER %s)' % (others, tiger_last)
+    return True, '다른 운용사 공지 %s > TIGER %s' % (others, tiger_last)
 
 
 def fetch_list():
@@ -50,9 +66,11 @@ def fetch_list():
 
 
 def main():
-    if '--force' not in sys.argv and server_ok():
-        log('서버가 TIGER 를 직접 읽고 있음 — 할 일 없음')
-        return
+    if '--force' not in sys.argv:
+        go, why = need_fetch()
+        if not go:
+            return   # 1시간마다 도니 '할 일 없음'은 로그에 안 남긴다
+        log(why + ' — 미래에셋 확인')
     items = fetch_list()
     if not items:
         log('목록 0건 — 올리지 않음')
