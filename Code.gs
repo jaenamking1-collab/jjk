@@ -2701,21 +2701,47 @@ function _fetchDistTigerSeibro(force, siteErr) {
   });
   const byT = {};
   stItems.forEach(x => { byT[x.ticker] = x; });
+  // 분배캐시의 지난 저장분(사이트·뉴스로 읽던 때)에서 같은 종목·같은 기준일의 공시일·분배율을 잇는다 —
+  // 뉴스 조회가 실패하거나 지난 회차 기사가 내려가도 10/13 같은 공시일을 잃지 않게.
+  const past = {};
+  try {
+    _distCacheSheet().getDataRange().getValues().forEach(r => {
+      if (r[0] !== 'tiger') return;
+      let p; try { p = JSON.parse(r[1]); } catch(e) { return; }
+      if (p._fallback === 'seibro') return;   // 이 함수가 쓴 행(분배율이 NAV 추정)은 원본이 아니다
+      (p.items || []).forEach(x => {
+        const s = Object.assign({}, p.schedule || {}, x.sched || {});
+        const k = x.ticker + '|' + md(s['기준일']);
+        if (!x.ticker || !md(s['기준일'])) return;
+        const v = past[k] || (past[k] = {});
+        if (v.rate == null && x.rate != null) v.rate = x.rate;
+        if (!v.pub && s['공시일']) v.pub = s['공시일'];
+      });
+    });
+  } catch(e) {}
   let navs = null;
   items.forEach(it => {
+    // TIGER 사이트·뉴스는 '10/30' 으로 적는다. 형식이 다르면 attachDistHistory 의 중복 판정(기준일 문자열)을
+    // 빠져나가 같은 종목이 지난 회차로 한 벌 더 붙는다(10/29 실측: 월중 10건 중복).
+    ['기준일', '지급일', '분배락일'].forEach(k => { if (it.sched[k]) it.sched[k] = md(it.sched[k]); });
+    const x = byT[it.ticker], xs = (x && x.sched) || {};
+    if (x && md(xs['기준일'] || stSched['기준일']) === it.sched['기준일']) {
+      if (x.rate != null) it.rate = x.rate;
+      ['공시일', '분배락일'].forEach(k => { const v = xs[k] || stSched[k]; if (v) it.sched[k] = v; });
+    }
+    const pv = past[it.ticker + '|' + it.sched['기준일']];
+    if (pv) {
+      if (it.rate == null && pv.rate != null) it.rate = pv.rate;
+      if (!it.sched['공시일'] && pv.pub) it.sched['공시일'] = pv.pub;
+    }
     if (it.rate == null && it.amount) {
       if (!navs) { try { navs = getNavMap().navs || {}; } catch(e) { navs = {}; } }
       if (navs[it.ticker]) it.rate = Math.round(it.amount / navs[it.ticker] * 10000) / 100;
     }
-    const x = byT[it.ticker], xs = (x && x.sched) || {};
-    if (x && md(xs['기준일'] || stSched['기준일']) === md(it.sched['기준일'])) {
-      if (x.rate != null) it.rate = x.rate;
-      ['공시일', '분배락일'].forEach(k => { const v = xs[k] || stSched[k]; if (v) it.sched[k] = v; });
-    }
     if (!it.sched['분배락일']) {
       const d = new Date(Number(it._std.slice(0, 4)), Number(it._std.slice(4, 6)) - 1, Number(it._std.slice(6, 8)));
       do { d.setDate(d.getDate() - 1); } while (_isOffDay(d));
-      it.sched['분배락일'] = (d.getMonth() + 1) + '월 ' + d.getDate() + '일';
+      it.sched['분배락일'] = (d.getMonth() + 1) + '/' + d.getDate();
     }
   });
   const latest = items.reduce((a, b) => (b._std > a._std ? b : a));
