@@ -2358,6 +2358,25 @@ function plusOcrItems(ocrText, cycle) {
   return out;
 }
 
+// PLUS 일정: '3. 세부 내용' 표의 요일 붙은 날짜는 늘 분배락전일·분배락일·지급기준일·지급일 네 개다.
+// OCR 이 표를 줄이 아니라 칸 단위로 읽으면 라벨 바로 앞 날짜가 엉뚱해진다(2026-10-27: 기준일이 11/3 으로
+// 읽힘, 실제 10/30). 라벨 위치 대신 **날짜순**으로 넣는다. 네 개가 안 나오면 예전 방식으로.
+function plusOcrSched(ocrText) {
+  const t = String(ocrText || '').replace(/\s+/g, ' ');
+  const tail = t.slice(Math.max(0, t.lastIndexOf('세부')));
+  const seen = {}, ds = [];
+  for (const m of tail.matchAll(/(\d{1,2})[.\/](\d{1,2})\s*\(\s*[월화수목금토일]\s*\)/g)) {
+    const mo = +m[1], d = +m[2];
+    if (mo < 1 || mo > 12 || d < 1 || d > 31 || seen[mo + '.' + d]) continue;
+    seen[mo + '.' + d] = 1; ds.push({ mo, d });
+  }
+  if (ds.length !== 4) return parseScheduleFromOcr(ocrText);
+  const wrap = Math.max(...ds.map(x => x.mo)) - Math.min(...ds.map(x => x.mo)) > 6;   // 12월→1월
+  ds.sort((a, b) => ((wrap && a.mo < 6 ? a.mo + 12 : a.mo) * 100 + a.d) - ((wrap && b.mo < 6 ? b.mo + 12 : b.mo) * 100 + b.d));
+  const f = x => x.mo + '월 ' + x.d + '일';
+  return { '분배락일': f(ds[1]), '기준일': f(ds[2]), '지급일': f(ds[3]) };
+}
+
 function fetchDist_plus() {
   // PLUS 사이트는 정상인데도(curl 0.2초) Apps Script에서 간헐적으로 Timeout이 난다.
   // 목록·상세 어느 쪽이 죽어도 6월짜리 뉴스 폴백으로 밀리므로 둘 다 재시도한다.
@@ -2436,7 +2455,7 @@ function fetchDist_plus() {
             usedOcr = true;
             plusOcrItems(ocrText, entry.cycle).forEach(it => out.push(it));
             // 일정도 같은 OCR 텍스트에서 시도
-            const ocrSched = parseScheduleFromOcr(ocrText);
+            const ocrSched = plusOcrSched(ocrText);
             if (ocrSched['기준일'] || ocrSched['지급일']) {
               // 공시일은 게시일(등록일)이 정확하므로 OCR로 안 덮는다(OCR 오독 방지).
               if (ocrSched['분배락일']) sched['분배락일'] = ocrSched['분배락일'];
