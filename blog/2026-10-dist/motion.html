@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<title>분배금 달력 모션</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/static/pretendard.css">
+<style>
+:root{--bg:#f4f7ff;--bg2:#fff;--bg3:#eef3ff;--border:#e3ddf3;--text:#1a1330;--text2:#4b5563;--text3:#9ca3af;--accent:#5b5bf0;
+--kodex:#2563eb;--tiger:#f97316;--ace:#059669;--plus:#7c3aed;--rise:#dc2626;--sol:#0891b2;--hanaro:#65a30d;--kiwoom:#db2777;}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1920px;height:1080px;overflow:hidden;background:var(--bg)}
+body{font-family:'Pretendard',sans-serif;color:var(--text);position:relative;
+ background:radial-gradient(1200px 700px at 10% 0%,#fde7f3 0%,transparent 60%),radial-gradient(1200px 800px at 100% 100%,#e0f2fe 0%,transparent 60%),var(--bg)}
+.abs{position:absolute}
+/* 장면 A */
+#hook{left:0;top:0;width:1920px;height:1080px;display:flex;flex-direction:column;justify-content:center;padding-left:200px;gap:18px}
+#hook div{font-weight:800;letter-spacing:-2px;line-height:1.15}
+#h1{font-size:72px;color:var(--accent)}
+#h2,#h3,#h4{font-size:104px}
+#h3 em{font-style:normal;color:var(--rise)}
+/* 달력 */
+#title{left:0;width:1920px;top:70px;text-align:center;font-size:52px;font-weight:800;letter-spacing:-1.5px}
+#title b{color:var(--accent)}
+#cal{left:160px;top:180px;width:1600px;background:rgba(255,255,255,.85);border:2px solid var(--border);border-radius:28px;padding:30px 32px 34px;box-shadow:0 30px 80px rgba(60,40,140,.12)}
+#cal .hd{display:flex;align-items:center;gap:14px;font-size:30px;font-weight:700;color:#4c3fb0;margin-bottom:20px}
+.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:14px}
+.wd{background:#4f46e5;color:#fff;font-weight:800;font-size:30px;text-align:center;border-radius:12px;padding:12px 0}
+.cell{position:relative;background:#f4f5ff;border:2px solid #e6e3f5;border-radius:16px;height:300px;padding:16px 16px 14px;display:flex;flex-direction:column}
+.cell.empty{background:#fafbff}
+.cell .d{font-size:34px;font-weight:800}
+.cell.empty .d{font-weight:500;color:#555}
+.chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;margin-top:14px}
+.chip{font-size:21px;font-weight:800;color:#fff;border-radius:7px;padding:5px 0;width:118px;text-align:center}
+.chip.q{background:#cbd5e1!important;color:#475569}
+.lab{margin-top:auto;text-align:center;font-size:25px;font-weight:800;border-radius:9px;padding:6px 0}
+.lab.gong{background:#f7ece4;color:#8a4b1d}.lab.rak{background:#d9f3ea;color:#047857}.lab.gi{background:#e0e9ff;color:#1d4ed8}.lab.ji{background:#fde4ea;color:#be123c}
+.ring{position:absolute;inset:-8px;border-radius:22px;border:6px solid var(--accent);box-shadow:0 0 0 10px rgba(91,91,240,.18),0 0 50px rgba(91,91,240,.45);opacity:0}
+/* 말풍선 */
+.bub{position:absolute;background:#1a1330;color:#fff;border-radius:22px;padding:24px 34px;box-shadow:0 20px 50px rgba(0,0,0,.25);opacity:0;white-space:nowrap}
+.bub .n{display:inline-block;width:54px;height:54px;line-height:54px;border-radius:50%;background:var(--accent);text-align:center;font-weight:800;font-size:32px;margin-right:16px;vertical-align:middle}
+.bub .t{font-size:46px;font-weight:800;vertical-align:middle;letter-spacing:-1px}
+.bub .s{font-size:28px;color:#c7c2e6;margin-top:10px;padding-left:70px}
+svg#lines{left:0;top:0;width:1920px;height:1080px;pointer-events:none}
+/* 금액 */
+#amt{left:0;top:0;width:1920px;height:1080px;display:flex;flex-direction:column;align-items:center;justify-content:center;opacity:0}
+#amt .card{background:#fff;border:2px solid var(--border);border-radius:36px;padding:60px 100px;text-align:center;box-shadow:0 30px 80px rgba(60,40,140,.14)}
+#amt .tk{display:inline-block;background:var(--kodex);color:#fff;font-weight:800;font-size:28px;border-radius:10px;padding:6px 16px}
+#amt .nm{font-size:50px;font-weight:800;margin-top:20px;letter-spacing:-1.5px}
+#amt .per{font-size:36px;color:var(--text2);margin-top:40px;font-weight:600}
+#amt .big{font-size:200px;font-weight:900;color:var(--rise);letter-spacing:-6px;line-height:1.05;font-variant-numeric:tabular-nums}
+#amt .big small{font-size:90px;margin-left:8px}
+#amt .meta{font-size:32px;color:var(--text2);margin-top:16px}
+#amt .ex{font-size:38px;font-weight:800;margin-top:34px;color:#4c3fb0}
+#amt .note{font-size:22px;color:var(--text3);margin-top:26px}
+/* 끝 */
+#end{left:0;top:0;width:1920px;height:1080px;display:flex;flex-direction:column;align-items:center;justify-content:center;opacity:0}
+#end .k{font-size:44px;font-weight:700;color:var(--text2)}
+#end .ttl{font-size:150px;font-weight:900;letter-spacing:-5px;background:linear-gradient(90deg,#db2777,#7c3aed,#2563eb);-webkit-background-clip:text;color:transparent;margin-top:10px}
+#end .url{margin-top:40px;font-size:52px;font-weight:800;background:#1a1330;color:#fff;border-radius:999px;padding:22px 56px;letter-spacing:-.5px}
+#end .tags{margin-top:44px;display:flex;gap:16px}
+#end .tags span{font-size:32px;font-weight:700;background:#fff;border:2px solid var(--border);border-radius:999px;padding:12px 30px}
+</style></head><body>
+
+<div id="hook" class="abs">
+  <div id="h1">월배당 ETF,</div>
+  <div id="h2">언제 나오고</div>
+  <div id="h3"><em>언제까지</em> 사야 할까?</div>
+  <div id="h4">얼마 나올까?</div>
+</div>
+
+<div id="title" class="abs"><b>운용사 8곳</b> 분배 일정을 달력 하나로</div>
+<div id="cal" class="abs">
+  <div class="hd">📅 분배 일정 달력 <span style="font-size:24px;color:#8b84b8;font-weight:600">· 2026년 10월 말</span></div>
+  <div class="grid" id="g">
+    <div class="wd">월</div><div class="wd">화</div><div class="wd">수</div><div class="wd">목</div><div class="wd">금</div>
+  </div>
+</div>
+<svg id="lines" class="abs"></svg>
+<div class="bub" id="b1"><span class="n">1</span><span class="t">10/28(수)까지 사면 받아요</span><div class="s">10월 월말 분배 · 분배락일(10/29) 전날까지 매수</div></div>
+<div class="bub" id="b2"><span class="n">2</span><span class="t">10/29(목) 분배락일</span><div class="s">이날부터 사면 이번 달 분배금은 없어요</div></div>
+<div class="bub" id="b3"><span class="n">3</span><span class="t">11/3(화) 계좌로 입금</span><div class="s">월말 지급일</div></div>
+
+<div id="amt" class="abs"><div class="card">
+  <span class="tk">KODEX · 483290</span>
+  <div class="nm">KODEX 미국배당다우존스타겟커버드콜</div>
+  <div class="per">10월 1주당 분배금</div>
+  <div class="big"><span id="num">0</span><small>원</small></div>
+  <div class="meta">분배율 0.95% · 지난달 99원</div>
+  <div class="ex" id="ex">100주면 9,600원 (세전)</div>
+  <div class="note">예시 종목이며 투자 권유가 아닙니다</div>
+</div></div>
+
+<div id="end" class="abs">
+  <div class="k">언제 · 언제까지 · 얼마, 한눈에</div>
+  <div class="ttl">ETF 분배금 공지</div>
+  <div class="url">jjk.distributionjn.workers.dev</div>
+  <div class="tags"><span>운용사 8곳</span><span>공지 자동 수집</span><span>무료</span></div>
+</div>
+
+<script>
+const C={K:'kodex',T:'tiger',A:'ace',P:'plus',R:'rise',S:'sol',H:'hanaro',W:'kiwoom'};
+const NM={kodex:'KODEX',tiger:'TIGER',ace:'ACE',plus:'PLUS',rise:'RISE',sol:'SOL',hanaro:'HANARO',kiwoom:'KIWOOM'};
+// 2026-10-29 공개 페이지 달력 그대로 (T? = 공지 전 예상)
+const DAYS=[
+ ['10/26',[],null],['10/27',['K','P','R'],['gong','공시일']],['10/28',['A','S','H','W'],['gong','공시일']],
+ ['10/29',['K','T?','A','P','R','S','H','W'],['rak','분배락일']],['10/30',['K','T?','A','P','R','S','H','W'],['gi','기준일']],
+ ['11/2',['S'],['ji','월말 지급일']],['11/3',['K','T?','A','P','R','H','W'],['ji','월말 지급일']],['11/4',[],null],['11/5',[],null],['11/6',[],null]];
+const g=document.getElementById('g'); const cells={}; const chipEls=[];
+DAYS.forEach(([d,ch,lab],i)=>{
+  const c=document.createElement('div'); c.className='cell'+(ch.length?'':' empty');
+  c.innerHTML=`<div class="d">${d}</div><div class="chips"></div>`+(lab?`<div class="lab ${lab[0]}">${lab[1]}</div>`:'')+'<div class="ring"></div>';
+  const box=c.querySelector('.chips');
+  ch.forEach((k,j)=>{const q=k.endsWith('?');const key=C[k[0]];const s=document.createElement('span');
+    s.className='chip'+(q?' q':'');s.style.background=`var(--${key})`;s.textContent=NM[key]+(q?'?':'');box.appendChild(s);chipEls.push([s,i,j]);});
+  g.appendChild(c); cells[d]=c;
+});
+const $=id=>document.getElementById(id);
+const cl=(x,a=0,b=1)=>Math.min(b,Math.max(a,x));
+const ease=x=>{x=cl(x);return 1-Math.pow(1-x,3)};
+const eio=x=>{x=cl(x);return x<.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2};
+const back=x=>{x=cl(x);const c1=1.70158,c3=c1+1;return 1+c3*Math.pow(x-1,3)+c1*Math.pow(x-1,2)};
+const win=(t,a,b,fi=.4,fo=.4)=>cl(Math.min((t-a)/fi,(b-t)/fo));   // a~b 구간 안에서 들어오고 나가는 정도
+function set(el,o,tx=0,ty=0,s=1){el.style.opacity=o;el.style.transform=`translate(${tx}px,${ty}px) scale(${s})`}
+
+const FOCUS=[['b1','10/28',5.0,9.0,'below'],['b2','10/29',9.0,12.6,'below'],['b3','11/3',12.6,16.2,'above']];
+const T_END=24;
+window.render=function(t){
+  // A: 질문
+  [['h1',.2],['h2',.8],['h3',1.4],['h4',2.0]].forEach(([id,a])=>{const p=ease((t-a)/.5), out=ease((t-2.9)/.4);
+    set($(id),p*(1-out),0,(1-p)*40-out*30)});
+  // B: 달력 등장 / F: 퇴장
+  const ci=ease((t-3.2)/.8), co=eio((t-16.2)/.7);
+  set($('cal'),ci*(1-co),0,(1-ci)*80,(.94+.06*ci)*(1-.08*co));
+  set($('title'),ease((t-3.4)/.6)*(1-co),0,(1-ease((t-3.4)/.6))*-30);
+  chipEls.forEach(([s,i,j])=>{const a=3.7+i*.06+j*.05;const p=back((t-a)/.35);s.style.transform=`scale(${cl(p,0,1.2)})`;s.style.opacity=cl((t-a)/.15)});
+  // C~E: 날짜 짚기
+  let dimAll=0;
+  Object.values(cells).forEach(c=>{c.querySelector('.ring').style.opacity=0;c.style.opacity=1;c.style.transform='scale(1)'});
+  let svg='';
+  FOCUS.forEach(([bid,d,a,b,pos])=>{
+    const w=win(t,a,b,.45,.35); if(w>0) dimAll=Math.max(dimAll,w);
+    const c=cells[d]; const r=c.querySelector('.ring'); r.style.opacity=w;
+    c.style.transform=`scale(${1+.04*w})`; c.style.zIndex=w>0?5:1;
+    const bub=$(bid);
+    if(w<=0){bub.style.opacity=0;return;}
+    const rc=c.getBoundingClientRect(); const bw=bub.offsetWidth, bh=bub.offsetHeight;
+    let bx=rc.left+rc.width/2-bw/2; bx=cl(bx,60,1920-60-bw);
+    const by= pos==='below'? rc.bottom+70 : rc.top-70-bh;
+    const pb=back((t-a-.15)/.45);
+    set(bub,w,0,(1-cl(pb,0,1))*(pos==='below'?30:-30),.9+.1*cl(pb,0,1.1));
+    bub.style.left=bx+'px'; bub.style.top=by+'px';
+    const x1=rc.left+rc.width/2, y1=pos==='below'?rc.bottom+8:rc.top-8, y2=pos==='below'?by:by+bh;
+    const len=Math.abs(y2-y1)*ease((t-a)/.4);
+    svg+=`<line x1="${x1}" y1="${y1}" x2="${x1}" y2="${y1+(pos==='below'?len:-len)}" stroke="#1a1330" stroke-width="5" stroke-linecap="round" opacity="${w}"/><circle cx="${x1}" cy="${y1}" r="9" fill="#5b5bf0" opacity="${w}"/>`;
+  });
+  $('lines').innerHTML=svg;
+  Object.entries(cells).forEach(([d,c])=>{const f=FOCUS.some(([,fd,a,b])=>fd===d&&win(t,a,b,.45,.35)>0); if(!f) c.style.opacity=1-.55*dimAll});
+  // F: 금액
+  const ai=ease((t-16.6)/.7), ao=ease((t-20.4)/.5);
+  set($('amt'),ai*(1-ao),0,(1-ai)*60,1-.05*ao);
+  $('num').textContent=Math.round(96*ease((t-17.1)/1.3));
+  set($('ex'),ease((t-18.6)/.5),0,(1-ease((t-18.6)/.5))*20);
+  // G: 끝
+  const ei=ease((t-20.8)/.8);
+  set($('end'),ei,0,(1-ei)*50,.96+.04*ei);
+};
+window.T_END=T_END;
+render(+(new URLSearchParams(location.search).get('t')||0));
+if(location.search.includes('play')){const s=performance.now();(function f(){render(((performance.now()-s)/1000)%T_END);requestAnimationFrame(f)})()}
+</script>
+</body></html>
