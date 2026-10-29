@@ -98,11 +98,11 @@ svg#lines{left:0;top:0;width:1920px;height:1080px;pointer-events:none}
 <script>
 const C={K:'kodex',T:'tiger',A:'ace',P:'plus',R:'rise',S:'sol',H:'hanaro',W:'kiwoom'};
 const NM={kodex:'KODEX',tiger:'TIGER',ace:'ACE',plus:'PLUS',rise:'RISE',sol:'SOL',hanaro:'HANARO',kiwoom:'KIWOOM'};
-// 2026-10-29 공개 페이지 달력 그대로 (T? = 공지 전 예상)
+// 2026-10-29 밤 공개 페이지 달력 그대로 (TIGER 10/28 월말 공시 반영 뒤. 'X?' = 공지 전 예상)
 const DAYS=[
- ['10/26',[],null],['10/27',['K','P','R'],['gong','공시일']],['10/28',['A','S','H','W'],['gong','공시일']],
- ['10/29',['K','T?','A','P','R','S','H','W'],['rak','분배락일']],['10/30',['K','T?','A','P','R','S','H','W'],['gi','기준일']],
- ['11/2',['S'],['ji','월말 지급일']],['11/3',['K','T?','A','P','R','H','W'],['ji','월말 지급일']],['11/4',[],null],['11/5',[],null],['11/6',[],null]];
+ ['10/26',[],null],['10/27',['K','P','R'],['gong','공시일']],['10/28',['T','A','S','H','W'],['gong','공시일']],
+ ['10/29',['K','T','A','P','R','S','H','W'],['rak','분배락일']],['10/30',['K','T','A','P','R','S','H','W'],['gi','기준일']],
+ ['11/2',['S'],['ji','월말 지급일']],['11/3',['K','T','A','P','R','H','W'],['ji','월말 지급일']],['11/4',[],null],['11/5',[],null],['11/6',[],null]];
 const g=document.getElementById('g'); const cells={}; const chipEls=[];
 DAYS.forEach(([d,ch,lab],i)=>{
   const c=document.createElement('div'); c.className='cell'+(ch.length?'':' empty');
