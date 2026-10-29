@@ -72,6 +72,8 @@
 <script>
 const API = 'https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec';
 const PY = 3.3058;   // ㎡ → 평
+// 분양 평형(공급면적) 어림 — 국토부 자료엔 전용면적만 있다. 공급/전용 1.28 = 알림 단지 두 곳(전용 75.4㎡=29평형, 99㎡=38평형)에서 잡은 비율
+function supPy(a) { return Math.round(a * 1.28 / PY); }
 // 알림 단지(Code.gs APT_WATCH 와 같게): 단지, 전용㎡ 범위, 이름
 const WATCH = [['신일유토빌플러스', 75.4, 75.7, '신일유토빌플러스 29평형'], ['서초한빛삼성', 99, 99.2, '서초한빛삼성 38평형']];
 // 동별 대장 단지 — 2026-10-27 사용자: 역이 아니라 동 기준. 최근 1년 거래 LEAD_MIN건 이상 단지 중 2년 평당 중앙값이
@@ -231,7 +233,7 @@ function initMap() {
     el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.dispatchEvent(new Event('click')); } });
   });
 }
-function selHint(d) { return d.n + ' 대장 단지 — 최근 1년 거래 ' + LEAD_MIN + '건 이상인 단지 중 평당가가 1위의 ' + LEAD_PCT * 100 + '% 이상인 ' + d.lead.length + '곳(많아도 ' + LEAD_MAX + '곳). 번호 = 평당가 순위. 3개월 = 가장 많이 팔린 평형의 최근 3개월 중앙값, 1년 대비 = 1년 전 같은 3개월과 비교'; }
+function selHint(d) { return d.n + ' 대장 단지 — 최근 1년 거래 ' + LEAD_MIN + '건 이상인 단지 중 평당가가 1위의 ' + LEAD_PCT * 100 + '% 이상인 ' + d.lead.length + '곳(많아도 ' + LEAD_MAX + '곳). 번호 = 평당가 순위. 3개월 = 가장 많이 팔린 평형의 최근 3개월 중앙값, 1년 대비 = 1년 전 같은 3개월과 비교. 평형 = 분양 평형 어림(전용면적×1.28)'; }
 // 확대 화면 배치: 넓으면 동 오른쪽에 말풍선 세로 줄, 좁으면(폰) 동 아래에 쌓는다. k = 화면 1px 이 지도 몇 단위인가
 function layout(d) {
   const svg = document.getElementById('map'), cw = svg.clientWidth, ch = svg.clientHeight, wide = cw >= 640;
@@ -274,11 +276,11 @@ function callHtml(c, i) {
   const rows = sizes(c).map(g => {   // 평형마다 최근 3개월 중앙값과 1년 전 대비(3개월 거래가 없으면 그 평형 마지막 거래와 그 연월)
     const area = med(g.map(t => t[4])), r3 = g.filter(t => t[6] >= m3), gl = g.slice().sort((a, b) => a[6] < b[6] ? 1 : -1)[0];
     const now = r3.length ? med(r3.map(t => t[7])) : gl[7], ago = med(g.filter(t => t[6] >= m15 && t[6] < m12).map(t => t[7]));
-    return '<tr><td title="전용 ' + area.toFixed(1) + '㎡">전용 ' + (area / PY).toFixed(0) + '평</td><td><b>' + won(Math.round(now)) + '</b></td><td>' + (r3.length ? pct(now, ago) : '<span class="m">' + gl[6].slice(2, 7).replace('-', '.') + '</span>') + '</td><td class="m">' + g.length + '건</td></tr>';
+    return '<tr><td title="전용 ' + area.toFixed(1) + '㎡ — 분양 평형은 어림값">' + supPy(area) + '평형</td><td><b>' + won(Math.round(now)) + '</b></td><td>' + (r3.length ? pct(now, ago) : '<span class="m">' + gl[6].slice(2, 7).replace('-', '.') + '</span>') + '</td><td class="m">' + g.length + '건</td></tr>';
   }).join('');
   return '<b>' + (i + 1) + '. ' + c.apt + '</b><span class="m">' + last[8] + '년 · 평당 ' + Math.round(c.ppy).toLocaleString() + '만 · 1년 ' + c.n1 + '건</span>'
     + '<table class="sz">' + rows + '</table>'
-    + '<span class="m">마지막 ' + last[6].slice(2) + ' ' + Math.round(last[4] / PY) + '평 ' + last[5] + '층 ' + won(last[7]) + '</span>';
+    + '<span class="m">마지막 ' + last[6].slice(2) + ' ' + supPy(last[4]) + '평형 ' + last[5] + '층 ' + won(last[7]) + '</span>';
 }
 function zoomTo(d) {
   const svg = document.getElementById('map'), C = document.getElementById('mapC');
