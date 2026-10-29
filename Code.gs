@@ -831,17 +831,6 @@ function fetchAceApi(url) {
 }
 
 // ── ETF 공지 프록시 ──
-// 미래에셋이 2026-10-27 저녁부터 구글 서버의 'User-Agent: Mozilla/5.0' 한 줄짜리 요청을 403 으로 막는다
-// (같은 요청이 국내 PC 에선 200). 브라우저가 보내는 머리글을 갖춰 보낸다.
-const TIGER_HEADERS = {
-  'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
-  'Accept': 'text/html, */*; q=0.01',
-  'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8',
-  'X-Requested-With': 'XMLHttpRequest',
-  'Origin': 'https://investments.miraeasset.com',
-  'Referer': 'https://investments.miraeasset.com/tigeretf/ko/customer/notice/list.do'
-};
 function getEtfNotices(source) {
   // 5건이면 정기 월중·월말 공지만으로 두세 달치가 다 차서, 특별분배·정정 같은 비정기 건이
   // 목록 밖으로 밀려난다(분배탭 카드 하단 '특별 공지' 줄이 그걸 쓴다). 같은 요청 한 번에서
@@ -905,7 +894,7 @@ function getEtfNotices(source) {
     } else if (source === 'tiger') {
       // 서버측 파싱(브라우저 CORS 회피). 공개 프록시가 이 액션을 중계한다.
       const fd = 'firstIndex=0&listCnt=20&pageIndex=1&detailsKey=&q=';
-      const res = UrlFetchApp.fetch('https://investments.miraeasset.com/tigeretf/ko/customer/notice/list.ajax', { method:'post', payload:fd, headers:TIGER_HEADERS, muteHttpExceptions:true });
+      const res = UrlFetchApp.fetch('https://investments.miraeasset.com/tigeretf/ko/customer/notice/list.ajax', { method:'post', payload:fd, headers:{'Content-Type':'application/x-www-form-urlencoded','User-Agent':'Mozilla/5.0'}, muteHttpExceptions:true });
       const html = res.getContentText('UTF-8');
       diag = ' (HTTP ' + res.getResponseCode() + ', ' + html.length + '자, li ' + (html.split('<li').length - 1) + ', ' + html.slice(0, 120).replace(/\s+/g, ' ') + ')';
       html.split('<li').slice(1).forEach(b => {
