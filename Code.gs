@@ -2691,11 +2691,13 @@ function _fetchDistTigerSeibro(force, siteErr) {
   const md = s => { const m = String(s || '').match(/(\d{1,2})\D+(\d{1,2})/); return m ? Number(m[1]) + '/' + Number(m[2]) : ''; };
   const stSched = (st && st.schedule) || {};
   const stItems = (st && st.items) || [];
+  // 뉴스 항목엔 cycle 이 안 붙어 온다 — 기준일의 '일'로 가른다(20일 이하=월중, 앱과 같은 규칙).
+  const cycOf = x => x.cycle || ((Number((md((x.sched || {})['기준일'] || stSched['기준일']).split('/')[1])) || 0) <= 20 ? '월중' : '월말');
   ['월중', '월말'].forEach(c => {
-    const sei = items.filter(it => it.cycle === c), news = stItems.filter(x => x.cycle === c);
+    const sei = items.filter(it => it.cycle === c), news = stItems.filter(x => cycOf(x) === c);
     if (!sei.length || news.length <= sei.length) return;
     if (md((news[0].sched || {})['기준일'] || stSched['기준일']) !== md(sei[0].sched['기준일'])) return;
-    items = items.filter(it => it.cycle !== c).concat(news.map(x => Object.assign({}, x, { sched: Object.assign({}, stSched, x.sched), _std: sei[0]._std })));
+    items = items.filter(it => it.cycle !== c).concat(news.map(x => Object.assign({}, x, { cycle: c, sched: Object.assign({}, stSched, x.sched), _std: sei[0]._std })));
   });
   const byT = {};
   stItems.forEach(x => { byT[x.ticker] = x; });
