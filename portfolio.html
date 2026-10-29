@@ -5874,7 +5874,16 @@ function renderNoticeBoard() {
         : '<span style="flex-shrink:0;margin-top:1px;background:#d977061a;color:#d97706;font-size:9px;font-weight:800;padding:1px 5px;border-radius:3px">일정</span>'}
       <span style="flex:1;min-width:0;font-size:11px;line-height:1.35;color:var(--text)">${_calStatus}</span>
     </div>` : '';
-  const fixed = status + `
+  // 운용사 사이트를 못 읽어 대체 자료로 보여주는 곳을 방문자에게 알린다(2026-10-29 TIGER — 미래에셋이 외부 서버 접속을 막음).
+  // 원인은 확인된 것만 쓴다('해킹' 등 추측 금지 — 공개 페이지에 실제 회사 이름으로 나간다). 풀리면 _fallback 이 없어져 저절로 사라진다.
+  const VIA_NOTE = { seibro: '예탁결제원 자료', news: '뉴스 기사' };
+  const viaNote = (_distData || []).filter(c => c.data && VIA_NOTE[c.data._fallback]).map(c => `
+    <div style="display:flex;align-items:flex-start;gap:6px;min-width:0;padding:5px 8px;border-bottom:1px solid #64748b;background:#fffbeb">
+      <span style="flex-shrink:0;margin-top:1px;background:#d977061a;color:#d97706;font-size:9px;font-weight:800;padding:1px 5px;border-radius:3px">알림</span>
+      <span style="flex:1;min-width:0;font-size:11px;line-height:1.35;color:var(--text)"><b>${c.name}</b> 운용사 사이트가 외부 서버 접속을 막고 있어 <b>${VIA_NOTE[c.data._fallback]}</b>로 보여드립니다 · 공시일은 늦게 반영될 수 있고 분배율은 계산값입니다</span>
+      <span style="flex-shrink:0;font-family:var(--mono);font-size:10px;color:var(--text3)">임시</span>
+    </div>`).join('');
+  const fixed = status + viaNote + `
     <div style="display:flex;align-items:center;gap:6px;min-width:0;padding:5px 8px;border-bottom:1px solid #64748b;background:#ecfeff">
       <span style="flex-shrink:0;background:#0891b21a;color:#0891b2;font-size:9px;font-weight:800;padding:1px 5px;border-radius:3px">안내</span>
       <span style="flex:1;min-width:0;font-size:11px;line-height:1.3;color:var(--text)"><b>분배락일 전날</b>까지 사야 받습니다</span>
