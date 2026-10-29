@@ -1167,7 +1167,9 @@ function getDistribution(source, force) {
     result = all[source];
     if (!result || !result.items || result.items.length === 0) {
       const fb = fetchDist_fallback(source);
-      if (fb && fb.items && fb.items.length > 0) { fb.fallback = true; result = fb; }
+      // 여기 오는 건 SOL 뿐이고, SOL 의 fetchDist_fallback 은 **자사 공식 블로그·홈페이지**다(뉴스가 아니다).
+      // fallback 표시를 붙이면 '자사 파서 실패(뉴스 우회)' 알림이 정상인데도 나간다(2026-10-29 텔레그램).
+      if (fb && fb.items && fb.items.length > 0) result = fb;
       else if (!result) result = { items: [], error: '기사/사이트 모두 실패' };
     }
     if (result && result.items && result.items.length > 0) {
