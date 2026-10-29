@@ -928,6 +928,12 @@ function getEtfNotices(source) {
         items.push({ title: txt.replace(date,'').trim(), date, url: 'https://www.plusetf.co.kr' + m[1] });
       }
     }
+    if (!items.length && source === 'tiger') {
+      // 미래에셋이 구글 서버를 막는 동안 PC 가 받아 올린 목록(tools/tiger_relay.py)을 쓴다. 캐시·마지막 성공분엔
+      // 넣지 않는다 — 차단이 풀리면 바로 직접 읽은 목록이 이기게.
+      const rl = _tigerRelay();
+      if (rl) return { success: true, items: rl.items, relay: true, savedAt: rl.savedAt, error: '0건' + diag };
+    }
     if (!items.length) return _noticeFallback(source, '0건' + diag);   // 상류는 응답했는데 못 읽은 경우
     const result = { success: true, items };
     cache.put(cacheKey, JSON.stringify(result), distCacheTtlSec()); // 0건은 캐시 안 함(일시 실패 장기 캐시 방지)
@@ -2683,6 +2689,38 @@ function _seibroDistItems(co) {
 // ⚠️ SEIBRO 는 지급이 지난 회차를 일부만 남긴다(10/29: 10/15 기준 TIGER 10건, 뉴스엔 44건).
 // 그래서 회차마다 뉴스 쪽이 같은 기준일로 더 많이 갖고 있으면 그 회차는 뉴스 것을 쓴다.
 // 그래도 분배율이 없으면 네이버 ETF 목록의 NAV 로 계산한다(운용사 표는 기준일 전 기준가라 소수점 둘째 자리가 다를 수 있다).
+// PC 중계 파일(tools/tiger_relay.py 가 집·학교 PC 에서 하루 2회 올림). 사흘 넘게 묵었으면 안 쓴다.
+// 공개 저장소의 공개 공지 목록일 뿐이라 비밀값이 없다. raw 는 몇 분 캐시되니 30분 캐시면 충분하다.
+function _tigerRelay() {
+  const cache = CacheService.getScriptCache();
+  let raw = cache.get('tigerRelay');
+  if (!raw) {
+    try {
+      const r = UrlFetchApp.fetch('https://raw.githubusercontent.com/jaenamking1-collab/jjk/main/tiger_notices.json', { muteHttpExceptions: true });
+      if (r.getResponseCode() !== 200) return null;
+      raw = r.getContentText('UTF-8');
+      cache.put('tigerRelay', raw, 1800);
+    } catch(e) { return null; }
+  }
+  try {
+    const v = JSON.parse(raw);
+    const at = new Date(String(v.savedAt).replace(' ', 'T') + ':00+09:00');
+    if (!(v.items || []).length || isNaN(at) || Date.now() - at.getTime() > 3 * 86400000) return null;
+    return v;
+  } catch(e) { return null; }
+}
+// 중계 목록에서 'm월말'/'m월 중순' 분배금 공지의 등록일 → 'M/D'. 없으면 ''.
+function _tigerRelayPub(m, cyc) {
+  const rl = _tigerRelay();
+  if (!rl) return '';
+  const hit = rl.items.find(n => {
+    const t = String(n.title || '').match(/(\d{1,2})\s*월\s*(말|중순)/);
+    return t && Number(t[1]) === m && (t[2] === '말' ? '월말' : '월중') === cyc && /분배금/.test(n.title);
+  });
+  const d = hit && String(hit.date).match(/\d{4}\.(\d{2})\.(\d{2})/);
+  return d ? Number(d[1]) + '/' + Number(d[2]) : '';
+}
+
 function _fetchDistTigerSeibro(force, siteErr) {
   let items = _seibroDistItems('미래에셋').filter(it => /^TIGER/.test(it.name));
   if (!items.length) return { items: [] };
@@ -2733,6 +2771,10 @@ function _fetchDistTigerSeibro(force, siteErr) {
     if (pv) {
       if (it.rate == null && pv.rate != null) it.rate = pv.rate;
       if (!it.sched['공시일'] && pv.pub) it.sched['공시일'] = pv.pub;
+    }
+    if (!it.sched['공시일']) {
+      const pub = _tigerRelayPub(Number(it._std.slice(4, 6)), it.cycle);   // PC 중계로 받은 실제 공지 등록일
+      if (pub) it.sched['공시일'] = pub;
     }
     if (it.rate == null && it.amount) {
       if (!navs) { try { navs = getNavMap().navs || {}; } catch(e) { navs = {}; } }
