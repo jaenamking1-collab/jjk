@@ -25,8 +25,8 @@ body{font-family:'Pretendard',sans-serif;position:relative;color:#1a1330;
 .up{color:#ff5a5f}.dn{color:#5aa2ff}
 .fold{font-size:26px;color:#8a919c;height:44px;line-height:44px;padding-left:6px}
 #tab{width:62px;height:62px;background:#5aa2ff;color:#12151c;font-size:34px;text-align:center;line-height:62px;border-radius:4px}
-#cur{width:46px;height:46px;pointer-events:none}
-#ripple{width:90px;height:90px;border-radius:50%;border:5px solid #5b5bf0;opacity:0}
+#cur{width:46px;height:46px;pointer-events:none;z-index:9}
+#ripple{z-index:8;width:90px;height:90px;border-radius:50%;border:5px solid #5b5bf0;opacity:0}
 /* 설정 */
 #st{left:1010px;top:170px;width:760px;background:#2a2f3a;border-radius:8px;padding:30px 34px;color:#e8eaed;box-shadow:0 30px 80px rgba(20,20,60,.35);opacity:0}
 #st .lb{font-size:26px;color:#8a919c;margin-bottom:16px}
@@ -34,6 +34,17 @@ body{font-family:'Pretendard',sans-serif;position:relative;color:#1a1330;
 #st .b{font-size:30px;padding:8px 20px;background:#1f242e;border-radius:4px}
 #st .b.on{background:#7db3ff;color:#12151c}
 #st .ta{background:#1f242e;font-family:Consolas,monospace;font-size:30px;padding:14px 18px;line-height:1.5;height:430px;overflow:hidden}
+#dcap{left:0;width:1920px;top:70px;text-align:center;opacity:0}
+#dcap .t{font-size:64px;font-weight:800;letter-spacing:-2px}#dcap .t em{font-style:normal;color:#5b5bf0}
+#dcap .s{font-size:34px;color:#4b5563;margin-top:14px}
+.mon{top:260px;width:800px;height:500px;border:14px solid #1a1a22;border-radius:14px;overflow:hidden;
+ background:linear-gradient(135deg,#3a5fb0,#6a4fa8 60%,#c46aa0);box-shadow:0 30px 60px rgba(20,20,60,.25)}
+.mon .tb{position:absolute;left:0;right:0;bottom:0;height:26px;background:#20202a}
+.stand{top:774px;width:180px;height:60px;background:linear-gradient(#2a2a33,#1a1a22);clip-path:polygon(30% 0,70% 0,100% 100%,0 100%)}
+#mini{width:112px;height:118px;background:#2a2f3a;border-radius:3px;padding:6px 7px;box-shadow:0 6px 16px rgba(0,0,0,.4)}
+#mini i{display:block;height:7px;margin:5px 0;border-radius:2px;background:linear-gradient(90deg,#c9ccd3 0 38%,transparent 38% 58%,#c9ccd3 58% 82%,#5aa2ff 82%)}
+#mini i.u{background:linear-gradient(90deg,#c9ccd3 0 38%,transparent 38% 58%,#c9ccd3 58% 82%,#ff5a5f 82%)}
+#snap{width:160px;height:160px;border-radius:50%;border:8px solid #fff;box-shadow:0 0 30px #fff;opacity:0}
 #end{inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;opacity:0}
 #end .k{font-size:44px;font-weight:700;color:#4b5563}
 #end .ttl{font-size:150px;font-weight:900;letter-spacing:-5px;background:linear-gradient(90deg,#db2777,#7c3aed,#2563eb);-webkit-background-clip:text;color:transparent;margin-top:10px}
@@ -50,6 +61,10 @@ body{font-family:'Pretendard',sans-serif;position:relative;color:#1a1330;
  <div class="ta" id="ta"></div></div>
 <div id="ripple" class="abs"></div>
 <svg id="cur" class="abs" viewBox="0 0 24 24"><path d="M3 2l17 10-7.5 1.6L9 21z" fill="#1a1330" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>
+<div id="desk" class="abs" style="inset:0;opacity:0"><div id="dcap" class="abs"><div class="t"></div><div class="s"></div></div>
+ <div class="mon abs" style="left:130px"><div class="tb"></div></div><div class="stand abs" style="left:440px"></div>
+ <div class="mon abs" style="left:990px"><div class="tb"></div></div><div class="stand abs" style="left:1300px"></div>
+ <div id="mini" class="abs"><i></i><i></i><i class="u"></i><i></i><i></i><i class="u"></i><i></i><i></i></div><div id="snap" class="abs"></div></div>
 <div id="end" class="abs"><div class="k">무료 · 회원가입 없음 · 파일 하나</div><div class="ttl">바탕화면 시세 위젯</div>
  <div class="tags"><span>국내 주식·ETF</span><span>미국 주식·지수</span><span>환율</span><span>코인</span></div></div>
 <script>
@@ -57,7 +72,7 @@ body{font-family:'Pretendard',sans-serif;position:relative;color:#1a1330;
 const G=[[['코스피',5629,-5.20,-309,0],['S&P500',7720.39,-0.30,-23.59,2],['나스닥',26184.72,-1.38,-365.13,2],['환율',1338.28,-0.05,-0.71,2]],
  [['삼성전자',218250,-5.93,-13750,0],['코덱스200',89195,-5.58,-5270,0],['TIGER 미국배당',15200,1.64,245,0]],
  [['SCHD',35.93,2.39,0.84,2],['NVDA',208.08,-3.39,-7.30,2],['비트코인',104578000,-3.83,-4165000,0]]];
-const T_END=26;
+const T_END=32;
 const cl=(x,a=0,b=1)=>Math.min(b,Math.max(a,x)), ease=x=>{x=cl(x);return x<.5?2*x*x:1-Math.pow(-2*x+2,2)/2}, seg=(t,a,b)=>ease((t-a)/(b-a));
 const fmt=(v,d)=>v.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
 const $=id=>document.getElementById(id);
@@ -82,9 +97,9 @@ function path(t,pts){ // pts: [time,x,y], 사이를 부드럽게
   for(let i=1;i<pts.length;i++) if(t<=pts[i][0]){const a=pts[i-1],b=pts[i],k=seg(t,a[0],b[0]);return [a[1]+(b[1]-a[1])*k,a[2]+(b[2]-a[2])*k]}
   return pts[pts.length-1].slice(1);
 }
-window.render=function(t){
+function renderMain(t,shifted){
   // 0~3.2 첫 문장
-  const hk=t<3.2?1:1-seg(t,3.2,3.7); $('hook').style.opacity=hk;
+  const hk=shifted?0:(t<3.2?1:1-seg(t,3.2,3.7)); $('hook').style.opacity=hk;
   ['k1','k2','k3'].forEach((k,i)=>{const a=seg(t,0.2+i*0.8,0.8+i*0.8);$(k).style.opacity=a;$(k).style.transform='translateY('+(30*(1-a))+'px)'});
   // 위젯 등장 3.6~4.4, 숨기기 15~16.2, 다시 17~17.8, 설정으로 18.8~
   let wx=1010+(1-seg(t,3.6,4.4))*1000;
@@ -100,11 +115,11 @@ window.render=function(t){
   $('tab').textContent=hide>0.5?'◀':'▶';
   // 설명 글
   let cn=0;
-  if(t>4.4&&t<7.6){cn=1;cap('1','지금 시세가<br>계속 바뀌어요','5초마다 새로 받아요.<br>오르면 빨강, 내리면 파랑')}
-  else if(t>=7.6&&t<11.6){cn=1;cap('2','누르면<br>오늘 얼마 변했는지','한 번 더 누르면 접혀요')}
-  else if(t>=11.6&&t<14.6){cn=1;cap('3','묶음째<br>접어 둘 수 있어요','안 볼 때는 한 줄로')}
-  else if(t>=14.6&&t<18.4){cn=1;cap('4','▶ 하나로 숨기고<br>◀ 로 다시','화면 가릴 때 편해요')}
-  else if(t>=19.2&&t<23){cn=1;cap('5','지수는<br>버튼으로 넣고 빼요','코드 외울 필요 없어요')}
+  if(t>4.4&&t<7.6){cn=1;cap('2','지금 시세가<br>계속 바뀌어요','5초마다 새로 받아요.<br>오르면 빨강, 내리면 파랑')}
+  else if(t>=7.6&&t<11.6){cn=1;cap('3','누르면<br>오늘 얼마 변했는지','한 번 더 누르면 접혀요')}
+  else if(t>=11.6&&t<14.6){cn=1;cap('4','묶음째<br>접어 둘 수 있어요','안 볼 때는 한 줄로')}
+  else if(t>=14.6&&t<18.4){cn=1;cap('5','▶ 하나로 숨기고<br>◀ 로 다시','화면 가릴 때 편해요')}
+  else if(t>=19.2&&t<23){cn=1;cap('6','지수는<br>버튼으로 넣고 빼요','코드 외울 필요 없어요')}
   const capA=cn? Math.min(seg(t,[4.4,7.6,11.6,14.6,19.2].filter(x=>x<=t).pop(),[4.4,7.6,11.6,14.6,19.2].filter(x=>x<=t).pop()+0.4),1):0;
   $('cap').style.opacity=capA; $('cap').style.transform='translateY('+(20*(1-capA))+'px)';
   // 설정창 19~23
@@ -123,6 +138,36 @@ window.render=function(t){
   $('cur').style.display=t>7&&t<23.2?'block':'none'; cursor(cx,cy,ck);
   // 끝
   const ea=seg(t,23.2,23.8); $('end').style.opacity=ea; $('end').style.transform='scale('+(0.96+0.04*ea)+')';
+};
+// 바탕화면 장면(3.7~9.7): 실제 위젯처럼 모니터 사이를 끌고, 가장자리 SNAP 안에 들어오면 착 붙는다(ticker.pyw move)
+function desk(s){
+  const on=seg(s,0,0.5)-seg(s,5.6,6); $('desk').style.opacity=on;
+  const T=$('dcap').querySelector('.t'), S=$('dcap').querySelector('.s');
+  if(s<2.2){T.innerHTML='바탕화면 구석에 <em>작게</em>';S.textContent='다른 일 하면서 곁눈으로'}
+  else{T.innerHTML='모니터 사이로 끌고, 가장자리엔 <em>자석처럼 착</em>';S.textContent='듀얼 모니터 어디든 놓을 수 있어요'}
+  $('dcap').style.opacity=seg(s,0.3,0.8)*(s<2.0||s>2.3?1:0.2)-seg(s,5.6,6);
+  // 왼쪽 모니터 화면 안쪽: x 144~916, y 274~734(작업표시줄 위). 오른쪽: x 1004~1776
+  const L0=[916-112-6,734-26-118-6], grab=[ -60,-40 ];
+  let x=L0[0],y=L0[1],snap=0;
+  const drag=seg(s,1.6,3.6);           // 끌어서 오른쪽 모니터 안쪽(가장자리에서 조금 떨어진 곳)까지
+  const mid=[1560,520];
+  if(s>=1.6){x=L0[0]+(mid[0]-L0[0])*drag;y=L0[1]+(mid[1]-L0[1])*drag-Math.sin(drag*Math.PI)*80}
+  // 3.6~4.4 오른쪽 아래로 천천히 → 가장자리 30px 안에 들면 순간 이동
+  if(s>=3.6){const k=seg(s,3.6,4.4); const tx=1776-112-18, ty=734-26-118-20; x=mid[0]+(tx-mid[0])*k; y=mid[1]+(ty-mid[1])*k;
+    if(s>=4.25){x=1776-112;y=734-26-118;snap=seg(s,4.25,4.8)}}
+  $('mini').style.left=x+'px';$('mini').style.top=y+'px';
+  $('mini').style.boxShadow=s>1.5&&s<4.25?'0 18px 30px rgba(0,0,0,.45)':'0 6px 16px rgba(0,0,0,.4)';
+  const sn=$('snap'); sn.style.left=(1776-80)+'px'; sn.style.top=(734-26-80)+'px';
+  sn.style.opacity=snap>0&&snap<1?(1-snap):0; sn.style.transform='scale('+(0.3+snap)+')';
+  const cx=s<1.6? 1950+(x+60-1950)*seg(s,0.6,1.5) : x+60, cy=s<1.6? 700+(y+30-700)*seg(s,0.6,1.5) : y+30;
+  $('cur').style.display=s>0.6&&s<5.4?'block':'none'; cursor(cx,cy,s>1.5&&s<1.9?(s-1.5)/0.4:0);
+}
+window.render=function(t){
+  const inDesk=t>=3.7&&t<9.7;
+  if(t<3.7) renderMain(t,false); else if(!inDesk) renderMain(t-6,true);
+  else { renderMain(0,true); $('hook').style.opacity=0; $('k1').style.opacity=0; }
+  $('desk').style.display=inDesk?'block':'none';
+  if(inDesk) desk(t-3.7);
 };
 render(+(new URLSearchParams(location.search).get('t')||0));
 if(location.search.includes('play')){const s=performance.now();(function f(){render(((performance.now()-s)/1000)%T_END);requestAnimationFrame(f)})()}

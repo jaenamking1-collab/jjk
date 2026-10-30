@@ -1664,7 +1664,12 @@ def place_panel():
     ty = py - th - 2
     if ty < top:                          # 위쪽에 붙였으면 버튼을 아래로
         ty = py + ph + 2
-    tab.geometry("+%d+%d" % (px + pw - tw, ty))
+    tx = px + pw - tw
+    if cfg["hidden"] and cfg.get("tab_pos"):      # 숨긴 동안엔 버튼을 끌어 둔 자리에
+        tx, ty = cfg["tab_pos"]
+        left, top, right, bottom = work_area(tx, ty)
+        tx, ty = min(max(tx, left), right - tw), min(max(ty, top), bottom - th)
+    tab.geometry("+%d+%d" % (tx, ty))
     sync_back()
 
 
@@ -1682,7 +1687,44 @@ def toggle(_=None):
     save(cfg)
 
 
-tab_btn.bind("<Button-1>", toggle)
+# 숨겼을 때는 버튼만 끌어 옮긴다(2026-10-30 사용자: "최소화하면 버튼이 안 움직여진다").
+# 살짝 흔들린 클릭까지 끌기로 보면 숨기기/보이기가 안 먹으니 5px 넘게 움직였을 때만 끈다.
+tdrag = {}
+
+
+def tab_press(e):
+    tdrag.update(x=e.x_root - tab.winfo_x(), y=e.y_root - tab.winfo_y(),
+                 sx=e.x_root, sy=e.y_root, moved=False)
+
+
+def tab_move(e):
+    if not tdrag or (not tdrag["moved"] and
+                     abs(e.x_root - tdrag["sx"]) + abs(e.y_root - tdrag["sy"]) < 5):
+        return
+    tdrag["moved"] = True
+    if not cfg["hidden"]:
+        return                                    # 펼쳐 있을 땐 시세창을 끈다(버튼은 따라온다)
+    left, top, right, bottom = work_area(e.x_root, e.y_root)
+    w, h = tab.winfo_width(), tab.winfo_height()
+    x, y = e.x_root - tdrag["x"], e.y_root - tdrag["y"]
+    x = right - w if abs(x + w - right) < SNAP else left if abs(x - left) < SNAP else x
+    y = bottom - h if abs(y + h - bottom) < SNAP else top if abs(y - top) < SNAP else y
+    tdrag["at"] = [min(max(x, left), right - w), min(max(y, top), bottom - h)]
+    tab.geometry("+%d+%d" % tuple(tdrag["at"]))
+
+
+def tab_release(_=None):
+    if tdrag.get("at"):
+        cfg["tab_pos"] = tdrag["at"]
+        save(cfg)
+    elif not tdrag.get("moved"):
+        toggle()
+    tdrag.clear()
+
+
+tab_btn.bind("<Button-1>", tab_press)
+tab_btn.bind("<B1-Motion>", tab_move)
+tab_btn.bind("<ButtonRelease-1>", tab_release)
 
 root.bind("<Enter>", lambda e: hover(True))
 root.bind("<Leave>", lambda e: root.after(120, maybe_hide))
