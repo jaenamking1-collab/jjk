@@ -1470,8 +1470,8 @@ def settings(_=None):
     txt.pack(padx=12)
     tip = ("국내: 6자리 코드만 (069500, 0005A0) · 지수 KOSPI KOSDAQ\n"
            "환율 USDKRW=X · 코인 BTC-KRW · 미국 AAPL\n"
-           "교환비율: XRP-KRW/KAIA-KRW=XRP당카이아\n"
-           "목표: 뒤에 @50 을 붙이면 그 값에 닿을 때 반짝임 (@80%는 30일 구간 위치)\n"
+           + ("교환비율: XRP-KRW/KAIA-KRW=XRP당카이아\n" if total_code() else "")   # 남에겐 필요 없다(2026-10-30)
+           + "목표: 뒤에 @50 을 붙이면 그 값에 닿을 때 반짝임 (@80%는 30일 구간 위치)\n"
            "이름이 길면 069500=코덱스200 처럼 직접 지정")
     tk.Label(win, text=tip, bg=BG, fg=DIM, justify="left",
              font=("Malgun Gothic", 8)).pack(anchor="w", padx=12, pady=(4, 6))

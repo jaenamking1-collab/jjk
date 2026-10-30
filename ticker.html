@@ -89,7 +89,7 @@ body.detail .amt{display:block}
     <code>코드=보일이름</code> · 그룹 나누기 <code>---</code><br>
     국내지수 <code>KOSPI</code> · 국내종목 <code>069500</code> · 코인 <code>XRP-KRW</code> ·
     해외 <code>AAPL</code> <code>^IXIC</code> · 환율 <code>USDKRW=X</code><br>
-    교환비율 <code>XRP-KRW/KAIA-KRW=이름 @49,50,v41</code> (v=하한)<br>
+    <span id="ratioHelp" style="display:none">교환비율 <code>XRP-KRW/KAIA-KRW=이름 @49,50,v41</code> (v=하한)<br></span>
     집 PC 목록: 받은 <b>8글자 코드</b>를 칸에 적고 저장(또는 복사 후 📋). 한 번 넣으면 열 때마다 집 목록을 따라옵니다
   </div>
   <label class="help"><input type="checkbox" id="showTotal"> 총평가 줄 보이기</label>
@@ -106,7 +106,7 @@ const STALE = 60000;          // 이만큼 못 받으면 회색 경고 — 멈�
 const ALERT = 5.0;            // 등락률 이 이상이면 반짝임(위젯과 같다)
 const RATIO = '/';
 const DEFAULT = ['KOSPI=코스피','069500=코덱스200','USDKRW=X=환율','---',
-  'BTC-KRW=비트코인','XRP-KRW=XRP','KAIA-KRW=카이아','XRP-KRW/KAIA-KRW=XRP당 카이아 @49,50,v41','---',
+  'BTC-KRW=비트코인','XRP-KRW=XRP','---',   // XRP당 카이아는 남에겐 필요 없다(2026-10-30) — 내 목록은 tk_code 로 온다
   '^IXIC=나스닥','^GSPC=S&P500'];
 
 const store = {
@@ -442,6 +442,7 @@ IDX_BTNS.forEach(([label, row]) => {
   document.getElementById('idx').appendChild(b);
 });
 ta.addEventListener('input', paintIdx);
+if (store.get('tk_code', null)) document.getElementById('ratioHelp').style.display = '';   // 집 목록 코드를 넣은 내 폰에서만
 document.getElementById('resetBtn').onclick = () => { ta.value = DEFAULT.join('\n'); };
 function done(n){
   ed.style.display = 'none'; build(); load();
