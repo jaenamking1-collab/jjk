@@ -1,0 +1,17 @@
+# PyInstaller --version-file: exe 속성(자세히)에 보이는 이름·설명. 정보가 빈 exe 는 백신 AI 가 더 의심한다(2026-10-30).
+VSVersionInfo(
+  ffi=FixedFileInfo(filevers=(1, 0, 0, 0), prodvers=(1, 0, 0, 0), mask=0x3f, flags=0x0,
+                    OS=0x40004, fileType=0x1, subtype=0x0, date=(0, 0)),
+  kids=[
+    StringFileInfo([StringTable('041204B0', [
+      StringStruct('CompanyName', 'jaenamking1-collab'),
+      StringStruct('FileDescription', 'Realtime Ticker - desktop stock price widget'),
+      StringStruct('FileVersion', '1.0.0.0'),
+      StringStruct('InternalName', 'RealtimeTicker'),
+      StringStruct('LegalCopyright', 'Free, open source (github.com/jaenamking1-collab/jjk)'),
+      StringStruct('OriginalFilename', 'RealtimeTicker.exe'),
+      StringStruct('ProductName', 'Realtime Ticker'),
+      StringStruct('ProductVersion', '1.0.0.0')])]),
+    VarFileInfo([VarStruct('Translation', [0x0412, 1200])])
+  ]
+)
