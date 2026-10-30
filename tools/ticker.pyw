@@ -250,6 +250,10 @@ targets = {}                             # 종목 -> (목표값, 구간%인가).
 prem_at = [0.0]                          # 환산비를 마지막으로 저장한 시각
 PREM_SAVE = 600                          # 환산비 저장 간격(초)
 INDEX = {"KOSPI": "KOSPI", "KOSDAQ": "KOSDAQ", "^KS11": "KOSPI", "^KQ11": "KOSDAQ"}
+# 설정창 지수 버튼(누르면 넣고 다시 누르면 뺀다). 해외는 야후 지수 심볼. ticker.html 과 같게.
+IDX_BTNS = ((("코스피", ["KOSPI=코스피"]), ("코스닥", ["KOSDAQ=코스닥"])),
+            (("S&P500", ["^GSPC=S&P500"]), ("나스닥", ["^IXIC=나스닥"]), ("다우", ["^DJI=다우"]),
+             ("반도체", ["^SOX=필라델피아반도체"])))
 CODE = re.compile(r"^[0-9]{4}[0-9A-Z]{2}$")   # 069500, 0005A0 같은 국내 종목코드
 NAME_W = 17                              # 이름 최대 폭(한글 2, 영문 1). 넘으면 잘림
 # 국내 ETF 브랜드 약칭 (구 브랜드는 현재 약칭으로 통일). 필요하면 여기에 추가
@@ -1424,6 +1428,45 @@ def settings(_=None):
     txt = tk.Text(win, width=30, height=12, bg=FIELD, fg=FG, insertbackground=FG,
                   relief="flat", font=("Consolas", 11))
     txt.insert("1.0", "\n".join(cfg["tickers"]))
+
+    # 지수 버튼: 누르면 목록 맨 위에 넣고, 다시 누르면 뺀다(2026-10-30 사용자 요청). 저장해야 반영.
+    def lines():
+        return [s.strip() for s in txt.get("1.0", "end").split("\n") if s.strip()]
+
+    def has(rows):
+        syms = [split(s)[0] for s in lines()]
+        return all(split(r)[0] in syms for r in rows)
+
+    def toggle(rows, b):
+        cur = lines()
+        if has(rows):
+            drop = {split(r)[0] for r in rows}
+            cur = [s for s in cur if split(s)[0] not in drop]
+        else:
+            syms = {split(s)[0] for s in cur}
+            cur = [r for r in rows if split(r)[0] not in syms] + cur
+        txt.delete("1.0", "end")
+        txt.insert("1.0", "\n".join(cur))
+        paint_idx()
+
+    idx_btns = []
+
+    def paint_idx():
+        for b, rows in idx_btns:
+            on = has(rows)
+            b.config(bg=ACC if on else FIELD, fg="#12151c" if on else FG)
+
+    for group in IDX_BTNS:                  # 국내 한 줄, 해외 한 줄
+        irow = tk.Frame(win, bg=BG)
+        irow.pack(fill="x", padx=12, pady=(0, 4))
+        for label, rows in group:
+            b = tk.Button(irow, text=label, relief="flat", font=("Malgun Gothic", 9),
+                          padx=8, cursor="hand2", bd=0)
+            b.config(command=lambda rows=rows, b=b: toggle(rows, b))
+            b.pack(side="left", padx=(0, 6))
+            idx_btns.append((b, rows))
+    paint_idx()
+    txt.bind("<KeyRelease>", lambda e: paint_idx())
     txt.pack(padx=12)
     tip = ("국내: 6자리 코드만 (069500, 0005A0) · 지수 KOSPI KOSDAQ\n"
            "환율 USDKRW=X · 코인 BTC-KRW · 미국 AAPL\n"

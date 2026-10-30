@@ -64,6 +64,9 @@ body.detail .amt{display:block}
 #edit .help{font-size:11px;color:var(--dim);line-height:1.6;margin:6px 0}
 #edit button{background:#2a6df4;color:#fff;border:0;border-radius:6px;padding:8px 14px;font-size:14px;margin-right:6px}
 #edit button.ghost{background:none;border:1px solid var(--line);color:var(--dim)}
+#idx{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
+#idx button{margin:0;padding:6px 10px;font-size:13px;background:none;border:1px solid var(--line);color:var(--fg)}
+#idx button.on{background:#2a6df4;border-color:#2a6df4;color:#fff}
 #hint{font-size:11px;color:var(--dim);text-align:center;margin-top:6px}
 #hint:empty{display:none}   /* 평소엔 숨김 — 한 화면에 다 들어가게. 알릴 말이 있을 때만 */
 </style>
@@ -79,6 +82,7 @@ body.detail .amt{display:block}
 <div id="notice"></div>
 <div id="hint"></div>
 <div id="edit">
+  <div id="idx"></div>
   <textarea id="ta" spellcheck="false"></textarea>
   <div class="help">
     한 줄에 하나. PC 위젯 환경설정과 같은 형식입니다.<br>
@@ -420,8 +424,24 @@ loadNotices(); setInterval(loadNotices, 600000);
 
 // ── 편집 ──
 const ta = document.getElementById('ta'), ed = document.getElementById('edit');
-document.getElementById('editBtn').onclick = () => { ta.value = tickers.join('\n'); ed.style.display = ed.style.display === 'block' ? 'none' : 'block'; };
+document.getElementById('editBtn').onclick = () => { ta.value = tickers.join('\n'); paintIdx(); ed.style.display = ed.style.display === 'block' ? 'none' : 'block'; };
 document.getElementById('cancelBtn').onclick = () => { ed.style.display = 'none'; };
+// 지수 버튼: 누르면 목록 맨 위에 넣고 다시 누르면 뺀다(2026-10-30). PC 위젯 IDX_BTNS 와 같게. 저장해야 반영
+const IDX_BTNS = [['코스피', 'KOSPI=코스피'], ['코스닥', 'KOSDAQ=코스닥'], ['S&P500', '^GSPC=S&P500'],
+  ['나스닥', '^IXIC=나스닥'], ['다우', '^DJI=다우'], ['반도체', '^SOX=필라델피아반도체']];
+const symOf = l => { const x = l.split('@')[0].trim(), i = x.lastIndexOf('='); return i > 0 && x.length - i > 2 ? x.slice(0, i) : x; };
+const taLines = () => ta.value.split('\n').map(x => x.trim()).filter(Boolean);
+function paintIdx(){
+  const syms = taLines().map(symOf);
+  document.querySelectorAll('#idx button').forEach((b, i) => b.classList.toggle('on', syms.includes(symOf(IDX_BTNS[i][1]))));
+}
+IDX_BTNS.forEach(([label, row]) => {
+  const b = document.createElement('button'); b.textContent = label;
+  b.onclick = () => { const sym = symOf(row), cur = taLines();
+    ta.value = (cur.some(l => symOf(l) === sym) ? cur.filter(l => symOf(l) !== sym) : [row, ...cur]).join('\n'); paintIdx(); };
+  document.getElementById('idx').appendChild(b);
+});
+ta.addEventListener('input', paintIdx);
 document.getElementById('resetBtn').onclick = () => { ta.value = DEFAULT.join('\n'); };
 function done(n){
   ed.style.display = 'none'; build(); load();
