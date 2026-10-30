@@ -1,13 +1,14 @@
 # 바탕화면 시세 위젯을 파이썬 설치 없이 도는 'RealtimeTicker.exe'(실시간 시세)로 묶어 릴리스(태그 ticker)에 올린다.
 # 받는 곳: https://github.com/jaenamking1-collab/jjk/releases/tag/ticker
-# exe 는 껍데기(tools/ticker_launcher.py)라 켤 때마다 최신 ticker.pyw 를 받아 돈다 —
-# 위젯 코드를 고쳐도 exe 를 다시 만들 필요는 없다. 껍데기·이 파일을 고칠 때만 다시 빌드된다.
+# exe 는 위젯 코드(ticker.pyw 에서 자기 갱신을 뺀 것, tools/make_exe.py)를 품고 돈다 — 인터넷에서 코드를 받아
+# 실행하던 예전 방식은 백신이 셸로더로 봤다(2026-10-30 VirusTotal 8/71). 그래서 위젯을 고치면 exe 도 다시 만들고,
+# 받은 사람 위젯엔 '새 버전 있음' 이 뜬다(exe_update_check).
 name: ticker-exe
 
 on:
   push:
     branches: [main]
-    paths: ['tools/ticker_launcher.py', '.github/workflows/ticker-exe.yml']
+    paths: ['tools/ticker.pyw', 'tools/make_exe.py', 'tools/ticker_launcher.py', '.github/workflows/ticker-exe.yml']
   workflow_dispatch:
 
 permissions:
@@ -29,7 +30,9 @@ jobs:
           python -c "from PIL import Image, ImageDraw; s=256; im=Image.new('RGBA',(s,s),(0,0,0,0)); d=ImageDraw.Draw(im); d.rounded_rectangle((8,8,s-8,s-8),radius=48,fill='#2a2f3a'); d.line([(44,180),(100,120),(140,150),(212,70)],fill='#ff5c66',width=22,joint='curve'); d.polygon([(212,52),(222,96),(178,78)],fill='#ff5c66'); im.save('ticker.ico',sizes=[(16,16),(32,32),(48,48),(256,256)])"
       - name: exe 만들기
         working-directory: tools
-        run: pyinstaller --noconfirm --onefile --noconsole --name RealtimeTicker --icon ticker.ico ticker_launcher.py
+        run: |
+          python make_exe.py
+          pyinstaller --noconfirm --onefile --noconsole --name RealtimeTicker --icon ticker.ico ticker_launcher.py
       - name: exe 실행 시험 (30초)
         shell: pwsh
         run: |
@@ -46,7 +49,6 @@ jobs:
           Get-ChildItem $d
           if (Test-Path "$d\error.log") { Get-Content "$d\error.log"; throw '오류 기록이 있다' }
           if (-not $alive) { throw 'exe 가 30초 안에 꺼졌다' }
-          if (-not (Test-Path "$d\ticker.pyw")) { throw '위젯 코드를 못 받았다' }
           (Get-Item tools\dist\RealtimeTicker.exe).Length / 1MB
       - name: 스크린샷 남기기 (probe-out 브랜치 ticker-exe/)
         if: always()
