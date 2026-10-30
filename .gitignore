@@ -46,3 +46,4 @@ WORKLOG.md
 # 위젯 설정(보유 종목 포함) — 공개 저장소에 두지 않는다. claude-memory(비공개)로 동기화
 tools/ticker_config.json
 tools/tiger_relay.log
+tools/ticker_exe.py

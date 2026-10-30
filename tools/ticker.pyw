@@ -7,6 +7,9 @@ import urllib.error, urllib.parse, urllib.request
 from threading import Thread
 
 REPO = "jaenamking1-collab/jjk"
+# [exe-cut] 여기부터 [/exe-cut] 까지는 남에게 주는 exe 에서 빠진다(tools/make_exe.py).
+# 인터넷에서 코드를 받아 실행·자기 교체·git 호출은 백신이 셸로더로 본다(2026-10-30 VirusTotal 8/71).
+# exe 는 위젯 코드를 품고 돌고, 새 버전은 exe_update_check 가 알려만 준다.
 FILE = "tools/ticker.pyw"
 RAW = "https://raw.githubusercontent.com/%s/main/%s" % (REPO, FILE)
 # ⚠️ raw.githubusercontent.com 만 통째로 막는 망이 있다(학교, 2026-09-03 실측: raw는 응답
@@ -98,6 +101,7 @@ def git(repo, *args, timeout=15):
 
 
 self_update()
+# [/exe-cut]
 
 
 def sync():
@@ -965,6 +969,8 @@ head = tk.Frame(root, bg=panel_bg())
 head.pack(fill="x", padx=6, pady=(2, 0))
 status = tk.Label(head, text="", bg=panel_bg(), fg=ACC, font=("Malgun Gothic", 7))
 status.pack(side="left", padx=6)
+newver = tk.Label(head, text="", bg=panel_bg(), fg="#ffcc4d", font=("Malgun Gothic", 7, "bold"), cursor="hand2")
+newver.bind("<Button-1>", lambda e: webbrowser.open(RELEASE_PAGE))
 gear = tk.Label(head, text="⚙", bg=panel_bg(), fg=ACC, font=("Segoe UI Symbol", 9), cursor="hand2")
 gear.pack(side="right", padx=(8, 0))
 body = tk.Frame(root, bg=panel_bg())
@@ -994,6 +1000,29 @@ for _n, (_k, _t) in enumerate(ISSUER.items()):
     chips[_k] = _l
 board_line.append(tk.Label(notice, text="", bg=panel_bg(), fg=DIM, font=("Malgun Gothic", 8), anchor="w"))
 board_line[0].pack(fill="x", pady=(2, 0))
+
+
+RELEASE_PAGE = "https://github.com/%s/releases/tag/ticker" % REPO
+
+
+def exe_update_check():
+    """exe 로 돌 때만: 릴리스에 올라간 exe 지문(sha256)이 내 exe 와 다르면 '새 버전' 을 띄운다.
+    받아서 실행하지 않는다 — 알려만 주고, 누르면 받는 곳이 열린다(2026-10-30). 하루 한 번."""
+    if getattr(sys, "frozen", False):
+        def work():
+            try:
+                import hashlib
+                with open(sys.executable, "rb") as f:
+                    mine = hashlib.sha256(f.read()).hexdigest()
+                rel = get("https://api.github.com/repos/%s/releases/tags/ticker" % REPO)
+                dig = [a.get("digest", "") for a in rel.get("assets", []) if a.get("name") == "RealtimeTicker.exe"]
+                new = bool(dig and dig[0] and dig[0] != "sha256:" + mine)
+                root.after(0, lambda: (newver.config(text="새 버전 있음 ▸" if new else ""),
+                                       newver.pack(side="left", padx=4) if new else newver.pack_forget()))
+            except Exception:
+                pass                          # 못 물어봐도 위젯은 그대로 돈다
+        Thread(target=work, daemon=True).start()
+    root.after(24 * 3600 * 1000, exe_update_check)
 
 
 def apply_sections():
@@ -1802,6 +1831,7 @@ blink()
 notice_loop()
 notice_blink()
 total_loop()
+exe_update_check()
 if cfg["hidden"]:
     root.withdraw()
 tab_btn.config(text="◀" if cfg["hidden"] else "▶")

@@ -1,60 +1,17 @@
-# 남에게 주는 '실시간시세.exe' 의 껍데기. 파이썬이 없는 PC 에서도 위젯을 돌린다.
-# 하는 일: 최신 ticker.pyw 를 %LOCALAPPDATA%\ticker 에 받아 두고 그걸 그대로 실행한다.
-# 그래서 exe 를 다시 받지 않아도 위젯 코드는 켤 때마다 최신이 된다(ticker.pyw 의 self_update 와 같은 이치).
+# 남에게 주는 'RealtimeTicker.exe' 의 진입점. 파이썬이 없는 PC 에서도 위젯을 돌린다.
+# 위젯 코드(ticker_exe.py = ticker.pyw 에서 자기 갱신을 뺀 것, make_exe.py 가 만든다)를 품고 돈다.
+# 예전엔 켤 때마다 최신 ticker.pyw 를 받아 실행했는데, 그 모양을 백신이 셸로더로 봤다
+# (2026-10-30 VirusTotal 8/71). 이제 코드는 받지 않고, 새 exe 가 나오면 위젯이 '새 버전 있음' 만 띄운다.
 # 빌드: .github/workflows/ticker-exe.yml (릴리스 태그 ticker)
-import base64, json, os, runpy, sys, urllib.request
+import os, sys
 
-# ticker.pyw 가 쓰는 표준 모듈을 여기서 미리 불러 둔다 — PyInstaller 는 이 파일의 import 만 보고 묶는다.
-import ctypes, ctypes.wintypes, datetime, html, re, shutil, subprocess, time, webbrowser  # noqa: F401
-import tkinter, urllib.error, urllib.parse, threading  # noqa: F401
-
-REPO = "jaenamking1-collab/jjk"
-FILE = "tools/ticker.pyw"
-MIRRORS = (("https://raw.githubusercontent.com/%s/main/%s" % (REPO, FILE), "raw"),
-           ("https://api.github.com/repos/%s/contents/%s?ref=main" % (REPO, FILE), "api"),
-           ("https://cdn.jsdelivr.net/gh/%s@main/%s" % (REPO, FILE), "jsdelivr"))
 DEST = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "ticker")
-ME = os.path.join(DEST, "ticker.pyw")
-
-
-def fetch():
-    for url, name in MIRRORS:
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": "ticker-widget"})
-            body = urllib.request.urlopen(req, timeout=5).read()
-            if name == "api":
-                body = base64.b64decode(json.loads(body)["content"])
-            if len(body) > 10000 and b"tkinter" in body:
-                compile(body, ME, "exec")            # 깨진 코드는 받지 않는다
-                return body, name
-        except Exception:
-            continue
-    return None, None
-
-
 os.makedirs(DEST, exist_ok=True)
-new, src = fetch()
-if new:
-    try:
-        old = open(ME, "rb").read() if os.path.exists(ME) else b""
-        if new != old:
-            with open(ME, "wb") as f:
-                f.write(new)
-        note = "최신(%s)" % src
-    except Exception:
-        note = "저장 실패"
-elif os.path.exists(ME):
-    note = "확인 실패(인터넷) — 있던 것으로 실행"
-else:
-    import tkinter.messagebox
-    tkinter.Tk().withdraw()
-    tkinter.messagebox.showerror("실시간 시세", "처음 실행에는 인터넷이 필요합니다.\n연결을 확인하고 다시 켜 주세요.")
-    sys.exit(1)
-
-os.environ["TICKER_LAUNCHER"] = note             # ticker.pyw 는 이걸 보고 자기 갱신을 건너뛴다
 os.chdir(DEST)
+# 설정은 늘 같은 자리에 — exe 는 실행할 때마다 임시 폴더에 풀리므로 그 옆에 두면 사라진다
+os.environ.setdefault("TICKER_CONFIG", os.path.join(DEST, "ticker_config.json"))
 try:
-    runpy.run_path(ME, run_name="__main__")
+    import ticker_exe  # noqa: F401  (불러오는 것이 곧 위젯 실행)
 except SystemExit:
     raise
 except BaseException:
