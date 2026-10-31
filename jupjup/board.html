@@ -25,6 +25,7 @@
   <svg class="logo"><use href="#joobi"/></svg>
   <h1>줍줍</h1>
   <span class="total" id="total"></span>
+  <button class="shelf-btn" id="shelfBtn" aria-haspopup="true" aria-expanded="false"></button>
   <div class="layouts" role="group" aria-label="칸 나누기">
     <button data-layout="1" aria-label="1칸"><i class="g1"><b></b></i></button>
     <button data-layout="2" aria-label="2칸"><i class="g2"><b></b><b></b></i></button>
@@ -32,9 +33,13 @@
   </div>
 </header>
 
-<main id="spaces"></main>
+<div class="shelf" id="shelf" hidden>
+  <strong>링크 판 목록</strong>
+  <div class="shelf-list" id="shelfList"></div>
+  <button class="shelf-add" id="shelfAdd">새 판 만들기</button>
+</div>
 
-<button class="hidden-note" id="hiddenNote" hidden></button>
+<main id="spaces"></main>
 
 <div class="dock" id="dock" hidden>
   <svg class="dock-joobi"><use href="#joobi"/></svg>
