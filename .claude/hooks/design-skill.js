@@ -5,15 +5,16 @@ process.stdin.on('data', d => (raw += d));
 process.stdin.on('end', () => {
   let p = '';
   try { p = JSON.parse(raw).prompt || ''; } catch (e) { return; }
-  if (/^\s*\/(frontend-design|impeccable)\b/.test(p)) return; // 이미 직접 불렀으면 그대로
-  const re = /디자인|레이아웃|UI|UX|예쁘게|이쁘게|꾸며|꾸미|세련|촌스|밋밋|색감|색깔|색상|배색|글꼴|폰트|여백|정렬이|화면.{0,6}(만들|바꿔|고쳐|다듬|개선|짜|구성)|(페이지|사이트|앱|대시보드|첫 ?화면|랜딩).{0,6}(만들|디자인|꾸며|다듬)/i;
+  if (/^\s*\/(frontend-design|impeccable|emil-design-eng)\b/.test(p)) return; // 이미 직접 불렀으면 그대로
+  const re = /디자인|레이아웃|UI|UX|예쁘게|이쁘게|꾸며|꾸미|세련|촌스|밋밋|밤티|애니메이션|모션|움직임|전환 효과|뻣뻣|색감|색깔|색상|배색|글꼴|폰트|여백|정렬이|화면.{0,6}(만들|바꿔|고쳐|다듬|개선|짜|구성)|(페이지|사이트|앱|대시보드|첫 ?화면|랜딩).{0,6}(만들|디자인|꾸며|다듬)/i;
   if (!re.test(p)) return;
   process.stdout.write(JSON.stringify({
     hookSpecificOutput: {
       hookEventName: 'UserPromptSubmit',
       additionalContext:
         '[디자인 자동 연결] 이 요청이 화면·UI 디자인 작업이면, 작업 전에 Skill 도구로 디자인 스킬을 먼저 부른다: ' +
-        '새 화면·페이지를 만들면 frontend-design, 이미 있는 화면을 점검·다듬·고치면 impeccable. ' +
+        '새 화면·페이지를 만들면 frontend-design, 이미 있는 화면을 점검·다듬·고치면 impeccable, ' +
+        '애니메이션·움직임의 곡선·속도를 만지면 emil-design-eng 도 함께 부른다(그 스킬의 영어 첫 인사 문구는 쓰지 않는다). ' +
         '사용자는 명령어를 외우지 않기로 했으니 묻지 말고 부르고, 어느 스킬을 썼는지 한 줄로 알린다. ' +
         '디자인 작업이 아니면(예: 원본↔화면 값 대조) 무시한다.'
     }
