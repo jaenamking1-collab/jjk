@@ -26,6 +26,22 @@ async function setPending(items) {
 const TITLE_BYTES = 300000, TITLE_JOBS = 5, TITLE_KEEP = 3000;
 const CUT_TEXT = /\s*(…|\.{2,})$/;
 
+// 제목이 없는 SNS 링크는 주소에서 아이디라도 찾는다
+const SNS_FIRST_PATH = /^(www\.|m\.|mobile\.)?(instagram|x|twitter|facebook)\.com$/;
+const SNS_NOT_ID = /^(p|reel|reels|tv|i|home|explore|search|hashtag|share|watch|stories|intent|status|groups|pages|photo|video)$/;
+
+function snsHandle(url) {
+  try {
+    const { hostname, pathname } = new URL(url);
+    const at = /^\/@([\w.-]+)/.exec(pathname);
+    if (at) return '@' + at[1];
+    const first = pathname.split('/')[1];
+    return SNS_FIRST_PATH.test(hostname) && first && !SNS_NOT_ID.test(first) ? '@' + first : '';
+  } catch (e) {
+    return '';
+  }
+}
+
 function decodeEntities(s) {
   const named = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
   return s.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (all, code) => {
@@ -35,7 +51,12 @@ function decodeEntities(s) {
   });
 }
 
-function titleFromHtml(html) {
+function titleFromHtml(html, url) {
+  // 인스타 게시물 주소에는 아이디가 없고 설명 글에 "... comments - 아이디 - 날짜" 로 들어 있다
+  if (/instagram\.com\//.test(url)) {
+    const insta = /comments?\s*-\s*([\w.]+)\s*-/i.exec(html);
+    if (insta) return '@' + insta[1];
+  }
   const meta = /<meta[^>]+property=["']og:title["'][^>]*>/i.exec(html);
   const og = meta && /content=(?:"([^"]*)"|'([^']*)')/i.exec(meta[0]);
   const tag = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html);
@@ -44,7 +65,8 @@ function titleFromHtml(html) {
 }
 
 async function pageTitle(url) {
-  const res = await fetch(url, { credentials: 'include', signal: AbortSignal.timeout(8000) });
+  // 로그인 정보를 보내지 않는다. 제목을 읽다가 수신거부·로그아웃 같은 링크가 실행되면 안 된다
+  const res = await fetch(url, { credentials: 'omit', signal: AbortSignal.timeout(8000) });
   const type = res.headers.get('content-type') || '';
   if (!res.ok || !/html/i.test(type)) return '';
   const bytes = new Uint8Array(await res.arrayBuffer()).slice(0, TITLE_BYTES);
@@ -56,7 +78,7 @@ async function pageTitle(url) {
   } catch (e) {
     text = new TextDecoder().decode(bytes);
   }
-  return titleFromHtml(text);
+  return titleFromHtml(text, url);
 }
 
 async function fetchTitles(items) {
@@ -119,7 +141,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
         id: crypto.randomUUID(),
         url: it.url,
         kind: it.kind,
-        title: (it.title || '').slice(0, 200),
+        title: (it.title || snsHandle(it.url)).slice(0, 200),
         batch,
         at,
         siteUrl: tab.url || sender.url || '',
