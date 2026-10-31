@@ -83,6 +83,14 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
 
 chrome.action.onClicked.addListener(() => openBoard());
 
+// 폴더의 파일이 새 버전으로 바뀌면 스스로 다시 켠다(사용자가 새로고침을 누르지 않게)
+chrome.alarms.create('selfUpdate', { periodInMinutes: 1 });
+chrome.alarms.onAlarm.addListener(async () => {
+  const res = await fetch(chrome.runtime.getURL('manifest.json'), { cache: 'no-store' });
+  const { version } = await res.json();
+  if (version !== chrome.runtime.getManifest().version) chrome.runtime.reload();
+});
+
 // 크기·위치를 바꾸면 기억한다
 chrome.windows.onBoundsChanged.addListener(async win => {
   const { windowId } = await chrome.storage.session.get('windowId');
