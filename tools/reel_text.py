@@ -2,6 +2,7 @@
 # 사용: python tools/reel_text.py <주소> [주소...]  → 캡션과 음성 받아쓰기를 출력
 # 화면까지 봐야 할 때만: python tools/reel_text.py --frames <주소>  → 장면이 바뀐 곳만 낱장 저장(최대 12장)
 import os, subprocess, sys, tempfile
+import numpy
 import yt_dlp
 from faster_whisper import WhisperModel
 
@@ -9,7 +10,7 @@ MAX_FRAMES = 12
 
 
 def fetch(url, folder, frames):
-    opts = {'quiet': True, 'no_warnings': True, 'outtmpl': os.path.join(folder, '%(id)s.%(ext)s')}
+    opts = {'quiet': True, 'noprogress': True, 'no_warnings': True, 'outtmpl': os.path.join(folder, '%(id)s.%(ext)s')}
     opts['format'] = 'best' if frames else 'bestaudio/best'
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=True)
@@ -17,7 +18,11 @@ def fetch(url, folder, frames):
 
 
 def transcribe(model, path):
-    parts, _ = model.transcribe(path, language='ko', vad_filter=True)
+    # faster-whisper 내장 디코더(PyAV)가 버전 충돌로 죽어서 ffmpeg 로 푼 소리를 넘긴다
+    pcm = subprocess.run(['ffmpeg', '-v', 'error', '-i', path, '-f', 's16le', '-ac', '1', '-ar', '16000', '-'],
+                         capture_output=True, check=True).stdout
+    audio = numpy.frombuffer(pcm, numpy.int16).astype(numpy.float32) / 32768
+    parts, _ = model.transcribe(audio, language='ko', vad_filter=True)
     return '\n'.join(f'[{int(p.start)}초] {p.text.strip()}' for p in parts)
 
 
