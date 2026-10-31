@@ -1,5 +1,6 @@
 // 메모 창 열기 + 주운 링크 보관함(pending). 저장은 순서대로 한 번에 하나씩.
 const BOARD_URL = chrome.runtime.getURL('board.html');
+const FRAME_PX = 8; // 창 아래 테두리(윈도우)
 
 let queue = Promise.resolve();
 function serial(fn) {
@@ -19,7 +20,7 @@ async function setPending(items) {
   chrome.action.setBadgeText({ text: items.length ? String(Math.min(items.length, 999)) : '' });
 }
 
-async function openBoard(screen) {
+async function openBoard(screen, tab) {
   const { windowId } = await chrome.storage.session.get('windowId');
   if (windowId) {
     try {
@@ -32,19 +33,21 @@ async function openBoard(screen) {
     url: BOARD_URL,
     type: 'popup',
     focused: true,
-    ...(bounds || await defaultBounds(screen))
+    ...(bounds || await defaultBounds(screen, tab))
   });
   await chrome.storage.session.set({ windowId: win.id });
 }
 
-// 화면의 1/3, 오른쪽 끝
-async function defaultBounds(s) {
-  if (!s) {
-    const w = await chrome.windows.getLastFocused();
-    s = { left: w.left, top: w.top, width: w.width, height: w.height };
-  }
+// 화면의 1/3, 오른쪽 끝. 위쪽은 브라우저의 제목표시줄·탭·주소줄을 덮지 않고 페이지 높이부터 시작한다
+async function defaultBounds(s, tab) {
+  const main = await chrome.windows.getLastFocused();
+  if (!s) s = { left: main.left, top: main.top, width: main.width, height: main.height };
+  if (!tab) [tab] = await chrome.tabs.query({ active: true, windowId: main.id });
+  const win = tab && tab.windowId !== main.id ? await chrome.windows.get(tab.windowId) : main;
+  const pageTop = tab && tab.height ? win.top + win.height - tab.height - FRAME_PX : s.top;
+  const top = Math.max(s.top, pageTop);
   const width = Math.max(420, Math.round(s.width / 3));
-  return { left: s.left + s.width - width, top: s.top, width, height: s.height };
+  return { left: s.left + s.width - width, top, width, height: s.top + s.height - top };
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
@@ -63,7 +66,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
         siteName: tab.title || ''
       }));
       await setPending((await getPending()).concat(items));
-      await openBoard(msg.screen);
+      await openBoard(msg.screen, sender.tab);
     }).then(() => reply({ ok: true }), e => reply({ ok: false, error: String(e) }));
     return true;
   }
