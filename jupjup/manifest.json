@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "줍줍 링크 메모",
   "short_name": "줍줍",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Shift+클릭으로 사진·영상·링크를, Shift+드래그로 페이지의 링크를 한꺼번에 주워 메모 칸에 모읍니다.",
   "permissions": ["storage", "unlimitedStorage", "clipboardWrite", "scripting", "tabs"],
   "host_permissions": ["<all_urls>"],

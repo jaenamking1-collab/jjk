@@ -1,4 +1,4 @@
-// 메모 칸 화면. 칸은 언제나 4개를 저장하고, layout 은 그중 몇 개를 보일지만 정한다.
+// 메모 판 화면. 판은 몇 개든 저장하고, shown 은 화면 자리(최대 4)에 놓인 판, layout 은 그중 몇 자리를 보일지 정한다.
 const KIND = { link: '🔗', image: '🖼️', video: '🎬' };
 const ICON = {
   copy: '<svg viewBox="0 0 16 16"><rect x="5.5" y="5.5" width="8" height="8" rx="2"/><path d="M10.5 3H4a1 1 0 0 0-1 1v6.5"/></svg>',
@@ -8,10 +8,19 @@ const ICON = {
 const $ = id => document.getElementById(id);
 const spacesEl = $('spaces');
 
-let board = { layout: 1, spaces: [0, 1, 2, 3].map(() => ({ title: '', items: [] })) };
+let board = { layout: 1, shown: [0, 1, 2, 3], spaces: [0, 1, 2, 3].map(() => ({ title: '', items: [] })) };
 let pendingCount = 0;
 let drag = null;
 let undoState = null, toastTimer = 0;
+let activeSlot = 0;
+
+const visible = () => board.shown.slice(0, board.layout);
+const spaceName = i => board.spaces[i].title || `제목 없는 판 ${i + 1}`;
+
+// 1.0 저장본에는 shown 이 없다
+function withShown(b) {
+  return { shown: [0, 1, 2, 3], ...b };
+}
 
 function save() {
   return chrome.storage.local.set({ board });
@@ -112,20 +121,22 @@ function fillList(list, items) {
 
 function buildSpaces() {
   const frag = [];
-  for (let i = 0; i < board.layout; i++) {
+  for (const i of visible()) {
     const sp = el('section', 'space');
     sp.dataset.i = i;
+    sp.dataset.c = i % 4;
     const head = el('div', 'space-head');
     const title = el('input', 'title');
     title.placeholder = '큰제목 쓰기';
     title.value = board.spaces[i].title;
-    title.setAttribute('aria-label', `${i + 1}번 칸 제목`);
+    title.setAttribute('aria-label', `${i + 1}번 판 제목`);
     title.maxLength = 60;
     head.append(title, el('span', 'count'));
     sp.append(head, el('div', 'list'));
     frag.push(sp);
   }
   spacesEl.replaceChildren(...frag);
+  spacesEl.dataset.key = viewKey();
   spacesEl.dataset.layout = board.layout;
   spacesEl.classList.toggle('compact', board.layout === 4);
   document.querySelectorAll('.layouts button').forEach(b => {
@@ -133,10 +144,14 @@ function buildSpaces() {
   });
 }
 
+function viewKey() {
+  return board.layout + ':' + visible().join();
+}
+
 function render() {
-  if (spacesEl.children.length !== board.layout) buildSpaces();
-  [...spacesEl.children].forEach((sp, i) => {
-    const space = board.spaces[i];
+  if (spacesEl.dataset.key !== viewKey()) buildSpaces();
+  [...spacesEl.children].forEach(sp => {
+    const space = board.spaces[+sp.dataset.i];
     const title = sp.querySelector('.title');
     if (document.activeElement !== title) title.value = space.title;
     sp.querySelector('.count').textContent = space.items.length ? `${space.items.length}개` : '';
@@ -144,15 +159,74 @@ function render() {
   });
   const all = board.spaces.reduce((n, s) => n + s.items.length, 0);
   $('total').textContent = all ? `링크 ${all}개` : '';
-  const hiddenCount = board.spaces.slice(board.layout).reduce((n, s) => n + s.items.length, 0);
-  $('hiddenNote').hidden = !hiddenCount;
-  $('hiddenNote').textContent = `접어 둔 칸에 링크 ${hiddenCount}개가 있어요 · 4칸으로 보기`;
+  $('shelfBtn').textContent = `목록 ${board.spaces.length}`;
+  renderShelf();
+}
+
+// 판 목록
+function renderShelf() {
+  const open = !$('shelf').hidden;
+  $('shelfBtn').setAttribute('aria-expanded', String(open));
+  if (!open) return;
+  const on = visible();
+  const rows = board.spaces.map((space, i) => {
+    const row = el('div', 'shelf-row');
+    row.dataset.i = i;
+    row.dataset.c = i % 4;
+    row.classList.toggle('on', on.includes(i));
+    const pick = el('button', 'shelf-pick');
+    pick.append(el('span', 'dot'), el('span', 'shelf-name', spaceName(i)), el('span', 'shelf-count', `${space.items.length}개`));
+    row.append(pick);
+    if (board.spaces.length > 4) {
+      const del = el('button', 'act del');
+      del.innerHTML = ICON.del;
+      del.title = '이 판 삭제';
+      row.append(del);
+    }
+    return row;
+  });
+  $('shelfList').replaceChildren(...rows);
+}
+
+function toggleShelf(open) {
+  $('shelf').hidden = !open;
+  renderShelf();
+}
+
+function showSpace(i) {
+  if (visible().includes(i)) return;
+  const slot = Math.min(activeSlot, board.layout - 1);
+  const at = board.shown.indexOf(i);
+  if (at >= 0) board.shown[at] = board.shown[slot];
+  board.shown[slot] = i;
+  save();
+  render();
+}
+
+function addSpace() {
+  board.spaces.push({ title: '', items: [] });
+  const i = board.spaces.length - 1;
+  showSpace(i);
+  toggleShelf(false);
+  spacesEl.querySelector(`[data-i="${i}"] .title`).focus();
+}
+
+function deleteSpace(i) {
+  const before = JSON.stringify(board);
+  const n = board.spaces[i].items.length;
+  board.spaces.splice(i, 1);
+  const shown = board.shown.filter(s => s !== i).map(s => (s > i ? s - 1 : s));
+  for (let s = 0; shown.length < 4; s++) if (!shown.includes(s)) shown.push(s);
+  board.shown = shown;
+  save();
+  render();
+  toast(`판을 삭제했어요${n ? ` (링크 ${n}개)` : ''}`, before);
 }
 
 function renderDock() {
   document.body.classList.toggle('holding', pendingCount > 0);
   $('dock').hidden = !pendingCount;
-  $('dockText').textContent = `링크 ${pendingCount}개 · 넣을 칸을 눌러요`;
+  $('dockText').textContent = `링크 ${pendingCount}개 · 넣을 판을 눌러요`;
 }
 
 async function paste(index) {
@@ -161,8 +235,9 @@ async function paste(index) {
   board.spaces[index].items.push(...items);
   await save();
   render();
-  const list = spacesEl.children[index].querySelector('.list');
-  list.scrollTop = list.scrollHeight;
+  const list = spacesEl.querySelector(`[data-i="${index}"] .list`);
+  if (list) list.scrollTop = list.scrollHeight;
+  else toast(`${spaceName(index)}에 ${items.length}개 넣었어요`);
 }
 
 function toast(text, undo) {
@@ -205,6 +280,7 @@ spacesEl.addEventListener('click', e => {
   const sp = e.target.closest('.space');
   if (!sp) return;
   const index = +sp.dataset.i;
+  activeSlot = [...spacesEl.children].indexOf(sp);
   const btn = e.target.closest('button');
 
   if (btn && btn.classList.contains('copy')) {
@@ -292,9 +368,11 @@ spacesEl.addEventListener('drop', e => {
   const sp = e.target.closest('.space');
   if (!sp) return;
   e.preventDefault();
-  const to = +sp.dataset.i;
   const line = sp.querySelector('.drop-line');
-  const beforeId = line?.nextElementSibling?.dataset.id;
+  moveDragged(+sp.dataset.i, line?.nextElementSibling?.dataset.id);
+});
+
+function moveDragged(to, beforeId) {
   const moving = drag.ids.map(id => findItem(drag.from, id));
   const ids = new Set(drag.ids);
   board.spaces[drag.from].items = board.spaces[drag.from].items.filter(i => !ids.has(i.id));
@@ -304,7 +382,7 @@ spacesEl.addEventListener('drop', e => {
   clearDrag();
   save();
   render();
-});
+}
 
 spacesEl.addEventListener('dragend', () => {
   if (drag) { clearDrag(); render(); }
@@ -318,10 +396,41 @@ document.querySelector('.layouts').addEventListener('click', e => {
   render();
 });
 
-$('hiddenNote').addEventListener('click', () => {
-  board.layout = 4;
-  save();
-  render();
+$('shelfBtn').addEventListener('click', e => {
+  e.stopPropagation();
+  toggleShelf($('shelf').hidden);
+});
+
+$('shelfAdd').addEventListener('click', addSpace);
+
+$('shelfList').addEventListener('click', e => {
+  const row = e.target.closest('.shelf-row');
+  if (!row) return;
+  const i = +row.dataset.i;
+  if (e.target.closest('.del')) return deleteSpace(i);
+  if (pendingCount) paste(i);
+  else showSpace(i);
+  toggleShelf(false);
+});
+
+// 목록의 판 위에 놓으면 그 판 맨 뒤로 옮긴다(화면에 없는 판으로도 옮길 수 있게)
+$('shelfList').addEventListener('dragover', e => {
+  const row = e.target.closest('.shelf-row');
+  if (!drag || !row) return;
+  e.preventDefault();
+  document.querySelector('.shelf-row.over')?.classList.remove('over');
+  row.classList.add('over');
+});
+
+$('shelfList').addEventListener('drop', e => {
+  const row = e.target.closest('.shelf-row');
+  if (!drag || !row) return;
+  e.preventDefault();
+  moveDragged(+row.dataset.i);
+});
+
+document.addEventListener('click', e => {
+  if (!$('shelf').hidden && !e.target.closest('#shelf')) toggleShelf(false);
 });
 
 $('dockCancel').addEventListener('click', async () => {
@@ -344,14 +453,14 @@ chrome.storage.onChanged.addListener((changes, area) => {
     renderDock();
   }
   if (changes.board && !drag && JSON.stringify(changes.board.newValue) !== JSON.stringify(board)) {
-    board = changes.board.newValue;
+    board = withShown(changes.board.newValue);
     render();
   }
 });
 
 (async () => {
   const data = await chrome.storage.local.get(['board', 'pending']);
-  if (data.board) board = data.board;
+  if (data.board) board = withShown(data.board);
   pendingCount = (data.pending || []).length;
   render();
   renderDock();
