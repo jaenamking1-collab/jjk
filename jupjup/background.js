@@ -1,5 +1,6 @@
 // 메모 창 열기 + 주운 링크 보관함(pending). 저장은 순서대로 한 번에 하나씩.
-const BOARD_URL = chrome.runtime.getURL('board.html');
+// 버전을 붙여야 브라우저가 기억한 옛 창 아이콘을 쓰지 않는다
+const BOARD_URL = chrome.runtime.getURL(`board.html?v=${chrome.runtime.getManifest().version}`);
 const FRAME_PX = 8; // 창 아래 테두리(윈도우)
 
 let queue = Promise.resolve();
