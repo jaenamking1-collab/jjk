@@ -271,10 +271,10 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
   font-size: 13px;
   padding: 10px;
 }
-.empty svg { width: 52px; height: 52px; }
+.empty img { width: 72px; height: 72px; }
 .empty strong { font: 15px/1.2 "Jua", var(--body-font); color: var(--ink); }
 .empty kbd { font: inherit; font-weight: 600; color: var(--grape-deep); }
-.compact .empty svg, .compact .empty span { display: none; }
+.compact .empty img, .compact .empty span { display: none; }
 
 /* 링크를 들고 있을 때 — 누를 곳이 보이게 */
 body.holding .space { cursor: copy; }
@@ -312,7 +312,7 @@ body.holding .space:hover::after { opacity: 1; border-style: solid; }
 .dock[hidden], .toast[hidden] { display: none; }
 .dock button, .toast button { color: #C9C2FF; font-weight: 600; }
 .dock button:hover, .toast button:hover { color: #fff; }
-.dock-joobi { width: 28px; height: 28px; flex: none; animation: hop .5s ease-out; }
+.dock-joobi { width: 28px; height: 28px; flex: none; border-radius: 8px; animation: hop .5s ease-out; }
 .toast { padding-left: 14px; }
 .dock:not([hidden]) ~ .toast { bottom: 62px; }
 

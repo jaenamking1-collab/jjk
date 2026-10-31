@@ -103,7 +103,7 @@ function metaRow(item, size) {
 
 function emptyView() {
   const box = el('div', 'empty');
-  box.innerHTML = '<svg><use href="#joobi"/></svg><strong>아직 비어 있어요</strong>' +
+  box.innerHTML = '<img src="icons/128.png" alt=""><strong>아직 비어 있어요</strong>' +
     '<span><kbd>Shift+클릭</kbd> 한 개 줍기<br><kbd>Shift+드래그</kbd> 페이지 전체 줍기</span>';
   return box;
 }
