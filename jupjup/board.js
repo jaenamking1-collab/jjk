@@ -276,7 +276,7 @@ spacesEl.addEventListener('dragover', e => {
   if (!list) return;
   e.preventDefault();
   e.dataTransfer.dropEffect = 'move';
-  list.querySelector('.empty')?.remove();
+  if (list.querySelector('.empty')) return; // 안내를 지우면 끌던 대상이 사라져 놓기가 끊긴다
   const rows = [...list.querySelectorAll('.row')];
   const next = rows.find(r => {
     const box = r.getBoundingClientRect();

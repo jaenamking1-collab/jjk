@@ -1,0 +1,9 @@
+# 줍줍 링크 메모 (크롬 확장)
+
+Shift+클릭·Shift+드래그로 주운 링크를 메모 창(화면 1/3 popup) 칸에 모은다. 빌드 없음.
+
+- `content.js` 페이지에서 줍기·복사 / `background.js` 보관함(pending)·창 열기 / `board.*` 메모 화면.
+- 저장은 `chrome.storage.local`(`board`, `pending`, `bounds`) 뿐이다. 링크는 PC·프로필마다 따로고 **확장을 제거하면 지워진다.**
+- 칸은 언제나 4개를 저장하고 `layout` 은 보이는 개수만 정한다. 줄여도 지우지 않는다.
+- 시험: 브랜드 크롬은 `--load-extension` 이 안 먹어 Playwright 크로미움으로 돌린다. Claude 앱이 AppData 쓰기를 돌려서 크로미움을 AppData 밖으로 복사해야 실행된다. `--window-size` 를 주면 팝업 크기가 덮어써져 1/3 검사가 틀린다.
+- 틀렸던 것: ① 줄 안 `<a>` 에 `draggable=false` 를 주면 줄 끌기가 막힌다 ② dragover 중 빈 칸 안내를 지우면 놓기가 끊긴다.
