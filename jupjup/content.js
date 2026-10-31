@@ -37,8 +37,10 @@
     const stack = document.elementsFromPoint(x, y);
     const top = stack[0];
     if (!top) return null;
-    const textLink = top.closest('a[href]');
-    if (textLink && textLink.innerText.trim() && !top.matches('img,video')) {
+    // 글자 바로 위를 누른 경우만 링크다. 사진+제목이 한 링크인 카드에서는 사진을 고른다
+    const onText = [...top.childNodes].some(n => n.nodeType === 3 && n.textContent.trim());
+    const textLink = onText && top.closest('a[href]');
+    if (textLink) {
       const url = httpUrl(textLink.href);
       if (url) return { url, kind: 'link' };
     }
