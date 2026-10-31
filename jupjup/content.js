@@ -1,12 +1,15 @@
-// 페이지 안: Shift+클릭 = 한 개, Shift+드래그 = 페이지 전체
+// 페이지 안: Shift+클릭 = 한 개, Shift+드래그 = 네모 안의 메인 제목들
 (() => {
   if (window.__jupjupAlive && window.__jupjupAlive()) return;
   const alive = () => !!(chrome.runtime && chrome.runtime.id);
   window.__jupjupAlive = alive;
 
-  const DRAG_PX = 40;
-  const MIN_IMG_PX = 100; // 전체 줍기에서 이보다 작은 그림(아이콘 등)은 뺀다
+  const DRAG_PX = 8;
+  const MIN_TITLE_CHARS = 6; // 평균 글자 수가 이보다 적은 묶음(메뉴·언론사 이름 등)은 제목이 아니다
+  const NOT_TITLE = /^(\d{1,2}월\s*\d{1,2}일|\d{4}[.-]|\d{1,2}:\d{2}|\d+(분|시간|일|주|개월|년)\s*전)/; // 날짜·시각
+  const TITLE_LABEL = 'h1,h2,h3,h4,h5,h6,[class*="title" i],[class*="headline" i]';
   let start = null, dragging = false, swallowClick = false, hint = null;
+  let links = [], overlay = null, picked = [];
 
   const httpUrl = u => {
     try {
@@ -33,6 +36,36 @@
     return m ? httpUrl(m[1]) : '';
   }
 
+  const clean = t => (t || '').trim().replace(/\s+/g, ' ');
+
+  // 카드처럼 여러 줄이 든 링크에서는 가장 긴 줄이 제목이다
+  function longestLine(el) {
+    return (el.innerText || '').split('\n').map(clean).sort((a, b) => b.length - a.length)[0] || '';
+  }
+
+  // 유튜브는 재생 위치 등이 달라도 v= 가 같으면 같은 영상이다
+  function targetKey(href) {
+    try {
+      const url = new URL(href);
+      return url.searchParams.get('v') || url.href;
+    } catch (e) {
+      return href;
+    }
+  }
+
+  function linkTitle(a) {
+    const label = a.querySelector(TITLE_LABEL);
+    const heading = clean(label && label.innerText);
+    if (heading) return heading;
+    // 섬네일 링크에는 재생 시간 같은 글자만 있어, 같은 곳을 가리키는 링크 중 가장 긴 글자를 쓴다
+    const key = targetKey(a.href);
+    const same = [...document.querySelectorAll('a[href]')].filter(o => targetKey(o.href) === key);
+    const texts = same.flatMap(o => [longestLine(o), clean(o.title)]).sort((x, y) => y.length - x.length);
+    if (texts[0]) return texts[0];
+    const img = a.querySelector('img');
+    return clean(a.getAttribute('aria-label')) || clean(img && img.alt);
+  }
+
   function pick(x, y) {
     const stack = document.elementsFromPoint(x, y);
     const top = stack[0];
@@ -42,20 +75,23 @@
     const textLink = onText && top.closest('a[href]');
     if (textLink) {
       const url = httpUrl(textLink.href);
-      if (url) return { url, kind: 'link' };
+      if (url) return { url, kind: 'link', title: linkTitle(textLink) };
     }
     // 그림 위에 투명한 막이 덮인 사이트가 많아 아래쪽까지 본다
-    for (const el of stack.slice(0, 6)) {
-      if (el.tagName === 'VIDEO') return { url: videoUrl(el), kind: 'video' };
+    const link = top.closest('a[href]');
+    // 유튜브 섬네일은 그림 주소보다 영상 링크가 쓸모 있다
+    const youtube = /(^|\.)youtube\.com$/.test(location.hostname);
+    for (const el of youtube && link ? [] : stack.slice(0, 6)) {
+      if (el.tagName === 'VIDEO') return { url: videoUrl(el), kind: 'video', title: clean(document.title) };
       if (el.tagName === 'IMG') {
         const url = imgUrl(el);
-        if (url) return { url, kind: 'image' };
+        const owner = el.closest('a[href]');
+        if (url) return { url, kind: 'image', title: clean(el.alt) || (owner ? linkTitle(owner) : '') };
       }
     }
-    const link = top.closest('a[href]');
     if (link) {
       const url = httpUrl(link.href);
-      if (url) return { url, kind: 'link' };
+      if (url) return { url, kind: 'link', title: linkTitle(link) };
     }
     for (const el of stack.slice(0, 3)) {
       if (el === document.documentElement || el === document.body) break;
@@ -73,23 +109,91 @@
     return out;
   }
 
-  function collectAll() {
-    const seen = new Set(), items = [];
-    const add = (url, kind) => {
-      if (url && !seen.has(url)) { seen.add(url); items.push({ url, kind }); }
-    };
-    const here = location.href.split('#')[0];
+  // 끌기 시작할 때 한 번만 재서 끄는 동안은 숫자만 비교한다
+  function measureLinks() {
+    const here = location.href.split('#')[0], out = [];
     for (const el of walk(document, [])) {
-      if (el.tagName === 'A' && el.href) {
-        const url = httpUrl(el.href);
-        if (url && url.split('#')[0] !== here) add(url, 'link');
-      } else if (el.tagName === 'IMG') {
-        if (el.width >= MIN_IMG_PX && el.height >= MIN_IMG_PX) add(imgUrl(el), 'image');
-      } else if (el.tagName === 'VIDEO') {
-        add(videoUrl(el), 'video');
-      }
+      if (el.tagName !== 'A' || !el.href) continue;
+      const url = httpUrl(el.href);
+      if (!url || url.split('#')[0] === here) continue;
+      const head = el.querySelector(TITLE_LABEL);
+      const label = head && head.innerText.trim() ? head : el;
+      const text = label === el ? longestLine(el) : clean(label.innerText);
+      const r = label.getBoundingClientRect();
+      if (!text || !r.width || !r.height) continue;
+      const style = getComputedStyle(label);
+      out.push({
+        url, text, left: r.left, top: r.top, width: r.width, height: r.height,
+        size: parseFloat(style.fontSize), bold: +style.fontWeight >= 600
+      });
     }
-    return items;
+    return out;
+  }
+
+  // 글자 크기·굵기가 같은 링크끼리 묶어, 여러 개 반복되는 묶음 중 가장 큰 글자를 제목으로 본다
+  function mainTitles(found) {
+    const byUrl = new Map();
+    for (const l of found) {
+      if (!byUrl.has(l.url) || byUrl.get(l.url).text.length < l.text.length) byUrl.set(l.url, l);
+    }
+    const unique = [...byUrl.values()];
+    const groups = new Map();
+    for (const l of unique) {
+      const key = l.size + (l.bold ? 'b' : '');
+      if (!groups.has(key)) groups.set(key, { size: l.size, items: [], chars: 0 });
+      const g = groups.get(key);
+      g.items.push(l);
+      g.chars += l.text.length;
+    }
+    const titled = [...groups.values()].filter(g => g.chars / g.items.length >= MIN_TITLE_CHARS);
+    if (!titled.length) return [];
+    const most = Math.max(...titled.map(g => g.items.length));
+    const repeated = titled.filter(g => g.items.length >= most * 0.3);
+    const size = Math.max(...repeated.map(g => g.size));
+    return unique.filter(l => l.text.length >= MIN_TITLE_CHARS && !NOT_TITLE.test(l.text) &&
+      titled.some(g => g.size >= size && g.items.includes(l)));
+  }
+
+  function linksInBox(box) {
+    return links.filter(l => {
+      const x = l.left + l.width / 2, y = l.top + l.height / 2;
+      return x >= box.left && x <= box.right && y >= box.top && y <= box.bottom;
+    });
+  }
+
+  function showOverlay() {
+    const host = document.createElement('div');
+    host.style.cssText = 'all:initial;position:fixed;inset:0;z-index:2147483646;pointer-events:none';
+    const root = host.attachShadow({ mode: 'closed' });
+    const marks = document.createElement('div');
+    const box = document.createElement('div');
+    box.style.cssText = 'position:fixed;border:2px dashed #6A5BFF;border-radius:6px;background:rgba(106,91,255,.08)';
+    root.append(marks, box);
+    (document.body || document.documentElement).append(host);
+    overlay = { host, marks, box };
+  }
+
+  function hideOverlay() {
+    if (overlay) { overlay.host.remove(); overlay = null; }
+  }
+
+  function drawBox(x, y) {
+    const box = {
+      left: Math.min(start.x, x), right: Math.max(start.x, x),
+      top: Math.min(start.y, y), bottom: Math.max(start.y, y)
+    };
+    Object.assign(overlay.box.style, {
+      left: box.left + 'px', top: box.top + 'px',
+      width: box.right - box.left + 'px', height: box.bottom - box.top + 'px'
+    });
+    picked = mainTitles(linksInBox(box));
+    overlay.marks.replaceChildren(...picked.map(l => {
+      const mark = document.createElement('div');
+      mark.style.cssText = 'position:fixed;background:rgba(255,122,92,.22);border-radius:4px;' +
+        `left:${l.left}px;top:${l.top}px;width:${l.width}px;height:${l.height}px`;
+      return mark;
+    }));
+    say(picked.length ? `제목 ${picked.length}개 · Esc 취소` : '네모 안에 제목이 없어요', true);
   }
 
   async function copy(text) {
@@ -114,6 +218,7 @@
       await chrome.runtime.sendMessage({
         t: 'capture',
         items,
+        frameTitle: window === top ? '' : clean(document.title),
         screen: {
           left: screen.availLeft, top: screen.availTop,
           width: screen.availWidth, height: screen.availHeight
@@ -150,7 +255,8 @@
 
   function reset() {
     start = null;
-    if (dragging) { dragging = false; hideBubble(); }
+    if (dragging) { dragging = false; hideBubble(); hideOverlay(); }
+    links = [];
   }
 
   addEventListener('mousedown', e => {
@@ -161,20 +267,25 @@
   }, true);
 
   addEventListener('mousemove', e => {
-    if (!start || dragging) return;
-    if (Math.hypot(e.clientX - start.x, e.clientY - start.y) < DRAG_PX) return;
-    dragging = true;
-    say(`놓으면 이 페이지 링크 ${collectAll().length}개를 주워요 · Esc 취소`, true);
+    if (!start) return;
+    if (!dragging) {
+      if (Math.hypot(e.clientX - start.x, e.clientY - start.y) < DRAG_PX) return;
+      dragging = true;
+      links = measureLinks();
+      showOverlay();
+    }
+    drawBox(e.clientX, e.clientY);
   }, true);
 
   addEventListener('mouseup', e => {
     if (!start) return;
     const wasDrag = dragging;
+    const items = picked.map(l => ({ url: l.url, kind: 'link', title: l.text }));
     reset();
     if (e.button !== 0 || !alive() || !wasDrag) return;
     swallowClick = true;
     setTimeout(() => { swallowClick = false; }, 80);
-    deliver(collectAll());
+    deliver(items);
   }, true);
 
   addEventListener('click', e => {

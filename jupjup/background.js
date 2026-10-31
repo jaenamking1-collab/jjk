@@ -21,6 +21,64 @@ async function setPending(items) {
   chrome.action.setBadgeText({ text: items.length ? String(Math.min(items.length, 999)) : '' });
 }
 
+// 게시글 제목(링크 글자)이 우선이다. 글자가 없거나 "..." 로 잘렸을 때만 연결된 페이지에서 제목을 읽어
+// titles 에 둔다. 저장은 메모 창이 한다(board 를 쓰는 곳을 하나로 둔다)
+const TITLE_BYTES = 300000, TITLE_JOBS = 5, TITLE_KEEP = 3000;
+const CUT_TEXT = /\s*(…|\.{2,})$/;
+
+function decodeEntities(s) {
+  const named = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
+  return s.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (all, code) => {
+    if (code[0] !== '#') return named[code.toLowerCase()] || all;
+    const n = /x/i.test(code[1]) ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10);
+    return n ? String.fromCodePoint(n) : all;
+  });
+}
+
+function titleFromHtml(html) {
+  const meta = /<meta[^>]+property=["']og:title["'][^>]*>/i.exec(html);
+  const og = meta && /content=(?:"([^"]*)"|'([^']*)')/i.exec(meta[0]);
+  const tag = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html);
+  const raw = (og && (og[1] || og[2])) || (tag && tag[1]) || '';
+  return decodeEntities(raw).trim().replace(/\s+/g, ' ').slice(0, 200);
+}
+
+async function pageTitle(url) {
+  const res = await fetch(url, { credentials: 'include', signal: AbortSignal.timeout(8000) });
+  const type = res.headers.get('content-type') || '';
+  if (!res.ok || !/html/i.test(type)) return '';
+  const bytes = new Uint8Array(await res.arrayBuffer()).slice(0, TITLE_BYTES);
+  const head = new TextDecoder('latin1').decode(bytes.slice(0, 4000));
+  const charset = (/charset=["']?([\w-]+)/i.exec(type) || /charset=["']?([\w-]+)/i.exec(head) || [])[1];
+  let text;
+  try {
+    text = new TextDecoder(charset || 'utf-8').decode(bytes);
+  } catch (e) {
+    text = new TextDecoder().decode(bytes);
+  }
+  return titleFromHtml(text);
+}
+
+async function fetchTitles(items) {
+  const queue = items.filter(i => i.kind === 'link' && (!i.title || CUT_TEXT.test(i.title)));
+  const found = {};
+  const worker = async () => {
+    for (let it = queue.shift(); it; it = queue.shift()) {
+      const title = await pageTitle(it.url).catch(() => '');
+      // 잘린 글자는 같은 글자로 시작하는 제목으로만 채운다(사이트 이름으로 덮지 않게)
+      const start = it.title.replace(CUT_TEXT, '');
+      if (title && title !== it.siteName && title.startsWith(start)) found[it.url] = title;
+    }
+  };
+  await Promise.all(Array.from({ length: TITLE_JOBS }, worker));
+  const seen = Object.entries(found);
+  await serial(async () => {
+    const { titles = {} } = await chrome.storage.local.get('titles');
+    const merged = Object.entries({ ...titles, ...found }).slice(-TITLE_KEEP);
+    if (seen.length) await chrome.storage.local.set({ titles: Object.fromEntries(merged) });
+  });
+}
+
 async function openBoard(screen, tab) {
   const { windowId } = await chrome.storage.session.get('windowId');
   if (windowId) {
@@ -61,13 +119,15 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
         id: crypto.randomUUID(),
         url: it.url,
         kind: it.kind,
+        title: (it.title || '').slice(0, 200),
         batch,
         at,
         siteUrl: tab.url || sender.url || '',
-        siteName: tab.title || ''
+        siteName: msg.frameTitle || tab.title || ''
       }));
       await setPending((await getPending()).concat(items));
       await openBoard(msg.screen, sender.tab);
+      fetchTitles(items);
     }).then(() => reply({ ok: true }), e => reply({ ok: false, error: String(e) }));
     return true;
   }
