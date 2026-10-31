@@ -54,7 +54,6 @@ function itemRow(item, n) {
   link.target = '_blank';
   link.rel = 'noreferrer';
   link.title = item.url;
-  link.draggable = false;
   link.append(el('span', 'head', text.slice(0, cut)), el('span', 'tail', text.slice(cut)));
 
   const copy = el('button', 'act copy');
@@ -82,7 +81,6 @@ function metaRow(item, size) {
   site.target = '_blank';
   site.rel = 'noreferrer';
   site.title = item.siteUrl;
-  site.draggable = false;
   meta.append(site, el('time', '', when(item.at)));
   if (size > 1) {
     const bulk = el('span', 'bulk');
