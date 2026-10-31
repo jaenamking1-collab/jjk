@@ -240,8 +240,11 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
   white-space: nowrap;
 }
 .url:hover { color: var(--grape-deep); }
-.url .head { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.url .tail { flex: none; }
+.link-box { flex: 1; min-width: 0; }
+.url.named { display: block; overflow: hidden; text-overflow: ellipsis; }
+.url-sub { display: flex; font-size: 11px; line-height: 1.3; color: var(--ink-soft); white-space: nowrap; }
+.head { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tail { flex: none; }
 .act {
   flex: none;
   width: 22px;

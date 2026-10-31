@@ -65,7 +65,18 @@ function itemRow(item, n) {
   link.target = '_blank';
   link.rel = 'noreferrer';
   link.title = item.url;
-  link.append(el('span', 'head', text.slice(0, cut)), el('span', 'tail', text.slice(cut)));
+  const address = [el('span', 'head', text.slice(0, cut)), el('span', 'tail', text.slice(cut))];
+  const box = el('div', 'link-box');
+  if (item.title) {
+    link.classList.add('named');
+    link.textContent = item.title;
+    const small = el('div', 'url-sub');
+    small.append(...address);
+    box.append(link, small);
+  } else {
+    link.append(...address);
+    box.append(link);
+  }
 
   const copy = el('button', 'act copy');
   copy.innerHTML = ICON.copy;
@@ -73,7 +84,7 @@ function itemRow(item, n) {
   const del = el('button', 'act del');
   del.innerHTML = ICON.del;
   del.title = '삭제';
-  row.append(link, copy, del);
+  row.append(box, copy, del);
   return row;
 }
 
@@ -104,7 +115,7 @@ function metaRow(item, size) {
 function emptyView() {
   const box = el('div', 'empty');
   box.innerHTML = '<img src="icons/128.png" alt=""><strong>아직 비어 있어요</strong>' +
-    '<span><kbd>Shift+클릭</kbd> 한 개 줍기<br><kbd>Shift+드래그</kbd> 페이지 전체 줍기</span>';
+    '<span><kbd>Shift+클릭</kbd> 한 개 줍기<br><kbd>Shift+드래그</kbd> 네모 안의 제목 줍기</span>';
   return box;
 }
 
@@ -262,6 +273,20 @@ function deleteSpace(i) {
   toast(`판을 삭제했어요${n ? ` (링크 ${n}개)` : ''}`, before);
 }
 
+// 페이지에서 읽어 온 제목이 링크 글자보다 우선이다
+function applyTitles(titles) {
+  let changed = false;
+  for (const space of board.spaces) {
+    for (const item of space.items) {
+      if (titles[item.url] && item.title !== titles[item.url]) {
+        item.title = titles[item.url];
+        changed = true;
+      }
+    }
+  }
+  if (changed) { save(); render(); }
+}
+
 function renderDock() {
   document.body.classList.toggle('holding', pendingCount > 0);
   $('dock').hidden = !pendingCount;
@@ -272,6 +297,8 @@ async function paste(index) {
   const items = await chrome.runtime.sendMessage({ t: 'take' });
   if (!items || !items.length) return;
   board.spaces[index].items.push(...items);
+  const { titles = {} } = await chrome.storage.local.get('titles');
+  applyTitles(titles);
   await save();
   render();
   const list = spacesEl.querySelector(`[data-i="${index}"] .list`);
@@ -508,6 +535,7 @@ $('toastUndo').addEventListener('click', () => {
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
+  if (changes.titles) applyTitles(changes.titles.newValue || {});
   if (changes.pending) {
     pendingCount = (changes.pending.newValue || []).length;
     renderDock();
@@ -519,7 +547,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 (async () => {
-  const data = await chrome.storage.local.get(['board', 'pending']);
+  const data = await chrome.storage.local.get(['board', 'pending', 'titles']);
   if (data.board) board = withShown(data.board);
   const fresh = await connectFolder(board);
   if (fresh !== board) adoptBoard(fresh);
@@ -527,4 +555,5 @@ chrome.storage.onChanged.addListener((changes, area) => {
   pendingCount = (data.pending || []).length;
   render();
   renderDock();
+  applyTitles(data.titles || {});
 })();
