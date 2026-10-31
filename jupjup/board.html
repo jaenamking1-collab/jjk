@@ -12,6 +12,9 @@
   <h1>줍줍</h1>
   <span class="total" id="total"></span>
   <button class="shelf-btn" id="shelfBtn" aria-haspopup="true" aria-expanded="false"></button>
+  <button class="gear" id="searchBtn" aria-label="검색" title="검색">
+    <svg viewBox="0 0 24 24"><circle cx="10.500" cy="10.500" r="6.500"/><path d="M15.500 15.500 21 21"/></svg>
+  </button>
   <button class="gear" id="settingsBtn" aria-label="설정" title="설정">
     <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>
   </button>
@@ -35,6 +38,21 @@
   <button class="shelf-add" id="storeReconnect" hidden>폴더 다시 연결</button>
   <button class="shelf-add" id="storePick"></button>
   <button class="store-sub" id="storeLocal" hidden>브라우저 안에만 저장하기</button>
+  <strong>사라진 링크</strong>
+  <p class="store-note" id="checkInfo"></p>
+  <button class="store-sub" id="checkNow">사라진 링크 지금 확인</button>
+</div>
+
+<div class="shelf" id="search" hidden>
+  <input class="search-input" id="searchInput" placeholder="제목, 주소, 메모로 찾기" aria-label="링크 검색">
+  <div class="shelf-list" id="searchList"></div>
+</div>
+
+<div class="preview" id="preview" hidden>
+  <img id="previewImg" alt="" referrerpolicy="no-referrer" hidden>
+  <video id="previewVideo" muted autoplay loop hidden></video>
+  <strong id="previewTitle"></strong>
+  <p id="previewText"></p>
 </div>
 
 <main id="spaces"></main>

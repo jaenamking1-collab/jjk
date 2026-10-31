@@ -3,7 +3,8 @@ const KIND = { link: '🔗', image: '🖼️', video: '🎬' };
 const ICON = {
   copy: '<svg viewBox="0 0 16 16"><rect x="5.5" y="5.5" width="8" height="8" rx="2"/><path d="M10.5 3H4a1 1 0 0 0-1 1v6.5"/></svg>',
   check: '<svg viewBox="0 0 16 16"><path d="M3 8.5 6.5 12 13 4.5"/></svg>',
-  del: '<svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>'
+  del: '<svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>',
+  memo: '<svg viewBox="0 0 16 16"><path d="M3 13l.8-3L10.500 3.300l2.200 2.200L6 12.200z"/></svg>'
 };
 const $ = id => document.getElementById(id);
 const spacesEl = $('spaces');
@@ -13,6 +14,8 @@ let pendingCount = 0;
 let drag = null;
 let undoState = null, toastTimer = 0;
 let activeSlot = 0;
+let health = {}, lastCheck = 0;
+let previewTimer = 0, previewFor = '';
 
 const visible = () => board.shown.slice(0, board.layout);
 const spaceName = i => board.spaces[i].title || `제목 없는 판 ${i + 1}`;
@@ -48,13 +51,14 @@ function host(url) {
 function when(at) {
   const d = new Date(at);
   const p = n => String(n).padStart(2, '0');
-  return `${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  return `${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())}`;
 }
 
 function itemRow(item, n) {
   const row = el('div', 'row');
   row.draggable = true;
   row.dataset.id = item.id;
+  row.classList.toggle('dead', !!(health[item.url] && health[item.url].gone));
   row.append(el('span', 'num', n), el('span', 'kind', KIND[item.kind] || KIND.link));
 
   // 줄어들 때 가운데가 접혀 주소의 끝부분이 남는다
@@ -78,13 +82,18 @@ function itemRow(item, n) {
     box.append(link);
   }
 
+  if (item.note) box.append(el('div', 'note', item.note));
+
+  const memo = el('button', 'act memo');
+  memo.innerHTML = ICON.memo;
+  memo.title = '한 줄 메모';
   const copy = el('button', 'act copy');
   copy.innerHTML = ICON.copy;
   copy.title = '이 링크 복사';
   const del = el('button', 'act del');
   del.innerHTML = ICON.del;
   del.title = '삭제';
-  row.append(box, copy, del);
+  row.append(box, memo, copy, del);
   return row;
 }
 
@@ -176,6 +185,103 @@ function render() {
   renderShelf();
 }
 
+// 한 줄 메모
+function editNote(row, index) {
+  const item = findItem(index, row.dataset.id);
+  const box = row.querySelector('.link-box');
+  const input = el('input', 'note-input');
+  input.value = item.note || '';
+  input.placeholder = '한 줄 메모';
+  input.maxLength = 120;
+  row.draggable = false;
+  box.querySelector('.note')?.remove();
+  box.append(input);
+  input.focus();
+  let done = false;
+  const finish = keep => {
+    if (done) return;
+    done = true;
+    if (keep) item.note = input.value.trim();
+    save();
+    render();
+  };
+  input.addEventListener('blur', () => finish(true));
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') finish(true);
+    if (e.key === 'Escape') finish(false);
+  });
+}
+
+// 검색
+function renderSearch() {
+  const words = $('searchInput').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return $('searchList').replaceChildren();
+  const rows = [];
+  board.spaces.forEach((space, i) => {
+    for (const item of space.items) {
+      const hay = [item.title, item.url, item.siteName, item.note].join(' ').toLowerCase();
+      if (!words.every(w => hay.includes(w)) || rows.length >= 100) continue;
+      const row = el('button', 'search-row');
+      row.dataset.i = i;
+      row.dataset.c = i % 4;
+      row.dataset.id = item.id;
+      const text = el('span', 'search-text');
+      text.append(el('span', 'shelf-name', item.title || shortUrl(item.url)), el('span', 'search-sub', item.note || host(item.url)));
+      row.append(el('span', 'dot'), text, el('span', 'shelf-count', spaceName(i)));
+      rows.push(row);
+    }
+  });
+  $('searchList').replaceChildren(...(rows.length ? rows : [el('p', 'store-note', '찾는 링크가 없어요')]));
+}
+
+function toggleSearch(open) {
+  $('search').hidden = !open;
+  if (open) {
+    $('shelf').hidden = true;
+    $('settings').hidden = true;
+    $('searchInput').focus();
+    $('searchInput').select();
+    renderSearch();
+  }
+  renderShelf();
+}
+
+// 마우스를 올리면 나오는 미리보기
+function hidePreview() {
+  clearTimeout(previewTimer);
+  previewFor = '';
+  $('preview').hidden = true;
+}
+
+function placePreview(row) {
+  const box = row.getBoundingClientRect();
+  const card = $('preview').getBoundingClientRect();
+  const below = box.bottom + 6 + card.height < innerHeight;
+  $('preview').style.left = Math.max(8, Math.min(box.left + 30, innerWidth - card.width - 8)) + 'px';
+  $('preview').style.top = (below ? box.bottom + 6 : Math.max(8, box.top - card.height - 6)) + 'px';
+}
+
+async function showPreview(row, item) {
+  previewFor = item.id;
+  let image = item.kind === 'image' ? item.url : '';
+  let text = '';
+  if (item.kind !== 'image') {
+    const info = await chrome.runtime.sendMessage({ t: 'preview', url: item.url });
+    if (previewFor !== item.id || !info) return;
+    image = info.image;
+    text = info.text;
+  }
+  const video = item.kind === 'video' && !image && /\.(mp4|webm)(\?|$)/i.test(item.url);
+  $('previewImg').hidden = !image;
+  if (image) $('previewImg').src = image;
+  $('previewVideo').hidden = !video;
+  if (video) $('previewVideo').src = item.url;
+  $('previewTitle').textContent = item.title || shortUrl(item.url);
+  $('previewText').textContent = text;
+  $('preview').hidden = false;
+  placePreview(row);
+}
+
 // 판 목록
 function renderShelf() {
   const open = !$('shelf').hidden;
@@ -203,7 +309,10 @@ function renderShelf() {
 
 function toggleShelf(open) {
   $('shelf').hidden = !open;
-  if (open) $('settings').hidden = true;
+  if (open) {
+    $('settings').hidden = true;
+    $('search').hidden = true;
+  }
   renderShelf();
 }
 
@@ -227,11 +336,19 @@ function renderSettings() {
   $('storeReconnect').hidden = state !== 'need' && state !== 'error';
   $('storeLocal').hidden = state === 'local';
   $('settingsBtn').classList.toggle('warn', state === 'need' || state === 'error');
+  const dead = Object.values(health).filter(h => h.gone).length;
+  const d = new Date(lastCheck);
+  $('checkInfo').textContent = lastCheck
+    ? `마지막 점검 ${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())} · 사라진 링크 ${dead}개`
+    : '아직 점검 전이에요. 6시간마다 자동으로 확인해요.';
 }
 
 function toggleSettings(open) {
   $('settings').hidden = !open;
-  if (open) $('shelf').hidden = true;
+  if (open) {
+    $('shelf').hidden = true;
+    $('search').hidden = true;
+  }
   renderSettings();
   renderShelf();
 }
@@ -296,14 +413,22 @@ function renderDock() {
 async function paste(index) {
   const items = await chrome.runtime.sendMessage({ t: 'take' });
   if (!items || !items.length) return;
-  board.spaces[index].items.push(...items);
+  const before = JSON.stringify(board);
+  const owner = url => board.spaces.findIndex(s => s.items.some(i => i.url === url));
+  const fresh = items.filter(i => !i.drag || owner(i.url) < 0);
+  const dropped = items.length - fresh.length;
+  const again = fresh.find(i => owner(i.url) >= 0);
+  const againIn = again ? owner(again.url) : -1;
+  board.spaces[index].items.push(...fresh);
   const { titles = {} } = await chrome.storage.local.get('titles');
   applyTitles(titles);
   await save();
   render();
   const list = spacesEl.querySelector(`[data-i="${index}"] .list`);
   if (list) list.scrollTop = list.scrollHeight;
-  else toast(`${spaceName(index)}에 ${items.length}개 넣었어요`);
+  if (dropped) toast(`이미 있는 ${dropped}개를 빼고 ${fresh.length}개 넣었어요`);
+  else if (again) toast(`이미 ${spaceName(againIn)}에 있어요`, before);
+  else if (!list) toast(`${spaceName(index)}에 ${items.length}개 넣었어요`);
 }
 
 function toast(text, undo) {
@@ -349,6 +474,11 @@ spacesEl.addEventListener('click', e => {
   activeSlot = [...spacesEl.children].indexOf(sp);
   const btn = e.target.closest('button');
 
+  if (btn && btn.classList.contains('memo')) {
+    editNote(btn.closest('.row'), index);
+    return;
+  }
+  if (e.target.closest('.note-input')) return;
   if (btn && btn.classList.contains('copy')) {
     const row = btn.closest('.row');
     copyText(findItem(index, row.dataset.id).url).then(() => flashDone(btn));
@@ -469,6 +599,47 @@ $('shelfBtn').addEventListener('click', e => {
 
 $('shelfAdd').addEventListener('click', addSpace);
 
+$('searchBtn').addEventListener('click', e => {
+  e.stopPropagation();
+  toggleSearch($('search').hidden);
+});
+
+$('searchInput').addEventListener('input', renderSearch);
+$('searchInput').addEventListener('keydown', e => {
+  if (e.key === 'Escape') toggleSearch(false);
+});
+
+$('searchList').addEventListener('click', e => {
+  const row = e.target.closest('.search-row');
+  if (!row) return;
+  showSpace(+row.dataset.i);
+  toggleSearch(false);
+  const found = spacesEl.querySelector(`.row[data-id="${row.dataset.id}"]`);
+  if (!found) return;
+  found.scrollIntoView({ block: 'center' });
+  found.classList.add('found');
+  setTimeout(() => found.classList.remove('found'), 1600);
+});
+
+$('checkNow').addEventListener('click', async () => {
+  $('checkNow').textContent = '확인하는 중…';
+  await chrome.runtime.sendMessage({ t: 'checkLinks' });
+  $('checkNow').textContent = '사라진 링크 지금 확인';
+});
+
+spacesEl.addEventListener('mouseover', e => {
+  const row = e.target.closest('.row');
+  if (!row || row.dataset.id === previewFor || drag) return;
+  if (e.target.closest('button,input')) return hidePreview();
+  hidePreview();
+  const item = findItem(+row.closest('.space').dataset.i, row.dataset.id);
+  previewTimer = setTimeout(() => showPreview(row, item), 350);
+});
+spacesEl.addEventListener('mouseleave', hidePreview);
+spacesEl.addEventListener('dragstart', hidePreview);
+spacesEl.addEventListener('scroll', hidePreview, true);
+$('previewImg').addEventListener('error', () => { $('previewImg').hidden = true; });
+
 $('settingsBtn').addEventListener('click', e => {
   e.stopPropagation();
   toggleSettings($('settings').hidden);
@@ -518,6 +689,7 @@ $('shelfList').addEventListener('drop', e => {
 document.addEventListener('click', e => {
   if (!$('shelf').hidden && !e.target.closest('#shelf')) toggleShelf(false);
   if (!$('settings').hidden && !e.target.closest('#settings')) toggleSettings(false);
+  if (!$('search').hidden && !e.target.closest('#search')) toggleSearch(false);
 });
 
 $('dockCancel').addEventListener('click', async () => {
@@ -536,6 +708,12 @@ $('toastUndo').addEventListener('click', () => {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
   if (changes.titles) applyTitles(changes.titles.newValue || {});
+  if (changes.linkHealth || changes.lastCheck) {
+    if (changes.linkHealth) health = changes.linkHealth.newValue || {};
+    if (changes.lastCheck) lastCheck = changes.lastCheck.newValue || 0;
+    render();
+    renderSettings();
+  }
   if (changes.pending) {
     pendingCount = (changes.pending.newValue || []).length;
     renderDock();
@@ -547,7 +725,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 (async () => {
-  const data = await chrome.storage.local.get(['board', 'pending', 'titles']);
+  const data = await chrome.storage.local.get(['board', 'pending', 'titles', 'linkHealth', 'lastCheck']);
+  health = data.linkHealth || {};
+  lastCheck = data.lastCheck || 0;
   if (data.board) board = withShown(data.board);
   const fresh = await connectFolder(board);
   if (fresh !== board) adoptBoard(fresh);

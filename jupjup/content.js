@@ -66,10 +66,25 @@
     return clean(a.getAttribute('aria-label')) || clean(img && img.alt);
   }
 
+  // 지메일 목록의 메일 줄은 링크가 아니다
+  function gmailRow(el) {
+    if (location.hostname !== 'mail.google.com') return null;
+    const row = el.closest('tr.zA');
+    const tag = row && row.querySelector('[data-legacy-thread-id]');
+    if (!tag || el.closest('[role="checkbox"]')) return null;
+    const subject = row.querySelector('.bog');
+    return {
+      url: `${location.origin}${location.pathname}#all/${tag.dataset.legacyThreadId}`,
+      kind: 'link', title: clean(subject && subject.textContent), box: subject || row
+    };
+  }
+
   function pick(x, y) {
     const stack = document.elementsFromPoint(x, y);
     const top = stack[0];
     if (!top) return null;
+    const mail = gmailRow(top);
+    if (mail) return { url: mail.url, kind: mail.kind, title: mail.title };
     // 글자 바로 위를 누른 경우만 링크다. 사진+제목이 한 링크인 카드에서는 사진을 고른다
     const onText = [...top.childNodes].some(n => n.nodeType === 3 && n.textContent.trim());
     const textLink = onText && top.closest('a[href]');
@@ -126,6 +141,14 @@
         url, text, left: r.left, top: r.top, width: r.width, height: r.height,
         size: parseFloat(style.fontSize), bold: +style.fontWeight >= 600
       });
+    }
+    for (const row of document.querySelectorAll('tr.zA')) {
+      const mail = gmailRow(row);
+      if (!mail) continue;
+      const r = mail.box.getBoundingClientRect();
+      if (r.width && r.height) {
+        out.push({ url: mail.url, text: mail.title, left: r.left, top: r.top, width: r.width, height: r.height, size: 14, bold: false });
+      }
     }
     return out;
   }
@@ -210,7 +233,7 @@
     }
   }
 
-  async function deliver(items) {
+  async function deliver(items, drag) {
     if (!items.length) return say('주울 링크가 없어요');
     await copy(items.map(i => i.url).join('\n'));
     say(items.length === 1 ? '주웠어요!' : `${items.length}개 주웠어요!`);
@@ -218,6 +241,7 @@
       await chrome.runtime.sendMessage({
         t: 'capture',
         items,
+        drag,
         frameTitle: window === top ? '' : clean(document.title),
         screen: {
           left: screen.availLeft, top: screen.availTop,
@@ -285,7 +309,7 @@
     if (e.button !== 0 || !alive() || !wasDrag) return;
     swallowClick = true;
     setTimeout(() => { swallowClick = false; }, 80);
-    deliver(items);
+    deliver(items, true);
   }, true);
 
   addEventListener('click', e => {
@@ -299,7 +323,7 @@
     const item = pick(e.clientX, e.clientY);
     if (!item) return;
     stop();
-    deliver([item]);
+    deliver([item], false);
   }, true);
 
   addEventListener('keydown', e => {

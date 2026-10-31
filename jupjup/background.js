@@ -64,21 +64,93 @@ function titleFromHtml(html, url) {
   return decodeEntities(raw).trim().replace(/\s+/g, ' ').slice(0, 200);
 }
 
-async function pageTitle(url) {
+async function pageHtml(url) {
   // 로그인 정보를 보내지 않는다. 제목을 읽다가 수신거부·로그아웃 같은 링크가 실행되면 안 된다
   const res = await fetch(url, { credentials: 'omit', signal: AbortSignal.timeout(8000) });
   const type = res.headers.get('content-type') || '';
-  if (!res.ok || !/html/i.test(type)) return '';
+  if (!res.ok || !/html/i.test(type)) throw new Error('not html');
   const bytes = new Uint8Array(await res.arrayBuffer()).slice(0, TITLE_BYTES);
   const head = new TextDecoder('latin1').decode(bytes.slice(0, 4000));
   const charset = (/charset=["']?([\w-]+)/i.exec(type) || /charset=["']?([\w-]+)/i.exec(head) || [])[1];
-  let text;
   try {
-    text = new TextDecoder(charset || 'utf-8').decode(bytes);
+    return new TextDecoder(charset || 'utf-8').decode(bytes);
   } catch (e) {
-    text = new TextDecoder().decode(bytes);
+    return new TextDecoder().decode(bytes);
   }
-  return titleFromHtml(text, url);
+}
+
+async function pageTitle(url) {
+  return titleFromHtml(await pageHtml(url), url);
+}
+
+function metaContent(html, names) {
+  const tag = new RegExp(`<meta[^>]+(?:property|name)=["'](?:${names})["'][^>]*>`, 'i').exec(html);
+  const value = tag && /content=(?:"([^"]*)"|'([^']*)')/i.exec(tag[0]);
+  return value ? decodeEntities(value[1] || value[2] || '') : '';
+}
+
+function youtubeThumb(url) {
+  try {
+    const u = new URL(url);
+    const id = /(^|\.)youtube\.com$/.test(u.hostname) ? u.searchParams.get('v') : u.hostname === 'youtu.be' ? u.pathname.slice(1) : '';
+    return id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : '';
+  } catch (e) {
+    return '';
+  }
+}
+
+// 마우스를 올렸을 때 보여 줄 그림과 설명
+const previews = new Map();
+
+async function pagePreview(url) {
+  if (previews.has(url)) return previews.get(url);
+  const out = { image: youtubeThumb(url), text: '' };
+  try {
+    const html = await pageHtml(url);
+    const image = metaContent(html, 'og:image|twitter:image');
+    if (image && !out.image) out.image = new URL(image, url).href;
+    out.text = metaContent(html, 'og:description|description|twitter:description').slice(0, 160);
+  } catch (e) { /* 그림 없이 제목만 보여 준다 */ }
+  previews.set(url, out);
+  return out;
+}
+
+// 사라진 링크 점검: 404·410 은 바로, 연결 실패는 두 번 연속일 때만 사라진 것으로 본다
+const CHECK_BATCH = 60;
+
+async function linkState(url) {
+  const stop = new AbortController();
+  const timer = setTimeout(() => stop.abort(), 10000);
+  try {
+    const res = await fetch(url, { credentials: 'omit', signal: stop.signal });
+    return res.status === 404 || res.status === 410 ? 'gone' : 'ok';
+  } catch (e) {
+    return e.name === 'AbortError' ? 'ok' : 'fail'; // 느린 것은 사라진 것이 아니다
+  } finally {
+    clearTimeout(timer);
+    stop.abort();
+  }
+}
+
+async function checkLinks(limit) {
+  const { board, linkHealth = {} } = await chrome.storage.local.get(['board', 'linkHealth']);
+  if (!board) return 0;
+  const urls = [...new Set(board.spaces.flatMap(s => s.items.map(i => i.url)))];
+  const when = u => (linkHealth[u] ? linkHealth[u].at : 0);
+  const queue = urls.sort((a, b) => when(a) - when(b)).slice(0, limit);
+  const count = queue.length;
+  const results = {};
+  const worker = async () => {
+    for (let url = queue.shift(); url; url = queue.shift()) {
+      const state = await linkState(url);
+      const fails = state === 'fail' ? ((linkHealth[url] || {}).fails || 0) + 1 : 0;
+      results[url] = { at: Date.now(), fails, gone: state === 'gone' || fails >= 2 };
+    }
+  };
+  await Promise.all(Array.from({ length: TITLE_JOBS }, worker));
+  const keep = Object.fromEntries(urls.filter(u => linkHealth[u] && !results[u]).map(u => [u, linkHealth[u]]));
+  await chrome.storage.local.set({ linkHealth: { ...keep, ...results }, lastCheck: Date.now() });
+  return count;
 }
 
 async function fetchTitles(items) {
@@ -145,12 +217,22 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
         batch,
         at,
         siteUrl: tab.url || sender.url || '',
-        siteName: msg.frameTitle || tab.title || ''
+        siteName: msg.frameTitle || tab.title || '',
+        drag: !!msg.drag
       }));
-      await setPending((await getPending()).concat(items));
+      // 드래그는 새로 고른 것으로 바꾸고, 클릭은 쌓는다
+      await setPending(msg.drag ? items : (await getPending()).concat(items));
       await openBoard(msg.screen, sender.tab);
       fetchTitles(items);
     }).then(() => reply({ ok: true }), e => reply({ ok: false, error: String(e) }));
+    return true;
+  }
+  if (msg.t === 'preview') {
+    pagePreview(msg.url).then(reply);
+    return true;
+  }
+  if (msg.t === 'checkLinks') {
+    checkLinks(Infinity).then(reply);
     return true;
   }
   if (msg.t === 'take') {
@@ -166,8 +248,14 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
 chrome.action.onClicked.addListener(() => openBoard());
 
 // 폴더의 파일이 새 버전으로 바뀌면 스스로 다시 켠다(사용자가 새로고침을 누르지 않게)
-chrome.alarms.create('selfUpdate', { periodInMinutes: 1 });
-chrome.alarms.onAlarm.addListener(async () => {
+async function ensureAlarm(name, periodInMinutes) {
+  if (!await chrome.alarms.get(name)) chrome.alarms.create(name, { periodInMinutes });
+}
+ensureAlarm('selfUpdate', 1);
+ensureAlarm('linkCheck', 360);
+
+chrome.alarms.onAlarm.addListener(async alarm => {
+  if (alarm.name === 'linkCheck') return checkLinks(CHECK_BATCH);
   const res = await fetch(chrome.runtime.getURL('manifest.json'), { cache: 'no-store' });
   const { version } = await res.json();
   if (version !== chrome.runtime.getManifest().version) chrome.runtime.reload();
