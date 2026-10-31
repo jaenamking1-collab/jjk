@@ -69,6 +69,35 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 }
 .shelf-btn:hover, .shelf-btn[aria-expanded="true"] { background: var(--grape); color: #fff; }
 
+.gear {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--grape-deep);
+  display: grid;
+  place-items: center;
+  position: relative;
+}
+.gear svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
+.gear:hover { background: var(--grape); color: #fff; }
+.gear.warn::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--danger);
+}
+
+.store-place { margin: 0; padding: 0 4px; font-weight: 600; overflow-wrap: anywhere; }
+.store-note { margin: 0 0 4px; padding: 0 4px; font-size: 12px; color: var(--ink-soft); }
+.store-sub { flex: none; height: 30px; border-radius: 10px; color: var(--grape-deep); font-weight: 600; font-size: 13px; }
+.store-sub:hover { background: var(--milk); }
+.shelf-add[hidden], .store-sub[hidden] { display: none; }
+
 .shelf {
   position: fixed;
   top: 50px;

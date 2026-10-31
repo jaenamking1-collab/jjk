@@ -23,6 +23,8 @@ function withShown(b) {
 }
 
 function save() {
+  board.savedAt = Date.now();
+  queueFolderWrite(board);
   return chrome.storage.local.set({ board });
 }
 
@@ -190,7 +192,44 @@ function renderShelf() {
 
 function toggleShelf(open) {
   $('shelf').hidden = !open;
+  if (open) $('settings').hidden = true;
   renderShelf();
+}
+
+// 저장 위치 설정
+const pad = n => String(n).padStart(2, '0');
+
+function renderSettings() {
+  const { state, handle, savedAt } = folder;
+  const name = handle ? handle.name : '';
+  const time = savedAt ? ` · ${pad(new Date(savedAt).getHours())}:${pad(new Date(savedAt).getMinutes())} 저장` : '';
+  $('storePlace').textContent = {
+    local: '이 브라우저 안',
+    ok: `폴더: ${name}${time}`,
+    need: `폴더: ${name} · 연결이 끊겼어요`,
+    error: `폴더: ${name} · 저장하지 못했어요`
+  }[state];
+  $('storeNote').textContent = state === 'local'
+    ? '확장을 지우면 링크도 사라져요. 폴더를 고르면 파일로도 저장돼요.'
+    : '링크는 이 폴더의 jupjup-links.json 에 저장돼요.';
+  $('storePick').textContent = state === 'local' ? '폴더 고르기' : '다른 폴더로 옮기기';
+  $('storeReconnect').hidden = state !== 'need' && state !== 'error';
+  $('storeLocal').hidden = state === 'local';
+  $('settingsBtn').classList.toggle('warn', state === 'need' || state === 'error');
+}
+
+function toggleSettings(open) {
+  $('settings').hidden = !open;
+  if (open) $('shelf').hidden = true;
+  renderSettings();
+  renderShelf();
+}
+
+function adoptBoard(next) {
+  board = withShown(next);
+  chrome.storage.local.set({ board });
+  render();
+  renderSettings();
 }
 
 function showSpace(i) {
@@ -403,6 +442,26 @@ $('shelfBtn').addEventListener('click', e => {
 
 $('shelfAdd').addEventListener('click', addSpace);
 
+$('settingsBtn').addEventListener('click', e => {
+  e.stopPropagation();
+  toggleSettings($('settings').hidden);
+});
+
+$('storePick').addEventListener('click', async () => {
+  const next = await pickFolder(board);
+  if (next) adoptBoard(next);
+});
+
+$('storeReconnect').addEventListener('click', async () => {
+  adoptBoard(await reconnectFolder(board));
+});
+
+$('storeLocal').addEventListener('click', async () => {
+  await forgetFolder();
+  renderSettings();
+  toast('이 브라우저 안에 저장해요. 폴더의 파일은 그대로 있어요');
+});
+
 $('shelfList').addEventListener('click', e => {
   const row = e.target.closest('.shelf-row');
   if (!row) return;
@@ -431,6 +490,7 @@ $('shelfList').addEventListener('drop', e => {
 
 document.addEventListener('click', e => {
   if (!$('shelf').hidden && !e.target.closest('#shelf')) toggleShelf(false);
+  if (!$('settings').hidden && !e.target.closest('#settings')) toggleSettings(false);
 });
 
 $('dockCancel').addEventListener('click', async () => {
@@ -461,6 +521,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
 (async () => {
   const data = await chrome.storage.local.get(['board', 'pending']);
   if (data.board) board = withShown(data.board);
+  const fresh = await connectFolder(board);
+  if (fresh !== board) adoptBoard(fresh);
+  renderSettings();
   pendingCount = (data.pending || []).length;
   render();
   renderDock();

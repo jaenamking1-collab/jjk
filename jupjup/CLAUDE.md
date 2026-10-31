@@ -3,7 +3,7 @@
 Shift+클릭·Shift+드래그로 주운 링크를 메모 창(화면 1/3 popup) 칸에 모은다. 빌드 없음.
 
 - `content.js` 페이지에서 줍기·복사 / `background.js` 보관함(pending)·창 열기 / `board.*` 메모 화면.
-- 저장은 `chrome.storage.local`(`board`, `pending`, `bounds`) 뿐이다. 링크는 PC·프로필마다 따로고 **확장을 제거하면 지워진다.**
+- 저장은 `chrome.storage.local`(`board`, `pending`, `bounds`)이 기본이다. 설정에서 폴더를 고르면 `store.js` 가 `jupjup-links.json` 으로도 쓴다(폴더 핸들은 IndexedDB). 창을 열 때 `savedAt` 이 더 새 파일을 쓴다. 기본 상태에서는 **확장을 제거하면 지워진다.** 권한이 풀리면 톱니에 빨간 점이 뜬다.
 - 판은 몇 개든 저장한다. `shown` 은 화면 자리(최대 4)에 놓인 판 번호, `layout` 은 보이는 자리 수다. 줄여도 지우지 않고, 숨은 판은 목록에서 꺼낸다.
 - 시험: 브랜드 크롬은 `--load-extension` 이 안 먹어 Playwright 크로미움으로 돌린다. Claude 앱이 AppData 쓰기를 돌려서 크로미움을 AppData 밖으로 복사해야 실행된다. `--window-size` 를 주면 팝업 크기가 덮어써져 1/3 검사가 틀린다.
 - 실제 사이트 시험은 Aside 로 한다: `chrome://extensions` 에서 개발자 모드·'압축해제 로드'를 누르고 폴더 창에 경로를 넣으면 진짜 설치 경로로 돈다. 네이버 뉴스처럼 복잡한 곳을 꼭 본다.
