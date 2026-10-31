@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>줍줍 링크 메모</title>
+<link rel="icon" href="icons/48.png">
+<link rel="stylesheet" href="board.css">
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="joobi" viewBox="0 0 64 64">
+    <path d="M32 8c2-5 8-6 10-3-3 0-5 2-6 5" fill="none" stroke="#2B2A4C" stroke-width="3" stroke-linecap="round"/>
+    <path d="M23 54v5M41 54v5" stroke="#2B2A4C" stroke-width="4" stroke-linecap="round"/>
+    <ellipse cx="32" cy="34" rx="25" ry="24" fill="#8C7FFF"/>
+    <ellipse cx="32" cy="39" rx="17" ry="14" fill="#fff"/>
+    <circle cx="24" cy="31" r="3.4" fill="#2B2A4C"/>
+    <circle cx="40" cy="31" r="3.4" fill="#2B2A4C"/>
+    <circle cx="17" cy="39" r="3.6" fill="#FFB3C7"/>
+    <circle cx="47" cy="39" r="3.6" fill="#FFB3C7"/>
+    <path d="M28 38c2 3 6 3 8 0" fill="none" stroke="#2B2A4C" stroke-width="2.6" stroke-linecap="round"/>
+  </symbol>
+</svg>
+
+<header class="top">
+  <svg class="logo"><use href="#joobi"/></svg>
+  <h1>줍줍</h1>
+  <span class="total" id="total"></span>
+  <div class="layouts" role="group" aria-label="칸 나누기">
+    <button data-layout="1" aria-label="1칸"><i class="g1"><b></b></i></button>
+    <button data-layout="2" aria-label="2칸"><i class="g2"><b></b><b></b></i></button>
+    <button data-layout="4" aria-label="4칸"><i class="g4"><b></b><b></b><b></b><b></b></i></button>
+  </div>
+</header>
+
+<main id="spaces"></main>
+
+<button class="hidden-note" id="hiddenNote" hidden></button>
+
+<div class="dock" id="dock" hidden>
+  <svg class="dock-joobi"><use href="#joobi"/></svg>
+  <span id="dockText"></span>
+  <button id="dockCancel">버리기</button>
+</div>
+
+<div class="toast" id="toast" hidden>
+  <span id="toastText"></span>
+  <button id="toastUndo">되돌리기</button>
+</div>
+
+<script src="board.js"></script>
+</body>
+</html>
