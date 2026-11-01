@@ -79,6 +79,21 @@
     };
   }
 
+  // SNS 는 사진이 링크로 감싸여 있지 않고 게시글 주소가 시간 표시에만 있어, 글 묶음을 올라가며 찾는다
+  function snsPost(el) {
+    const post = location.hostname.match(/(^|\.)(threads\.(com|net)|bsky\.app)$/) ? 'a[href*="/post/"]'
+      : location.hostname.match(/(^|\.)instagram\.com$/) ? 'a[href*="/p/"],a[href*="/reel/"]'
+      : location.hostname.match(/(^|\.)(x|twitter)\.com$/) ? 'a[href*="/status/"]' : '';
+    if (!post) return null;
+    const own = el.closest('a[href]');
+    if (own) return own;
+    for (let e = el; e && e !== document.body; e = e.parentElement) {
+      const a = e.querySelector(post);
+      if (a) return a;
+    }
+    return null;
+  }
+
   function pick(x, y) {
     const stack = document.elementsFromPoint(x, y);
     const top = stack[0];
@@ -91,6 +106,11 @@
     if (textLink) {
       const url = httpUrl(textLink.href);
       if (url) return { url, kind: 'link', title: linkTitle(textLink) };
+    }
+    const sns = snsPost(top);
+    if (sns) {
+      const url = httpUrl(sns.href);
+      if (url) return { url, kind: 'link', title: '' };
     }
     // 그림 위에 투명한 막이 덮인 사이트가 많아 아래쪽까지 본다
     const link = top.closest('a[href]');
