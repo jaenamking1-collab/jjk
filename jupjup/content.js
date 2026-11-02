@@ -79,19 +79,22 @@
     };
   }
 
+  // 사진을 감싼 링크가 다른 곳으로 가면 게시글이다. 이 페이지나 사진·영상 파일을 가리키면 사진·영상이다
+  function goesElsewhere(a) {
+    const url = httpUrl(a.href);
+    return !!url && url.split('#')[0] !== location.href.split('#')[0] &&
+      !/\.(jpe?g|png|gif|webp|avif|bmp|mp4|webm)(\?|$)/i.test(url);
+  }
+
   // SNS 는 사진이 링크로 감싸여 있지 않고 게시글 주소가 시간 표시에만 있어, 글 묶음을 올라가며 찾는다
   function snsPost(el) {
     const post = location.hostname.match(/(^|\.)(threads\.(com|net)|bsky\.app)$/) ? 'a[href*="/post/"]'
       : location.hostname.match(/(^|\.)instagram\.com$/) ? 'a[href*="/p/"],a[href*="/reel/"]'
       : location.hostname.match(/(^|\.)(x|twitter)\.com$/) ? 'a[href*="/status/"]' : '';
     if (!post) return null;
-    const own = el.closest('a[href]');
-    if (own) return own;
-    for (let e = el; e && e !== document.body; e = e.parentElement) {
-      const a = e.querySelector(post);
-      if (a) return a;
-    }
-    return null;
+    let a = el.closest('a[href]');
+    for (let e = el; !a && e && e !== document.body; e = e.parentElement) a = e.querySelector(post);
+    return a && goesElsewhere(a) ? a : null;
   }
 
   function pick(x, y) {
@@ -100,27 +103,21 @@
     if (!top) return null;
     const mail = gmailRow(top);
     if (mail) return { url: mail.url, kind: mail.kind, title: mail.title };
-    // 글자 바로 위를 누른 경우만 링크다. 사진+제목이 한 링크인 카드에서는 사진을 고른다
-    const onText = [...top.childNodes].some(n => n.nodeType === 3 && n.textContent.trim());
-    const textLink = onText && top.closest('a[href]');
-    if (textLink) {
-      const url = httpUrl(textLink.href);
-      if (url) return { url, kind: 'link', title: linkTitle(textLink) };
-    }
     const sns = snsPost(top);
     if (sns) {
       const url = httpUrl(sns.href);
       if (url) return { url, kind: 'link', title: '' };
     }
-    // 그림 위에 투명한 막이 덮인 사이트가 많아 아래쪽까지 본다
+    const post = a => ({ url: httpUrl(a.href), kind: 'link', title: linkTitle(a) });
     const link = top.closest('a[href]');
-    // 유튜브 섬네일은 그림 주소보다 영상 링크가 쓸모 있다
-    const youtube = /(^|\.)youtube\.com$/.test(location.hostname);
-    for (const el of youtube && link ? [] : stack.slice(0, 6)) {
+    if (link && goesElsewhere(link)) return post(link);
+    // 그림 위에 투명한 막이 덮인 사이트가 많아 아래쪽까지 본다
+    for (const el of stack.slice(0, 6)) {
+      const owner = el.closest('a[href]');
+      if ((el.tagName === 'VIDEO' || el.tagName === 'IMG') && owner && goesElsewhere(owner)) return post(owner);
       if (el.tagName === 'VIDEO') return { url: videoUrl(el), kind: 'video', title: clean(document.title) };
       if (el.tagName === 'IMG') {
         const url = imgUrl(el);
-        const owner = el.closest('a[href]');
         if (url) return { url, kind: 'image', title: clean(el.alt) || (owner ? linkTitle(owner) : '') };
       }
     }
