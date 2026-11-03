@@ -138,7 +138,7 @@ function photoGrid(pics) {
     cell.draggable = true;
     cell.dataset.id = item.id;
     const img = el('img');
-    img.src = item.url;
+    img.src = photoSrc(item);
     img.alt = item.title || '';
     img.referrerPolicy = 'no-referrer';
     img.loading = 'lazy';
@@ -294,7 +294,7 @@ function placePreview(row) {
 
 async function showPreview(row, item) {
   previewFor = item.id;
-  let image = item.kind === 'image' ? item.url : '';
+  let image = item.kind === 'image' ? photoSrc(item) : '';
   let text = '';
   if (item.kind !== 'image') {
     const info = await chrome.runtime.sendMessage({ t: 'preview', url: item.url });
@@ -480,10 +480,26 @@ function photoSpace() {
   return board.spaces.length - 1;
 }
 
+// SNS 사진 주소는 며칠 뒤 만료되므로 줄인 사본(긴 변 1280px)을 같이 저장한다
+async function makeThumb(url) {
+  const res = await fetch(url, { credentials: 'omit' });
+  if (!res.ok) throw new Error(res.status);
+  const bmp = await createImageBitmap(await res.blob());
+  const k = Math.min(1, 1280 / Math.max(bmp.width, bmp.height));
+  const c = el('canvas');
+  c.width = Math.round(bmp.width * k);
+  c.height = Math.round(bmp.height * k);
+  c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', 0.85);
+}
+
+const photoSrc = item => item.thumb || item.url;
+
 // 주운 사진은 칸을 누르지 않아도 사진 칸으로 바로 들어간다
 async function placePhotos() {
   const items = await chrome.runtime.sendMessage({ t: 'take', kind: 'image' });
   if (!items || !items.length) return;
+  await Promise.all(items.map(async i => { i.thumb = await makeThumb(i.url).catch(() => ''); }));
   const before = JSON.stringify(board);
   const have = new Set(board.spaces.flatMap(s => s.items.map(i => i.url)));
   const fresh = items.filter(i => !have.has(i.url) && have.add(i.url));
@@ -513,6 +529,13 @@ async function download(item) {
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 10000);
   } catch (e) {
+    if (item.thumb) { // 원본 주소가 만료됐으면 저장해 둔 사본을 받는다
+      const a = el('a');
+      a.href = item.thumb;
+      a.download = 'jupjup.jpg';
+      a.click();
+      return toast('원본을 받을 수 없어 저장해 둔 사본을 받았어요');
+    }
     window.open(item.url, '_blank', 'noreferrer');
     toast('바로 받을 수 없어 새 탭에 열었어요');
   }
@@ -520,7 +543,7 @@ async function download(item) {
 
 function zoom(item) {
   hidePreview();
-  $('zoomImg').src = item.url;
+  $('zoomImg').src = photoSrc(item);
   $('zoom').hidden = false;
 }
 
