@@ -112,6 +112,17 @@
     return url ? [link, { url, kind: 'image', title: clean(img.alt) }] : [link];
   }
 
+  // 사진이 나온 게시글: 감싼 링크 → 구글 이미지의 data-lpage → SNS 글 묶음
+  function photoPost(img) {
+    const a = img.closest('a[href]');
+    if (a && goesElsewhere(a)) return { url: httpUrl(a.href), kind: 'link', title: linkTitle(a) };
+    const lp = img.closest('[data-lpage]');
+    if (lp && httpUrl(lp.dataset.lpage)) return { url: httpUrl(lp.dataset.lpage), kind: 'link', title: longestLine(lp) };
+    const sns = snsPost(img);
+    const url = sns && httpUrl(sns.href).replace(/\/media\/?$/, '');
+    return url ? { url, kind: 'link', title: '' } : null;
+  }
+
   function pick(x, y) {
     const stack = document.elementsFromPoint(x, y);
     const top = stack[0];
@@ -133,7 +144,8 @@
       if (el.tagName === 'VIDEO') return { url: videoUrl(el), kind: 'video', title: clean(document.title) };
       if (el.tagName === 'IMG') {
         const url = imgUrl(el);
-        if (url) return { url, kind: 'image', title: clean(el.alt) || (owner ? linkTitle(owner) : '') };
+        const post = url && photoPost(el);
+        if (url) return [post, { url, kind: 'image', title: clean(el.alt) || (owner ? linkTitle(owner) : '') }].filter(Boolean);
       }
     }
     if (link) {
@@ -213,15 +225,14 @@
       titled.some(g => g.size >= size && g.items.includes(l)));
   }
 
-  // 네모 안에 제목이 없을 때 주울 사진(작은 아이콘은 뺀다)
+  // 네모 안에 제목이 없을 때 주울 사진(작은 아이콘은 뺀다). 같은 사진이 여러 곳에 있을 수 있어 겹침은 놓을 때 거른다
   function measureImages() {
-    const seen = new Set(), out = [];
+    const out = [];
     for (const el of walk(document, [])) {
       if (el.tagName !== 'IMG') continue;
       const url = imgUrl(el), r = el.getBoundingClientRect();
-      if (!url || seen.has(url) || r.width < 60 || r.height < 60) continue;
-      seen.add(url);
-      out.push({ url, text: clean(el.alt), kind: 'image', left: r.left, top: r.top, width: r.width, height: r.height });
+      if (!url || r.width < 60 || r.height < 60) continue;
+      out.push({ url, text: clean(el.alt), kind: 'image', el, left: r.left, top: r.top, width: r.width, height: r.height });
     }
     return out;
   }
@@ -357,7 +368,10 @@
   addEventListener('mouseup', e => {
     if (!start) return;
     const wasDrag = dragging;
-    const items = picked.map(l => ({ url: l.url, kind: l.kind || 'link', title: l.text }));
+    // 사진은 그 사진이 나온 게시글 링크도 같이(같은 글의 사진 여러 장이면 링크는 한 번)
+    const seen = new Set();
+    const items = picked.flatMap(l => [l.el && photoPost(l.el), { url: l.url, kind: l.kind || 'link', title: l.text }])
+      .filter(i => i && !seen.has(i.url) && seen.add(i.url));
     reset();
     if (e.button !== 0 || !alive() || !wasDrag) return;
     swallowClick = true;

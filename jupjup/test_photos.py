@@ -25,6 +25,9 @@ open(f'{SITE}/index.html', 'w', encoding='utf8').write(
     '<div style="margin-top:20px"><a id=card href="https://example.com/post/1"><img src="card.png" width="200" height="150" alt="카드사진"></a></div>'
     '<div style="position:relative;width:200px;height:150px;margin-top:20px"><div><img src="thr.png" width="200" height="150" style="pointer-events:none"></div>'
     '<a id=thr href="https://example.com/post/2/media" style="position:absolute;inset:0"></a></div>'
+    '<div id=gimg style="display:flex;gap:8px;margin-top:20px;width:400px">'
+    '<div data-lpage="https://example.com/src/1"><img src="p0.png" width="120" height="90"><div>원본 글 제목 하나입니다</div></div>'
+    '<div data-lpage="https://example.com/src/2"><img src="card.png" width="120" height="90"><div>원본 글 제목 둘입니다</div></div></div>'
     f'<div style="margin-top:20px"><img id=gdata src="{DATA}" width="120" height="90" data-src=""></div></body>')
 
 srv = http.server.ThreadingHTTPServer(('127.0.0.1', 8765), functools.partial(http.server.SimpleHTTPRequestHandler, directory=SITE))
@@ -50,7 +53,7 @@ with sync_playwright() as p:
     def shift_click(sel):
         page.bring_to_front(); page.keyboard.down('Shift'); page.click(sel); page.keyboard.up('Shift')
     def shift_drag(sel):
-        page.bring_to_front(); r = page.locator(sel).bounding_box()
+        page.bring_to_front(); page.locator(sel).scroll_into_view_if_needed(); r = page.locator(sel).bounding_box()
         page.keyboard.down('Shift'); page.mouse.move(r['x'] - 5, r['y'] - 5); page.mouse.down()
         page.mouse.move(r['x'] + 100, r['y'] + 50, steps=5); page.mouse.move(r['x'] + r['width'] + 5, r['y'] + r['height'] + 5, steps=5)
         page.mouse.up(); page.keyboard.up('Shift')
@@ -126,6 +129,14 @@ with sync_playwright() as p:
     b.click('.space >> nth=0 >> .list'); b.wait_for_timeout(1500)
     ok_img = b.evaluate("[...document.querySelectorAll('.photo img')].every(i => i.complete && i.naturalWidth > 0)")
     check('사진 칸에 깨진 사진 없음', ok_img)
+    # 8. 구글 이미지형 드래그: 사진마다 원본 글 링크도 함께, 칸 누르면 링크는 그 칸·사진은 사진 칸
+    shift_drag('#gimg'); b.wait_for_timeout(800)
+    check('드래그 사진+원본 링크', pend(b) == ['link https://example.com/src/1', 'image http://127.0.0.1:8765/p0.png', 'link https://example.com/src/2', 'image http://127.0.0.1:8765/card.png'], pend(b))
+    rows0 = b.locator('.space >> nth=0 >> .row').count()
+    b.click('.space >> nth=0 >> .list'); b.wait_for_timeout(1500)
+    check('원본 링크 2개는 누른 칸', b.locator('.space >> nth=0 >> .row').count() == rows0 + 2)
+    t = b.evaluate("chrome.storage.local.get('board').then(d => d.board.spaces.flatMap(s => s.items).filter(i => i.url.includes('/src/')).map(i => i.title))")
+    check('원본 링크 제목', t == ['원본 글 제목 하나입니다', '원본 글 제목 둘입니다'], t)
     b.screenshot(path=os.path.join(HERE, 'shot_board.png'))
     ctx.close()
 srv.shutdown()
