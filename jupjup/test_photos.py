@@ -9,6 +9,8 @@ os.makedirs(SITE, exist_ok=True)
 for i in range(16):
     Image.new('RGB', (200, 150), ((i * 53) % 256, (i * 97) % 256, (i * 31) % 256)).save(f'{SITE}/p{i}.png')
 Image.new('RGB', (400, 300), (10, 120, 200)).save(f'{SITE}/card.png')
+for k in range(4):
+    Image.new('RGB', (300, 290), (40 * k, 200 - 30 * k, 90)).save(f'{SITE}/g{k}.png')
 Image.new('RGB', (400, 300), (200, 60, 90)).save(f'{SITE}/thr.png')
 buf = io.BytesIO(); Image.new('RGB', (120, 90), (240, 200, 20)).save(buf, 'PNG')
 DATA = 'data:image/png;base64,' + base64.b64encode(buf.getvalue()).decode()
@@ -17,7 +19,7 @@ serp = '<div id=serp style="width:560px;margin-top:20px">'
 for i, n in enumerate(['첫번째', '두번째', '세번째']):
     u = f'https://site{i}.example.org/page/very/long/path/name'
     serp += (f'<div style="margin:14px 0"><a href="{u}" style="font-size:14px">Site {i}<br>https://site{i}.example.org › page › very › long › path › name</a>' if i == 0 else '<div style="margin:14px 0">')
-    serp += f'<a href="{u}"><h3 style="font-size:22px;font-weight:400;margin:4px 0">{n} 검색 결과 제목입니다</h3></a><span style="font-size:14px">설명 글이 여기에 들어갑니다 조금 길게</span></div>'
+    serp += f'<a href="{u}"><h3 style="font-size:22px;font-weight:400;margin:4px 0">{n} 검색 결과 제목입니다</h3></a><span style="font-size:14px">설명 글이 여기에 들어갑니다 조금 길게</span><img src="p{i + 3}.png" width="80" height="80"></div>'
 serp += '</div>'
 open(f'{SITE}/index.html', 'w', encoding='utf8').write(
     f'<!doctype html><meta charset=utf-8><body style="margin:20px"><h1>시험</h1><div id=g style="width:560px">{imgs}</div>'
@@ -28,6 +30,10 @@ open(f'{SITE}/index.html', 'w', encoding='utf8').write(
     '<div id=gimg style="display:flex;gap:8px;margin-top:20px;width:400px">'
     '<div data-lpage="https://example.com/src/1"><img src="p0.png" width="120" height="90"><div>원본 글 제목 하나입니다</div></div>'
     '<div data-lpage="https://example.com/src/2"><img src="card.png" width="120" height="90"><div>원본 글 제목 둘입니다</div></div></div>'
+    '<div id=gi style="display:grid;grid-template-columns:200px 200px;gap:10px;margin-top:20px">'
+    + ''.join(f'<div data-lpage="https://shop.example.com/item/{k}"><div><img src="g{k}.png" width="200" height="193"></div>'
+              f'<a href="https://shop.example.com/item/{k}?from=g" style="font-size:16px;display:block">상품 이름 {k}번 제목입니다</a></div>' for k in range(4))
+    + '</div>'
     f'<div style="margin-top:20px"><img id=gdata src="{DATA}" width="120" height="90" data-src=""></div></body>')
 
 srv = http.server.ThreadingHTTPServer(('127.0.0.1', 8765), functools.partial(http.server.SimpleHTTPRequestHandler, directory=SITE))
@@ -137,6 +143,16 @@ with sync_playwright() as p:
     check('원본 링크 2개는 누른 칸', b.locator('.space >> nth=0 >> .row').count() == rows0 + 2)
     t = b.evaluate("chrome.storage.local.get('board').then(d => d.board.spaces.flatMap(s => s.items).filter(i => i.url.includes('/src/')).map(i => i.title))")
     check('원본 링크 제목', t == ['원본 글 제목 하나입니다', '원본 글 제목 둘입니다'], t)
+    # 9. 구글 이미지 칸: 위 두 칸은 통째로, 아래 두 칸은 사진 가운데만 네모 안 → 4칸 모두 링크+사진
+    page.bring_to_front(); page.locator('#gi').scroll_into_view_if_needed()
+    imgs = page.eval_on_selector_all('#gi img', 'els => els.map(e => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.width, r.height] })')
+    x0, y0 = imgs[0][0] - 5, imgs[0][1] - 5
+    x1, y1 = imgs[3][0] + imgs[3][2] + 5, imgs[3][1] + imgs[3][3] / 2 + 15
+    page.keyboard.down('Shift'); page.mouse.move(x0, y0); page.mouse.down(); page.mouse.move((x0 + x1) / 2, (y0 + y1) / 2, steps=5)
+    page.mouse.move(x1, y1, steps=5); page.mouse.up(); page.keyboard.up('Shift'); b.wait_for_timeout(800)
+    want = sum([[f'link https://shop.example.com/item/{k}', f'image http://127.0.0.1:8765/g{k}.png'] for k in range(4)], [])
+    check('구글 이미지 칸 4개 링크+사진', pend(b) == want, pend(b))
+    b.click('.space >> nth=0 >> .list'); b.wait_for_timeout(1500)
     b.screenshot(path=os.path.join(HERE, 'shot_board.png'))
     ctx.close()
 srv.shutdown()
