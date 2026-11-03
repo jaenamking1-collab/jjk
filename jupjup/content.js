@@ -9,7 +9,7 @@
   const NOT_TITLE = /^(\d{1,2}월\s*\d{1,2}일|\d{4}[.-]|\d{1,2}:\d{2}|\d+(분|시간|일|주|개월|년)\s*전)/; // 날짜·시각
   const TITLE_LABEL = 'h1,h2,h3,h4,h5,h6,[class*="title" i],[class*="headline" i]';
   let start = null, dragging = false, swallowClick = false, hint = null;
-  let links = [], overlay = null, picked = [];
+  let links = [], images = [], overlay = null, picked = [];
 
   const httpUrl = u => {
     try {
@@ -172,9 +172,13 @@
 
   // 글자 크기·굵기가 같은 링크끼리 묶어, 여러 개 반복되는 묶음 중 가장 큰 글자를 제목으로 본다
   function mainTitles(found) {
+    // 같은 주소가 여러 번 있으면(구글 첫 결과의 사이트 주소 줄 등) 글이 긴 쪽이 아니라 제목다운 큰 글자를 남긴다
+    const titleLike = l => l.text.length >= MIN_TITLE_CHARS && !NOT_TITLE.test(l.text);
+    const better = (a, b) => titleLike(a) !== titleLike(b) ? titleLike(a)
+      : a.size !== b.size ? a.size > b.size : a.text.length > b.text.length;
     const byUrl = new Map();
     for (const l of found) {
-      if (!byUrl.has(l.url) || byUrl.get(l.url).text.length < l.text.length) byUrl.set(l.url, l);
+      if (!byUrl.has(l.url) || better(l, byUrl.get(l.url))) byUrl.set(l.url, l);
     }
     const unique = [...byUrl.values()];
     const groups = new Map();
@@ -194,8 +198,21 @@
       titled.some(g => g.size >= size && g.items.includes(l)));
   }
 
-  function linksInBox(box) {
-    return links.filter(l => {
+  // 네모 안에 제목이 없을 때 주울 사진(작은 아이콘은 뺀다)
+  function measureImages() {
+    const seen = new Set(), out = [];
+    for (const el of walk(document, [])) {
+      if (el.tagName !== 'IMG') continue;
+      const url = imgUrl(el), r = el.getBoundingClientRect();
+      if (!url || seen.has(url) || r.width < 60 || r.height < 60) continue;
+      seen.add(url);
+      out.push({ url, text: clean(el.alt), kind: 'image', left: r.left, top: r.top, width: r.width, height: r.height });
+    }
+    return out;
+  }
+
+  function linksInBox(box, list = links) {
+    return list.filter(l => {
       const x = l.left + l.width / 2, y = l.top + l.height / 2;
       return x >= box.left && x <= box.right && y >= box.top && y <= box.bottom;
     });
@@ -227,13 +244,15 @@
       width: box.right - box.left + 'px', height: box.bottom - box.top + 'px'
     });
     picked = mainTitles(linksInBox(box));
+    if (!picked.length) picked = linksInBox(box, images);
     overlay.marks.replaceChildren(...picked.map(l => {
       const mark = document.createElement('div');
       mark.style.cssText = 'position:fixed;background:rgba(255,122,92,.22);border-radius:4px;' +
         `left:${l.left}px;top:${l.top}px;width:${l.width}px;height:${l.height}px`;
       return mark;
     }));
-    say(picked.length ? `제목 ${picked.length}개 · Esc 취소` : '네모 안에 제목이 없어요', true);
+    const what = picked[0] && picked[0].kind === 'image' ? '사진' : '제목';
+    say(picked.length ? `${what} ${picked.length}개 · Esc 취소` : '네모 안에 제목·사진이 없어요', true);
   }
 
   async function copy(text) {
@@ -313,6 +332,7 @@
       if (Math.hypot(e.clientX - start.x, e.clientY - start.y) < DRAG_PX) return;
       dragging = true;
       links = measureLinks();
+      images = measureImages();
       showOverlay();
     }
     drawBox(e.clientX, e.clientY);
@@ -321,7 +341,7 @@
   addEventListener('mouseup', e => {
     if (!start) return;
     const wasDrag = dragging;
-    const items = picked.map(l => ({ url: l.url, kind: 'link', title: l.text }));
+    const items = picked.map(l => ({ url: l.url, kind: l.kind || 'link', title: l.text }));
     reset();
     if (e.button !== 0 || !alive() || !wasDrag) return;
     swallowClick = true;

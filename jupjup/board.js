@@ -4,8 +4,11 @@ const ICON = {
   copy: '<svg viewBox="0 0 16 16"><rect x="5.5" y="5.5" width="8" height="8" rx="2"/><path d="M10.5 3H4a1 1 0 0 0-1 1v6.5"/></svg>',
   check: '<svg viewBox="0 0 16 16"><path d="M3 8.5 6.5 12 13 4.5"/></svg>',
   del: '<svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>',
-  memo: '<svg viewBox="0 0 16 16"><path d="M3 13l.8-3L10.500 3.300l2.200 2.200L6 12.200z"/></svg>'
+  memo: '<svg viewBox="0 0 16 16"><path d="M3 13l.8-3L10.500 3.300l2.200 2.200L6 12.200z"/></svg>',
+  down: '<svg viewBox="0 0 16 16"><path d="M8 2.500v8M4.500 7.500 8 11l3.500-3.500M3 13.500h10"/></svg>'
 };
+const PHOTO_MAX = 12; // 사진 칸 하나에 4장씩 3줄
+const isPhoto = item => item.kind === 'image';
 const $ = id => document.getElementById(id);
 const spacesEl = $('spaces');
 
@@ -128,8 +131,36 @@ function emptyView() {
   return box;
 }
 
-function fillList(list, items) {
-  const nodes = [];
+function photoGrid(pics) {
+  const grid = el('div', 'photos');
+  for (const item of pics) {
+    const cell = el('div', 'photo');
+    cell.draggable = true;
+    cell.dataset.id = item.id;
+    const img = el('img');
+    img.src = item.url;
+    img.alt = item.title || '';
+    img.referrerPolicy = 'no-referrer';
+    img.loading = 'lazy';
+    const down = el('button', 'act down');
+    down.innerHTML = ICON.down;
+    down.title = '내려받기';
+    const del = el('button', 'act del');
+    del.innerHTML = ICON.del;
+    del.title = '삭제';
+    const acts = el('span', 'photo-acts');
+    acts.append(down, del);
+    cell.append(img, acts);
+    grid.append(cell);
+  }
+  return grid;
+}
+
+// 사진 칸은 사진을 격자로, 그 밖의 링크는 그 아래 줄로 보인다
+function fillList(list, all, photos) {
+  const pics = photos ? all.filter(isPhoto) : [];
+  const items = photos ? all.filter(i => !isPhoto(i)) : all;
+  const nodes = pics.length ? [photoGrid(pics)] : [];
   items.forEach((item, i) => {
     if (i === 0 || items[i - 1].batch !== item.batch) {
       let size = 1;
@@ -177,7 +208,7 @@ function render() {
     const title = sp.querySelector('.title');
     if (document.activeElement !== title) title.value = space.title;
     sp.querySelector('.count').textContent = space.items.length ? `${space.items.length}개` : '';
-    fillList(sp.querySelector('.list'), space.items);
+    fillList(sp.querySelector('.list'), space.items, space.photos);
   });
   const all = board.spaces.reduce((n, s) => n + s.items.length, 0);
   $('total').textContent = all ? `링크 ${all}개` : '';
@@ -278,6 +309,7 @@ async function showPreview(row, item) {
   if (video) $('previewVideo').src = item.url;
   $('previewTitle').textContent = item.title || shortUrl(item.url);
   $('previewText').textContent = text;
+  $('preview').classList.toggle('big', row.classList.contains('photo'));
   $('preview').hidden = false;
   placePreview(row);
 }
@@ -431,6 +463,67 @@ async function paste(index) {
   else if (!list) toast(`${spaceName(index)}에 ${items.length}개 넣었어요`);
 }
 
+// 사진이 들어갈 칸: 자리가 남은 사진 칸 → 빈 칸(첫 칸은 링크 자리라 둘째부터) → 새 판(꽉 찬 사진 칸 자리에 보인다)
+function photoSpace() {
+  const vis = visible();
+  const pics = i => board.spaces[i].items.filter(isPhoto).length;
+  const room = vis.find(i => board.spaces[i].photos && pics(i) < PHOTO_MAX);
+  if (room != null) return room;
+  const empty = vis.slice(1).find(i => !board.spaces[i].items.length);
+  if (empty != null) {
+    board.spaces[empty].photos = true;
+    return empty;
+  }
+  board.spaces.push({ title: '', items: [], photos: true });
+  const full = vis.filter(i => board.spaces[i].photos).pop();
+  board.shown[full != null ? board.shown.indexOf(full) : board.layout - 1] = board.spaces.length - 1;
+  return board.spaces.length - 1;
+}
+
+// 주운 사진은 칸을 누르지 않아도 사진 칸으로 바로 들어간다
+async function placePhotos() {
+  const items = await chrome.runtime.sendMessage({ t: 'take', kind: 'image' });
+  if (!items || !items.length) return;
+  const before = JSON.stringify(board);
+  const have = new Set(board.spaces.flatMap(s => s.items.map(i => i.url)));
+  const fresh = items.filter(i => !have.has(i.url) && have.add(i.url));
+  if (!fresh.length) return toast('이미 있는 사진이에요');
+  if (board.layout === 1) board.layout = 2;
+  let at = -1;
+  for (const item of fresh) {
+    at = photoSpace();
+    board.spaces[at].items.push(item);
+  }
+  await save();
+  render();
+  const skipped = items.length - fresh.length;
+  toast(`사진 ${fresh.length}장을 ${spaceName(at)}에 넣었어요${skipped ? ` (이미 있는 ${skipped}장 뺌)` : ''}`, before);
+}
+
+async function download(item) {
+  try {
+    const res = await fetch(item.url, { credentials: 'omit' });
+    if (!res.ok) throw new Error(res.status);
+    const blob = await res.blob();
+    let name = decodeURIComponent(new URL(item.url).pathname.split('/').pop() || '') || 'jupjup';
+    if (!/\.\w{2,5}$/.test(name)) name += '.' + (blob.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg').replace(/\+.*/, '');
+    const a = el('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  } catch (e) {
+    window.open(item.url, '_blank', 'noreferrer');
+    toast('바로 받을 수 없어 새 탭에 열었어요');
+  }
+}
+
+function zoom(item) {
+  hidePreview();
+  $('zoomImg').src = item.url;
+  $('zoom').hidden = false;
+}
+
 function toast(text, undo) {
   undoState = undo || null;
   $('toastText').textContent = text;
@@ -485,8 +578,17 @@ spacesEl.addEventListener('click', e => {
     return;
   }
   if (btn && btn.classList.contains('del')) {
-    const id = btn.closest('.row').dataset.id;
+    const id = btn.closest('[data-id]').dataset.id;
     removeItems(index, i => i.id !== id, '삭제했어요');
+    return;
+  }
+  if (btn && btn.classList.contains('down')) {
+    download(findItem(index, btn.closest('.photo').dataset.id));
+    return;
+  }
+  const photo = e.target.closest('.photo');
+  if (photo && !pendingCount) {
+    zoom(findItem(index, photo.dataset.id));
     return;
   }
   if (btn && btn.classList.contains('bulk-copy')) {
@@ -527,7 +629,40 @@ function clearDrag() {
   drag = null;
 }
 
+// 사진 끌기: 끄는 동안 자리를 바로 바꾸고, 밀려난 사진은 살짝 들렸다 내려앉는다
+let liftUntil = 0;
+
+function movePhoto(e) {
+  const grid = spacesEl.querySelector(`.space[data-i="${drag.from}"] .photos`);
+  const over = e.target.closest?.('.photo');
+  const mine = grid && grid.querySelector(`.photo[data-id="${drag.ids[0]}"]`);
+  if (!grid || !over || !mine || over === mine || over.parentNode !== grid || performance.now() < liftUntil) return;
+  const cells = [...grid.children];
+  const from = new Map(cells.map(c => [c, c.getBoundingClientRect()]));
+  grid.insertBefore(mine, cells.indexOf(mine) < cells.indexOf(over) ? over.nextSibling : over);
+  liftUntil = performance.now() + 120;
+  for (const c of cells) {
+    if (c === mine) continue;
+    const a = from.get(c), b = c.getBoundingClientRect();
+    if (a.left === b.left && a.top === b.top) continue;
+    const dx = a.left - b.left, dy = a.top - b.top;
+    c.animate([
+      { transform: `translate(${dx}px, ${dy}px)` },
+      { transform: `translate(${dx / 2}px, ${dy / 2 - 7}px) scale(1.05)`, boxShadow: '0 8px 16px rgba(43, 42, 76, .25)', offset: 0.45 },
+      { transform: 'none' }
+    ], { duration: 280, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+  }
+}
+
 spacesEl.addEventListener('dragstart', e => {
+  const photo = e.target.closest?.('.photo');
+  if (photo) {
+    drag = { from: +photo.closest('.space').dataset.i, ids: [photo.dataset.id], photo: true };
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', findItem(drag.from, photo.dataset.id).url);
+    photo.classList.add('dragging');
+    return;
+  }
   const row = e.target.closest?.('.row');
   const meta = e.target.closest?.('.meta');
   if (!row && !meta) return;
@@ -544,6 +679,11 @@ spacesEl.addEventListener('dragstart', e => {
 
 spacesEl.addEventListener('dragover', e => {
   if (!drag) return;
+  if (drag.photo) {
+    if (+e.target.closest?.('.space')?.dataset.i !== drag.from) return;
+    e.preventDefault();
+    return movePhoto(e);
+  }
   const list = e.target.closest('.space')?.querySelector('.list');
   if (!list) return;
   e.preventDefault();
@@ -564,6 +704,14 @@ spacesEl.addEventListener('drop', e => {
   const sp = e.target.closest('.space');
   if (!sp) return;
   e.preventDefault();
+  if (drag.photo) {
+    const space = board.spaces[drag.from];
+    const order = [...sp.querySelectorAll('.photo')].map(c => findItem(drag.from, c.dataset.id));
+    space.items = order.concat(space.items.filter(i => !isPhoto(i)));
+    clearDrag();
+    save();
+    return render();
+  }
   const line = sp.querySelector('.drop-line');
   moveDragged(+sp.dataset.i, line?.nextElementSibling?.dataset.id);
 });
@@ -628,7 +776,7 @@ $('checkNow').addEventListener('click', async () => {
 });
 
 spacesEl.addEventListener('mouseover', e => {
-  const row = e.target.closest('.row');
+  const row = e.target.closest('.row, .photo');
   if (!row || row.dataset.id === previewFor || drag) return;
   if (e.target.closest('button,input')) return hidePreview();
   hidePreview();
@@ -639,6 +787,10 @@ spacesEl.addEventListener('mouseleave', hidePreview);
 spacesEl.addEventListener('dragstart', hidePreview);
 spacesEl.addEventListener('scroll', hidePreview, true);
 $('previewImg').addEventListener('error', () => { $('previewImg').hidden = true; });
+$('zoom').addEventListener('click', () => { $('zoom').hidden = true; });
+addEventListener('keydown', e => {
+  if (e.key === 'Escape') $('zoom').hidden = true;
+});
 
 $('settingsBtn').addEventListener('click', e => {
   e.stopPropagation();
@@ -715,8 +867,10 @@ chrome.storage.onChanged.addListener((changes, area) => {
     renderSettings();
   }
   if (changes.pending) {
-    pendingCount = (changes.pending.newValue || []).length;
+    const pending = changes.pending.newValue || [];
+    pendingCount = pending.filter(i => !isPhoto(i)).length;
     renderDock();
+    if (pending.some(isPhoto)) placePhotos();
   }
   if (changes.board && !drag && JSON.stringify(changes.board.newValue) !== JSON.stringify(board)) {
     board = withShown(changes.board.newValue);
@@ -732,8 +886,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
   const fresh = await connectFolder(board);
   if (fresh !== board) adoptBoard(fresh);
   renderSettings();
-  pendingCount = (data.pending || []).length;
+  pendingCount = (data.pending || []).filter(i => !isPhoto(i)).length;
   render();
   renderDock();
   applyTitles(data.titles || {});
+  if ((data.pending || []).some(isPhoto)) placePhotos();
 })();

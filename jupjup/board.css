@@ -289,6 +289,22 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 .preview p { margin: 3px 0 0; font-size: 12px; line-height: 1.35; color: var(--ink-soft); }
 .preview p:empty { display: none; }
 
+.preview.big { width: min(420px, calc(100vw - 16px)); }
+.preview.big img { max-height: 60vh; object-fit: contain; }
+
+/* 사진 칸: 한 줄에 4장 */
+.photos { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding: 4px 0 6px; }
+.photo { position: relative; aspect-ratio: 1; border-radius: 10px; overflow: hidden; background: var(--milk); cursor: zoom-in; }
+.photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photo-acts { position: absolute; top: 4px; right: 4px; display: flex; gap: 3px; opacity: 0; transition: opacity .15s; }
+.photo:hover .photo-acts { opacity: 1; }
+.photo-acts .act { background: rgba(255, 255, 255, .92); box-shadow: 0 1px 4px rgba(43, 42, 76, .25); }
+.photo.dragging { opacity: .35; }
+
+.zoom { position: fixed; inset: 0; z-index: 9; display: grid; place-items: center; padding: 16px; background: rgba(43, 42, 76, .82); cursor: zoom-out; }
+.zoom[hidden] { display: none; }
+.zoom img { max-width: 100%; max-height: 100%; border-radius: 12px; box-shadow: 0 12px 36px rgba(0, 0, 0, .4); }
+
 .row.dragging, .meta.dragging { opacity: .35; }
 .list .drop-line { height: 3px; margin: 1px 4px; border-radius: 2px; background: var(--deep); }
 
