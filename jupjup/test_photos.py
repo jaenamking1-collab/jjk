@@ -1,3 +1,4 @@
+from urllib.parse import quote
 import os, time, tempfile, threading, functools, http.server, base64, io
 from PIL import Image
 from playwright.sync_api import sync_playwright
@@ -13,6 +14,8 @@ for k in range(4):
     Image.new('RGB', (300, 290), (40 * k, 200 - 30 * k, 90)).save(f'{SITE}/g{k}.png')
 Image.new('RGB', (400, 300), (200, 60, 90)).save(f'{SITE}/thr.png')
 Image.new('RGB', (300, 290), (90, 30, 160)).save(f'{SITE}/solo.png')
+for k in range(4):
+    Image.new('RGB', (200, 200), (30 * k, 90, 200 - 30 * k)).save(f'{SITE}/r{k}.png')
 buf = io.BytesIO(); Image.new('RGB', (120, 90), (240, 200, 20)).save(buf, 'PNG')
 DATA = 'data:image/png;base64,' + base64.b64encode(buf.getvalue()).decode()
 imgs = ''.join(f'<img src="p{i}.png" width="120" height="90" alt="사진{i}">' for i in range(16))
@@ -39,6 +42,11 @@ open(f'{SITE}/index.html', 'w', encoding='utf8').write(
     '<div id=nv style="width:700px;margin-top:20px;font-size:13px">'
     '<a href="https://blog.example.com/post/77" style="display:block"><span style="font-size:18px">네이버형 블로그 글 제목입니다</span><span class=sr>새 창 열림</span></a>'
     '<div style="display:flex;gap:6px">' + ''.join(f'<a href="https://blog.example.com/post/77"><img src="p{k + 8}.png" width="93" height="124"><span class=sr>새 창 열림</span></a>' for k in range(4)) + '</div></div>'
+    '<div id=rec style="display:flex;gap:12px;margin-top:20px">'
+    + ''.join(f'<div style="width:117px" {"data-url=\"https://shop.example.com/p/9\"" if k == 3 else ""} onclick="void 0"><div><img src="r{k}.png" width="117" height="117"></div>'
+              f'<div>{n}</div><div>최저{605320 + k * 1000:,}원</div><div>판매처 {35 - k}</div></div>'
+              for k, n in enumerate(['중산물산 위즈웰 에스프레소', '유라 전자동 커피머신 E8', '유라 전자동 커피머신 E4', '라심발리 에스프레소머신']))
+    + '</div>'
     '<div style="margin-top:20px"><img id=solo src="solo.png" width="300" height="290"></div>'
     f'<div style="margin-top:20px"><img id=gdata src="{DATA}" width="120" height="90" data-src=""></div></body>')
 
@@ -191,6 +199,13 @@ with sync_playwright() as p:
     row.hover(); row.locator('.del').click(); b.wait_for_timeout(500)
     check('링크 지우면 사진도', before_n == 1 and linked() == 0 and b.locator('.photo').count() == total - 1, (before_n, linked()))
     check('삭제 안내', '사진 1장' in b.inner_text('#toast'), b.inner_text('#toast'))
+    # 14. 링크 없는 상품 칸(네이버 '방금 본 상품'형): 칸마다 상품명 링크, 숨은 주소가 있으면 그것
+    shift_drag('#rec'); b.wait_for_timeout(800)
+    got = b.evaluate("chrome.storage.local.get('pending').then(d => d.pending.filter(i => i.kind === 'link').map(i => i.title + ' | ' + i.url.replace('http://127.0.0.1:8765/index.html', '')))")
+    want = ['중산물산 위즈웰 에스프레소 | #:~:text=' + quote('중산물산 위즈웰 에스프레소'), '유라 전자동 커피머신 E8 | #:~:text=' + quote('유라 전자동 커피머신 E8'),
+            '유라 전자동 커피머신 E4 | #:~:text=' + quote('유라 전자동 커피머신 E4'), '라심발리 에스프레소머신 | https://shop.example.com/p/9']
+    check('링크 없는 상품 칸 4개 따로', got == want, got)
+    b.click('#dockCancel'); b.wait_for_timeout(300)
     b.screenshot(path=os.path.join(SITE, 'shot_board.png'))
     ctx.close()
 srv.shutdown()

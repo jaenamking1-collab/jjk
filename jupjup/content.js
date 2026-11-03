@@ -45,13 +45,17 @@
   // 화면에 안 보이는 글자(네이버의 '새 창 열림' 같은 화면 낭독기용 글자)는 뺀다
   const shown = e => { const r = e.getBoundingClientRect(); return r.width > 1 && r.height > 1; };
 
-  function longestLine(el) {
+  function visibleLines(el) {
     let text = el.innerText || '';
     for (const e of el.querySelectorAll('*')) {
       const hidden = e.textContent.trim();
       if (hidden && !shown(e)) text = text.replace(hidden, '');
     }
-    return text.split('\n').map(clean).sort((a, b) => b.length - a.length)[0] || '';
+    return text.split('\n').map(clean).filter(Boolean);
+  }
+
+  function longestLine(el) {
+    return visibleLines(el).sort((a, b) => b.length - a.length)[0] || '';
   }
 
   // 그 글자를 실제로 그리는 가장 안쪽 칸(링크 상자가 넓거나 글자 크기가 링크와 다를 때)
@@ -136,11 +140,40 @@
     const sns = snsPost(img);
     const url = sns && httpUrl(sns.href).replace(/\/media\/?$/, '');
     if (url) return { url, kind: 'link', title: '' };
-    // 다른 글로 가는 링크가 없으면 지금 보는 이 페이지가 그 게시글이다(상품·블로그 본문 사진). 제목은 h1, 없으면 페이지에서 읽는다
-    const h1 = document.querySelector('h1');
     let here = location.href;
     try { if (window !== top && top.location.host === location.host) here = top.location.href; } catch (e) { /* 다른 사이트 틀 */ } // 네이버 블로그는 글이 틀(iframe) 안에 있다
-    return /^https?:/.test(here) ? { url: here, kind: 'link', title: clean(h1 && h1.innerText).slice(0, 200) } : null;
+    if (!/^https?:/.test(here)) return null;
+    const card = cardLink(img, here);
+    if (card) return card;
+    // 다른 글로 가는 링크가 없으면 지금 보는 이 페이지가 그 게시글이다(상품·블로그 본문 사진). 제목은 h1, 없으면 페이지에서 읽는다
+    const h1 = document.querySelector('h1');
+    return { url: here, kind: 'link', title: clean(h1 && h1.innerText).slice(0, 200) };
+  }
+
+  // 링크 없이 눌러야만 이동하는 작은 상품 칸(네이버 '방금 본 상품' 등): 칸 속 숨은 주소, 없으면 상품명으로
+  // 이 페이지의 그 자리를 가리키는 링크(#:~:text=)를 칸마다 따로 만든다. 큰 본문 사진은 칸으로 보지 않는다
+  const LETTERS = /[A-Za-z가-힣]/g;
+  function cardLink(img, here) {
+    const ir = img.getBoundingClientRect();
+    if (ir.width > 320) return null;
+    let card = null;
+    for (let e = img.parentElement, n = 0; e && e !== document.body && n < 6; e = e.parentElement, n++) {
+      if (e.getBoundingClientRect().width > ir.width * 2.2) break;
+      if ([...e.querySelectorAll('img')].filter(i => i.getBoundingClientRect().width >= 60).length > 1) break;
+      card = e;
+    }
+    const letters = l => (l.match(LETTERS) || []).length;
+    const line = card && visibleLines(card).filter(l => l.length >= MIN_TITLE_CHARS && !NOT_TITLE.test(l))
+      .sort((a, b) => letters(b) - letters(a))[0];
+    if (!line) return null;
+    for (const e of [card, ...card.querySelectorAll('*')]) {
+      for (const at of e.attributes) {
+        if (/^(src|srcset)$/i.test(at.name) || !/^https?:\/\//.test(at.value)) continue;
+        const url = httpUrl(at.value);
+        if (url && !/\.(jpe?g|png|gif|webp|avif|svg)(\?|$)/i.test(url)) return { url, kind: 'link', title: line };
+      }
+    }
+    return { url: here.split('#')[0] + '#:~:text=' + encodeURIComponent(line).replace(/-/g, '%2D'), kind: 'link', title: line };
   }
 
   function pick(x, y) {
