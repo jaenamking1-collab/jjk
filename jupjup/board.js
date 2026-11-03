@@ -21,7 +21,7 @@ let health = {}, lastCheck = 0;
 let previewTimer = 0, previewFor = '';
 
 const visible = () => board.shown.slice(0, board.layout);
-const spaceName = i => board.spaces[i].title || `제목 없는 판 ${i + 1}`;
+const spaceName = i => board.spaces[i].title || (board.spaces[i].photos ? `사진 판 ${i + 1}` : `제목 없는 판 ${i + 1}`);
 
 // 1.0 저장본에는 shown 이 없다
 function withShown(b) {
@@ -179,12 +179,16 @@ function buildSpaces() {
     sp.dataset.i = i;
     sp.dataset.c = i % 4;
     const head = el('div', 'space-head');
-    const title = el('input', 'title');
-    title.placeholder = '큰제목 쓰기';
-    title.value = board.spaces[i].title;
-    title.setAttribute('aria-label', `${i + 1}번 판 제목`);
-    title.maxLength = 60;
-    head.append(title, el('span', 'count'));
+    // 사진 칸은 제목 없이 장 수만 보인다
+    if (!board.spaces[i].photos) {
+      const title = el('input', 'title');
+      title.placeholder = '큰제목 쓰기';
+      title.value = board.spaces[i].title;
+      title.setAttribute('aria-label', `${i + 1}번 판 제목`);
+      title.maxLength = 60;
+      head.append(title);
+    }
+    head.append(el('span', 'count'));
     sp.append(head, el('div', 'list'));
     frag.push(sp);
   }
@@ -198,7 +202,7 @@ function buildSpaces() {
 }
 
 function viewKey() {
-  return board.layout + ':' + visible().join();
+  return board.layout + ':' + visible().map(i => i + (board.spaces[i].photos ? 'p' : '')).join();
 }
 
 function render() {
@@ -206,8 +210,8 @@ function render() {
   [...spacesEl.children].forEach(sp => {
     const space = board.spaces[+sp.dataset.i];
     const title = sp.querySelector('.title');
-    if (document.activeElement !== title) title.value = space.title;
-    sp.querySelector('.count').textContent = space.items.length ? `${space.items.length}개` : '';
+    if (title && document.activeElement !== title) title.value = space.title;
+    sp.querySelector('.count').textContent = space.photos ? `사진 ${space.items.length}장` : space.items.length ? `${space.items.length}개` : '';
     fillList(sp.querySelector('.list'), space.items, space.photos);
   });
   const all = board.spaces.reduce((n, s) => n + s.items.length, 0);
@@ -445,6 +449,11 @@ function renderDock() {
 }
 
 async function paste(index) {
+  // 사진 칸을 누르면 사진만 들어가고, 링크는 계속 들고 있다가 링크 칸을 누를 때 들어간다
+  if (board.spaces[index].photos) {
+    const pics = await chrome.runtime.sendMessage({ t: 'take', kind: 'image' });
+    return pics && pics.length ? placePhotos(pics, index) : toast('사진 칸에는 사진만 들어가요');
+  }
   const all = await chrome.runtime.sendMessage({ t: 'take' });
   if (!all || !all.length) return;
   const items = all.filter(i => !isPhoto(i));
@@ -472,9 +481,10 @@ async function pasteLinks(index, items) {
 }
 
 // 사진이 들어갈 칸: 자리가 남은 사진 칸 → 빈 칸(첫 칸은 링크 자리라 둘째부터) → 새 판(꽉 찬 사진 칸 자리에 보인다)
-function photoSpace() {
+function photoSpace(prefer) {
   const vis = visible();
   const pics = i => board.spaces[i].items.filter(isPhoto).length;
+  if (prefer != null && board.spaces[prefer].photos && pics(prefer) < PHOTO_MAX) return prefer;
   const room = vis.find(i => board.spaces[i].photos && pics(i) < PHOTO_MAX);
   if (room != null) return room;
   const empty = vis.slice(1).find(i => !board.spaces[i].items.length);
@@ -504,7 +514,7 @@ async function makeThumb(url) {
 const photoSrc = item => item.thumb || item.url;
 
 // 칸을 눌러 붙여넣을 때 사진은 누른 칸이 아니라 사진 칸으로 간다
-async function placePhotos(items) {
+async function placePhotos(items, prefer) {
   await Promise.all(items.map(async i => { i.thumb = await makeThumb(i.url).catch(() => ''); }));
   const before = JSON.stringify(board);
   const have = new Set(board.spaces.flatMap(s => s.items.map(i => i.url)));
@@ -513,7 +523,7 @@ async function placePhotos(items) {
   if (board.layout === 1) board.layout = 2;
   let at = -1;
   for (const item of fresh) {
-    at = photoSpace();
+    at = photoSpace(prefer);
     board.spaces[at].items.push(item);
   }
   await save();
@@ -562,13 +572,23 @@ function toast(text, undo) {
   toastTimer = setTimeout(() => { $('toast').hidden = true; undoState = null; }, undo ? 6000 : 1500);
 }
 
+// 링크를 지우면 그 링크와 함께 주운 사진(post)도 사진 칸에서 같이 지운다
 function removeItems(index, keep, label) {
   undoState = JSON.stringify(board);
   const before = undoState;
+  const gone = new Set(board.spaces[index].items.filter(i => !keep(i) && !isPhoto(i)).map(i => i.url));
   board.spaces[index].items = board.spaces[index].items.filter(keep);
+  let pics = 0;
+  if (gone.size) {
+    for (const space of board.spaces) {
+      const left = space.items.filter(i => !(isPhoto(i) && gone.has(i.post)));
+      pics += space.items.length - left.length;
+      space.items = left;
+    }
+  }
   save();
   render();
-  toast(label, before);
+  toast(pics ? `${label} (함께 주운 사진 ${pics}장도)` : label, before);
 }
 
 function findItem(index, id) {
@@ -714,7 +734,7 @@ spacesEl.addEventListener('dragover', e => {
     return movePhoto(e);
   }
   const list = e.target.closest('.space')?.querySelector('.list');
-  if (!list) return;
+  if (!list || board.spaces[+list.closest('.space').dataset.i].photos) return; // 사진 칸에는 링크를 놓지 않는다
   e.preventDefault();
   e.dataTransfer.dropEffect = 'move';
   if (list.querySelector('.empty')) return; // 안내를 지우면 끌던 대상이 사라져 놓기가 끊긴다
@@ -854,7 +874,7 @@ $('shelfList').addEventListener('click', e => {
 // 목록의 판 위에 놓으면 그 판 맨 뒤로 옮긴다(화면에 없는 판으로도 옮길 수 있게)
 $('shelfList').addEventListener('dragover', e => {
   const row = e.target.closest('.shelf-row');
-  if (!drag || !row) return;
+  if (!drag || !row || !!board.spaces[+row.dataset.i].photos !== !!drag.photo) return;
   e.preventDefault();
   document.querySelector('.shelf-row.over')?.classList.remove('over');
   row.classList.add('over');

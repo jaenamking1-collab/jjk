@@ -124,7 +124,7 @@
       img = [...e.querySelectorAll('img')].find(covers);
     }
     const url = img && imgUrl(img);
-    return url ? [link, { url, kind: 'image', title: clean(img.alt) }] : [link];
+    return url ? [link, { url, kind: 'image', title: clean(img.alt), post: link.url }] : [link];
   }
 
   // 사진이 나온 게시글: 감싼 링크 → 구글 이미지의 data-lpage → SNS 글 묶음
@@ -165,7 +165,7 @@
       if (el.tagName === 'IMG') {
         const url = imgUrl(el);
         const post = url && photoPost(el);
-        if (url) return [post, { url, kind: 'image', title: clean(el.alt) || (owner ? linkTitle(owner) : '') }].filter(Boolean);
+        if (url) return [post, { url, kind: 'image', title: clean(el.alt) || (owner ? linkTitle(owner) : ''), post: post ? post.url : '' }].filter(Boolean);
       }
     }
     if (link) {
@@ -416,10 +416,13 @@
     const wasDrag = dragging;
     // 칸마다 링크와 사진을 둘 다: 사진은 그 게시글 링크를, 제목은 그 칸의 큰 사진을 같이(겹치는 주소는 한 번)
     const seen = new Set();
-    const photoOf = img => { const url = img && imgUrl(img); return url && { url, kind: 'image', title: clean(img.alt) }; };
-    const items = picked.flatMap(l => l.kind === 'image'
-      ? [photoPost(l.el), { url: l.url, kind: 'image', title: l.text }]
-      : [{ url: l.url, kind: 'link', title: l.text }, l.el && photoOf(cardImage(l.el))])
+    // 사진에는 함께 주운 링크 주소(post)를 붙여, 그 링크를 지우면 사진도 같이 지운다
+    const photoOf = (img, post) => { const url = img && imgUrl(img); return url && { url, kind: 'image', title: clean(img.alt), post }; };
+    const items = picked.flatMap(l => {
+      if (l.kind !== 'image') return [{ url: l.url, kind: 'link', title: l.text }, l.el && photoOf(cardImage(l.el), l.url)];
+      const post = photoPost(l.el);
+      return [post, { url: l.url, kind: 'image', title: l.text, post: post ? post.url : '' }];
+    })
       .filter(i => i && !seen.has(i.url) && seen.add(i.url));
     reset();
     if (e.button !== 0 || !alive() || !wasDrag) return;

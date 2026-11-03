@@ -12,6 +12,7 @@ Image.new('RGB', (400, 300), (10, 120, 200)).save(f'{SITE}/card.png')
 for k in range(4):
     Image.new('RGB', (300, 290), (40 * k, 200 - 30 * k, 90)).save(f'{SITE}/g{k}.png')
 Image.new('RGB', (400, 300), (200, 60, 90)).save(f'{SITE}/thr.png')
+Image.new('RGB', (300, 290), (90, 30, 160)).save(f'{SITE}/solo.png')
 buf = io.BytesIO(); Image.new('RGB', (120, 90), (240, 200, 20)).save(buf, 'PNG')
 DATA = 'data:image/png;base64,' + base64.b64encode(buf.getvalue()).decode()
 imgs = ''.join(f'<img src="p{i}.png" width="120" height="90" alt="사진{i}">' for i in range(16))
@@ -38,7 +39,7 @@ open(f'{SITE}/index.html', 'w', encoding='utf8').write(
     '<div id=nv style="width:700px;margin-top:20px;font-size:13px">'
     '<a href="https://blog.example.com/post/77" style="display:block"><span style="font-size:18px">네이버형 블로그 글 제목입니다</span><span class=sr>새 창 열림</span></a>'
     '<div style="display:flex;gap:6px">' + ''.join(f'<a href="https://blog.example.com/post/77"><img src="p{k + 8}.png" width="93" height="124"><span class=sr>새 창 열림</span></a>' for k in range(4)) + '</div></div>'
-    '<div style="margin-top:20px"><img id=solo src="g3.png" width="300" height="290"></div>'
+    '<div style="margin-top:20px"><img id=solo src="solo.png" width="300" height="290"></div>'
     f'<div style="margin-top:20px"><img id=gdata src="{DATA}" width="120" height="90" data-src=""></div></body>')
 
 srv = http.server.ThreadingHTTPServer(('127.0.0.1', 8765), functools.partial(http.server.SimpleHTTPRequestHandler, directory=SITE))
@@ -171,8 +172,26 @@ with sync_playwright() as p:
 
     # 11. 링크 없는 큰 사진(상품·블로그 본문): 이 페이지 주소를 링크로 함께
     shift_click('#solo'); b.wait_for_timeout(800)
-    check('본문 사진은 페이지 링크+사진', pend(b) == ['link http://127.0.0.1:8765/index.html', 'image http://127.0.0.1:8765/g3.png'], pend(b))
-    b.screenshot(path=os.path.join(HERE, 'shot_board.png'))
+    check('본문 사진은 페이지 링크+사진', pend(b) == ['link http://127.0.0.1:8765/index.html', 'image http://127.0.0.1:8765/solo.png'], pend(b))
+    # 12. 사진 칸을 누르면 사진만 들어가고 링크는 계속 들고 있다
+    b.bring_to_front()
+    n0 = b.locator('.photo').count()
+    b.click('.space >> nth=1 >> .space-head'); b.wait_for_timeout(1500)
+    check('사진 칸 누르면 사진만', b.locator('.photo').count() == n0 + 1 and pend(b) == ['link http://127.0.0.1:8765/index.html'], pend(b))
+    check('사진 칸엔 제목 칸 없음', b.locator('.space >> nth=1 >> .title').count() == 0 and '사진' in b.inner_text('.space >> nth=1 >> .count'), b.inner_text('.space >> nth=1 >> .count'))
+    b.click('.space >> nth=1 >> .space-head'); b.wait_for_timeout(500)
+    check('링크만 들고 사진 칸 누르면 안 들어감', pend(b) == ['link http://127.0.0.1:8765/index.html'] and '사진만' in b.inner_text('#toast'), b.inner_text('#toast'))
+    b.click('.space >> nth=0 >> .list'); b.wait_for_timeout(800)
+    check('링크는 링크 칸에', pend(b) == [])
+
+    # 13. 링크를 지우면 함께 주운 사진도 지운다
+    linked = lambda: b.evaluate("chrome.storage.local.get('board').then(d => d.board.spaces.flatMap(s => s.items).filter(i => i.kind === 'image' && i.post === 'https://example.com/post/1').length)")
+    before_n = linked(); total = b.locator('.photo').count()
+    row = b.locator('.space >> nth=0 >> .row', has=b.locator('a[href="https://example.com/post/1"]')).first
+    row.hover(); row.locator('.del').click(); b.wait_for_timeout(500)
+    check('링크 지우면 사진도', before_n == 1 and linked() == 0 and b.locator('.photo').count() == total - 1, (before_n, linked()))
+    check('삭제 안내', '사진 1장' in b.inner_text('#toast'), b.inner_text('#toast'))
+    b.screenshot(path=os.path.join(SITE, 'shot_board.png'))
     ctx.close()
 srv.shutdown()
 print('결과', sum(ok), '/', len(ok))
