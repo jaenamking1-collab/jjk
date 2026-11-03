@@ -97,18 +97,28 @@
     return a && goesElsewhere(a) ? a : null;
   }
 
+  // 게시글 링크를 고를 때 그 자리가 사진이면 사진도 같이 줍는다(링크는 칸을 눌러 넣고 사진은 사진 칸으로 바로 간다)
+  // 스레드는 사진이 클릭을 받지 않아(pointer-events) 겹친 칸 안에서 그 자리를 덮는 사진을 찾는다
+  function withPhoto(link, stack, x, y) {
+    const covers = el => { const r = el.getBoundingClientRect(); return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom; };
+    const img = stack.slice(0, 6).find(el => el.tagName === 'IMG') ||
+      stack.slice(0, 3).flatMap(el => [...el.querySelectorAll('img')]).find(covers);
+    const url = img && imgUrl(img);
+    return url ? [link, { url, kind: 'image', title: clean(img.alt) }] : [link];
+  }
+
   function pick(x, y) {
     const stack = document.elementsFromPoint(x, y);
     const top = stack[0];
     if (!top) return null;
     const mail = gmailRow(top);
-    if (mail) return { url: mail.url, kind: mail.kind, title: mail.title };
+    if (mail) return [{ url: mail.url, kind: mail.kind, title: mail.title }];
     const sns = snsPost(top);
     if (sns) {
       const url = httpUrl(sns.href);
-      if (url) return { url, kind: 'link', title: '' };
+      if (url) return withPhoto({ url, kind: 'link', title: '' }, stack, x, y);
     }
-    const post = a => ({ url: httpUrl(a.href), kind: 'link', title: linkTitle(a) });
+    const post = a => withPhoto({ url: httpUrl(a.href), kind: 'link', title: linkTitle(a) }, stack, x, y);
     const link = top.closest('a[href]');
     if (link && goesElsewhere(link)) return post(link);
     // 그림 위에 투명한 막이 덮인 사이트가 많아 아래쪽까지 본다
@@ -271,8 +281,9 @@
 
   async function deliver(items, drag) {
     if (!items.length) return say('주울 링크가 없어요');
-    await copy(items.map(i => i.url).join('\n'));
-    say(items.length === 1 ? '주웠어요!' : `${items.length}개 주웠어요!`);
+    // 클릭은 앞의 것(게시글 링크)만 복사한다. 함께 주운 사진은 사진 칸으로 간다
+    await copy(drag ? items.map(i => i.url).join('\n') : items[0].url);
+    say(drag ? `${items.length}개 주웠어요!` : items.length > 1 ? '링크와 사진을 주웠어요!' : '주웠어요!');
     try {
       await chrome.runtime.sendMessage({
         t: 'capture',
@@ -360,7 +371,7 @@
     const item = pick(e.clientX, e.clientY);
     if (!item) return;
     stop();
-    deliver([item], false);
+    deliver([].concat(item), false);
   }, true);
 
   addEventListener('keydown', e => {
