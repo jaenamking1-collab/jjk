@@ -237,9 +237,11 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   }
   if (msg.t === 'take') {
     serial(async () => {
+      // kind 를 주면 그 종류만 꺼낸다(사진은 메모 창이 사진 칸으로 바로 옮긴다)
       const items = await getPending();
-      await setPending([]);
-      return items;
+      const mine = i => !msg.kind || i.kind === msg.kind;
+      await setPending(items.filter(i => !mine(i)));
+      return items.filter(mine);
     }).then(reply);
     return true;
   }
