@@ -42,8 +42,23 @@
   const clean = t => (t || '').trim().replace(/\s+/g, ' ');
 
   // 카드처럼 여러 줄이 든 링크에서는 가장 긴 줄이 제목이다
+  // 화면에 안 보이는 글자(네이버의 '새 창 열림' 같은 화면 낭독기용 글자)는 뺀다
+  const shown = e => { const r = e.getBoundingClientRect(); return r.width > 1 && r.height > 1; };
+
   function longestLine(el) {
-    return (el.innerText || '').split('\n').map(clean).sort((a, b) => b.length - a.length)[0] || '';
+    let text = el.innerText || '';
+    for (const e of el.querySelectorAll('*')) {
+      const hidden = e.textContent.trim();
+      if (hidden && !shown(e)) text = text.replace(hidden, '');
+    }
+    return text.split('\n').map(clean).sort((a, b) => b.length - a.length)[0] || '';
+  }
+
+  // 그 글자를 실제로 그리는 가장 안쪽 칸(링크 상자가 넓거나 글자 크기가 링크와 다를 때)
+  function textBox(el, line) {
+    let box = el;
+    for (const e of el.querySelectorAll('*')) if (shown(e) && clean(e.innerText).startsWith(line)) box = e;
+    return box;
   }
 
   // 유튜브는 재생 위치 등이 달라도 v= 가 같으면 같은 영상이다
@@ -120,7 +135,12 @@
     if (lp && httpUrl(lp.dataset.lpage)) return { url: httpUrl(lp.dataset.lpage), kind: 'link', title: longestLine(lp) };
     const sns = snsPost(img);
     const url = sns && httpUrl(sns.href).replace(/\/media\/?$/, '');
-    return url ? { url, kind: 'link', title: '' } : null;
+    if (url) return { url, kind: 'link', title: '' };
+    // 다른 글로 가는 링크가 없으면 지금 보는 이 페이지가 그 게시글이다(상품·블로그 본문 사진). 제목은 h1, 없으면 페이지에서 읽는다
+    const h1 = document.querySelector('h1');
+    let here = location.href;
+    try { if (window !== top && top.location.host === location.host) here = top.location.href; } catch (e) { /* 다른 사이트 틀 */ } // 네이버 블로그는 글이 틀(iframe) 안에 있다
+    return /^https?:/.test(here) ? { url: here, kind: 'link', title: clean(h1 && h1.innerText).slice(0, 200) } : null;
   }
 
   function pick(x, y) {
@@ -182,8 +202,8 @@
       const url = linkUrl(el);
       if (!url || url.split('#')[0] === here) continue;
       const head = el.querySelector(TITLE_LABEL);
-      const label = head && head.innerText.trim() ? head : el;
-      const text = label === el ? longestLine(el) : clean(label.innerText);
+      const text = head && head.innerText.trim() ? clean(head.innerText) : longestLine(el);
+      const label = head && head.innerText.trim() ? head : text ? textBox(el, text) : el;
       const r = label.getBoundingClientRect();
       if (!text || !r.width || !r.height) continue;
       const style = getComputedStyle(label);

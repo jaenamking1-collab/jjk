@@ -34,6 +34,11 @@ open(f'{SITE}/index.html', 'w', encoding='utf8').write(
     + ''.join(f'<div data-lpage="https://shop.example.com/item/{k}"><div><img src="g{k}.png" width="200" height="193"></div>'
               f'<a href="https://shop.example.com/item/{k}?from=g" style="font-size:16px;display:block">상품 이름 {k}번 제목입니다</a></div>' for k in range(4))
     + '</div>'
+    '<style>.sr{position:absolute;clip:rect(0,0,0,0);overflow:hidden;width:1px;height:1px}</style>'
+    '<div id=nv style="width:700px;margin-top:20px;font-size:13px">'
+    '<a href="https://blog.example.com/post/77" style="display:block"><span style="font-size:18px">네이버형 블로그 글 제목입니다</span><span class=sr>새 창 열림</span></a>'
+    '<div style="display:flex;gap:6px">' + ''.join(f'<a href="https://blog.example.com/post/77"><img src="p{k + 8}.png" width="93" height="124"><span class=sr>새 창 열림</span></a>' for k in range(4)) + '</div></div>'
+    '<div style="margin-top:20px"><img id=solo src="g3.png" width="300" height="290"></div>'
     f'<div style="margin-top:20px"><img id=gdata src="{DATA}" width="120" height="90" data-src=""></div></body>')
 
 srv = http.server.ThreadingHTTPServer(('127.0.0.1', 8765), functools.partial(http.server.SimpleHTTPRequestHandler, directory=SITE))
@@ -68,8 +73,8 @@ with sync_playwright() as p:
     # 1. 사진 Shift+클릭 → 바로 들어가지 않고 대기, 칸을 누르면 사진 칸으로
     shift_click('img[alt="사진0"]')
     b = board(); b.wait_for_timeout(800)
-    check('사진은 대기', b.locator('.photo').count() == 0 and pend(b) == ['image http://127.0.0.1:8765/p0.png'], pend(b))
-    check('대기 안내에 사진', '사진 1장' in b.inner_text('#dockText'), b.inner_text('#dockText'))
+    check('사진은 페이지 링크와 함께 대기', b.locator('.photo').count() == 0 and pend(b) == ['link http://127.0.0.1:8765/index.html', 'image http://127.0.0.1:8765/p0.png'], pend(b))
+    check('대기 안내에 링크·사진', '링크 1개 · 사진 1장' in b.inner_text('#dockText'), b.inner_text('#dockText'))
     b.click('.space >> nth=0 >> .list'); b.wait_for_timeout(1200)
     s = state(b); vis = s['shown'][:s['layout']]
     check('1칸→2칸', s['layout'] == 2, s['layout'])
@@ -116,10 +121,11 @@ with sync_playwright() as p:
 
     # 5. 링크로 감싼 사진: 링크+사진 대기 → 칸 누르면 링크는 그 칸, 사진은 사진 칸
     n0 = b.locator('.photo').count()
+    r0 = b.locator('.space >> nth=0 >> .row').count()
     shift_click('#card img'); b.wait_for_timeout(800)
     check('링크+사진 대기', pend(b) == ['link https://example.com/post/1', 'image http://127.0.0.1:8765/card.png'], pend(b))
     b.click('.space >> nth=0 >> .list'); b.wait_for_timeout(1500)
-    check('링크는 누른 칸', b.locator('.space >> nth=0 >> .row').count() == 1)
+    check('링크는 누른 칸', b.locator('.space >> nth=0 >> .row').count() == r0 + 1)
     check('사진은 사진 칸', b.locator('.photo').count() == n0 + 1)
     th = b.evaluate("chrome.storage.local.get('board').then(d => d.board.spaces.flatMap(s => s.items).filter(i => i.url.endsWith('card.png')).map(i => (i.thumb || '').slice(0, 22)))")
     check('사진 사본 저장', th == ['data:image/jpeg;base64'], th)
@@ -131,7 +137,7 @@ with sync_playwright() as p:
 
     # 7. 구글 이미지형: 데이터로 넣어 둔 사진
     shift_click('#gdata'); b.wait_for_timeout(800)
-    check('데이터 사진은 데이터 그대로', pend(b) == ['image data:image/png;base64,iVBORw0KGgoAAAANSU'], pend(b))
+    check('데이터 사진은 데이터 그대로', pend(b) == ['link http://127.0.0.1:8765/index.html', 'image data:image/png;base64,iVBORw0KGgoAAAANSU'], pend(b))
     b.click('.space >> nth=0 >> .list'); b.wait_for_timeout(1500)
     ok_img = b.evaluate("[...document.querySelectorAll('.photo img')].every(i => i.complete && i.naturalWidth > 0)")
     check('사진 칸에 깨진 사진 없음', ok_img)
@@ -153,6 +159,19 @@ with sync_playwright() as p:
     want = sum([[f'link https://shop.example.com/item/{k}', f'image http://127.0.0.1:8765/g{k}.png'] for k in range(4)], [])
     check('구글 이미지 칸 4개 링크+사진', pend(b) == want, pend(b))
     b.click('.space >> nth=0 >> .list'); b.wait_for_timeout(1500)
+    # 10. 네이버 통합검색 블로그형: 사진 링크의 안 보이는 '새 창 열림' 대신 진짜 제목, 작은 사진은 링크만
+    b.click('.space >> nth=0 >> .list') if b.locator('#dock').is_visible() else None
+    page.bring_to_front(); page.locator('#nv').scroll_into_view_if_needed()
+    r = page.locator('#nv').bounding_box()
+    page.keyboard.down('Shift'); page.mouse.move(r['x'] - 5, r['y'] - 5); page.mouse.down(); page.mouse.move(r['x'] + 200, r['y'] + 60, steps=5)
+    page.mouse.move(r['x'] + 420, r['y'] + r['height'] + 5, steps=5); page.mouse.up(); page.keyboard.up('Shift'); b.wait_for_timeout(800)
+    got = b.evaluate("chrome.storage.local.get('pending').then(d => d.pending.map(i => i.kind + ' ' + i.title))")
+    check('네이버형 제목만', got == ['link 네이버형 블로그 글 제목입니다'], got)
+    b.click('#dockCancel'); b.wait_for_timeout(300)
+
+    # 11. 링크 없는 큰 사진(상품·블로그 본문): 이 페이지 주소를 링크로 함께
+    shift_click('#solo'); b.wait_for_timeout(800)
+    check('본문 사진은 페이지 링크+사진', pend(b) == ['link http://127.0.0.1:8765/index.html', 'image http://127.0.0.1:8765/g3.png'], pend(b))
     b.screenshot(path=os.path.join(HERE, 'shot_board.png'))
     ctx.close()
 srv.shutdown()
