@@ -168,12 +168,18 @@
     return out;
   }
 
+  // 구글 이미지 칸의 링크는 사진의 원본 주소(data-lpage)로 맞춰 제목과 사진이 한 링크가 되게 한다
+  function linkUrl(a) {
+    const lp = a.closest('[data-lpage]');
+    return httpUrl(lp ? lp.dataset.lpage : a.href);
+  }
+
   // 끌기 시작할 때 한 번만 재서 끄는 동안은 숫자만 비교한다
   function measureLinks() {
     const here = location.href.split('#')[0], out = [];
     for (const el of walk(document, [])) {
       if (el.tagName !== 'A' || !el.href) continue;
-      const url = httpUrl(el.href);
+      const url = linkUrl(el);
       if (!url || url.split('#')[0] === here) continue;
       const head = el.querySelector(TITLE_LABEL);
       const label = head && head.innerText.trim() ? head : el;
@@ -182,7 +188,7 @@
       if (!text || !r.width || !r.height) continue;
       const style = getComputedStyle(label);
       out.push({
-        url, text, left: r.left, top: r.top, width: r.width, height: r.height,
+        url, text, el, left: r.left, top: r.top, width: r.width, height: r.height,
         size: parseFloat(style.fontSize), bold: +style.fontWeight >= 600
       });
     }
@@ -225,7 +231,23 @@
       titled.some(g => g.size >= size && g.items.includes(l)));
   }
 
-  // 네모 안에 제목이 없을 때 주울 사진(작은 아이콘은 뺀다). 같은 사진이 여러 곳에 있을 수 있어 겹침은 놓을 때 거른다
+  // 드래그는 칸(제목+사진) 단위로 줍는다(사용자 지정 2026-11-03). 사진 가운데나 제목 가운데가 네모 안이면 그 칸을 줍고,
+  // 칸마다 게시글 링크와 사진을 둘 다 줍는다. 이보다 작은 사진은 썸네일(검색·뉴스 목록)로 보고 링크만 줍는다
+  const BIG_W = 150, BIG_H = 120;
+  const isBig = r => r.width >= BIG_W && r.height >= BIG_H;
+
+  // 제목 링크가 든 칸의 큰 사진. 다른 글의 제목이 섞이는 높이까지는 올라가지 않는다
+  function cardImage(a) {
+    const other = e => [...e.querySelectorAll('a[href]')].some(x => linkUrl(x) !== linkUrl(a) && longestLine(x).length >= MIN_TITLE_CHARS);
+    for (let e = a, n = 0; e && e !== document.body && n < 6; e = e.parentElement, n++) {
+      if (n && other(e)) return null;
+      const big = [...e.querySelectorAll('img')].filter(i => isBig(i.getBoundingClientRect()));
+      if (big.length) return big.length === 1 ? big[0] : null;
+    }
+    return null;
+  }
+
+  // 네모 안의 사진(작은 아이콘은 뺀다). 같은 사진이 여러 곳에 있을 수 있어 겹침은 놓을 때 거른다
   function measureImages() {
     const out = [];
     for (const el of walk(document, [])) {
@@ -269,16 +291,20 @@
       left: box.left + 'px', top: box.top + 'px',
       width: box.right - box.left + 'px', height: box.bottom - box.top + 'px'
     });
-    picked = mainTitles(linksInBox(box));
-    if (!picked.length) picked = linksInBox(box, images);
+    const titles = mainTitles(linksInBox(box));
+    const inBox = linksInBox(box, images);
+    const big = inBox.filter(isBig);
+    // 제목도 큰 사진도 없으면(작은 사진만 모인 화면) 예전처럼 사진을 줍는다
+    picked = titles.concat(big.length || titles.length ? big : inBox).sort((a, b) => a.top - b.top || a.left - b.left);
     overlay.marks.replaceChildren(...picked.map(l => {
       const mark = document.createElement('div');
       mark.style.cssText = 'position:fixed;background:rgba(255,122,92,.22);border-radius:4px;' +
         `left:${l.left}px;top:${l.top}px;width:${l.width}px;height:${l.height}px`;
       return mark;
     }));
-    const what = picked[0] && picked[0].kind === 'image' ? '사진' : '제목';
-    say(picked.length ? `${what} ${picked.length}개 · Esc 취소` : '네모 안에 제목·사진이 없어요', true);
+    const pics = picked.filter(l => l.kind === 'image').length, heads = picked.length - pics;
+    const what = [heads && `제목 ${heads}개`, pics && `사진 ${pics}장`].filter(Boolean).join(' · ');
+    say(picked.length ? `${what} · Esc 취소` : '네모 안에 제목·사진이 없어요', true);
   }
 
   async function copy(text) {
@@ -368,9 +394,12 @@
   addEventListener('mouseup', e => {
     if (!start) return;
     const wasDrag = dragging;
-    // 사진은 그 사진이 나온 게시글 링크도 같이(같은 글의 사진 여러 장이면 링크는 한 번)
+    // 칸마다 링크와 사진을 둘 다: 사진은 그 게시글 링크를, 제목은 그 칸의 큰 사진을 같이(겹치는 주소는 한 번)
     const seen = new Set();
-    const items = picked.flatMap(l => [l.el && photoPost(l.el), { url: l.url, kind: l.kind || 'link', title: l.text }])
+    const photoOf = img => { const url = img && imgUrl(img); return url && { url, kind: 'image', title: clean(img.alt) }; };
+    const items = picked.flatMap(l => l.kind === 'image'
+      ? [photoPost(l.el), { url: l.url, kind: 'image', title: l.text }]
+      : [{ url: l.url, kind: 'link', title: l.text }, l.el && photoOf(cardImage(l.el))])
       .filter(i => i && !seen.has(i.url) && seen.add(i.url));
     reset();
     if (e.button !== 0 || !alive() || !wasDrag) return;
