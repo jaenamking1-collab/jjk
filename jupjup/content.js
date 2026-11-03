@@ -12,6 +12,7 @@
   let links = [], images = [], overlay = null, picked = [];
 
   const httpUrl = u => {
+    if (!u) return ''; // 빈 주소는 이 페이지 주소로 풀려 버린다
     try {
       const url = new URL(u, location.href);
       return /^https?:$/.test(url.protocol) ? url.href : '';
@@ -22,6 +23,8 @@
     (el.isContentEditable || el.closest('input,textarea,select,[contenteditable=""],[contenteditable="true"]'));
 
   function imgUrl(img) {
+    const src = img.currentSrc || img.src;
+    if (/^data:image\//.test(src)) return src; // 구글 이미지 검색은 사진을 데이터로 넣어 둔다
     return httpUrl(img.currentSrc || img.src) || httpUrl(img.dataset.src || img.getAttribute('data-original') || '');
   }
 
@@ -98,11 +101,13 @@
   }
 
   // 게시글 링크를 고를 때 그 자리가 사진이면 사진도 같이 줍는다(링크는 칸을 눌러 넣고 사진은 사진 칸으로 바로 간다)
-  // 스레드는 사진이 클릭을 받지 않아(pointer-events) 겹친 칸 안에서 그 자리를 덮는 사진을 찾는다
+  // 스레드는 사진이 클릭을 받지 않고(pointer-events) 위에 덮인 /media 링크의 옆에 있어, 위로 올라가며 그 자리를 덮는 사진을 찾는다
   function withPhoto(link, stack, x, y) {
     const covers = el => { const r = el.getBoundingClientRect(); return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom; };
-    const img = stack.slice(0, 6).find(el => el.tagName === 'IMG') ||
-      stack.slice(0, 3).flatMap(el => [...el.querySelectorAll('img')]).find(covers);
+    let img = stack.slice(0, 6).find(el => el.tagName === 'IMG');
+    for (let e = stack[0], n = 0; !img && e && e !== document.body && n < 8; e = e.parentElement, n++) {
+      img = [...e.querySelectorAll('img')].find(covers);
+    }
     const url = img && imgUrl(img);
     return url ? [link, { url, kind: 'image', title: clean(img.alt) }] : [link];
   }
@@ -115,7 +120,7 @@
     if (mail) return [{ url: mail.url, kind: mail.kind, title: mail.title }];
     const sns = snsPost(top);
     if (sns) {
-      const url = httpUrl(sns.href);
+      const url = httpUrl(sns.href).replace(/\/media\/?$/, ''); // 스레드 사진 보기 주소 → 게시글 주소
       if (url) return withPhoto({ url, kind: 'link', title: '' }, stack, x, y);
     }
     const post = a => withPhoto({ url: httpUrl(a.href), kind: 'link', title: linkTitle(a) }, stack, x, y);

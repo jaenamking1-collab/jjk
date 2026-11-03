@@ -13,7 +13,7 @@ const $ = id => document.getElementById(id);
 const spacesEl = $('spaces');
 
 let board = { layout: 1, shown: [0, 1, 2, 3], spaces: [0, 1, 2, 3].map(() => ({ title: '', items: [] })) };
-let pendingCount = 0;
+let pendingCount = 0, pending = [];
 let drag = null;
 let undoState = null, toastTimer = 0;
 let activeSlot = 0;
@@ -439,12 +439,20 @@ function applyTitles(titles) {
 function renderDock() {
   document.body.classList.toggle('holding', pendingCount > 0);
   $('dock').hidden = !pendingCount;
-  $('dockText').textContent = `링크 ${pendingCount}개 · 넣을 판을 눌러요`;
+  const photos = pending.filter(isPhoto).length, links = pending.length - photos;
+  const what = [links && `링크 ${links}개`, photos && `사진 ${photos}장`].filter(Boolean).join(' · ');
+  $('dockText').textContent = `${what} · ${links ? '넣을 판을 눌러요' : '아무 판이나 누르면 사진 칸으로 가요'}`;
 }
 
 async function paste(index) {
-  const items = await chrome.runtime.sendMessage({ t: 'take' });
-  if (!items || !items.length) return;
+  const all = await chrome.runtime.sendMessage({ t: 'take' });
+  if (!all || !all.length) return;
+  const items = all.filter(i => !isPhoto(i));
+  if (items.length) await pasteLinks(index, items);
+  if (items.length < all.length) await placePhotos(all.filter(isPhoto));
+}
+
+async function pasteLinks(index, items) {
   const before = JSON.stringify(board);
   const owner = url => board.spaces.findIndex(s => s.items.some(i => i.url === url));
   const fresh = items.filter(i => !i.drag || owner(i.url) < 0);
@@ -495,10 +503,8 @@ async function makeThumb(url) {
 
 const photoSrc = item => item.thumb || item.url;
 
-// 주운 사진은 칸을 누르지 않아도 사진 칸으로 바로 들어간다
-async function placePhotos() {
-  const items = await chrome.runtime.sendMessage({ t: 'take', kind: 'image' });
-  if (!items || !items.length) return;
+// 칸을 눌러 붙여넣을 때 사진은 누른 칸이 아니라 사진 칸으로 간다
+async function placePhotos(items) {
   await Promise.all(items.map(async i => { i.thumb = await makeThumb(i.url).catch(() => ''); }));
   const before = JSON.stringify(board);
   const have = new Set(board.spaces.flatMap(s => s.items.map(i => i.url)));
@@ -890,10 +896,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
     renderSettings();
   }
   if (changes.pending) {
-    const pending = changes.pending.newValue || [];
-    pendingCount = pending.filter(i => !isPhoto(i)).length;
+    pending = changes.pending.newValue || [];
+    pendingCount = pending.length;
     renderDock();
-    if (pending.some(isPhoto)) placePhotos();
   }
   if (changes.board && !drag && JSON.stringify(changes.board.newValue) !== JSON.stringify(board)) {
     board = withShown(changes.board.newValue);
@@ -906,12 +911,14 @@ chrome.storage.onChanged.addListener((changes, area) => {
   health = data.linkHealth || {};
   lastCheck = data.lastCheck || 0;
   if (data.board) board = withShown(data.board);
+  // 1.6.2 까지 구글 이미지의 데이터 사진이 검색 페이지 주소로 저장돼 엑박이었다
+  for (const space of board.spaces) space.items = space.items.filter(i => !(isPhoto(i) && i.url === i.siteUrl));
   const fresh = await connectFolder(board);
   if (fresh !== board) adoptBoard(fresh);
   renderSettings();
-  pendingCount = (data.pending || []).filter(i => !isPhoto(i)).length;
+  pending = data.pending || [];
+  pendingCount = pending.length;
   render();
   renderDock();
   applyTitles(data.titles || {});
-  if ((data.pending || []).some(isPhoto)) placePhotos();
 })();
