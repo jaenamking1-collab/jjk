@@ -295,7 +295,7 @@
     const inBox = linksInBox(box, images);
     const big = inBox.filter(isBig);
     // 제목도 큰 사진도 없으면(작은 사진만 모인 화면) 예전처럼 사진을 줍는다
-    picked = titles.concat(big.length || titles.length ? big : inBox).sort((a, b) => a.top - b.top || a.left - b.left);
+    picked = titles.concat(big.length || titles.length ? big : inBox).sort((a, b) => Math.abs(a.top - b.top) > 4 ? a.top - b.top : a.left - b.left); // 소수점 차이는 같은 줄로 본다
     overlay.marks.replaceChildren(...picked.map(l => {
       const mark = document.createElement('div');
       mark.style.cssText = 'position:fixed;background:rgba(255,122,92,.22);border-radius:4px;' +
