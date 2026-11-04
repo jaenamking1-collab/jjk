@@ -63,3 +63,4 @@ paths:
   - One-time per machine: `npm i -g @google/clasp`(에이전트가 함) + `clasp login`과 `script.google.com/home/usersettings`의 **Apps Script API** 토글(구글 계정 행위 — 소유자가 함). 자격증명은 `~/.clasprc.json`.
   - **`portfolio.html`·`m.html`·`dist_notice.html`은 clasp 배포 대상이 아니다**(`.claspignore`가 막는다). 웹으로 서빙되니 `main` 에 푸시하면 끝.
 - **Functions meant to be run by hand from the Apps Script editor go at the very bottom of `Code.gs`, under the `===== 수동 실행 =====` banner** (`setupDistTriggers`, `setupPortfolioTriggers`, `_testNoticeWindow`). Don't scatter them mid-file — they're hard to find in the editor's function dropdown otherwise. Leave a one-line pointer where the code logically belongs.
+- **gh 가 없는 PC(학교 PC 2026-11-04)**: 배포는 clasp 로 직접, `maint` 대신 크롬 앱 탭에서 `api({action:'runMaint', fn})` 로 돌린다(로그가 공개 Actions 에 안 남는 장점도 있다). 앱 비밀번호는 **탭마다** 다시 넣어야 하니 확인이 끝날 때까지 그 탭을 닫지 않는다.
