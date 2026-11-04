@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_probeTiger', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp', '_syncDivRates', '_fillPastDivFromApp', 'setKrwCost', 'aptRefresh', '_molitKeyOnce', '_diagApt', '_aptHistory', '_aptGeoBackfill'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_probeTiger', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', '_addExtDepSheet', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp', '_syncDivRates', '_fillPastDivFromApp', 'setKrwCost', 'aptRefresh', '_molitKeyOnce', '_diagApt', '_aptHistory', '_aptGeoBackfill'
 ];
 
 function runMaint(name, arg) {
@@ -312,10 +312,25 @@ function getAccountSummary() {
 // 그 전엔 '예수금보다 더 산 만큼'을 매수일에 입금으로 짐작했다 — 쌓인 분배금 예수금이 먼저 쓰여 투자원금이 덜 잡혔다.
 // ⛔ 금액은 비공개 시트에만 둔다(저장소·로그 금지). 시트 [계좌이름, 날짜 yyyy-MM-dd, 금액(+입금 −출금), 메모].
 const EXT_DEP_SHEET_ID = '1V28M_daCPy-i62EuWj9GwUaht5G-jjGi78aSoQAYAlM';   // v2 2026-10-22 (커넥터는 칸 추가가 안 돼 새 시트로 옮김)
+// 2026-11-04: 커넥터는 줄을 못 더하니, 새 입금은 새 시트(같은 열)로 만들고 _addExtDepSheet <ID> 로 등록만 한다 — 배포 불필요.
+function _extDepSheetIds() {
+  const extra = (PropertiesService.getScriptProperties().getProperty('EXT_DEP_EXTRA') || '').split(',').filter(Boolean);
+  return [EXT_DEP_SHEET_ID].concat(extra);
+}
+function _addExtDepSheet(id) {
+  id = String(id || '').trim();
+  if (!/^[A-Za-z0-9_-]{25,}$/.test(id)) return { error: 'bad id' };
+  const ids = _extDepSheetIds();
+  if (ids.indexOf(id) < 0) PropertiesService.getScriptProperties().setProperty('EXT_DEP_EXTRA', ids.slice(1).concat(id).join(','));
+  console.log('외부입금 시트 ' + _extDepSheetIds().length + '개, 기록 ' + getExtDeposits().length + '건');
+  return { success: true };
+}
 function getExtDeposits() {
-  let rows;
-  try { rows = SpreadsheetApp.openById(EXT_DEP_SHEET_ID).getSheets()[0].getDataRange().getValues(); } catch (e) { return []; }
-  return rows.slice(1).filter(r => r[0] && Number(r[2])).map(r => ({
+  let rows = [];
+  _extDepSheetIds().forEach(id => {
+    try { rows = rows.concat(SpreadsheetApp.openById(id).getSheets()[0].getDataRange().getValues().slice(1)); } catch (e) {}
+  });
+  return rows.filter(r => r[0] && Number(r[2])).map(r => ({
     account: String(r[0]).trim(),
     date: r[1] instanceof Date ? Utilities.formatDate(r[1], 'Asia/Seoul', 'yyyy-MM-dd') : String(r[1]).trim().slice(0, 10),
     amount: Number(r[2]) }));
