@@ -6568,9 +6568,28 @@ function resetAllTriggers() {
     else others[f] = (others[f] || 0) + 1;
   });
   console.log('옛 트리거 ' + removed + '개 삭제(전체 ' + before.length + '개 중)');
+  // 2026-11-04: 첫 목록에 안 잡힌 트리거가 남아 20개 상한에 걸리고 ❌ 오경보가 났다 → 다시 읽어 남은 걸 지운다
+  for (let k = 0; k < 3; k++) {
+    const left = ScriptApp.getProjectTriggers().filter(t => known.indexOf(t.getHandlerFunction()) >= 0);
+    if (!left.length) break;
+    left.forEach(t => { ScriptApp.deleteTrigger(t); removed++; });
+    console.log('  남아 있던 트리거 ' + left.length + '개 더 삭제');
+    Utilities.sleep(1000);
+  }
+  const want = f => f === 'snapshotPortfolio' ? SNAPSHOT_TIMES.length : 1;
+  const count = f => ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === f).length;
   TRIGGER_PLAN.forEach(p => {
     try { p[1](); console.log('  ✅ ' + p[0]); }
-    catch(e) { console.log('  ❌ ' + p[0] + ' — ' + e); }
+    catch(e) {
+      // 만들기는 실패했어도 이미 깔려 있으면 도는 중이다 — 진짜 없을 때만 ❌
+      if (count(p[0]) >= want(p[0])) console.log('  ✅ ' + p[0] + ' (기존 트리거 유지)');
+      else console.log('  ❌ ' + p[0] + ' — ' + e);
+    }
+  });
+  // 같은 함수가 필요 이상 깔렸으면 남는 것을 지운다(상한 20개를 아끼려고)
+  TRIGGER_PLAN.filter(p => want(p[0]) === 1).forEach(p => {   // 시각이 여럿인 snapshotPortfolio 는 어느 게 남을지 몰라 건드리지 않는다
+    const ts = ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === p[0]);
+    ts.slice(want(p[0])).forEach(t => { ScriptApp.deleteTrigger(t); console.log('  중복 삭제: ' + p[0]); });
   });
   const names = Object.keys(others);
   if (names.length) {
