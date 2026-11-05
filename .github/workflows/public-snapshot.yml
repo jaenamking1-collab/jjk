@@ -59,4 +59,7 @@ jobs:
           git config user.email 'github-actions[bot]@users.noreply.github.com'
           git add dist_snapshot.txt
           git commit -qm "공개 분배금공지 예비본 갱신" || exit 0
-          for i in 1 2 3; do git pull -q --rebase origin main && git push -q origin HEAD:main && break; sleep 5; done
+          # --autostash: 체크아웃 직후 줄바꿈(eol=crlf bat) 때문에 '바뀐 파일'로 잡혀 pull --rebase 가 거부했다(2026-11-05).
+          for i in 1 2 3; do git pull -q --rebase --autostash origin main && git push -q origin HEAD:main && break; sleep 5; done
+          # 세 번 다 실패해도 성공으로 끝나 예비본이 몇 시간 옛것으로 남았다 — 못 올렸으면 실패로 알린다.
+          git fetch -q origin main && [ -z "$(git log origin/main..HEAD --oneline)" ] || { echo "::error::예비본을 올리지 못함"; exit 1; }
