@@ -1,0 +1,6 @@
+# KIND → TIGER 분배 신고 중계(공개 공시만). 배포: 이 폴더에서 npx wrangler deploy
+# 주소: https://kind-tiger.distributionjn.workers.dev/tiger
+name = "kind-tiger"
+main = "worker.js"
+compatibility_date = "2026-11-01"
+workers_dev = true
