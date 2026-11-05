@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_probeTiger', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', '_addExtDepSheet', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp', '_syncDivRates', '_fillPastDivFromApp', 'setKrwCost', 'aptRefresh', '_molitKeyOnce', '_diagApt', '_aptHistory', '_aptGeoBackfill'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_probeTiger', '_probeTigerKind', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', '_addExtDepSheet', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp', '_syncDivRates', '_fillPastDivFromApp', 'setKrwCost', 'aptRefresh', '_molitKeyOnce', '_diagApt', '_aptHistory', '_aptGeoBackfill'
 ];
 
 function runMaint(name, arg) {
@@ -1669,6 +1669,10 @@ function checkDistNotices() {
   const hour = Number(Utilities.formatDate(now, 'Asia/Seoul', 'H'));
   if (!_inNoticeWindow(day)) return;
   if (hour < 9 || hour > 18) return;
+  // TIGER 는 KIND 중계로 받는다 — 감지할 때만 저장분을 버리고 Worker 에도 새로 받게 한다(2026-11-05: 저장 두 겹이라
+  // 예전 직접 받기(30분 안)보다 최대 1시간 늦던 것). 앱을 열 때는 저장분을 그대로 써 KIND 를 두드리지 않는다.
+  _TIGER_KIND_FRESH = true;
+  CacheService.getScriptCache().remove('tigerKind');
   const r = checkAndLogAlerts();
   // 공지 목록(notices_v2_)은 2시간 캐시라 분배 데이터보다 늦게 바뀌었다 — 2026-10-13 KODEX·TIGER·ACE 새 공지가
   // 분배 데이터엔 들어왔는데 화면의 공지 목록은 9/28 글이 최신으로 남아, 사용자가 게시판을 보고 먼저 알았다.
@@ -2721,12 +2725,14 @@ function _tigerRelay() {
   return { savedAt: pc.savedAt > kd.savedAt ? pc.savedAt : kd.savedAt, items: items };
 }
 // KIND 중계(workers/kind-tiger). Worker 도 30분 캐시를 둔다. 실패하면 null — PC 중계·SEIBRO 로 버틴다.
+var _TIGER_KIND_FRESH = false;   // checkDistNotices 가 켠다 — 한 실행 안에서 첫 번째만 새로 받고 나머지는 저장분
 function _tigerKind() {
   const cache = CacheService.getScriptCache();
   let raw = cache.get('tigerKind');
   if (!raw) {
     try {
-      const r = UrlFetchApp.fetch('https://kind-tiger.distributionjn.workers.dev/tiger', { muteHttpExceptions: true });
+      const r = UrlFetchApp.fetch('https://kind-tiger.distributionjn.workers.dev/tiger' + (_TIGER_KIND_FRESH ? '?fresh=1' : ''), { muteHttpExceptions: true });
+      _TIGER_KIND_FRESH = false;
       if (r.getResponseCode() !== 200) return null;
       raw = r.getContentText('UTF-8');
       cache.put('tigerKind', raw, 1800);
@@ -2738,6 +2744,14 @@ function _tigerKind() {
     v.items = v.items.map(n => ({ title: n.title, date: n.date, url: n.url, kind: true }));   // 종목별 행은 빼고 넘긴다(캐시·응답 크기)
     return v;
   } catch(e) { return null; }
+}
+// 감지 때처럼 새로 받아 오는지 시험(runMaint). 공개 공지 시각만 찍는다.
+function _probeTigerKind() {
+  _TIGER_KIND_FRESH = true;
+  CacheService.getScriptCache().remove('tigerKind');
+  const k = _tigerKind(), m = _tigerRelay();
+  console.log(' | KIND savedAt ' + (k && k.savedAt) + ' · 회차 ' + (k ? k.items.length : 0) + ' · 합친 목록 ' + (m ? m.items.length : 0) + '건, 맨 위 ' + (m && m.items[0] ? m.items[0].date + ' ' + m.items[0].title : '-'));
+  return { savedAt: k && k.savedAt };
 }
 function _tigerRelayPc() {
   const cache = CacheService.getScriptCache();
