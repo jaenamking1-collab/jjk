@@ -2812,7 +2812,7 @@ function _fetchDistTigerSeibro(force, siteErr) {
   const latest = items.reduce((a, b) => (b._std > a._std ? b : a));
   items.forEach(it => { delete it._std; delete it._isin; });
   return { success: true, items, schedule: latest.sched, title: 'TIGER 분배금 (예탁결제원 SEIBRO — 미래에셋 사이트 접속 실패)',
-           _fallback: 'seibro', _siteError: siteErr };
+           _fallback: 'seibro', _siteError: siteErr, _funetf: fun._stat };
 }
 
 // FunETF(제로인 펀드정보 사이트, 공개 API)에서 TIGER 종목별 실제 분배율·공시일을 받는다 — 2026-11-05.
@@ -2822,6 +2822,8 @@ function _fetchDistTigerSeibro(force, siteErr) {
 // 반환: { isin: { rate, pub } } — 금액이 SEIBRO 와 같고 락일이 기준일 7일 안쪽일 때만 쓴다(다른 회차 값 섞임 방지).
 function _funetfTiger(items) {
   const out = {};
+  // 응답에 싣는 상태(공개 자료 건수·응답 코드뿐) — 구글 서버에서 FunETF 가 열리는지 runMaint 없이 본다.
+  const stat = out._stat = { codes: {}, rate: 0, pub: [] };
   const ymd = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyyMMdd');
   const list = items.filter(it => it._isin);
   if (!list.length) return out;
@@ -2832,13 +2834,15 @@ function _funetfTiger(items) {
     let ok = 0;
     rs.forEach((r, i) => {
       const it = list[i];
+      stat.codes[r.getResponseCode()] = (stat.codes[r.getResponseCode()] || 0) + 1;
       if (r.getResponseCode() !== 200) return;
       let rows; try { rows = JSON.parse(r.getContentText('UTF-8')); } catch(e) { return; }
       const hit = (rows || []).find(x => Number(x.divAmt) === Number(it.amount) && x.gijunYmd <= it._std && day(it._std) - day(x.gijunYmd) <= 7 * 86400000);
       if (hit) { out[it._isin] = { rate: hit.divRt != null ? Math.round(Number(hit.divRt) * 100) / 100 : null }; ok++; }
     });
+    stat.rate = ok + '/' + list.length;
     console.log('FunETF TIGER 분배율 ' + ok + '/' + list.length);
-  } catch(e) { console.log('FunETF 이력 실패: ' + e); }
+  } catch(e) { stat.err = String(e).slice(0, 120); console.log('FunETF 이력 실패: ' + e); }
   // 회차별 공시일 — 대표 종목 한 개씩
   const reps = {};
   list.forEach(it => { if (!reps[it._std]) reps[it._std] = it; });
@@ -2848,11 +2852,12 @@ function _funetfTiger(items) {
       const dt = {};
       [...html.matchAll(/etf:distribution\.latest\.(recordDate|announcementDate)","value":"(\d{4})-(\d{2})-(\d{2})/g)].forEach(m => { dt[m[1]] = m[2] + m[3] + m[4]; });
       const rec = dt.recordDate || '', pub = dt.announcementDate || '';
+      stat.pub.push(std + ':' + (rec || '-') + ':' + (pub || '-') + ':' + html.length);
       if (rec !== std || !pub) return;
       const p = Number(pub.slice(4, 6)) + '/' + Number(pub.slice(6, 8));
       list.filter(it => it._std === std).forEach(it => { (out[it._isin] = out[it._isin] || { rate: null }).pub = p; });
       console.log('FunETF TIGER 공시일 ' + std + ' → ' + p);
-    } catch(e) { console.log('FunETF 공시일 실패: ' + e); }
+    } catch(e) { stat.pub.push(std + ':ERR ' + String(e).slice(0, 80)); console.log('FunETF 공시일 실패: ' + e); }
   });
   return out;
 }
