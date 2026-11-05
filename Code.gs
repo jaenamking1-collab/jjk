@@ -2691,7 +2691,7 @@ function _seibroDistItems(co) {
     mine.filter(r => r.std === last).forEach(r => {
       const sched = { '기준일': md(r.std) };
       if (r.pay) sched['지급일'] = md(r.pay);
-      out.push({ name: r.nm.replace(/&amp;/g, '&'), ticker: r.isin.slice(3, 9), amount: r.amt, rate: null, cycle: c, sched, _std: r.std });
+      out.push({ name: r.nm.replace(/&amp;/g, '&'), ticker: r.isin.slice(3, 9), amount: r.amt, rate: null, cycle: c, sched, _std: r.std, _isin: r.isin });
     });
   });
   return out;
@@ -2720,7 +2720,9 @@ function _tigerRelay() {
   try {
     const v = JSON.parse(raw);
     const at = new Date(String(v.savedAt).replace(' ', 'T') + ':00+09:00');
-    if (!(v.items || []).length || isNaN(at) || Date.now() - at.getTime() > 3 * 86400000) return null;
+    // 나이로 버리지 않는다 — PC 는 새 공지가 있을 때만 올리므로 묵은 게 정상이다(2026-11-05: 사흘 규칙에 걸려
+    // 10/29 중계본이 버려지고 서버는 10/27 목록을 계속 보여 10/28 월말 공지가 빠졌다).
+    if (!(v.items || []).length || isNaN(at)) return null;
     return v;
   } catch(e) { return null; }
 }
@@ -2773,6 +2775,7 @@ function _fetchDistTigerSeibro(force, siteErr) {
     });
   } catch(e) {}
   let navs = null;
+  const fun = _funetfTiger(items);
   items.forEach(it => {
     // TIGER 사이트·뉴스는 '10/30' 으로 적는다. 형식이 다르면 attachDistHistory 의 중복 판정(기준일 문자열)을
     // 빠져나가 같은 종목이 지난 회차로 한 벌 더 붙는다(10/29 실측: 월중 10건 중복).
@@ -2791,6 +2794,11 @@ function _fetchDistTigerSeibro(force, siteErr) {
       const pub = _tigerRelayPub(Number(it._std.slice(4, 6)), it.cycle);   // PC 중계로 받은 실제 공지 등록일
       if (pub) it.sched['공시일'] = pub;
     }
+    const fe = fun[it._isin];
+    if (fe) {
+      if (fe.rate != null) it.rate = fe.rate;
+      if (!it.sched['공시일'] && fe.pub) it.sched['공시일'] = fe.pub;
+    }
     if (it.rate == null && it.amount) {
       if (!navs) { try { navs = getNavMap().navs || {}; } catch(e) { navs = {}; } }
       if (navs[it.ticker]) it.rate = Math.round(it.amount / navs[it.ticker] * 10000) / 100;
@@ -2802,9 +2810,51 @@ function _fetchDistTigerSeibro(force, siteErr) {
     }
   });
   const latest = items.reduce((a, b) => (b._std > a._std ? b : a));
-  items.forEach(it => delete it._std);
+  items.forEach(it => { delete it._std; delete it._isin; });
   return { success: true, items, schedule: latest.sched, title: 'TIGER 분배금 (예탁결제원 SEIBRO — 미래에셋 사이트 접속 실패)',
            _fallback: 'seibro', _siteError: siteErr };
+}
+
+// FunETF(제로인 펀드정보 사이트, 공개 API)에서 TIGER 종목별 실제 분배율·공시일을 받는다 — 2026-11-05.
+// 미래에셋이 구글 서버를 막은 뒤 분배율은 NAV 추정, 공시일은 PC 중계뿐이었다. FunETF 는 운용사 값을 그대로 싣는다.
+// ① 종목별 분배 이력 API(가벼운 JSON, fetchAll 로 한 번에): gijunYmd=분배락일, divAmt·divRt.
+// ② 공시일은 이력 API 에 없어 회차마다 대표 종목 한 개의 상세 페이지(JSON-LD)에서 읽는다(TIGER 는 같은 날 일괄 공시).
+// 반환: { isin: { rate, pub } } — 금액이 SEIBRO 와 같고 락일이 기준일 7일 안쪽일 때만 쓴다(다른 회차 값 섞임 방지).
+function _funetfTiger(items) {
+  const out = {};
+  const ymd = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyyMMdd');
+  const list = items.filter(it => it._isin);
+  if (!list.length) return out;
+  const day = s => new Date(Number(s.slice(0, 4)), Number(s.slice(4, 6)) - 1, Number(s.slice(6, 8))).getTime();
+  try {
+    const rs = UrlFetchApp.fetchAll(list.map(it => ({ url: 'https://www.funetf.co.kr/api/public/product/view/etfdividend?gijunYmd=' + ymd + '&itemId=' + it._isin,
+      headers: { 'User-Agent': 'Mozilla/5.0' }, muteHttpExceptions: true })));
+    let ok = 0;
+    rs.forEach((r, i) => {
+      const it = list[i];
+      if (r.getResponseCode() !== 200) return;
+      let rows; try { rows = JSON.parse(r.getContentText('UTF-8')); } catch(e) { return; }
+      const hit = (rows || []).find(x => Number(x.divAmt) === Number(it.amount) && x.gijunYmd <= it._std && day(it._std) - day(x.gijunYmd) <= 7 * 86400000);
+      if (hit) { out[it._isin] = { rate: hit.divRt != null ? Math.round(Number(hit.divRt) * 100) / 100 : null }; ok++; }
+    });
+    console.log('FunETF TIGER 분배율 ' + ok + '/' + list.length);
+  } catch(e) { console.log('FunETF 이력 실패: ' + e); }
+  // 회차별 공시일 — 대표 종목 한 개씩
+  const reps = {};
+  list.forEach(it => { if (!reps[it._std]) reps[it._std] = it; });
+  Object.keys(reps).forEach(std => {
+    try {
+      const html = UrlFetchApp.fetch('https://www.funetf.co.kr/product/etf/view/' + reps[std]._isin, { headers: { 'User-Agent': 'Mozilla/5.0' }, muteHttpExceptions: true }).getContentText('UTF-8');
+      const dt = {};
+      [...html.matchAll(/etf:distribution\.latest\.(recordDate|announcementDate)","value":"(\d{4})-(\d{2})-(\d{2})/g)].forEach(m => { dt[m[1]] = m[2] + m[3] + m[4]; });
+      const rec = dt.recordDate || '', pub = dt.announcementDate || '';
+      if (rec !== std || !pub) return;
+      const p = Number(pub.slice(4, 6)) + '/' + Number(pub.slice(6, 8));
+      list.filter(it => it._std === std).forEach(it => { (out[it._isin] = out[it._isin] || { rate: null }).pub = p; });
+      console.log('FunETF TIGER 공시일 ' + std + ' → ' + p);
+    } catch(e) { console.log('FunETF 공시일 실패: ' + e); }
+  });
+  return out;
 }
 
 // SEIBRO 분배금지급현황 원본 행. 기준일이 오늘-back ~ 오늘+fwd 일 사이. 30건씩 쪽을 넘긴다.
