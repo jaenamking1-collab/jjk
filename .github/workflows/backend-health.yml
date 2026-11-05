@@ -113,3 +113,15 @@ jobs:
 
           <sub>backend-health 워크플로가 자동으로 만든 이슈입니다. 정상으로 돌아오면 자동으로 닫힙니다.</sub>"
           echo "이슈 생성됨"
+
+      # TIGER 는 미래에셋이 구글 서버를 막아 KIND 중계 Worker(workers/kind-tiger)로 받는다(2026-11-05).
+      # Worker 가 죽어도 PC 중계·SEIBRO 로 버티니 화면은 조용하다 — 그래서 여기서 실패로 알린다(실패 메일).
+      - name: KIND 중계 Worker(TIGER) 확인
+        if: always()
+        run: |
+          set -euo pipefail
+          OUT=$(curl -s -m 60 -w '\n%{http_code}' 'https://kind-tiger.distributionjn.workers.dev/tiger')
+          CODE=$(echo "$OUT" | tail -1)
+          N=$(echo "$OUT" | head -n -1 | python3 -c "import sys,json;d=json.load(sys.stdin);print(len(d.get('items',[])), sum(len(i.get('rows',[])) for i in d.get('items',[])))" || echo "0 0")
+          echo "HTTP $CODE · 회차·종목: $N"
+          [ "$CODE" = "200" ] && [ "${N%% *}" -ge 1 ] || { echo "::error::KIND 중계 Worker 이상 — HTTP $CODE, $N"; exit 1; }
