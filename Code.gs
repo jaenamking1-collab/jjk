@@ -2706,7 +2706,40 @@ function _seibroDistItems(co) {
 // 그래도 분배율이 없으면 네이버 ETF 목록의 NAV 로 계산한다(운용사 표는 기준일 전 기준가라 소수점 둘째 자리가 다를 수 있다).
 // PC 중계 파일(tools/tiger_relay.py 가 집·학교 PC 에서 하루 2회 올림). 사흘 넘게 묵었으면 안 쓴다.
 // 공개 저장소의 공개 공지 목록일 뿐이라 비밀값이 없다. raw 는 몇 분 캐시되니 30분 캐시면 충분하다.
+// 2026-11-05: KIND(거래소 공시) 중계 Worker 도 합친다 — PC 가 꺼져 있어도 새 회차가 들어온다.
+// 같은 회차(월·월중/월말)는 PC 중계(미래에셋 원본 제목·주소)를 먼저 쓰고, 빠진 회차만 KIND 것으로 채운다.
+// KIND 날짜는 거래소 공시일이다(7~10월 10건 모두 미래에셋 게시일과 같은 날, 금액 10월말 88/88 일치).
 function _tigerRelay() {
+  const pc = _tigerRelayPc(), kd = _tigerKind();
+  if (!pc) return kd;
+  if (!kd) return pc;
+  const key = n => { const t = String(n.title || '').match(/(\d{1,2})\s*월\s*(말|중순)/); return t ? t[1] + t[2] : ''; };
+  const have = {};
+  pc.items.forEach(n => { have[key(n)] = 1; });
+  const items = pc.items.concat(kd.items.filter(n => key(n) && !have[key(n)]))
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  return { savedAt: pc.savedAt > kd.savedAt ? pc.savedAt : kd.savedAt, items: items };
+}
+// KIND 중계(workers/kind-tiger). Worker 도 30분 캐시를 둔다. 실패하면 null — PC 중계·SEIBRO 로 버틴다.
+function _tigerKind() {
+  const cache = CacheService.getScriptCache();
+  let raw = cache.get('tigerKind');
+  if (!raw) {
+    try {
+      const r = UrlFetchApp.fetch('https://kind-tiger.distributionjn.workers.dev/tiger', { muteHttpExceptions: true });
+      if (r.getResponseCode() !== 200) return null;
+      raw = r.getContentText('UTF-8');
+      cache.put('tigerKind', raw, 1800);
+    } catch(e) { return null; }
+  }
+  try {
+    const v = JSON.parse(raw);
+    if (!(v.items || []).length) return null;
+    v.items = v.items.map(n => ({ title: n.title, date: n.date, url: n.url, kind: true }));   // 종목별 행은 빼고 넘긴다(캐시·응답 크기)
+    return v;
+  } catch(e) { return null; }
+}
+function _tigerRelayPc() {
   const cache = CacheService.getScriptCache();
   let raw = cache.get('tigerRelay');
   if (!raw) {
