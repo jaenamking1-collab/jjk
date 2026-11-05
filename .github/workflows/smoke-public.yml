@@ -82,7 +82,7 @@ jobs:
             (await rowsOf()).filter(x => !/예정/.test(x.label) && !fullV(x)).forEach(x => cellBad.push(`${x.who} ${x.label} 빈 칸(${x.dates.join(' ')})`));
             try {
               await p.evaluate(() => schedShiftMonth(-1)); await p.waitForTimeout(1500);
-              (await rowsOf()).filter(x => /예정/.test(x.label) || !full(x)).forEach(x => cellBad.push(`지난달 ${x.who} ${x.label} 빠짐(${x.dates.join(' ')})`));
+              (await rowsOf()).filter(x => /예정/.test(x.label) || !fullV(x)).forEach(x => cellBad.push(`지난달 ${x.who} ${x.label} 빠짐(${x.dates.join(' ')})`));
               await p.evaluate(() => schedShiftMonth(1));
             } catch (e) { cellBad.push('지난달 표 열기 실패 ' + e.message); }
             r.cellBad = cellBad;
