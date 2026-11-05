@@ -64,3 +64,4 @@ paths:
   - **`portfolio.html`·`m.html`·`dist_notice.html`은 clasp 배포 대상이 아니다**(`.claspignore`가 막는다). 웹으로 서빙되니 `main` 에 푸시하면 끝.
 - **Functions meant to be run by hand from the Apps Script editor go at the very bottom of `Code.gs`, under the `===== 수동 실행 =====` banner** (`setupDistTriggers`, `setupPortfolioTriggers`, `_testNoticeWindow`). Don't scatter them mid-file — they're hard to find in the editor's function dropdown otherwise. Leave a one-line pointer where the code logically belongs.
 - **gh 가 없는 PC(학교 PC 2026-11-04)**: 배포는 clasp 로 직접, `maint` 대신 크롬 앱 탭에서 `api({action:'runMaint', fn})` 로 돌린다(로그가 공개 Actions 에 안 남는 장점도 있다). 앱 비밀번호는 **탭마다** 다시 넣어야 하니 확인이 끝날 때까지 그 탭을 닫지 않는다.
+  - ✅ 더 쉬운 길(2026-11-05 집 PC): `git credential fill` 로 저장된 GitHub 토큰을 꺼내 REST `POST /actions/workflows/maint.yml/dispatches`(`inputs.fn`)로 `maint` 를 돌리고, 로그는 `/actions/jobs/<id>/logs` 로 읽는다. 토큰 값은 출력·커밋하지 않는다.
