@@ -947,7 +947,13 @@ function getEtfNotices(source) {
       // 미래에셋이 구글 서버를 막는 동안 PC 가 받아 올린 목록(tools/tiger_relay.py)을 쓴다. 캐시·마지막 성공분엔
       // 넣지 않는다 — 차단이 풀리면 바로 직접 읽은 목록이 이기게.
       const rl = _tigerRelay();
-      if (rl) return { success: true, items: rl.items, relay: true, savedAt: rl.savedAt, error: '0건' + diag };
+      // 2026-11-05: 30분만 캐시에 넣는다 — 안 넣으면 묶음(getEtfNoticesAll)과 공개 예비본이 '마지막 성공분'(10/13)을
+      // 내보내 10/28 공지가 첫 화면·예비본에서 빠졌다. 마지막 성공분엔 여전히 안 넣는다(차단이 풀리면 직접 읽은 목록이 이기게).
+      if (rl) {
+        const res = { success: true, items: rl.items, relay: true, savedAt: rl.savedAt, error: '0건' + diag };
+        try { cache.put(cacheKey, JSON.stringify(res), 1800); } catch(e) {}
+        return res;
+      }
     }
     if (!items.length) return _noticeFallback(source, '0건' + diag);   // 상류는 응답했는데 못 읽은 경우
     const result = { success: true, items };
