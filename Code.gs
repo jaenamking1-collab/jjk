@@ -2728,7 +2728,8 @@ function _tigerRelay() {
   pc.items.forEach(n => { have[key(n)] = 1; });
   const items = pc.items.concat(kd.items.filter(n => key(n) && !have[key(n)]))
     .sort((a, b) => String(b.date).localeCompare(String(a.date)));
-  return { savedAt: pc.savedAt > kd.savedAt ? pc.savedAt : kd.savedAt, items: items };
+  // dist(PC 가 읽은 공지 본문 표)는 PC 중계에만 있다 — 합칠 때 빠뜨리면 분배율이 NAV 추정으로 돌아간다(2026-11-06).
+  return { savedAt: pc.savedAt > kd.savedAt ? pc.savedAt : kd.savedAt, items: items, dist: pc.dist || [] };
 }
 // KIND 중계(workers/kind-tiger). Worker 도 30분 캐시를 둔다. 실패하면 null — PC 중계·SEIBRO 로 버틴다.
 var _TIGER_KIND_FRESH = false;   // checkDistNotices 가 켠다 — 한 실행 안에서 첫 번째만 새로 받고 나머지는 저장분
