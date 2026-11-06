@@ -2808,6 +2808,31 @@ function _fetchDistTigerSeibro(force, siteErr) {
     if (md((news[0].sched || {})['기준일'] || stSched['기준일']) !== md(sei[0].sched['기준일'])) return;
     items = items.filter(it => it.cycle !== c).concat(news.map(x => Object.assign({}, x, { cycle: c, sched: Object.assign({}, stSched, x.sched), _std: sei[0]._std })));
   });
+  // PC 중계(tools/tiger_relay.py)가 미래에셋 공지 본문을 읽어 올린 표 — 운용사 원본이라 분배율·공시일·분배락일은 이게 이긴다.
+  // 같은 기준일 공지가 둘일 수 있다(10월말: 88종목 표 + 분배율 있는 25종목 표) → 종목별로 합친다(2026-11-06).
+  const rel = {}, relCyc = { '월중': null, '월말': null };
+  try {
+    const rl = _tigerRelay();
+    ((rl && rl.dist) || []).forEach(n => {
+      const b = md(n.sched['기준일']);
+      if (!relCyc[n.cycle]) relCyc[n.cycle] = { base: b, sched: n.sched, items: {} };
+      (n.items || []).forEach(x => {
+        const k = x.ticker + '|' + b, v = rel[k] || (rel[k] = { sched: n.sched });
+        if (v.rate == null && x.rate != null) v.rate = x.rate;
+        const rc = relCyc[n.cycle];
+        if (rc.base === b && !rc.items[x.ticker]) rc.items[x.ticker] = x;
+      });
+    });
+  } catch(e) { console.log('TIGER 중계 표 실패: ' + e); }
+  // SEIBRO 가 지난 회차를 일부만 남길 때 — 중계 표가 같은 기준일로 더 많이 갖고 있으면 그 회차는 중계 표로.
+  ['월중', '월말'].forEach(c => {
+    const rc = relCyc[c], sei = items.filter(it => it.cycle === c);
+    if (!rc || !sei.length || md(sei[0].sched['기준일']) !== rc.base) return;
+    const list = Object.keys(rc.items).map(t => rc.items[t]);
+    if (list.length <= sei.length) return;
+    items = items.filter(it => it.cycle !== c).concat(list.map(x => ({ name: x.name, ticker: x.ticker, amount: x.amount, rate: x.rate, cycle: c,
+      sched: { '기준일': rc.sched['기준일'], '지급일': rc.sched['지급일'] }, _std: sei[0]._std })));
+  });
   const byT = {};
   stItems.forEach(x => { byT[x.ticker] = x; });
   // 분배캐시의 지난 저장분(사이트·뉴스로 읽던 때)에서 같은 종목·같은 기준일의 공시일·분배율을 잇는다 —
@@ -2837,6 +2862,11 @@ function _fetchDistTigerSeibro(force, siteErr) {
     if (x && md(xs['기준일'] || stSched['기준일']) === it.sched['기준일']) {
       if (x.rate != null) it.rate = x.rate;
       ['공시일', '분배락일'].forEach(k => { const v = xs[k] || stSched[k]; if (v) it.sched[k] = v; });
+    }
+    const rv = rel[it.ticker + '|' + it.sched['기준일']];
+    if (rv) {
+      if (rv.rate != null) it.rate = rv.rate;
+      ['공시일', '분배락일', '지급일'].forEach(k => { if (rv.sched[k]) it.sched[k] = rv.sched[k]; });
     }
     const pv = past[it.ticker + '|' + it.sched['기준일']];
     if (pv) {

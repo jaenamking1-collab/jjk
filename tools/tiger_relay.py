@@ -37,7 +37,10 @@ def need_fetch():
         return False, '서버가 TIGER 를 직접 읽고 있음'
     tiger_last = max([ymd(n.get('date')) for n in t.get('items') or []] + [''])
     try:
-        tiger_last = max([tiger_last] + [ymd(n.get('date')) for n in json.load(open(OUT, encoding='utf-8')).get('items', [])])
+        prev = json.load(open(OUT, encoding='utf-8'))
+        if not prev.get('dist'):
+            return True, '중계본에 분배 본문(dist) 없음 — 처음 한 번 받기'
+        tiger_last = max([tiger_last] + [ymd(n.get('date')) for n in prev.get('items', [])])
     except Exception:
         pass
     others = max([ymd(n.get('date')) for k, v in d.items() if k != 'tiger' for n in (v.get('items') or []) if '분배' in (n.get('title') or '')] + [''])
@@ -65,6 +68,60 @@ def fetch_list():
     return items
 
 
+def _txt(s):
+    return re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', ' ', s).replace('&nbsp;', ' ')).strip()
+
+
+def parse_view(html):
+    """분배금 공지 본문 → 종목 표 + 일정. 서버 fetchDist_tiger_detail·parseTigerSchedule 와 같은 규칙.
+    본문이 90KB 넘어 통째로는 못 올리니(서버 캐시 한 칸 100KB) 여기서 읽어 작게 올린다(2026-11-06)."""
+    items = []
+    for tr in re.findall(r'<tr[^>]*>([\s\S]*?)</tr>', html):
+        cols = [_txt(c).replace('&#37;', '%').replace(',', '') for c in re.findall(r'<td[^>]*>([\s\S]*?)</td>', tr)]
+        idx = next((i for i, c in enumerate(cols) if re.fullmatch(r'[0-9A-Z]{6}', c)), -1)
+        if idx < 0:
+            continue
+        amount = rate = None
+        for c in cols[idx + 2:]:
+            if '%' in c:
+                try:
+                    rate = float(c.replace('%', '')) if rate is None else rate
+                except ValueError:
+                    pass
+            elif re.fullmatch(r'\d[\d.]*\s*원?', c) and amount is None:
+                amount = float(re.sub(r'[^\d.]', '', c))
+        if amount is None:
+            continue
+        items.append({'ticker': cols[idx], 'name': re.sub(r'\s*ETF\s*$', '', cols[idx + 1] if idx + 1 < len(cols) else '').strip(),
+                      'amount': int(amount) if amount == int(amount) else amount, 'rate': rate})
+    text = _txt(html)
+    i = text.find('분배금 지급 일정')
+    if i >= 0:
+        text = text[i:]
+    sched = {}
+    for k, pat in (('공시일', r'분배금\s*공시일'), ('분배락일', r'분배락일'), ('기준일', r'분배금\s*지급기준일'), ('지급일', r'분배금\s*지급일')):
+        m = re.search(r'(\d{1,2}[/.]\d{1,2})\s*\([월화수목금토일]\)\s*' + pat, text)
+        if m:
+            sched[k] = m.group(1).replace('.', '/')
+    return items, sched
+
+
+def fetch_dist(notices):
+    """목록 위쪽 분배금 공지 본문을 열어 회차(기준일의 '일' 20 이하=월중)별로 담는다. 최신순."""
+    out = []
+    for n in [x for x in notices if '분배금' in x['title']][:6]:
+        key = (re.search(r'detailsKey=(\d+)', n['url']) or [None, None])[1]
+        if not key:
+            continue
+        html = urllib.request.urlopen(urllib.request.Request(VIEW + key, headers={'User-Agent': 'Mozilla/5.0'}), timeout=30).read().decode('utf-8')
+        items, sched = parse_view(html)
+        if not items or not sched.get('기준일'):
+            continue
+        cyc = '월중' if int(sched['기준일'].split('/')[1]) <= 20 else '월말'
+        out.append({'key': key, 'title': n['title'], 'date': n['date'], 'cycle': cyc, 'sched': sched, 'items': items})
+    return out
+
+
 def main():
     if '--force' not in sys.argv:
         go, why = need_fetch()
@@ -77,14 +134,20 @@ def main():
         return
     old = None
     try:
-        old = json.load(open(OUT, encoding='utf-8')).get('items')
+        o = json.load(open(OUT, encoding='utf-8'))
+        old = (o.get('items'), o.get('dist'))
     except Exception:
         pass
-    data = {'savedAt': datetime.now(KST).strftime('%Y-%m-%d %H:%M'), 'items': items[:20]}
-    json.dump(data, open(OUT, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-    if old == data['items']:
+    try:
+        dist = fetch_dist(items)
+    except Exception as e:
+        log('본문 읽기 실패: %s — 목록만 올림' % e)
+        dist = (old or (None, None))[1] or []
+    data = {'savedAt': datetime.now(KST).strftime('%Y-%m-%d %H:%M'), 'items': items[:20], 'dist': dist}
+    if old == (data['items'], data['dist']):
         log('바뀐 공지 없음 (%d건)' % len(items))
         return
+    json.dump(data, open(OUT, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     g = lambda *a: subprocess.run(['git', '-C', REPO] + list(a), capture_output=True, text=True)
     g('pull', '-q', '--rebase', '--autostash')
     g('add', 'tiger_notices.json')
