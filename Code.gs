@@ -2810,9 +2810,10 @@ function _fetchDistTigerSeibro(force, siteErr) {
   });
   // PC 중계(tools/tiger_relay.py)가 미래에셋 공지 본문을 읽어 올린 표 — 운용사 원본이라 분배율·공시일·분배락일은 이게 이긴다.
   // 같은 기준일 공지가 둘일 수 있다(10월말: 88종목 표 + 분배율 있는 25종목 표) → 종목별로 합친다(2026-11-06).
-  const rel = {}, relCyc = { '월중': null, '월말': null };
+  const rel = {}, relCyc = { '월중': null, '월말': null }, relStat = { at: '', dist: 0, hit: 0 };
   try {
     const rl = _tigerRelay();
+    relStat.at = rl ? rl.savedAt : 'none'; relStat.dist = ((rl && rl.dist) || []).length;
     ((rl && rl.dist) || []).forEach(n => {
       const b = md(n.sched['기준일']);
       if (!relCyc[n.cycle]) relCyc[n.cycle] = { base: b, sched: n.sched, items: {} };
@@ -2865,6 +2866,7 @@ function _fetchDistTigerSeibro(force, siteErr) {
     }
     const rv = rel[it.ticker + '|' + it.sched['기준일']];
     if (rv) {
+      relStat.hit++;
       if (rv.rate != null) it.rate = rv.rate;
       ['공시일', '분배락일', '지급일'].forEach(k => { if (rv.sched[k]) it.sched[k] = rv.sched[k]; });
     }
@@ -2890,7 +2892,7 @@ function _fetchDistTigerSeibro(force, siteErr) {
   const latest = items.reduce((a, b) => (b._std > a._std ? b : a));
   items.forEach(it => delete it._std);
   return { success: true, items, schedule: latest.sched, title: 'TIGER 분배금 (예탁결제원 SEIBRO — 미래에셋 사이트 접속 실패)',
-           _fallback: 'seibro', _siteError: siteErr };
+           _fallback: 'seibro', _siteError: siteErr, _relay: relStat };
 }
 
 // SEIBRO 분배금지급현황 원본 행. 기준일이 오늘-back ~ 오늘+fwd 일 사이. 30건씩 쪽을 넘긴다.
