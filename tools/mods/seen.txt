@@ -54,6 +54,7 @@ carta-crm
 carta-investors
 catalyst-by-zoho
 cds-mcp
+champion-kit
 chrome-devtools-mcp
 chronograph-gp
 chronograph-lp
@@ -305,6 +306,7 @@ windsor-ai
 wingspan
 wix
 workos
+xcode
 youdotcom-agent-skills
 zapier
 zilliz
