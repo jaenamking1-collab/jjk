@@ -55,7 +55,10 @@ function probe() {
   const last = new Date(Math.max.apply(null, times));
   const hours = Math.floor((Date.now() - last) / 3600000);
   const day = Number(Utilities.formatDate(new Date(), 'Asia/Seoul', 'd'));
-  const limit = (day >= 8 && day <= 12) || day >= 23 ? 6 : 30;   // 공지창이면 30분마다 돌아야 한다
+  const hr = Number(Utilities.formatDate(new Date(), 'Asia/Seoul', 'H'));
+  // 공지창 낮(10~20시)이면 checkDistNotices(09~18시 30분마다)가 돌아야 한다. 밤·새벽은 새벽 5시 1회뿐이라 30시간.
+  // (2026-11-08: 밤에 6시간 기준을 대서 공지창 첫날 0시 39분 등 매일 밤 헛알림이 났다)
+  const limit = ((day >= 8 && day <= 12) || day >= 23) && hr >= 10 && hr <= 20 ? 6 : 30;
   const when = Utilities.formatDate(last, 'Asia/Seoul', 'MM/dd HH:mm');
   if (hours >= limit) return { bad: true, title: '포트폴리오 백엔드 갱신 멈춤',
     detail: '분배 데이터가 ' + when + ' 이후 ' + hours + '시간째 갱신되지 않았습니다(기준 ' + limit + '시간). 자동 실행(트리거)이 멈췄을 수 있습니다.' };
