@@ -44,7 +44,7 @@
       "mcp__Claude_Browser__tabs_close",
       "mcp__6d1355f4-4520-483d-97aa-8ced7a47f798__read_file_content",
       "mcp__6d1355f4-4520-483d-97aa-8ced7a47f798__search_files",
-      "WebFetch(domain:github.com)",
+      "mcp__Gmail__trash_thread", "mcp__Gmail__trash_message", "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)"
     ],
     "deny": [
