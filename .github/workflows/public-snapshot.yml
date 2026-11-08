@@ -57,9 +57,15 @@ jobs:
           [ -f /tmp/changed ] || exit 0
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git add dist_snapshot.txt
-          git commit -qm "공개 분배금공지 예비본 갱신" || exit 0
-          # --autostash: 체크아웃 직후 줄바꿈(eol=crlf bat) 때문에 '바뀐 파일'로 잡혀 pull --rebase 가 거부했다(2026-11-05).
-          for i in 1 2 3; do git pull -q --rebase --autostash origin main && git push -q origin HEAD:main && break; sleep 5; done
+          # rebase 를 쓰지 않는다: 체크아웃 직후 줄바꿈(eol=crlf bat)이 '안 저장된 변경'으로 잡혀 pull --rebase 가
+          # --autostash 를 줘도 "cannot rebase: You have unstaged changes" 로 매번 거부했다(2026-11-05·11-08 로그 확인).
+          # 대신 매 시도마다 최신 main 으로 맞추고 새 예비본 한 파일만 얹어 올린다.
+          cp dist_snapshot.txt /tmp/snap.txt
+          for i in 1 2 3; do
+            git fetch -q origin main && git reset -q --hard origin/main && cp /tmp/snap.txt dist_snapshot.txt && git add dist_snapshot.txt
+            git diff --cached --quiet && { echo '최신 main 과 같음 — 커밋 안 함'; exit 0; }
+            git commit -qm "공개 분배금공지 예비본 갱신" && git push origin HEAD:main && break
+            sleep 5
+          done
           # 세 번 다 실패해도 성공으로 끝나 예비본이 몇 시간 옛것으로 남았다 — 못 올렸으면 실패로 알린다.
           git fetch -q origin main && [ -z "$(git log origin/main..HEAD --oneline)" ] || { echo "::error::예비본을 올리지 못함"; exit 1; }
