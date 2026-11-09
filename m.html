@@ -167,7 +167,7 @@ fetch('script_versions.json?' + Date.now()).then(r => r.json()).then(d => {
   <button id="nav-more"              onclick="go('more')"><span class="ic">☰</span>더보기</button>
 </nav>
 
-<script src="calc.js?v=3"></script>
+<script src="calc.js?v=4"></script>
 <script>
 // =====================================================================
 //  폰 전용 화면. PC용은 portfolio.html.
@@ -836,6 +836,8 @@ async function saveDiv(input) {
   if (/^[\d.\s+\-]+$/.test(v)) {            // 12.53+11.32 같은 수식 허용 (PC와 동일)
     try { v = String(eval(v.replace(/[^0-9.+\-]/g, ''))); } catch (e) {}
   }
+  // 음수면 저장하지 않는다(PC 와 같음) — 예전엔 '-' 만 지워 10-20 이 +10 으로 들어갔다.
+  if (parseFloat(v) < 0) { alert('분배금은 음수로 넣을 수 없습니다: ' + raw + ' = ' + v); return; }
   v = v.replace(/[^0-9.]/g, '');
   const amount = parseFloat(v || '0');
   if (isNaN(amount)) { input.value = ''; return; }
