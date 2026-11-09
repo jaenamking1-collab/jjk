@@ -100,6 +100,18 @@ with sync_playwright() as p:
     check('넘친 사진은 새 판으로 둘째 칸에', s['spaces'][vis[1]].get('photos') and pics[vis[1]] == 4, (vis, pics))
     tops = b.eval_on_selector_all(P, 'els => els.map(e => Math.round(e.getBoundingClientRect().top))')
     check('한 줄 4장', len(tops) == 4 and len(set(tops)) == 1, tops)
+    # 둘째 자리에 링크 판이 있어도 사진 칸은 둘째 자리로 온다(4칸 보기, 셋째·보이지 않는 판의 사진 칸)
+    r = b.evaluate("""() => { const keep = JSON.stringify(board), L = () => ({ items: [{ id: 'x', kind: 'link', url: 'https://a.b/' }] }), out = [];
+        board = { layout: 4, shown: [0, 1, 2, 3], spaces: [L(), L(), { items: [], photos: true }, L()] }; out.push(photoSpace(0), board.shown.join());
+        board = { layout: 2, shown: [0, 1, 2, 3], spaces: [L(), L(), L(), L(), { items: [], photos: true }] }; out.push(photoSpace(0), board.shown.join());
+        board = { layout: 2, shown: [0, 1, 2, 3], spaces: [L(), L(), L(), L()] }; out.push(photoSpace(0), board.shown.join());
+        board = JSON.parse(keep); return out; }""")
+    check('사진 칸은 늘 둘째 자리', r == [2, '0,2,1,3', 4, '0,4,1,2', 4, '0,4,1,2'], r)
+    b.click('#photoBtn'); b.wait_for_timeout(300)
+    hid = b.evaluate("() => [document.querySelectorAll('.space.pics').length, [...document.querySelectorAll('.space')].filter(e => e.offsetParent).length, getComputedStyle(document.getElementById('spaces')).gridTemplateColumns.split(' ').length]")
+    check('사진 숨기기 → 링크 칸만 한 칸 넓게', hid[0] == 1 and hid[1] == 1 and hid[2] == 1 and state(b).get('hidePhotos') is True, hid)
+    b.click('#photoBtn'); b.wait_for_timeout(300)
+    check('다시 누르면 사진 보임', b.locator(P).first.is_visible() and not state(b).get('hidePhotos'))
 
     # 3. 롤오버·확대·내려받기·끌기·삭제
     b.hover(f'{P} >> nth=0'); b.wait_for_timeout(700)
