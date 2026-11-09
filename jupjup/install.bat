@@ -1,9 +1,10 @@
 @echo off
-chcp 65001 >nul
-rem ì¤ì¤ ì„¤ì¹˜Â·ì—…ë°ì´íŠ¸. ì–´ëŠ PC ì—ì„œë“  ë”ë¸”í´ë¦­.
-rem  - jjk ì €ì¥ì†Œê°€ ìˆëŠ” PC: ê·¸ ì•ˆì˜ jupjup í´ë”ë¥¼ git pull ë¡œ ìµœì‹ ìœ¼ë¡œ
-rem  - ì—†ëŠ” PC: GitHub Pages(í•™êµë§ì€ raw.githubusercontent ê°€ ë§‰í˜)ì—ì„œ %USERPROFILE%\jupjup ë¡œ ë°›ê³ , ë§¤ì¼ 12ì‹œì— ë‹¤ì‹œ ë°›ì•„ ìµœì‹  ìœ ì§€(í™•ì¥ì´ 1ë¶„ ì•ˆì— ìŠ¤ìŠ¤ë¡œ ë‹¤ì‹œ ì¼œì§)
-rem  "install.bat update" ëŠ” ë°›ê¸°ë§Œ í•œë‹¤(ì˜ˆì•½ ì‘ì—…ìš©).
+rem ÁİÁİ ¼³Ä¡¡¤¾÷µ¥ÀÌÆ®. ¾î´À PC ¿¡¼­µç ´õºíÅ¬¸¯.
+rem  - jjk ÀúÀå¼Ò°¡ ÀÖ´Â PC: ±× ¾ÈÀÇ jupjup Æú´õ¸¦ git pull ·Î ÃÖ½ÅÀ¸·Î
+rem  - ¾ø´Â PC: GitHub Pages(ÇĞ±³¸ÁÀº raw.githubusercontent °¡ ¸·Èû)¿¡¼­ %USERPROFILE%\jupjup ·Î ¹Ş°í, ¸ÅÀÏ 12½Ã¿¡ ´Ù½Ã ¹Ş¾Æ ÃÖ½Å À¯Áö(È®ÀåÀÌ 1ºĞ ¾È¿¡ ½º½º·Î ´Ù½Ã ÄÑÁü)
+rem  "install.bat update" ´Â ¹Ş±â¸¸ ÇÑ´Ù(¿¹¾à ÀÛ¾÷¿ë).
+rem  ÀÌ ÆÄÀÏÀº CP949(ÇÑ±Û À©µµ ±âº»)·Î ÀúÀåÇÑ´Ù. UTF-8+chcp 65001 ÀÌ¸é cmd °¡ ÇÑ±Û ÁÙÀ» Àß¸ø ²÷¾î ¸í·ÉÀ¸·Î ½ÇÇàÇÑ´Ù(2026-11-09 Àü»ê½Ç).
+rem  Å©·ÒÀº ¸í·ÉÁÙ·Î ¹ŞÀº chrome:// ÁÖ¼Ò¸¦ ¿­Áö ¾Ê´Â´Ù. ÁÖ¼Ò¸¦ º¹»çÇØ µÎ°í ÁÖ¼ÒÃ¢¿¡ ºÙ¿©³Ö°Ô ÇÑ´Ù.
 setlocal
 set "JJK=%USERPROFILE%\Documents\jjk"
 if exist "%JJK%\jupjup\manifest.json" (
@@ -16,23 +17,29 @@ if exist "%JJK%\jupjup\manifest.json" (
     "foreach($f in 'manifest.json','background.js','content.js','store.js','board.html','board.css','board.js','fonts/jua.woff2','icons/16.png','icons/48.png','icons/128.png'){" ^
     "  $p=Join-Path $d $f; New-Item -ItemType Directory -Force (Split-Path $p) | Out-Null;" ^
     "  Invoke-WebRequest -UseBasicParsing ($r+$f+'?t='+[DateTime]::Now.Ticks) -OutFile $p }"
-  if errorlevel 1 ( echo ë°›ê¸° ì‹¤íŒ¨ - ì¸í„°ë„· ì—°ê²°ì„ í™•ì¸í•´ ì£¼ì„¸ìš”. & pause & exit /b 1 )
-  rem ì‹¤í–‰ ì¤‘ì¸ bat ë¥¼ ë®ì–´ì“°ë©´ cmd ê°€ ê¼¬ì´ë¯€ë¡œ bat ëŠ” ë°›ì§€ ì•Šê³  ìê¸° ìì‹ ì„ ë³µì‚¬í•´ ë‘”ë‹¤(ì˜ˆì•½ ì‘ì—…ì´ ì“´ë‹¤)
+  if errorlevel 1 ( echo ¹Ş±â ½ÇÆĞ - ÀÎÅÍ³İ ¿¬°áÀ» È®ÀÎÇØ ÁÖ¼¼¿ä. & pause & exit /b 1 )
+  rem ½ÇÇà ÁßÀÎ bat ¸¦ µ¤¾î¾²¸é cmd °¡ ²¿ÀÌ¹Ç·Î bat ´Â ¹ŞÁö ¾Ê°í ÀÚ±â ÀÚ½ÅÀ» º¹»çÇØ µĞ´Ù(¿¹¾à ÀÛ¾÷ÀÌ ¾´´Ù)
   if /i not "%~f0"=="%USERPROFILE%\jupjup\install.bat" copy /y "%~f0" "%USERPROFILE%\jupjup\install.bat" >nul
   if not defined JUPJUP_TEST schtasks /create /f /sc daily /st 12:00 /tn "jupjup-update" /tr "\"%USERPROFILE%\jupjup\install.bat\" update" >nul
 )
 if /i "%~1"=="update" exit /b 0
 
-echo %DIR%| clip
+echo chrome://extensions| clip
 set "CH=%ProgramFiles%\Google\Chrome\Application\chrome.exe"
 if not exist "%CH%" set "CH=%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"
-start "" "%CH%" chrome://extensions
+start "" "%CH%"
 echo.
-echo  í¬ë¡¬ í™•ì¥ í™”ë©´ì´ ì—´ë ¸ìŠµë‹ˆë‹¤.
-echo  1. ì˜¤ë¥¸ìª½ ìœ„ 'ê°œë°œì ëª¨ë“œ' ì¼œê¸°
-echo  2. 'ì••ì¶•í•´ì œëœ í™•ì¥ í”„ë¡œê·¸ë¨ì„ ë¡œë“œí•©ë‹ˆë‹¤' ëˆ„ë¥´ê¸°
-echo  3. í´ë” ì°½ ìœ„ìª½ ì£¼ì†Œì¹¸ì— Ctrl+V í•˜ê³  'í´ë” ì„ íƒ'
-echo     (í´ë” ì£¼ì†Œ %DIR% ëŠ” ì´ë¯¸ ë³µì‚¬í•´ ë‘ì—ˆìŠµë‹ˆë‹¤)
+echo  ÀÌ¹Ì ¼³Ä¡µÅ ÀÖÀ¸¸é ÇÒ ÀÏ ¾ø½À´Ï´Ù. ÃÖ½Å ÆÄÀÏ·Î ¹Ù²î¾ú°í 1ºĞ ¾È¿¡ ÁİÁİÀÌ ´Ù½Ã ÄÑÁı´Ï´Ù.
 echo.
-echo  ì´ë¯¸ ì„¤ì¹˜ë¼ ìˆìœ¼ë©´ í•  ì¼ ì—†ìŠµë‹ˆë‹¤. ìµœì‹  íŒŒì¼ë¡œ ë°”ë€Œì—ˆê³  1ë¶„ ì•ˆì— ì¤ì¤ì´ ë‹¤ì‹œ ì¼œì§‘ë‹ˆë‹¤.
+echo  Ã³À½ ¼³Ä¡¶ó¸é Å©·Ò¿¡¼­:
+echo   1. ÁÖ¼ÒÃ¢¿¡ Ctrl+V ÇÏ°í Enter  (chrome://extensions ¸¦ º¹»çÇØ µÎ¾ú½À´Ï´Ù)
+echo   2. ¿À¸¥ÂÊ À§ [°³¹ßÀÚ ¸ğµå] ÄÑ±â
+echo   3. [¾ĞÃàÇØÁ¦µÈ È®Àå ÇÁ·Î±×·¥À» ·ÎµåÇÕ´Ï´Ù] ´©¸£±â
+echo   4. Æú´õ Ã¢ÀÌ ¶ß¸é ¿©±â·Î µ¹¾Æ¿Í ¾Æ¹« Å°³ª ´©¸£±â
+pause >nul
+echo %DIR%| clip
+echo.
+echo   5. Æú´õ Ã¢ À§ÂÊ ÁÖ¼ÒÄ­¿¡ Ctrl+V ÇÏ°í Enter, [Æú´õ ¼±ÅÃ]
+echo      (Æú´õ ÁÖ¼Ò %DIR% ¸¦ º¹»çÇØ µÎ¾ú½À´Ï´Ù)
+echo.
 pause
