@@ -104,6 +104,8 @@ with sync_playwright() as p:
     # 3. 롤오버·확대·내려받기·끌기·삭제
     b.hover(f'{P} >> nth=0'); b.wait_for_timeout(700)
     check('롤오버 크게', b.locator('#preview.big').is_visible())
+    b.evaluate(f"() => {{ const r = document.querySelector('{P}'); return showPreview(r, {{ kind: 'image', url: 'https://cdn.example.com/a/b.jpg?oe=1', title: '' }}); }}")
+    check('제목 없는 사진 미리보기에 주소 글자 없음', b.locator('#previewTitle').is_hidden(), b.inner_text('#previewTitle')[:60])
     gap = b.evaluate("""() => { const r = document.getElementById('spaces').getBoundingClientRect();
         for (let y = r.bottom - 5; y > r.top; y -= 7) for (let x = r.left + 5; x < r.right; x += 7) {
           const e = document.elementFromPoint(x, y); if (e && e.closest('#spaces') && !e.closest('.row, .photo, #preview')) return [x, y]; } }""")

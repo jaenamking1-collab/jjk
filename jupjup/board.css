@@ -287,7 +287,7 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 .preview img, .preview video { display: block; width: 100%; max-height: 170px; object-fit: cover; border-radius: 9px; margin-bottom: 6px; background: var(--milk); }
 .preview strong { display: block; font-size: 13px; line-height: 1.35; }
 .preview p { margin: 3px 0 0; font-size: 12px; line-height: 1.35; color: var(--ink-soft); }
-.preview p:empty { display: none; }
+.preview p:empty, .preview strong:empty { display: none; }
 
 .preview.big { width: min(420px, calc(100vw - 16px)); }
 .preview.big img { max-height: 60vh; object-fit: contain; }
