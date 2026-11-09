@@ -32,6 +32,11 @@ function _authOk(action, token) {
   else cache.put('authFail', String(n), AUTH_WINDOW_SEC);
   return false;
 }
+// 공개 액션 안에서 '주인만 되는 옵션'(예: getDistribution force)을 가를 때 쓴다. 오답 잠금 횟수는 세지 않는다.
+function _tokenValid(token) {
+  const secret = PropertiesService.getScriptProperties().getProperty('APP_TOKEN');
+  return !!secret && token === secret;
+}
 function _unauthorized() {
   const body = CacheService.getScriptCache().get('authLock')
     ? { error: 'unauthorized', locked: true, wait: AUTH_LOCK_SEC }
@@ -168,11 +173,14 @@ function doGet(e) {
       case 'getEtfScreener':  result = getEtfScreener(); break;
       case 'getNavMap':       result = getNavMap(); break;
       case 'getPerfScores':   result = getPerfScores(); break;
-      case 'getDistribution': result = getDistribution(e.parameter.source, e.parameter.force === '1'); break;
+      // force(강제 재수집)는 토큰이 맞을 때만. 공개 페이지는 프록시를 거치지 않고 여기를 바로 부르므로
+      // 프록시의 force 제거로는 못 막는다 — 공개 요청은 저장된 결과만 받는다(2026-11-09 검토).
+      case 'getDistribution': result = getDistribution(e.parameter.source, e.parameter.force === '1' && _tokenValid(e.parameter.token)); break;
       case 'getDistributionAll': result = getDistributionAll(); break;
       case 'getDistributionMonth': result = getDistributionMonth(e.parameter.m); break;
       case 'getDivSheetData': result = getDivSheetData(e.parameter.year); break;
       case 'getPortfolioLog': result = getPortfolioLog(); break;
+      case 'getPensionPlan':  result = getPensionPlan(); break;
       case 'getAlerts':       result = getAlerts(e.parameter.limit ? parseInt(e.parameter.limit) : 30); break;
       case 'checkAlerts':     result = checkAndLogAlerts(); break;
       case 'markAlertRead':   result = markAlertRead(parseInt(e.parameter.row)); break;
@@ -206,6 +214,7 @@ function doPost(e) {
       case 'updateHolding':  result = updateHolding(data); break;
       case 'deleteHolding':  result = deleteHolding(data.id); break;
       case 'saveDividend':   result = saveDividend(data); break;
+      case 'savePensionPlan': result = savePensionPlan(data.cfg); break;
       case 'deleteDividend': result = deleteDividend(data.id); break;
       case 'addSaving':      result = addSaving(data); break;
       case 'updateSaving':   result = updateSaving(data); break;
@@ -492,6 +501,19 @@ function getDividends(year, account_id) {
   let data = rows.slice(1).filter(r => r[0]);
   if (year) data = data.filter(r => r[2].toString() === year.toString());
   return data.map(r => ({ id: r[0], holding_id: r[1], year: r[2], month: r[3], amount: r[4], currency: r[5], rate: r[6] || '' }));
+}
+// 연금플랜 설정(이름·연금액·개시연도·출생연도 등). 예전엔 portfolio.html 기본값에 박혀 공개 소스로
+// 보였고 나머지는 브라우저 localStorage 에만 있었다 → 토큰이 있어야 읽고 쓰는 스크립트 속성으로 옮김(2026-11-09).
+function getPensionPlan() {
+  const s = PropertiesService.getScriptProperties().getProperty('PENSION_PLAN');
+  return { success: true, cfg: s ? JSON.parse(s) : null };
+}
+function savePensionPlan(cfg) {
+  if (!cfg || typeof cfg !== 'object') return { success: false, error: 'cfg 없음' };
+  const s = JSON.stringify(cfg);
+  if (s.length > 8500) return { success: false, error: '설정이 너무 큼(' + s.length + ')' };
+  PropertiesService.getScriptProperties().setProperty('PENSION_PLAN', s);
+  return { success: true };
 }
 function saveDividend(data) {
   const sheet = getSheet('dividends');

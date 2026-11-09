@@ -127,7 +127,8 @@ const Calc = (() => {
       if (held) runInfo.push({ h, perPayK: toKrw(perPay, cur, rate), lastK: vals.length ? toKrw(vals[vals.length - 1], cur, rate) : 0, n: payMonthsOf(h).length });
       (held ? payMonthsOf(h) : []).forEach(m => {
         const act = thisYear[m] || 0;
-        const amtK = toKrw(act > 0 ? act : perPay, cur, rate);
+        // 확정(입력)분은 받은 달 환율, 예상분만 오늘 환율 — 같은 달이 actual 과 proj 에서 다르게 나오던 것 수정(2026-11-09)
+        const amtK = act > 0 ? divKrw(act, cur, divRate[h.id + '_' + year + '_' + m], rate) : toKrw(perPay, cur, rate);
         proj[m-1] += amtK; perH[h.id] += amtK;
         who[m-1].push({ name: h.name || h.ticker, amt: amtK, est: !(act > 0) });
       });
