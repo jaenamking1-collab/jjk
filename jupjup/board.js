@@ -178,6 +178,7 @@ function buildSpaces() {
     const sp = el('section', 'space');
     sp.dataset.i = i;
     sp.dataset.c = i % 4;
+    sp.classList.toggle('pics', !!board.spaces[i].photos);
     const head = el('div', 'space-head');
     // 사진 칸은 제목 없이 장 수만 보인다
     if (!board.spaces[i].photos) {
@@ -196,6 +197,8 @@ function buildSpaces() {
   spacesEl.dataset.key = viewKey();
   spacesEl.dataset.layout = board.layout;
   spacesEl.classList.toggle('compact', board.layout === 4);
+  spacesEl.classList.toggle('nophotos', !!board.hidePhotos);
+  $('photoBtn').setAttribute('aria-pressed', String(!board.hidePhotos));
   document.querySelectorAll('.layouts button').forEach(b => {
     b.setAttribute('aria-pressed', String(+b.dataset.layout === board.layout));
   });
@@ -481,22 +484,21 @@ async function pasteLinks(index, items) {
   else if (!list) toast(`${spaceName(index)}에 ${items.length}개 넣었어요`);
 }
 
-// 사진이 들어갈 칸: 자리가 남은 사진 칸 → 빈 칸(첫 칸은 링크 자리라 둘째부터) → 새 판(꽉 찬 사진 칸 자리에 보인다)
+// 사진이 들어갈 칸: 자리가 남은 사진 칸(누른 칸 → 둘째 자리 → 나머지) → 둘째 자리가 비었으면 그 칸 → 새 판.
+// 사진 칸은 늘 둘째(오른쪽) 자리에 놓는다(2026-11-09 사용자: 셋째에 들어가면 링크 판이 늘 때 밀려 사라진다).
 function photoSpace(prefer) {
-  const vis = visible();
   const pics = i => board.spaces[i].items.filter(isPhoto).length;
-  if (prefer != null && board.spaces[prefer].photos && pics(prefer) < PHOTO_MAX) return prefer;
-  const room = vis.find(i => board.spaces[i].photos && pics(i) < PHOTO_MAX);
-  if (room != null) return room;
-  const empty = vis.slice(1).find(i => !board.spaces[i].items.length);
-  if (empty != null) {
-    board.spaces[empty].photos = true;
-    return empty;
+  const ok = i => i != null && board.spaces[i].photos && pics(i) < PHOTO_MAX;
+  const slot = board.shown[1];
+  let at = [prefer, slot, ...board.shown, ...board.spaces.keys()].find(ok);
+  if (at == null && board.spaces[slot] && !board.spaces[slot].items.length) board.spaces[at = slot].photos = true;
+  if (at == null) {
+    board.spaces.push({ title: '', items: [], photos: true });
+    at = board.spaces.length - 1;
   }
-  board.spaces.push({ title: '', items: [], photos: true });
-  const full = vis.filter(i => board.spaces[i].photos).pop();
-  board.shown[full != null ? board.shown.indexOf(full) : board.layout - 1] = board.spaces.length - 1;
-  return board.spaces.length - 1;
+  const rest = board.shown.filter(s => s !== at);
+  board.shown = [rest[0], at, ...rest.slice(1)].slice(0, 4);
+  return at;
 }
 
 // SNS 사진 주소는 며칠 뒤 만료되므로 줄인 사본(긴 변 1280px)을 같이 저장한다
@@ -780,6 +782,14 @@ function moveDragged(to, beforeId) {
 
 spacesEl.addEventListener('dragend', () => {
   if (drag) { clearDrag(); render(); }
+});
+
+// 사진 칸 보이기·숨기기(2026-11-09 사용자). 숨겨도 사진은 그대로 저장돼 있다.
+$('photoBtn').addEventListener('click', () => {
+  board.hidePhotos = !board.hidePhotos;
+  save();
+  buildSpaces();
+  render();
 });
 
 document.querySelector('.layouts').addEventListener('click', e => {
