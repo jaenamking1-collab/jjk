@@ -104,6 +104,11 @@ with sync_playwright() as p:
     # 3. 롤오버·확대·내려받기·끌기·삭제
     b.hover(f'{P} >> nth=0'); b.wait_for_timeout(700)
     check('롤오버 크게', b.locator('#preview.big').is_visible())
+    gap = b.evaluate("""() => { const r = document.getElementById('spaces').getBoundingClientRect();
+        for (let y = r.bottom - 5; y > r.top; y -= 7) for (let x = r.left + 5; x < r.right; x += 7) {
+          const e = document.elementFromPoint(x, y); if (e && e.closest('#spaces') && !e.closest('.row, .photo, #preview')) return [x, y]; } }""")
+    b.mouse.move(*gap); b.wait_for_timeout(200)
+    check('빈 곳으로 옮기면 미리보기 닫힘', b.locator('#preview').is_hidden(), gap)
     b.evaluate("window.__mark = document.querySelector('.space:nth-child(2) .photo'); window.__renders = 0; new MutationObserver(() => window.__renders++).observe(document.getElementById('spaces'), {childList: true, subtree: true})"); b.bring_to_front(); b.mouse.move(0, 0); b.hover(f'{P} >> nth=0'); b.wait_for_timeout(500); op = b.eval_on_selector(f'{P} .photo-acts', 'e => getComputedStyle(e).opacity'); check('x·내려받기 보임', op == '1', (op, b.evaluate("[window.__mark === document.querySelector('.space:nth-child(2) .photo'), window.__renders, getComputedStyle(document.querySelector('.space:nth-child(2) .photo-acts')).transition]")))
     b.click(f'{P} >> nth=1'); b.wait_for_timeout(200)
     check('클릭 확대', b.locator('#zoom').is_visible())

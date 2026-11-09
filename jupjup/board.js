@@ -826,7 +826,8 @@ $('checkNow').addEventListener('click', async () => {
 
 spacesEl.addEventListener('mouseover', e => {
   const row = e.target.closest('.row, .photo');
-  if (!row || row.dataset.id === previewFor || drag) return;
+  if (!row) return hidePreview();  // 줄 밖 빈 곳으로 옮기면 닫는다(예전엔 그대로 남았다)
+  if (row.dataset.id === previewFor || drag) return;
   if (e.target.closest('button,input')) return hidePreview();
   hidePreview();
   const item = findItem(+row.closest('.space').dataset.i, row.dataset.id);
