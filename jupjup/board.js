@@ -311,7 +311,8 @@ async function showPreview(row, item) {
   if (image) $('previewImg').src = image;
   $('previewVideo').hidden = !video;
   if (video) $('previewVideo').src = item.url;
-  $('previewTitle').textContent = item.title || shortUrl(item.url);
+  // 사진 칸은 사진만 — 제목 없는 사진에 사진 파일 주소(인스타 CDN 긴 주소)를 쓰지 않는다
+  $('previewTitle').textContent = item.title || (row.classList.contains('photo') ? '' : shortUrl(item.url));
   $('previewText').textContent = text;
   $('preview').classList.toggle('big', row.classList.contains('photo'));
   $('preview').hidden = false;
