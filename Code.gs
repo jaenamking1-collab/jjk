@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_probeTiger', '_probeTigerKind', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', '_addExtDepSheet', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp', '_syncDivRates', '_fillPastDivFromApp', 'setKrwCost', 'aptRefresh', '_molitKeyOnce', '_diagApt', '_aptHistory', '_aptGeoBackfill'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_probeTiger', '_probeTigerKind', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', '_addExtDepSheet', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp', '_syncDivRates', '_fillPastDivFromApp', 'setKrwCost', 'aptRefresh', '_molitKeyOnce', '_diagApt', '_aptHistory', '_aptGeoBackfill', '_exaoneKeyOnce', '_exaoneTest'
 ];
 
 function runMaint(name, arg) {
@@ -5648,6 +5648,36 @@ function _molitKeyOnce() {
   }
 }
 
+// LG 엑사원(K-EXAONE) 무료 API 시험(2026-11-09). 열쇠는 config 탭 'exaone_key | 열쇠' 줄 → 속성 EXAONE_KEY 로 옮기고 줄은 지운다.
+// 주소·모델 이름은 비밀이 아니라 config 탭 'exaone_url'·'exaone_model' 줄에 그대로 둔다(OpenAI 호환 주소).
+function _exaoneKeyOnce() {
+  const cfg = getSheet('config'), rows = cfg.getDataRange().getValues();
+  for (let i = rows.length - 1; i >= 1; i--) {
+    if (String(rows[i][0]).trim().toLowerCase() !== 'exaone_key') continue;
+    const k = String(rows[i][1]).trim();
+    cfg.deleteRow(i + 1);
+    if (k) { PropertiesService.getScriptProperties().setProperty('EXAONE_KEY', k); _fixLog('엑사원 API 열쇠를 시트에서 받아 저장하고 시트 줄은 지움(' + k.length + '자)'); }
+  }
+}
+function _exaoneTest(prompt) {
+  _exaoneKeyOnce();
+  const key = PropertiesService.getScriptProperties().getProperty('EXAONE_KEY');
+  if (!key) { console.log('EXAONE_KEY 없음 — config 탭에 exaone_key 줄을 넣어야 함'); return; }
+  const c = {};
+  getSheet('config').getDataRange().getValues().forEach(r => { c[String(r[0]).trim().toLowerCase()] = String(r[1]).trim(); });
+  let url = c.exaone_url || '', model = c.exaone_model || '';
+  if (!url || !model) { console.log('config 탭에 exaone_url·exaone_model 줄 필요 (주소 ' + (url ? '있음' : '없음') + ', 모델 ' + (model ? '있음' : '없음') + ')'); return; }
+  if (!/\/chat\/completions\/?$/.test(url)) url = url.replace(/\/+$/, '') + '/chat/completions';
+  const t0 = Date.now();
+  const res = UrlFetchApp.fetch(url, {
+    method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+    headers: { Authorization: 'Bearer ' + key },
+    payload: JSON.stringify({ model: model, max_tokens: 400, messages: [{ role: 'user', content: prompt || '한국 월배당 ETF의 분배금이 무엇인지 두 문장으로 설명해 줘.' }] })
+  });
+  console.log('응답 ' + res.getResponseCode() + ' · ' + (Date.now() - t0) + 'ms · ' + url + ' · ' + model);
+  console.log(res.getContentText().slice(0, 2000));
+}
+
 // 한 달·한 시군구 거래를 API에서 받아 배열로. 실패하면 이유를 담아 throw.
 function _aptFetch(sgg, ym) {
   const key = PropertiesService.getScriptProperties().getProperty('MOLIT_KEY');
@@ -6121,6 +6151,7 @@ function keepWarm() {
   try { _krwCostOnce(); } catch (e) { console.log('_krwCostOnce 실패 — ' + e); }
   try { _telegramTestOnce(); } catch (e) { console.log('_telegramTestOnce 실패 — ' + e); }
   try { _molitKeyOnce(); } catch (e) { console.log('_molitKeyOnce 실패 — ' + e); }
+  try { _exaoneKeyOnce(); } catch (e) { console.log('_exaoneKeyOnce 실패 — ' + e); }
   try { _aptGeoOnce(); } catch (e) { _fixLog('단지 좌표 채우기 실패 — ' + e); }
   try { _aptStaleCheck(); } catch (e) { console.log('_aptStaleCheck 실패 — ' + e); }
 
