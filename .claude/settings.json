@@ -154,7 +154,8 @@
   },
   "enabledPlugins": {
     "jjk-guard@jjk": true,
-    "hallmark@hallmark": true
+    "hallmark@hallmark": true,
+    "hyperframes@hyperframes": true
   },
   "extraKnownMarketplaces": {
     "jjk": {
@@ -167,6 +168,12 @@
       "source": {
         "source": "github",
         "repo": "nutlope/hallmark"
+      }
+    },
+    "hyperframes": {
+      "source": {
+        "source": "github",
+        "repo": "heygen-com/hyperframes"
       }
     }
   }
