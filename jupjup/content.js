@@ -486,8 +486,18 @@
   for (const type of ['contextmenu', 'mousedown', 'mouseup']) {
     addEventListener(type, e => {
       if (!alive() || (type !== 'contextmenu' && e.button !== 2)) return;
+      if (type === 'contextmenu') rightImg = e.composedPath()[0];
       e.stopImmediatePropagation();
     }, true);
   }
+  // 우클릭 사진 저장의 파일 이름 = 그 사진의 게시글 제목(없으면 h1, 그다음 background 가 탭 제목)
+  let rightImg = null;
+  chrome.runtime.onMessage.addListener((m, s, reply) => {
+    if (m !== 'photoTitle') return;
+    let t = '';
+    try { if (rightImg instanceof HTMLImageElement) t = (photoPost(rightImg) || {}).title || ''; } catch (e) {}
+    if (!t) { const h1 = document.querySelector('h1'); t = clean(h1 && h1.innerText); }
+    reply(t);
+  });
   addEventListener('blur', reset);
 })();
