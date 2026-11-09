@@ -23,9 +23,15 @@ let previewTimer = 0, previewFor = '';
 const visible = () => board.shown.slice(0, board.layout);
 const spaceName = i => board.spaces[i].title || (board.spaces[i].photos ? `사진 판 ${i + 1}` : `제목 없는 판 ${i + 1}`);
 
-// 1.0 저장본에는 shown 이 없다
+// 1.0 저장본에는 shown 이 없다. 셋째·넷째 자리의 사진 칸은 둘째 자리로 옮긴다(1.10.0 전 저장본).
 function withShown(b) {
-  return { shown: [0, 1, 2, 3], ...b };
+  b = { shown: [0, 1, 2, 3], ...b };
+  const p = b.shown.slice(2).find(i => b.spaces[i]?.photos);
+  if (p != null && !b.spaces[b.shown[1]]?.photos) {
+    const rest = b.shown.filter(s => s !== p);
+    b.shown = [rest[0], p, ...rest.slice(1)];
+  }
+  return b;
 }
 
 function save() {
