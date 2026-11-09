@@ -106,6 +106,19 @@ def parse_view(html):
     return items, sched
 
 
+def body_text(html, title):
+    """공지 본문을 표 칸은 ' | ' 로 이어 글자로. 제목부터 '목록보기' 앞까지(메뉴·바닥글 빼고)."""
+    h = re.sub(r'(?is)<(script|style)[^>]*>.*?</\1>', ' ', html)
+    h = re.sub(r'(?i)</t[dh]>', ' | ', h)
+    h = re.sub(r'(?i)</tr>|<br\s*/?>|</p>|</li>', '\n', h)
+    h = re.sub(r'<[^>]+>', ' ', h).replace('&nbsp;', ' ').replace('&amp;', '&').replace('&#37;', '%')
+    h = re.sub(r'[ \t]+', ' ', h)
+    h = re.sub(r' \|\s*\n', ' | ', re.sub(r'\n\s+', '\n', h))
+    a = h.find(title[:20])
+    b = h.find('목록보기', max(a, 0))
+    return h[max(a, 0):b if b > 0 else None].strip()
+
+
 def fetch_dist(notices):
     """목록 위쪽 분배금 공지 본문을 열어 회차(기준일의 '일' 20 이하=월중)별로 담는다. 최신순."""
     out = []
@@ -116,6 +129,11 @@ def fetch_dist(notices):
         html = urllib.request.urlopen(urllib.request.Request(VIEW + key, headers={'User-Agent': 'Mozilla/5.0'}), timeout=30).read().decode('utf-8')
         items, sched = parse_view(html)
         if not items or not sched.get('기준일'):
+            # 표기가 바뀌어 못 읽으면 본문 글자를 올리고 서버의 엑사원이 대신 읽는다(2026-11-09, 대조 88/88).
+            txt = body_text(html, n['title'])
+            if txt:
+                out.append({'key': key, 'title': n['title'], 'date': n['date'], 'needAI': True, 'text': txt[:20000]})
+                log('본문 표 못 읽음 → 엑사원에 맡김: ' + n['title'])
             continue
         cyc = '월중' if int(sched['기준일'].split('/')[1]) <= 20 else '월말'
         out.append({'key': key, 'title': n['title'], 'date': n['date'], 'cycle': cyc, 'sched': sched, 'items': items})

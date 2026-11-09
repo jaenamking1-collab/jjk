@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_probeTiger', '_probeTigerKind', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', '_addExtDepSheet', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp', '_syncDivRates', '_fillPastDivFromApp', 'setKrwCost', 'aptRefresh', '_molitKeyOnce', '_diagApt', '_aptHistory', '_aptGeoBackfill', '_exaoneKeyOnce', '_exaoneTest', '_exaoneNoticeTest', '_exaoneTigerTest'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_probeTiger', '_probeTigerKind', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', '_addExtDepSheet', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp', '_syncDivRates', '_fillPastDivFromApp', 'setKrwCost', 'aptRefresh', '_molitKeyOnce', '_diagApt', '_aptHistory', '_aptGeoBackfill', '_exaoneKeyOnce', '_exaoneTest', '_exaoneNoticeTest', '_exaoneTigerTest', '_exaoneFallbackTest', '_tigerAiFill'
 ];
 
 function runMaint(name, arg) {
@@ -2778,8 +2778,43 @@ function _tigerRelayPc() {
     // 10/29 중계본이 버려지고 서버는 10/27 목록을 계속 보여 10/28 월말 공지가 빠졌다).
     // (같은 날 FunETF 공개 API 도 시험했지만 구글 서버엔 403 — 미래에셋과 같다. 국내 PC 에선 열린다.)
     if (!(v.items || []).length || isNaN(at)) return null;
+    // PC 가 표를 못 읽어 본문 글자만 올린 공지(needAI) → keepWarm 의 _tigerAiFill 이 엑사원으로 읽어 둔 결과로 바꾼다.
+    // 아직 못 읽었으면 뺀다(sched 없는 항목이 섞이면 아래 중계 표 전체가 깨진다).
+    const pr = PropertiesService.getScriptProperties();
+    _TIGER_NEED_AI = [];
+    v.dist = (v.dist || []).map(n => {
+      if (!n.needAI) return n;
+      const s = _propGetBig('EXA_TIGER_' + n.key);
+      if (s) { try { return Object.assign({ key: n.key, title: n.title, date: n.date }, JSON.parse(s)); } catch (e) {} }
+      _TIGER_NEED_AI.push(n);
+      return null;
+    }).filter(Boolean);
     return v;
   } catch(e) { return null; }
+}
+var _TIGER_NEED_AI = [];
+// keepWarm 에서 돈다. 엑사원은 TIGER 공지 하나에 1분 넘게 걸려 화면 요청 중엔 부르지 않는다. 한 번에 하나만.
+function _tigerAiFill() {
+  _tigerRelayPc();
+  const n = _TIGER_NEED_AI[0];
+  if (!n || !n.text) return;
+  const got = _exaoneDistCached('tiger_' + n.key, () => n.text, '/');
+  if (!got || !got.schedule['기준일']) return;
+  const cycle = Number(got.schedule['기준일'].split('/')[1]) <= 20 ? '월중' : '월말';
+  _propPutBig('EXA_TIGER_' + n.key, JSON.stringify({ cycle: cycle, sched: got.schedule,
+    items: got.items.map(it => ({ ticker: it.ticker, name: it.name, amount: it.amount, rate: it.rate, _ai: true })) }));
+}
+// 스크립트 속성 한 칸은 9KB 까지 — 큰 값은 2500자씩(한글 3바이트) 나눠 담는다(TIGER 88종목 ≈ 10KB).
+function _propPutBig(k, s) {
+  const pr = PropertiesService.getScriptProperties(), o = {};
+  for (let i = 0; i * 2500 < s.length; i++) o[k + '_' + i] = s.slice(i * 2500, (i + 1) * 2500);
+  o[k] = String(Object.keys(o).length);
+  pr.setProperties(o);
+}
+function _propGetBig(k) {
+  const pr = PropertiesService.getScriptProperties(), n = Number(pr.getProperty(k) || 0);
+  let s = ''; for (let i = 0; i < n; i++) s += pr.getProperty(k + '_' + i) || '';
+  return s;
 }
 // 중계 목록에서 'm월말'/'m월 중순' 분배금 공지의 등록일 → 'M/D'. 없으면 ''.
 function _tigerRelayPub(m, cyc) {
@@ -3222,7 +3257,11 @@ function fetchDist_hanaro() {
     });
     if (!items.length) {
       console.log('HANARO 분배 글 파싱 0건 — 표기 변경 의심: ' + n.title);
-      return { items: [], error: 'HANARO: 공지 본문 파싱 0건 (' + n.title + ')' };
+      // 표기가 바뀌어 파서가 못 읽으면 엑사원이 본문을 대신 읽는다(2026-11-09, 대조 16/16). 같은 글은 6시간 캐시.
+      const ai = _exaoneDistCached('hanaro_' + n.id, () => _hanaroNoticeText(n.id), '월 ');
+      if (!ai) return { items: [], error: 'HANARO: 공지 본문 파싱 0건 (' + n.title + ')' };
+      ai.items.forEach(it => items.push(it));
+      Object.assign(sched, ai.schedule);
     }
     const bd = (sched['기준일'] || '').match(/(\d+)일/);
     const cycle = bd && parseInt(bd[1]) <= 20 ? '월중' : '월말';
@@ -5649,14 +5688,23 @@ function _molitKeyOnce() {
 }
 
 // LG 엑사원(K-EXAONE) 무료 API 시험(2026-11-09). 열쇠는 config 탭 'exaone_key | 열쇠' 줄 → 속성 EXAONE_KEY 로 옮기고 줄은 지운다.
-// 주소·모델 이름은 비밀이 아니라 config 탭 'exaone_url'·'exaone_model' 줄에 그대로 둔다(OpenAI 호환 주소).
+// 열쇠는 발급 30일 뒤 만료된다(첫 열쇠 2026-12-09) → 만료 3일 전에 한 번 알린다.
 function _exaoneKeyOnce() {
-  const cfg = getSheet('config'), rows = cfg.getDataRange().getValues();
+  const cfg = getSheet('config'), rows = cfg.getDataRange().getValues(), pr = PropertiesService.getScriptProperties();
   for (let i = rows.length - 1; i >= 1; i--) {
     if (String(rows[i][0]).trim().toLowerCase() !== 'exaone_key') continue;
     const k = String(rows[i][1]).trim();
     cfg.deleteRow(i + 1);
-    if (k) { PropertiesService.getScriptProperties().setProperty('EXAONE_KEY', k); _fixLog('엑사원 API 열쇠를 시트에서 받아 저장하고 시트 줄은 지움(' + k.length + '자)'); }
+    if (k) {
+      pr.setProperties({ EXAONE_KEY: k, EXAONE_KEY_EXP: Utilities.formatDate(new Date(Date.now() + 30 * 86400000), 'Asia/Seoul', 'yyyy-MM-dd') });
+      _fixLog('엑사원 API 열쇠를 시트에서 받아 저장하고 시트 줄은 지움(' + k.length + '자)');
+    }
+  }
+  const exp = pr.getProperty('EXAONE_KEY_EXP') || '2026-12-09';
+  const left = (new Date(exp + 'T00:00:00+09:00') - Date.now()) / 86400000;
+  if (pr.getProperty('EXAONE_KEY') && left <= 3 && pr.getProperty('EXAONE_KEY_WARNED') !== exp) {
+    pr.setProperty('EXAONE_KEY_WARNED', exp);
+    sendKakaoMemo('⏰ 엑사원 API 키가 ' + exp.slice(5).replace('-', '/') + '에 만료돼요. 새로 발급받아 DB 시트 config 탭에 exaone_key 줄로 넣어 주세요(분배 공지 대체 읽기용).');
   }
 }
 // docs.exaone.ai(2026-11-09): POST /v1/chat/completions, 모델 k-exaone_v2.5, 늘 추론을 거쳐 max_tokens 에 추론 몫도 든다.
@@ -5695,6 +5743,25 @@ function _exaoneExtractDist(text) {
   got.schedule = got.schedule || {};
   return got;
 }
+// 파서가 0건일 때 쓰는 대체 읽기. key 별로 결과를 캐시(성공 6시간·실패 1시간)해 하루 한도(100번)를 아낀다.
+// fmt '월 ' → 일정을 '10월 28일', '/' → '10/28'. 성공하면 복구로그에 남긴다(사람이 모르게 대체되지 않게).
+function _exaoneDistCached(key, textFn, fmt) {
+  const cache = CacheService.getScriptCache(), ck = 'exa_' + key, hit = cache.get(ck);
+  if (hit) { try { const v = JSON.parse(hit); return v.items && v.items.length ? v : null; } catch (e) {} }
+  let got = null;
+  try { got = _exaoneExtractDist(textFn()); } catch (e) { console.log('엑사원 대체 읽기 실패(' + key + ') — ' + e); }
+  // '2026.10.28'·'10/29 (목)'·'10월 30일' → 월·일 (연도는 먼저 떼어 낸다)
+  const md = s => { const x = String(s || '').replace(/\d{4}\s*[.\-\/년]\s*/, '').match(/(\d{1,2})\s*(?:월|\/|\.)\s*(\d{1,2})/);
+    return x ? (fmt === '/' ? Number(x[1]) + '/' + Number(x[2]) : Number(x[1]) + '월 ' + Number(x[2]) + '일') : ''; };
+  if (got && got.items.length) {
+    const s = {}; ['공시일', '분배락일', '기준일', '지급일'].forEach(k => { const v = md(got.schedule[k]); if (v) s[k] = v; });
+    got.schedule = s;
+    got.items.forEach(it => { it._ai = true; });
+    if (!/^test_/.test(key)) _fixLog('파서 0건 → 엑사원이 공지를 대신 읽음: ' + key + ' ' + got.items.length + '종목, 기준일 ' + (s['기준일'] || '?'));
+  }
+  try { cache.put(ck, JSON.stringify(got || { items: [] }), got && got.items.length ? 21600 : 3600); } catch (e) {}
+  return got && got.items.length ? got : null;
+}
 // 지금 파서 값(ref) ↔ 엑사원 값(got) 대조를 로그로.
 function _exaoneCompare(refItems, refSched, got) {
   const mine = {}; got.items.forEach(it => { mine[it.ticker] = it; });
@@ -5722,6 +5789,19 @@ function _exaoneTigerTest(key) {
   console.log('TIGER 공지 ' + key + ' · 본문 ' + text.length + '자 · 중계 파서 ' + (ref ? ref.items.length + '종목' : '없음'));
   const got = _exaoneExtractDist(text);
   if (got) _exaoneCompare(ref && ref.items, ref && ref.sched, got);
+}
+// 대체 읽기 경로 그대로(캐시·일정 형식 맞춤까지) 시험 — 실제 저장·복구로그는 건드리지 않는다.
+function _exaoneFallbackTest() {
+  const h = fetchDist_hanaro(), n = _hanaroNotices().filter(x => /분배금\s*공지/.test(x.title))[0];
+  CacheService.getScriptCache().removeAll(['exa_test_hanaro', 'exa_test_tiger']);
+  const a = _exaoneDistCached('test_hanaro', () => _hanaroNoticeText(n.id), '월 ');
+  console.log('HANARO 파서 일정 ' + JSON.stringify(h.schedule) + ' · ' + h.items.length + '종목');
+  console.log('HANARO 대체 일정 ' + JSON.stringify(a && a.schedule) + ' · ' + (a ? a.items.length : 0) + '종목');
+  const t = UrlFetchApp.fetch('https://raw.githubusercontent.com/jaenamking1-collab/jjk/probe-out/ai/tiger_774.txt', { muteHttpExceptions: true }).getContentText('UTF-8');
+  const ref = ((_tigerRelayPc() || {}).dist || []).find(x => String(x.key) === '774');
+  const b = _exaoneDistCached('test_tiger', () => t, '/');
+  console.log('TIGER 중계 일정 ' + JSON.stringify(ref && ref.sched) + ' · ' + (ref ? ref.items.length : 0) + '종목');
+  console.log('TIGER 대체 일정 ' + JSON.stringify(b && b.schedule) + ' · ' + (b ? b.items.length : 0) + '종목');
 }
 // 엑사원이 HANARO 최신 분배금 공지 본문에서 뽑은 값 ↔ 지금 파서(fetchDist_hanaro) 값 대조. 공개 공지라 금액을 로그에 남겨도 된다.
 function _exaoneNoticeTest() {
@@ -6215,6 +6295,7 @@ function keepWarm() {
   try { _telegramTestOnce(); } catch (e) { console.log('_telegramTestOnce 실패 — ' + e); }
   try { _molitKeyOnce(); } catch (e) { console.log('_molitKeyOnce 실패 — ' + e); }
   try { _exaoneKeyOnce(); } catch (e) { console.log('_exaoneKeyOnce 실패 — ' + e); }
+  try { _tigerAiFill(); } catch (e) { console.log('_tigerAiFill 실패 — ' + e); }
   try { _aptGeoOnce(); } catch (e) { _fixLog('단지 좌표 채우기 실패 — ' + e); }
   try { _aptStaleCheck(); } catch (e) { console.log('_aptStaleCheck 실패 — ' + e); }
 
