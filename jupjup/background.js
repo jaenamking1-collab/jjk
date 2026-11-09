@@ -299,11 +299,28 @@ function makeMenus() {
 }
 chrome.runtime.onInstalled.addListener(makeMenus);
 chrome.runtime.onStartup.addListener(makeMenus);
-chrome.contextMenus.onClicked.addListener(info => saveImage(info));
-async function saveImage(info) {
+chrome.contextMenus.onClicked.addListener((info, tab) => saveImage(info, tab));
+// 파일 이름은 게시글 제목(2026-11-09 사용자). 같은 이름이 있으면 크롬이 '제목 (1)', '제목 (2)' 로 붙인다(uniquify)
+async function photoName(info, tab) {
+  let t = '';
+  try { t = await chrome.tabs.sendMessage(tab.id, 'photoTitle', { frameId: info.frameId || 0 }); } catch (e) {}
+  if (!t && tab) t = tab.title || '';
+  t = String(t || '').replace(/[\\/:*?"<>|\u0000-\u001f~]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80).replace(/[. ]+$/, '');
+  return t || 'image';
+}
+async function saveImage(info, tab) {
   if (!info.srcUrl || !(info.menuItemId in SAVE_AS)) return;
   const type = info.menuItemId;
-  if (type === 'saveImage') return chrome.downloads.download({ url: info.srcUrl, saveAs: true });
+  const name = await photoName(info, tab);
+  if (type === 'saveImage') {
+    let ext = (/^https?:/.test(info.srcUrl) && (new URL(info.srcUrl).pathname.match(/\.(jpe?g|png|gif|webp|avif|bmp|svg)$/i) || [])[1]) || '';
+    if (!ext) try {
+      const ct = /^data:/.test(info.srcUrl) ? info.srcUrl.slice(5, info.srcUrl.indexOf(';'))
+        : (await fetch(info.srcUrl, { method: 'HEAD' })).headers.get('content-type') || '';
+      ext = (ct.match(/image\/(jpe?g|png|gif|webp|avif|bmp|svg)/) || [])[1] || '';
+    } catch (e) {}
+    return chrome.downloads.download({ url: info.srcUrl, filename: name + '.' + (ext || 'jpg').toLowerCase().replace('jpeg', 'jpg'), conflictAction: 'uniquify', saveAs: true });
+  }
   try {
     const bmp = await createImageBitmap(await (await fetch(info.srcUrl)).blob());
     const c = new OffscreenCanvas(bmp.width, bmp.height), g = c.getContext('2d');
@@ -311,10 +328,8 @@ async function saveImage(info) {
     g.drawImage(bmp, 0, 0);
     const blob = await c.convertToBlob({ type: 'image/' + type, quality: 0.95 });
     const url = await new Promise(ok => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(blob); });
-    let name = 'image';
-    if (/^https?:/.test(info.srcUrl)) try { name = decodeURIComponent(new URL(info.srcUrl).pathname.split('/').pop()).replace(/\.[^.]*$/, '').replace(/[\\/:*?"<>|]/g, '') || name; } catch (e) {}
-    chrome.downloads.download({ url, filename: name.slice(0, 100) + '.' + (type === 'jpeg' ? 'jpg' : type), saveAs: true });
+    chrome.downloads.download({ url, filename: name + '.' + (type === 'jpeg' ? 'jpg' : type), conflictAction: 'uniquify', saveAs: true });
   } catch (e) {
-    chrome.downloads.download({ url: info.srcUrl, saveAs: true });  // 못 바꾸면(막힌 사진) 원본이라도
+    chrome.downloads.download({ url: info.srcUrl, filename: name + '.jpg', conflictAction: 'uniquify', saveAs: true });  // 못 바꾸면(막힌 사진) 원본이라도
   }
 }
