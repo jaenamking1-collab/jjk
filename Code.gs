@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_probeTiger', '_probeTigerKind', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', '_addExtDepSheet', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp', '_syncDivRates', '_fillPastDivFromApp', 'setKrwCost', 'aptRefresh', '_molitKeyOnce', '_diagApt', '_aptHistory', '_aptGeoBackfill', '_exaoneKeyOnce', '_exaoneTest', '_exaoneNoticeTest'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_probeTiger', '_probeTigerKind', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', '_addExtDepSheet', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp', '_syncDivRates', '_fillPastDivFromApp', 'setKrwCost', 'aptRefresh', '_molitKeyOnce', '_diagApt', '_aptHistory', '_aptGeoBackfill', '_exaoneKeyOnce', '_exaoneTest', '_exaoneNoticeTest', '_exaoneTigerTest'
 ];
 
 function runMaint(name, arg) {
@@ -5681,34 +5681,64 @@ function _exaoneCall(prompt, maxTokens) {
 function _exaoneTest(prompt) {
   console.log(_exaoneCall(prompt || '한국 월배당 ETF의 분배금이 무엇인지 두 문장으로 설명해 줘.'));
 }
-// 엑사원이 HANARO 최신 분배금 공지 본문에서 뽑은 값 ↔ 지금 파서(fetchDist_hanaro) 값 대조. 공개 공지라 금액을 로그에 남겨도 된다.
-function _exaoneNoticeTest() {
-  const ref = fetchDist_hanaro();
-  const n = _hanaroNotices().filter(x => /분배금\s*공지/.test(x.title))[0];
-  if (!n) { console.log('HANARO 분배금 공지 없음'); return; }
-  const html = UrlFetchApp.fetch(HANARO_BASE + '/customer/notice/' + n.id,
-    { headers: { 'User-Agent': 'Mozilla/5.0' }, muteHttpExceptions: true }).getContentText('UTF-8');
-  const text = html.slice(Math.max(0, html.indexOf('fr-view')))
-    .replace(/<\/t[dh]>/gi, ' | ').replace(/<\/tr>|<br\s*\/?>|<\/p>/gi, '\n').replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/[ \t]+/g, ' ').replace(/\n\s+/g, '\n').slice(0, 15000);
-  console.log('공지: ' + n.title + ' (' + n.date + ') · 본문 ' + text.length + '자 · 지금 파서 ' + (ref.items || []).length + '종목');
+// 공지 본문(글자) → {schedule:{공시일,분배락일,기준일,지급일 — 본문 표기 그대로}, items:[{ticker,name,amount,rate}]}. 못 읽으면 null.
+// 파서가 0건일 때 대신 읽는 데 쓴다(2026-11-09, HANARO 16/16·TIGER 대조로 확인).
+function _exaoneExtractDist(text) {
   const ans = _exaoneCall('아래는 한국 ETF 운용사의 분배금 공지 본문이다. 표에 있는 모든 종목을 빠짐없이 뽑아 JSON 하나로만 답하라(설명·코드블록 없이).\n'
     + '형식: {"schedule":{"공시일":"","분배락일":"","기준일":"","지급일":""},"items":[{"ticker":"6자리 종목코드","name":"종목명","amount":1주당 분배금 원(숫자),"rate":분배율 %(숫자, 없으면 null)}]}\n'
-    + '날짜는 본문 표기 그대로 적어라.\n\n' + text, 12000);
+    + '날짜는 본문 표기 그대로 적어라. 분배금이 0원이거나 없는 종목은 빼라.\n\n' + String(text).slice(0, 30000), 16000);
   let got = null;
-  try { got = JSON.parse(ans.slice(ans.indexOf('{'), ans.lastIndexOf('}') + 1)); } catch (e) { console.log('엑사원 답이 JSON 이 아님: ' + ans.slice(0, 800)); return; }
-  const mine = {}; (got.items || []).forEach(it => { mine[String(it.ticker).trim()] = it; });
+  try { got = JSON.parse(ans.slice(ans.indexOf('{'), ans.lastIndexOf('}') + 1)); } catch (e) { console.log('엑사원 답이 JSON 이 아님: ' + ans.slice(0, 500)); return null; }
+  got.items = (got.items || []).map(it => ({ ticker: String(it.ticker || '').trim().toUpperCase(), name: String(it.name || '').trim(),
+    amount: Number(String(it.amount).replace(/[^\d.]/g, '')), rate: it.rate == null || it.rate === '' ? null : Number(it.rate) }))
+    .filter(it => /^[0-9A-Z]{6}$/.test(it.ticker) && it.amount > 0);
+  got.schedule = got.schedule || {};
+  return got;
+}
+// 지금 파서 값(ref) ↔ 엑사원 값(got) 대조를 로그로.
+function _exaoneCompare(refItems, refSched, got) {
+  const mine = {}; got.items.forEach(it => { mine[it.ticker] = it; });
   let same = 0; const diff = [], miss = [];
-  (ref.items || []).forEach(it => {
+  (refItems || []).forEach(it => {
     const g = mine[it.ticker];
     if (!g) { miss.push(it.ticker + ' ' + it.name); return; }
-    const okA = Number(g.amount) === it.amount, okR = it.rate == null || g.rate == null || Math.abs(Number(g.rate) - it.rate) < 0.005;
+    const okA = g.amount === Number(it.amount), okR = it.rate == null || g.rate == null || Math.abs(g.rate - it.rate) < 0.005;
     if (okA && okR) same++; else diff.push(it.ticker + ' ' + it.name + ' 파서 ' + it.amount + '원/' + it.rate + '% ↔ 엑사원 ' + g.amount + '원/' + g.rate + '%');
     delete mine[it.ticker];
   });
   console.log('종목 대조: 일치 ' + same + ' · 다름 ' + diff.length + ' · 엑사원 누락 ' + miss.length + ' · 엑사원만 있음 ' + Object.keys(mine).length);
   diff.concat(miss.map(s => '누락 ' + s), Object.keys(mine).map(k => '엑사원만 ' + k + ' ' + mine[k].name)).slice(0, 15).forEach(s => console.log('  ' + s));
-  console.log('일정 파서 ' + JSON.stringify(ref.schedule || {}) + '\n일정 엑사원 ' + JSON.stringify(got.schedule || {}));
+  console.log('일정 파서 ' + JSON.stringify(refSched || {}));
+  console.log('일정 엑사원 ' + JSON.stringify(got.schedule));
+}
+// TIGER: 미래에셋은 구글 서버를 막아 본문을 직접 못 받는다 → PC 가 probe-out 브랜치에 올린 공개 공지 본문으로 시험.
+function _exaoneTigerTest(key) {
+  key = key || '774';
+  const r = UrlFetchApp.fetch('https://api.github.com/repos/jaenamking1-collab/jjk/contents/ai/tiger_' + key + '.txt?ref=probe-out',
+    { headers: { Accept: 'application/vnd.github.raw' }, muteHttpExceptions: true });
+  if (r.getResponseCode() !== 200) { console.log('본문 못 받음 ' + r.getResponseCode()); return; }
+  const text = r.getContentText('UTF-8');
+  const rl = _tigerRelayPc(), ref = ((rl && rl.dist) || []).find(n => String(n.key) === key);
+  console.log('TIGER 공지 ' + key + ' · 본문 ' + text.length + '자 · 중계 파서 ' + (ref ? ref.items.length + '종목' : '없음'));
+  const got = _exaoneExtractDist(text);
+  if (got) _exaoneCompare(ref && ref.items, ref && ref.sched, got);
+}
+// 엑사원이 HANARO 최신 분배금 공지 본문에서 뽑은 값 ↔ 지금 파서(fetchDist_hanaro) 값 대조. 공개 공지라 금액을 로그에 남겨도 된다.
+function _exaoneNoticeTest() {
+  const ref = fetchDist_hanaro();
+  const n = _hanaroNotices().filter(x => /분배금\s*공지/.test(x.title))[0];
+  if (!n) { console.log('HANARO 분배금 공지 없음'); return; }
+  const text = _hanaroNoticeText(n.id);
+  console.log('공지: ' + n.title + ' (' + n.date + ') · 본문 ' + text.length + '자 · 지금 파서 ' + (ref.items || []).length + '종목');
+  const got = _exaoneExtractDist(text);
+  if (got) _exaoneCompare(ref.items, ref.schedule, got);
+}
+function _hanaroNoticeText(id) {
+  const html = UrlFetchApp.fetch(HANARO_BASE + '/customer/notice/' + id,
+    { headers: { 'User-Agent': 'Mozilla/5.0' }, muteHttpExceptions: true }).getContentText('UTF-8');
+  return html.slice(Math.max(0, html.indexOf('fr-view')))
+    .replace(/<\/t[dh]>/gi, ' | ').replace(/<\/tr>|<br\s*\/?>|<\/p>/gi, '\n').replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/[ \t]+/g, ' ').replace(/\n\s+/g, '\n').slice(0, 15000);
 }
 
 // 한 달·한 시군구 거래를 API에서 받아 배열로. 실패하면 이유를 담아 throw.
