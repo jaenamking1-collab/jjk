@@ -287,3 +287,16 @@ chrome.runtime.onInstalled.addListener(async () => {
     }).catch(() => {});
   }
 });
+
+// 우클릭 '사진 다른 이름으로 저장'(2026-11-09 사용자: 따로 쓰던 사진 저장 확장을 줍줍으로 합침).
+// 크롬은 확장 메뉴를 기본 메뉴 아래에만 둔다 — '이미지를 다른 이름으로 저장'보다 위로는 못 올린다.
+function makeMenus() {
+  chrome.contextMenus.removeAll(() => chrome.contextMenus.create({
+    id: 'saveImage', title: '사진 다른 이름으로 저장 (줍줍)', contexts: ['image']
+  }));
+}
+chrome.runtime.onInstalled.addListener(makeMenus);
+chrome.runtime.onStartup.addListener(makeMenus);
+chrome.contextMenus.onClicked.addListener(info => {
+  if (info.menuItemId === 'saveImage' && info.srcUrl) chrome.downloads.download({ url: info.srcUrl, saveAs: true });
+});
