@@ -45,6 +45,12 @@
       "mcp__6d1355f4-4520-483d-97aa-8ced7a47f798__read_file_content",
       "mcp__6d1355f4-4520-483d-97aa-8ced7a47f798__search_files",
       "mcp__Gmail__trash_thread", "mcp__Gmail__trash_message", "WebFetch(domain:github.com)",
+      "mcp__b8f71035-5c56-49f0-8dc1-5ed6662f01a0__trash_thread",
+      "mcp__b8f71035-5c56-49f0-8dc1-5ed6662f01a0__trash_message",
+      "Bash(git status*)", "Bash(git log *)", "Bash(git diff *)", "Bash(git show *)",
+      "Bash(gh repo view *)", "Bash(gh run list *)", "Bash(gh run view *)",
+      "Bash(ls *)", "Bash(cat *)", "Bash(head *)", "Bash(tail *)", "Bash(wc *)",
+      "PowerShell(Get-Content *)",
       "WebFetch(domain:raw.githubusercontent.com)"
     ],
     "deny": [
