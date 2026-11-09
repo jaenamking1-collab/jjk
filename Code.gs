@@ -53,7 +53,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_probeTiger', '_probeTigerKind', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', '_addExtDepSheet', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp', '_syncDivRates', '_fillPastDivFromApp', 'setKrwCost', 'aptRefresh', '_molitKeyOnce', '_diagApt', '_aptHistory', '_aptGeoBackfill', '_exaoneKeyOnce', '_exaoneTest'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_probeTiger', '_probeTigerKind', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', '_addExtDepSheet', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp', '_syncDivRates', '_fillPastDivFromApp', 'setKrwCost', 'aptRefresh', '_molitKeyOnce', '_diagApt', '_aptHistory', '_aptGeoBackfill', '_exaoneKeyOnce', '_exaoneTest', '_exaoneNoticeTest'
 ];
 
 function runMaint(name, arg) {
@@ -5659,24 +5659,56 @@ function _exaoneKeyOnce() {
     if (k) { PropertiesService.getScriptProperties().setProperty('EXAONE_KEY', k); _fixLog('엑사원 API 열쇠를 시트에서 받아 저장하고 시트 줄은 지움(' + k.length + '자)'); }
   }
 }
-function _exaoneTest(prompt) {
+// docs.exaone.ai(2026-11-09): POST /v1/chat/completions, 모델 k-exaone_v2.5, 늘 추론을 거쳐 max_tokens 에 추론 몫도 든다.
+function _exaoneCall(prompt, maxTokens) {
   _exaoneKeyOnce();
   const key = PropertiesService.getScriptProperties().getProperty('EXAONE_KEY');
-  if (!key) { console.log('EXAONE_KEY 없음 — config 탭에 exaone_key 줄을 넣어야 함'); return; }
-  // docs.exaone.ai(2026-11-09): POST /v1/chat/completions, 모델 k-exaone_v2.5, 늘 추론을 거쳐 max_tokens 에 추론 몫도 든다.
-  const url = 'https://api.exaone.ai/v1/chat/completions', model = 'k-exaone_v2.5';
+  if (!key) throw new Error('EXAONE_KEY 없음 — config 탭에 exaone_key 줄을 넣어야 함');
   const t0 = Date.now();
-  const res = UrlFetchApp.fetch(url, {
+  const res = UrlFetchApp.fetch('https://api.exaone.ai/v1/chat/completions', {
     method: 'post', contentType: 'application/json', muteHttpExceptions: true,
     headers: { Authorization: 'Bearer ' + key },
-    payload: JSON.stringify({ model: model, max_tokens: 4000, reasoning_effort: 'low', stream: false,
-      messages: [{ role: 'user', content: prompt || '한국 월배당 ETF의 분배금이 무엇인지 두 문장으로 설명해 줘.' }] })
+    payload: JSON.stringify({ model: 'k-exaone_v2.5', max_tokens: maxTokens || 4000, reasoning_effort: 'low', stream: false,
+      messages: [{ role: 'user', content: prompt }] })
   });
-  const code = res.getResponseCode(), ms = Date.now() - t0;
   let d = null; try { d = JSON.parse(res.getContentText()); } catch (e) {}
   const ans = d && d.choices && d.choices[0] && d.choices[0].message ? String(d.choices[0].message.content || '').trim() : '';
-  console.log('응답 ' + code + ' · ' + ms + 'ms · 추론 토큰 ' + ((d && d.usage && d.usage.reasoning_tokens) || '?') + ' · 남은 하루 한도 ' + (res.getHeaders()['x-day-rate-limit-remaining'] || '?'));
-  console.log(ans || res.getContentText().slice(0, 1500));
+  console.log('엑사원 응답 ' + res.getResponseCode() + ' · ' + (Date.now() - t0) + 'ms · 추론 토큰 ' + ((d && d.usage && d.usage.reasoning_tokens) || '?')
+    + ' · 남은 하루 한도 ' + (res.getHeaders()['x-day-rate-limit-remaining'] || '?'));
+  if (!ans) console.log(res.getContentText().slice(0, 1500));
+  return ans;
+}
+function _exaoneTest(prompt) {
+  console.log(_exaoneCall(prompt || '한국 월배당 ETF의 분배금이 무엇인지 두 문장으로 설명해 줘.'));
+}
+// 엑사원이 HANARO 최신 분배금 공지 본문에서 뽑은 값 ↔ 지금 파서(fetchDist_hanaro) 값 대조. 공개 공지라 금액을 로그에 남겨도 된다.
+function _exaoneNoticeTest() {
+  const ref = fetchDist_hanaro();
+  const n = _hanaroNotices().filter(x => /분배금\s*공지/.test(x.title))[0];
+  if (!n) { console.log('HANARO 분배금 공지 없음'); return; }
+  const html = UrlFetchApp.fetch(HANARO_BASE + '/customer/notice/' + n.id,
+    { headers: { 'User-Agent': 'Mozilla/5.0' }, muteHttpExceptions: true }).getContentText('UTF-8');
+  const text = html.slice(Math.max(0, html.indexOf('fr-view')))
+    .replace(/<\/t[dh]>/gi, ' | ').replace(/<\/tr>|<br\s*\/?>|<\/p>/gi, '\n').replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/[ \t]+/g, ' ').replace(/\n\s+/g, '\n').slice(0, 15000);
+  console.log('공지: ' + n.title + ' (' + n.date + ') · 본문 ' + text.length + '자 · 지금 파서 ' + (ref.items || []).length + '종목');
+  const ans = _exaoneCall('아래는 한국 ETF 운용사의 분배금 공지 본문이다. 표에 있는 모든 종목을 빠짐없이 뽑아 JSON 하나로만 답하라(설명·코드블록 없이).\n'
+    + '형식: {"schedule":{"공시일":"","분배락일":"","기준일":"","지급일":""},"items":[{"ticker":"6자리 종목코드","name":"종목명","amount":1주당 분배금 원(숫자),"rate":분배율 %(숫자, 없으면 null)}]}\n'
+    + '날짜는 본문 표기 그대로 적어라.\n\n' + text, 12000);
+  let got = null;
+  try { got = JSON.parse(ans.slice(ans.indexOf('{'), ans.lastIndexOf('}') + 1)); } catch (e) { console.log('엑사원 답이 JSON 이 아님: ' + ans.slice(0, 800)); return; }
+  const mine = {}; (got.items || []).forEach(it => { mine[String(it.ticker).trim()] = it; });
+  let same = 0; const diff = [], miss = [];
+  (ref.items || []).forEach(it => {
+    const g = mine[it.ticker];
+    if (!g) { miss.push(it.ticker + ' ' + it.name); return; }
+    const okA = Number(g.amount) === it.amount, okR = it.rate == null || g.rate == null || Math.abs(Number(g.rate) - it.rate) < 0.005;
+    if (okA && okR) same++; else diff.push(it.ticker + ' ' + it.name + ' 파서 ' + it.amount + '원/' + it.rate + '% ↔ 엑사원 ' + g.amount + '원/' + g.rate + '%');
+    delete mine[it.ticker];
+  });
+  console.log('종목 대조: 일치 ' + same + ' · 다름 ' + diff.length + ' · 엑사원 누락 ' + miss.length + ' · 엑사원만 있음 ' + Object.keys(mine).length);
+  diff.concat(miss.map(s => '누락 ' + s), Object.keys(mine).map(k => '엑사원만 ' + k + ' ' + mine[k].name)).slice(0, 15).forEach(s => console.log('  ' + s));
+  console.log('일정 파서 ' + JSON.stringify(ref.schedule || {}) + '\n일정 엑사원 ' + JSON.stringify(got.schedule || {}));
 }
 
 // 한 달·한 시군구 거래를 API에서 받아 배열로. 실패하면 이유를 담아 throw.
