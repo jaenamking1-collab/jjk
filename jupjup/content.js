@@ -482,12 +482,11 @@
     if (e.key === 'Escape' && dragging) { reset(); swallowClick = true; }
   }, true);
 
-  // 사진 우클릭 막힘 풀기: 페이지가 사진 우클릭을 막으면 '사진 저장' 메뉴도 안 뜬다.
-  // 사진 위에서만 페이지가 우클릭을 못 받게 한다(문서·지도 같은 앱의 자체 메뉴는 그대로).
+  // 우클릭 막힘 풀기(사용자 지정 2026-11-09: 모든 사이트·모든 곳): 페이지가 우클릭을 못 받게 해 늘 크롬 메뉴가 뜬다.
   for (const type of ['contextmenu', 'mousedown', 'mouseup']) {
     addEventListener(type, e => {
       if (!alive() || (type !== 'contextmenu' && e.button !== 2)) return;
-      if (e.composedPath()[0] instanceof HTMLImageElement) e.stopImmediatePropagation();
+      e.stopImmediatePropagation();
     }, true);
   }
   addEventListener('blur', reset);
