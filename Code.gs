@@ -5714,8 +5714,8 @@ function _exaoneCompare(refItems, refSched, got) {
 // TIGER: 미래에셋은 구글 서버를 막아 본문을 직접 못 받는다 → PC 가 probe-out 브랜치에 올린 공개 공지 본문으로 시험.
 function _exaoneTigerTest(key) {
   key = key || '774';
-  const r = UrlFetchApp.fetch('https://api.github.com/repos/jaenamking1-collab/jjk/contents/ai/tiger_' + key + '.txt?ref=probe-out',
-    { headers: { Accept: 'application/vnd.github.raw' }, muteHttpExceptions: true });
+  // api.github.com 은 구글 서버에서 403(공용 IP 한도) — raw 주소로 받는다.
+  const r = UrlFetchApp.fetch('https://raw.githubusercontent.com/jaenamking1-collab/jjk/probe-out/ai/tiger_' + key + '.txt', { muteHttpExceptions: true });
   if (r.getResponseCode() !== 200) { console.log('본문 못 받음 ' + r.getResponseCode()); return; }
   const text = r.getContentText('UTF-8');
   const rl = _tigerRelayPc(), ref = ((rl && rl.dist) || []).find(n => String(n.key) === key);
