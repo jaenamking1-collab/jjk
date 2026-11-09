@@ -5663,30 +5663,20 @@ function _exaoneTest(prompt) {
   _exaoneKeyOnce();
   const key = PropertiesService.getScriptProperties().getProperty('EXAONE_KEY');
   if (!key) { console.log('EXAONE_KEY 없음 — config 탭에 exaone_key 줄을 넣어야 함'); return; }
-  const c = {};
-  getSheet('config').getDataRange().getValues().forEach(r => { c[String(r[0]).trim().toLowerCase()] = String(r[1]).trim(); });
-  // 문서: 기본 주소 https://api.exaone.ai, Bearer 열쇠, JSON 요청. 경로·모델 이름은 문서에 없어 모델 목록부터 물어본다.
-  const base = (c.exaone_url || 'https://api.exaone.ai').replace(/\/+$/, '');
-  const auth = { Authorization: 'Bearer ' + key };
-  let model = c.exaone_model || '', url = '';
-  for (const p of ['/v1/models', '/models']) {
-    const r = UrlFetchApp.fetch(base + p, { headers: auth, muteHttpExceptions: true });
-    console.log('모델 목록 ' + p + ' → ' + r.getResponseCode() + ' ' + r.getContentText().slice(0, 600));
-    if (r.getResponseCode() !== 200) continue;
-    url = base + p.replace(/models$/, 'chat/completions');
-    if (!model) { try { const d = JSON.parse(r.getContentText()); model = ((d.data || d.models || [])[0] || {}).id || ''; } catch (e) {} }
-    break;
-  }
-  if (!url) url = base + '/v1/chat/completions';
-  if (!model) { console.log('모델 이름을 못 찾음 — config 탭에 exaone_model 줄을 넣어야 함'); return; }
+  // docs.exaone.ai(2026-11-09): POST /v1/chat/completions, 모델 k-exaone_v2.5, 늘 추론을 거쳐 max_tokens 에 추론 몫도 든다.
+  const url = 'https://api.exaone.ai/v1/chat/completions', model = 'k-exaone_v2.5';
   const t0 = Date.now();
   const res = UrlFetchApp.fetch(url, {
     method: 'post', contentType: 'application/json', muteHttpExceptions: true,
     headers: { Authorization: 'Bearer ' + key },
-    payload: JSON.stringify({ model: model, max_tokens: 400, messages: [{ role: 'user', content: prompt || '한국 월배당 ETF의 분배금이 무엇인지 두 문장으로 설명해 줘.' }] })
+    payload: JSON.stringify({ model: model, max_tokens: 4000, reasoning_effort: 'low', stream: false,
+      messages: [{ role: 'user', content: prompt || '한국 월배당 ETF의 분배금이 무엇인지 두 문장으로 설명해 줘.' }] })
   });
-  console.log('응답 ' + res.getResponseCode() + ' · ' + (Date.now() - t0) + 'ms · ' + url + ' · ' + model);
-  console.log(res.getContentText().slice(0, 2000));
+  const code = res.getResponseCode(), ms = Date.now() - t0;
+  let d = null; try { d = JSON.parse(res.getContentText()); } catch (e) {}
+  const ans = d && d.choices && d.choices[0] && d.choices[0].message ? String(d.choices[0].message.content || '').trim() : '';
+  console.log('응답 ' + code + ' · ' + ms + 'ms · 추론 토큰 ' + ((d && d.usage && d.usage.reasoning_tokens) || '?') + ' · 남은 하루 한도 ' + (res.getHeaders()['x-day-rate-limit-remaining'] || '?'));
+  console.log(ans || res.getContentText().slice(0, 1500));
 }
 
 // 한 달·한 시군구 거래를 API에서 받아 배열로. 실패하면 이유를 담아 throw.
