@@ -144,6 +144,11 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 }
 #spaces[data-layout="2"], #spaces[data-layout="4"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 #spaces[data-layout="1"] { grid-template-columns: minmax(0, 1fr); }
+/* 사진 칸 숨기기: 2칸 보기면 링크 칸이 한 칸으로 넓어진다 */
+#spaces.nophotos .space.pics { display: none; }
+#spaces.nophotos[data-layout="2"]:has(.space.pics) { grid-template-columns: minmax(0, 1fr); }
+#photoBtn[aria-pressed="false"] { background: var(--milk); color: var(--ink-soft); }
+#photoBtn[aria-pressed="false"] svg path { stroke-dasharray: 2 3; }
 
 .space {
   display: flex;
