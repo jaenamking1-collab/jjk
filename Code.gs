@@ -5665,9 +5665,20 @@ function _exaoneTest(prompt) {
   if (!key) { console.log('EXAONE_KEY 없음 — config 탭에 exaone_key 줄을 넣어야 함'); return; }
   const c = {};
   getSheet('config').getDataRange().getValues().forEach(r => { c[String(r[0]).trim().toLowerCase()] = String(r[1]).trim(); });
-  let url = c.exaone_url || '', model = c.exaone_model || '';
-  if (!url || !model) { console.log('config 탭에 exaone_url·exaone_model 줄 필요 (주소 ' + (url ? '있음' : '없음') + ', 모델 ' + (model ? '있음' : '없음') + ')'); return; }
-  if (!/\/chat\/completions\/?$/.test(url)) url = url.replace(/\/+$/, '') + '/chat/completions';
+  // 문서: 기본 주소 https://api.exaone.ai, Bearer 열쇠, JSON 요청. 경로·모델 이름은 문서에 없어 모델 목록부터 물어본다.
+  const base = (c.exaone_url || 'https://api.exaone.ai').replace(/\/+$/, '');
+  const auth = { Authorization: 'Bearer ' + key };
+  let model = c.exaone_model || '', url = '';
+  for (const p of ['/v1/models', '/models']) {
+    const r = UrlFetchApp.fetch(base + p, { headers: auth, muteHttpExceptions: true });
+    console.log('모델 목록 ' + p + ' → ' + r.getResponseCode() + ' ' + r.getContentText().slice(0, 600));
+    if (r.getResponseCode() !== 200) continue;
+    url = base + p.replace(/models$/, 'chat/completions');
+    if (!model) { try { const d = JSON.parse(r.getContentText()); model = ((d.data || d.models || [])[0] || {}).id || ''; } catch (e) {} }
+    break;
+  }
+  if (!url) url = base + '/v1/chat/completions';
+  if (!model) { console.log('모델 이름을 못 찾음 — config 탭에 exaone_model 줄을 넣어야 함'); return; }
   const t0 = Date.now();
   const res = UrlFetchApp.fetch(url, {
     method: 'post', contentType: 'application/json', muteHttpExceptions: true,
