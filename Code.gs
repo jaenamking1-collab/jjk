@@ -1697,6 +1697,9 @@ function checkDistNotices() {
   const hour = Number(Utilities.formatDate(now, 'Asia/Seoul', 'H'));
   if (!_inNoticeWindow(day)) return;
   if (hour < 9 || hour > 18) return;
+  // 공지↔데이터 대조를 **맨 앞**에서 돌린다(2026-11-11). 맨 끝에 두었더니 8곳 강제 갱신 뒤라 6분 한도에 잘려
+  // 10/13 한 번 말고는 알림을 낸 적이 없다 — SOL 11/10 공지를 0건으로 놓쳤는데도 조용했다. 목록은 직전 회차 캐시(≤2시간)를 쓴다.
+  try { _noticeVsData(); } catch (e) { console.log('공지↔데이터 대조 실패 ' + e); }
   // TIGER 는 KIND 중계로 받는다 — 감지할 때만 저장분을 버리고 Worker 에도 새로 받게 한다(2026-11-05: 저장 두 겹이라
   // 예전 직접 받기(30분 안)보다 최대 1시간 늦던 것). 앱을 열 때는 저장분을 그대로 써 KIND 를 두드리지 않는다.
   _TIGER_KIND_FRESH = true;
@@ -1707,7 +1710,6 @@ function checkDistNotices() {
   // 그래서 30분마다 목록도 새로 받는다(배경 실행이라 앱 요청을 막지 않는다. 실패하면 마지막 성공분이 남는다).
   const cache = CacheService.getScriptCache();
   DIST_SOURCE_IDS.forEach(s => { try { cache.remove('notices_v2_' + s); getEtfNotices(s); } catch (e) { console.log(s + ' 공지 목록 실패 ' + e); } });
-  try { _noticeVsData(); } catch (e) { console.log('공지↔데이터 대조 실패 ' + e); }
   return r;
 }
 
