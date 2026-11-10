@@ -282,6 +282,8 @@ struct App {
     tracking: bool,
     hidden: bool,
     maxed: bool, // 앞 창이 화면을 꽉 채웠다(일하는 중)
+    last_pt: (i32, i32),
+    moved: Instant, // 마우스가 마지막으로 움직인 때
     ticks: u32,
     n: Now,
     lines: Vec<(u64, String)>,
@@ -376,7 +378,11 @@ impl App {
         self.face.tick((mx - fcx, my - 13.5), near, self.hover, playing);
         // 창을 꽉 채워 일하는 동안엔 아주 작게 줄어 있다가, 마우스가 가까이 오면 돌아온다
         let close = mx > px0 - 50.0 && mx < px0 + pw + 50.0 && my < ph + 45.0;
-        let tiny = self.maxed && !close && !self.hover;
+        if (pt.x, pt.y) != self.last_pt {
+            self.last_pt = (pt.x, pt.y);
+            self.moved = Instant::now();
+        }
+        let tiny = self.maxed && !close && !self.hover && self.moved.elapsed() > Duration::from_secs(8); // 마우스가 움직이는 동안엔 고양이가 나와 있다
         if tiny {
             self.face.tail.target = 0.0;
         }
@@ -760,7 +766,7 @@ impl App {
         let _ = AppendMenuW(m, check(self.cfg.hide_fullscreen), 1, w!("전체 화면일 때 숨기기"));
         let _ = AppendMenuW(m, check(self.cfg.autostart), 2, w!("윈도우 시작할 때 자동 실행"));
         let _ = AppendMenuW(m, check(self.cfg.aside), 4, w!("오른쪽으로 비켜 놓기"));
-        let _ = AppendMenuW(m, check(self.cfg.tiny), 6, w!("일할 때(창 최대화) 작게 줄이기"));
+        let _ = AppendMenuW(m, check(self.cfg.tiny), 6, w!("최대화 창에서 마우스가 쉬면 작게 줄이기"));
         let _ = AppendMenuW(m, MF_STRING, 5, w!("얼굴 바꾸기"));
         let _ = AppendMenuW(m, MF_SEPARATOR, 0, None);
         let _ = AppendMenuW(m, MF_STRING, 3, w!("끝내기"));
@@ -889,6 +895,8 @@ unsafe fn run() -> Result<()> {
         tracking: false,
         hidden: false,
         maxed: false,
+        last_pt: (0, 0),
+        moved: Instant::now(),
         ticks: 0,
         n: Now::default(),
         lines: Vec::new(),
