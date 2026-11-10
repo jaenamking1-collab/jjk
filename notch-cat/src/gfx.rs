@@ -153,6 +153,7 @@ impl Gfx {
     pub unsafe fn poly(&self, pts: &[(f32, f32)], c: Rgb, a: f32) {
         let Ok(geo) = self.d2f.CreatePathGeometry() else { return };
         let Ok(sink) = geo.Open() else { return };
+        sink.SetFillMode(D2D1_FILL_MODE_WINDING); // 굽은 띠가 제 몸과 겹쳐도 구멍이 안 난다
         sink.BeginFigure(D2D_POINT_2F { x: pts[0].0, y: pts[0].1 }, D2D1_FIGURE_BEGIN_FILLED);
         let rest: Vec<D2D_POINT_2F> = pts[1..].iter().map(|p| D2D_POINT_2F { x: p.0, y: p.1 }).collect();
         sink.AddLines(&rest);
@@ -168,14 +169,6 @@ impl Gfx {
         }
         self.color(c, a);
         self.dc.FillEllipse(&D2D1_ELLIPSE { point: D2D_POINT_2F { x: cx, y: cy }, radiusX: rx, radiusY: ry }, &self.brush);
-    }
-
-    /// 끝이 둥근 굵은 선.
-    pub unsafe fn line(&self, p0: (f32, f32), p1: (f32, f32), width: f32, c: Rgb, a: f32) {
-        self.color(c, a);
-        self.dc.DrawLine(D2D_POINT_2F { x: p0.0, y: p0.1 }, D2D_POINT_2F { x: p1.0, y: p1.1 }, &self.brush, width, None);
-        self.ellipse(p0.0, p0.1, width / 2.0, width / 2.0, c, a);
-        self.ellipse(p1.0, p1.1, width / 2.0, width / 2.0, c, a);
     }
 
     pub unsafe fn clip(&self, x: f32, y: f32, w: f32, h: f32) {
