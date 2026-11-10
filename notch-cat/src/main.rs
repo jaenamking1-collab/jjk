@@ -414,7 +414,7 @@ impl App {
         self.last_input = li.dwTime;
         self.last_pt = (pt.x, pt.y);
         let quiet = Duration::from_secs(8);
-        let typing = self.keyed.elapsed() < quiet && self.keyed > self.moved;
+        let typing = self.keyed.elapsed() < quiet && self.keyed > self.moved && std::env::var("NOTCH_CAT_SLEEP").is_err();
         self.ck.target = if typing && self.text.is_empty() { 100.0 } else { 0.0 };
         let tiny = self.maxed && !close && !self.hover && !typing && self.moved.elapsed() > Duration::from_secs(30); // 졸고 잠드는 모습을 보여 준 뒤에 줄어든다
         if tiny {
@@ -663,9 +663,9 @@ impl App {
                                     let kf = k as f32;
                                     let u = 0.5 + side * (0.14 + 0.16 * kf);
                                     let p = (ex - hw + 2.0 * hw * u, y + 2.0 * u * (1.0 - u) * dip);
-                                    let (dx, len) = (side * (0.25 + 0.3 * kf) + 0.12 * wob, (2.6 - 0.25 * kf) * sl);
+                                    let (dx, len) = (side * (0.25 + 0.3 * kf) + 0.12 * wob, (4.0 - 0.4 * kf) * sl);
                                     let n = (dx * dx + 1.0).sqrt();
-                                    ribbon(g, &[p, (p.0 + dx / n * len, p.1 - len / n)], |v| 1.1 - 0.5 * v, EYE, a);
+                                    ribbon(g, &[p, (p.0 + dx / n * len, p.1 - len / n)], |v| 1.0 - 0.5 * v, EYE, a);
                                 }
                             }
                         } else {
