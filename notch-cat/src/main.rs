@@ -193,17 +193,17 @@ unsafe fn fullscreen_in_front(own: HWND, mon: &RECT) -> bool {
     GetWindowRect(fg, &mut r).is_ok() && r == *mon
 }
 
-/// 앞에 있는 창이 최대화돼 있나(일하는 중).
-unsafe fn maximized_in_front(own: HWND, mon: &RECT) -> bool {
-    let fg = GetForegroundWindow();
-    if fg.0.is_null() || fg == own || !IsZoomed(fg).as_bool() {
-        return false;
+/// 노치 바로 아래에 보이는 창이 최대화돼 있나(그 창의 탭·제목줄을 노치가 가린다). 내 창이 걸리면 None.
+unsafe fn maximized_under(own: HWND, x: i32, y: i32) -> Option<bool> {
+    let w = WindowFromPoint(POINT { x, y });
+    if w.0.is_null() {
+        return Some(false);
     }
-    // 다른 모니터에 꽉 채운 창은 상관없다
-    let mut r = RECT::default();
-    let _ = GetWindowRect(fg, &mut r);
-    let cx = (r.left + r.right) / 2;
-    cx >= mon.left && cx < mon.right
+    let root = GetAncestor(w, GA_ROOT);
+    if root == own {
+        return None;
+    }
+    Some(IsZoomed(root).as_bool())
 }
 
 /// 굽은 선 위의 점들(2차 곡선).
@@ -371,7 +371,10 @@ impl App {
         }
         if self.ticks % 10 == 0 {
             self.hidden = self.cfg.hide_fullscreen && fullscreen_in_front(self.hwnd, &self.mon);
-            let maxed = self.cfg.tiny && std::env::var("NOTCH_CAT_TINY").map_or(true, |v| v != "0") && maximized_in_front(self.hwnd, &self.mon);
+            // 앞에 나온 창이 아니라 노치 밑에 실제로 깔린 창을 본다(다른 모니터에서 일해도 이 화면 탭은 가려지므로)
+            let nx = self.mon.left + ((self.mon.right - self.mon.left) as f32 / 2.0 + if self.cfg.aside { 460.0 * self.scale } else { 0.0 }) as i32;
+            let ny = self.mon.top + ((self.h.pos.max(BAR_H) + 30.0) * self.scale) as i32;
+            let maxed = self.cfg.tiny && std::env::var("NOTCH_CAT_TINY").map_or(true, |v| v != "0") && maximized_under(self.hwnd, nx, ny).unwrap_or(self.maxed);
             if maxed && !self.maxed {
                 self.moved = Instant::now() - Duration::from_secs(31);
                 self.keyed = self.moved; // 창을 꽉 채워 여는 순간 바로 줄어든다(마우스를 움직이면 돌아온다)
@@ -401,11 +404,12 @@ impl App {
         let near = mx > px0 - 100.0 && mx < px0 + pw + 100.0 && my < ph + 100.0;
         self.face.tick((mx - fcx, my - 13.5), near, self.hover, playing);
         // 창을 꽉 채워 일하는 동안엔 아주 작게 줄어 있다가, 마우스가 가까이 오면 돌아온다
-        let close = mx > px0 - 50.0 && mx < px0 + pw + 50.0 && my < ph + 45.0;
-        // 자판·클릭(입력은 있는데 마우스는 제자리)이면 시계, 마우스를 움직이면 고양이, 8초 조용하면 꽉 찬 창에서는 줄어든다
+        // 자판을 치면(입력은 있는데 마우스는 제자리·단추도 안 눌림) 시계, 마우스를 쓰면 고양이로 돌아온다
         let mut li = windows::Win32::UI::Input::KeyboardAndMouse::LASTINPUTINFO { cbSize: std::mem::size_of::<windows::Win32::UI::Input::KeyboardAndMouse::LASTINPUTINFO>() as u32, dwTime: 0 };
         let _ = windows::Win32::UI::Input::KeyboardAndMouse::GetLastInputInfo(&mut li);
-        if (pt.x, pt.y) != self.last_pt {
+        use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+        let clicked = [1, 2, 4].iter().any(|&vk| GetAsyncKeyState(vk) != 0); // 마우스 단추(누르는 중이거나 방금 눌렀다)
+        if (pt.x, pt.y) != self.last_pt || clicked {
             self.moved = Instant::now();
         } else if li.dwTime != self.last_input && self.moved.elapsed() > Duration::from_millis(400) {
             self.keyed = Instant::now(); // 마우스가 미세하게 떨린 것은 치지 않는다
@@ -416,7 +420,7 @@ impl App {
         let quiet = Duration::from_secs(8);
         let typing = self.keyed.elapsed() < quiet && self.keyed > self.moved && std::env::var("NOTCH_CAT_SLEEP").is_err();
         self.ck.target = if typing && self.text.is_empty() { 100.0 } else { 0.0 };
-        let tiny = self.maxed && !close && !self.hover && !typing && self.moved.elapsed() > Duration::from_secs(30); // 졸고 잠드는 모습을 보여 준 뒤에 줄어든다
+        let tiny = self.maxed && !self.hover && !typing; // 꽉 찬 창에서 일하는 동안엔 탭을 가리지 않게 계속 숨는다(작은 노치에 마우스를 올리면 펼쳐진다)
         if tiny {
             self.face.tail.target = 0.0;
         }
