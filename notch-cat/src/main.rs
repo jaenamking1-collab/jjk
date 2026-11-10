@@ -352,7 +352,11 @@ impl App {
         }
         if self.ticks % 10 == 0 {
             self.hidden = self.cfg.hide_fullscreen && fullscreen_in_front(self.hwnd, &self.mon);
-            self.maxed = self.cfg.tiny && std::env::var("NOTCH_CAT_TINY").map_or(true, |v| v != "0") && maximized_in_front(self.hwnd);
+            let maxed = self.cfg.tiny && std::env::var("NOTCH_CAT_TINY").map_or(true, |v| v != "0") && maximized_in_front(self.hwnd);
+            if maxed && !self.maxed {
+                self.moved = Instant::now() - Duration::from_secs(9); // 창을 꽉 채워 여는 순간 바로 줄어든다(마우스를 움직이면 돌아온다)
+            }
+            self.maxed = maxed;
         }
         // ── 얼굴 ──
         let playing = self.n.has && self.n.playing;
