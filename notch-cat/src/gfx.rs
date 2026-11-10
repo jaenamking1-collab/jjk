@@ -33,6 +33,7 @@ pub struct Gfx {
     brush: ID2D1SolidColorBrush,
     wic: IWICImagingFactory,
     pub f_title: IDWriteTextFormat,
+    pub f_clock: IDWriteTextFormat,
     pub f_body: IDWriteTextFormat,
     pub f_bar: IDWriteTextFormat,
     pub f_lyric: IDWriteTextFormat,
@@ -107,6 +108,7 @@ impl Gfx {
         let mg = w!("Malgun Gothic");
         Ok(Gfx {
             f_title: font(&dw, mg, 17.0, true)?,
+            f_clock: font(&dw, mg, 28.0, true)?,
             f_body: font(&dw, mg, 13.0, false)?,
             f_bar: font(&dw, mg, 12.0, false)?,
             f_lyric: font(&dw, mg, 15.0, true)?,

@@ -43,6 +43,7 @@ const WIN_H: f32 = 290.0;
 const IDLE: (f32, f32) = (150.0, 28.0);
 const BAR_H: f32 = 28.0;
 const FACE_ZOOM: f32 = 1.15;
+const QUIET: (f32, f32) = (250.0, 104.0); // 음악이 없을 때 펼친 크기(시계)
 const TINY: (f32, f32) = (48.0, 9.0); // 일할 때 줄어든 크기
 const OPEN: (f32, f32) = (460.0, 246.0);
 const SHADOW: f32 = 20.0; // 펼쳤을 때 그림자가 번지는 폭
@@ -397,8 +398,8 @@ impl App {
             (IDLE.0 * 0.6, 0.0)
         } else if tiny {
             TINY
-        } else if self.hover && self.n.has {
-            OPEN
+        } else if self.hover {
+            if self.n.has { OPEN } else { QUIET }
         } else if self.text.is_empty() {
             (IDLE.0 + bump.0, IDLE.1 + bump.1)
         } else {
@@ -419,8 +420,8 @@ impl App {
         // 보이는 것이 달라졌을 때만 다시 그린다(쉴 때 CPU 를 안 쓴다)
         let open = self.h.target > BAR_H;
         let view = format!(
-            "{}|{}|{}|{}|{:?}|{}|{}|{}|{}",
-            self.text, self.n.title, self.n.playing, self.art_ptr, self.cur, self.lyr_st as u8,
+            "{}|{}|{}|{}|{}|{:?}|{}|{}|{}|{}",
+            local().wMinute, self.text, self.n.title, self.n.playing, self.art_ptr, self.cur, self.lyr_st as u8,
             if open { pos / 500 } else { 0 },
             if open { self.n.stamp.as_str() } else { "" },
             self.lyr_stamp
@@ -438,7 +439,7 @@ impl App {
         let x = (WIN_W - w) / 2.0;
         // 노치 밖은 클릭이 아래 창으로 가도록 창 영역을 노치 크기로 맞춘다
         let s = self.scale;
-        let p = ((h - BAR_H) / (OPEN.1 - BAR_H)).clamp(0.0, 1.0); // 0 닫힘 … 1 펼침
+        let p = ((h - BAR_H) / (if self.n.has { OPEN.1 } else { QUIET.1 } - BAR_H)).clamp(0.0, 1.0); // 0 닫힘 … 1 펼침
                 let m = (SHADOW * p).max(EAR + 1.0).max(if self.face.tail.pos > 0.3 { TAIL_ROOM } else { 0.0 }); // 그림자·휜 모서리·꼬리 자리만큼 영역을 넓힌다
         let rgn = if h < 0.5 { [0; 4] } else { [((x - m) * s).floor() as i32, 0, ((x + w + m) * s).ceil() as i32, ((h + m) * s).ceil() as i32] };
         if rgn != self.rgn {
@@ -729,6 +730,14 @@ impl App {
                 let stale = n.seen.map(|t| t.elapsed() > Duration::from_secs(600)).unwrap_or(true) || self.lyr_st == St::Error;
                 let alive = format!("음악 {} · 가사 {}", n.stamp, if self.lyr_stamp.is_empty() { "–" } else { &self.lyr_stamp });
                 g.text(&alive, &g.f_tiny, x + 18.0, 227.0, w - 36.0, if stale { WARN } else { FG }, a * if stale { 1.0 } else { 0.4 }, Align::Right);
+            } else if a > 0.0 {
+                // 음악이 없으면 시계와 날짜
+                let t = local();
+                let h12 = if t.wHour % 12 == 0 { 12 } else { t.wHour % 12 };
+                let time = format!("{} {}:{:02}", if t.wHour < 12 { "오전" } else { "오후" }, h12, t.wMinute);
+                let day = format!("{}월 {}일 {}요일", t.wMonth, t.wDay, ["일", "월", "화", "수", "목", "금", "토"][t.wDayOfWeek as usize % 7]);
+                g.text(&time, &g.f_clock, x, 26.0, w, FG, a, Align::Center);
+                g.text(&day, &g.f_sub, x, 66.0, w, FG, a * 0.6, Align::Center);
             }
             g.unclip();
         }
