@@ -15,6 +15,12 @@ impl Spring {
         Spring { pos: v, vel: 0.0, target: v, stiffness, damping: 2.0 * stiffness.sqrt() * ratio }
     }
 
+    /// 세기·감쇠를 바꾼다(위치·속도는 그대로 이어진다).
+    pub fn tune(&mut self, stiffness: f32, ratio: f32) {
+        self.stiffness = stiffness;
+        self.damping = 2.0 * stiffness.sqrt() * ratio;
+    }
+
     /// dt 초만큼 진행. 고정 작은 걸음으로 나눠 프레임이 들쭉날쭉해도 같은 곡선을 탄다.
     pub fn step(&mut self, mut dt: f32) {
         dt = dt.min(0.1);

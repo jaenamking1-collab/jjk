@@ -2,6 +2,7 @@
 // 설계: docs/superpowers/specs/2026-11-10-notch-cat-design.md
 #![windows_subsystem = "windows"]
 
+mod face;
 mod gfx;
 mod lrc;
 mod lyrics;
@@ -39,7 +40,7 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 const WIN_W: f32 = 560.0;
 const WIN_H: f32 = 290.0;
 // 노치 크기
-const IDLE: (f32, f32) = (96.0, 24.0);
+const IDLE: (f32, f32) = (150.0, 28.0);
 const BAR_H: f32 = 28.0;
 const OPEN: (f32, f32) = (460.0, 246.0);
 const SHADOW: f32 = 20.0; // 펼쳤을 때 그림자가 번지는 폭
@@ -47,6 +48,12 @@ const SHADOW: f32 = 20.0; // 펼쳤을 때 그림자가 번지는 폭
 // 색: 디자인.md '대비 강한 조합' — 미드나잇 네이비 · 쿨 화이트 · 일렉트릭 라임
 const BG: Rgb = (0.0, 0.0, 0.0);
 const FG: Rgb = (0.953, 0.957, 0.965);
+const EYE: Rgb = (0.639, 0.902, 0.208); // 고양이 눈(라임)
+const PUPIL: Rgb = (0.063, 0.086, 0.043);
+const TAIL: Rgb = (0.075, 0.095, 0.075);
+const GLOW: [Rgb; 3] = [(0.176, 0.831, 0.749), (0.3, 0.8, 0.45), (0.55, 0.85, 0.2)]; // 아래 빛: 청록 → 라임
+const EAR: f32 = 6.0; // 위쪽 모서리가 바깥으로 휘는 크기
+const TAIL_ROOM: f32 = 22.0; // 꼬리가 나올 옆 여백
 const LIME: Rgb = (0.639, 0.902, 0.208);
 const WARN: Rgb = (1.0, 0.416, 0.102);
 
@@ -206,6 +213,12 @@ struct App {
     h: Spring,
     fade: Spring,   // 닫힘 글자 바뀜 0→1
     scroll: Spring, // 가사 줄 넘어감
+    tm: Spring,     // 0 = 얼굴만, 100 = 얼굴은 왼쪽 + 글자
+    face: face::Face,
+    born: Instant,
+    bump_until: Instant,
+    was_title: String,
+    was_playing: bool,
     // 상태
     hover: bool,
     showing_lyric: bool,
@@ -232,10 +245,10 @@ struct App {
 
 impl App {
     fn animating(&self) -> bool {
-        !(self.w.settled() && self.h.settled() && self.fade.settled() && self.scroll.settled())
+        !(self.w.settled() && self.h.settled() && self.fade.settled() && self.scroll.settled() && self.tm.settled() && self.face.settled())
     }
 
-    /// 0.1초마다: 음악·가사 상태를 읽어 목표 크기와 보일 글자를 정한다.
+    /// 0.05초마다: 음악·가사 상태를 읽어 목표 크기와 보일 글자를 정한다.
     unsafe fn tick(&mut self) {
         self.ticks += 1;
         self.n = self.now.lock().unwrap().clone();
@@ -269,7 +282,8 @@ impl App {
         let text = match (self.n.has, self.n.playing, line) {
             (false, _, _) => String::new(),
             (true, true, Some(l)) => l.to_string(),
-            _ => self.n.title.clone(),
+            (true, true, None) => self.n.title.clone(),
+            _ => String::new(), // 멈춰 있으면 얼굴만
         };
         self.showing_lyric = self.n.has && self.n.playing && line.is_some();
         if text != self.text {
@@ -277,22 +291,53 @@ impl App {
             self.fade.pos = 0.0;
             self.fade.target = 1.0;
         }
-        if self.ticks % 5 == 0 {
+        if self.ticks % 10 == 0 {
             self.hidden = self.cfg.hide_fullscreen && fullscreen_in_front(self.hwnd, &self.mon);
         }
+        // ── 얼굴 ──
+        let playing = self.n.has && self.n.playing;
+        if self.n.has && self.n.title != self.was_title {
+            self.was_title = self.n.title.clone();
+            self.face.blink(); // 곡이 바뀌면 눈을 한 번 깜빡이고 살짝 커졌다 돌아온다
+            self.bump_until = Instant::now() + Duration::from_millis(260);
+        }
+        if playing != self.was_playing {
+            self.was_playing = playing;
+            if playing { self.face.happy(650) } else { self.face.slow_blink(350) }
+        }
+        let mut pt = POINT::default();
+        let _ = GetCursorPos(&mut pt);
+        let wpx = (WIN_W * self.scale).round();
+        let dxw = if self.cfg.aside { 460.0 * self.scale } else { 0.0 };
+        let left = self.mon.left as f32 + ((self.mon.right - self.mon.left) as f32 - wpx) / 2.0 + dxw;
+        let (mx, my) = ((pt.x as f32 - left) / self.scale, (pt.y - self.mon.top) as f32 / self.scale); // 창 안 논리 좌표
+        let (pw, ph) = (self.w.pos, self.h.pos);
+        let px0 = (WIN_W - pw) / 2.0;
+        let fcx = px0 + pw / 2.0 + (26.0 - pw / 2.0) * self.tm.pos / 100.0;
+        let near = mx > px0 - 100.0 && mx < px0 + pw + 100.0 && my < ph + 100.0;
+        self.face.tick((mx - fcx, my - 13.5), near, self.hover, playing);
+        self.tm.target = if self.text.is_empty() { 0.0 } else { 100.0 };
+
+        let bump = if Instant::now() < self.bump_until { (6.0, 2.0) } else { (0.0, 0.0) };
         let (tw, th) = if self.hidden {
             (IDLE.0 * 0.6, 0.0)
-        } else if !self.n.has {
-            IDLE
-        } else if self.hover {
+        } else if self.hover && self.n.has {
             OPEN
+        } else if self.text.is_empty() {
+            (IDLE.0 + bump.0, IDLE.1 + bump.1)
         } else {
-            {
             // 닫힘은 작게: 곡명은 짧게 자르고, 가사 줄일 때만 조금 더 넓힌다
-            let max = if self.showing_lyric { 300.0 } else { 190.0 };
-            ((self.g.measure(&self.text, &self.g.f_bar) + 50.0).clamp(110.0, max), BAR_H)
-        }
+            let max = if self.showing_lyric { 300.0 } else { 230.0 };
+            ((self.g.measure(&self.text, &self.g.f_bar) + 66.0).clamp(IDLE.0, max) + bump.0, BAR_H + bump.1)
         };
+        // 펼칠 때는 끝에서 살짝 출렁이며 모이고(가로·세로 박자가 달라 물결처럼), 접힐 때는 차분하게
+        if th > BAR_H + 10.0 {
+            self.w.tune(250.0, 0.62);
+            self.h.tune(190.0, 0.68);
+        } else {
+            self.w.tune(240.0, 0.8);
+            self.h.tune(240.0, 0.85);
+        }
         self.w.target = tw;
         self.h.target = th;
         // 보이는 것이 달라졌을 때만 다시 그린다(쉴 때 CPU 를 안 쓴다)
@@ -304,7 +349,8 @@ impl App {
             if open { self.n.stamp.as_str() } else { "" },
             self.lyr_stamp
         );
-        if view != self.view {
+        // 닫혀 있는 동안엔 빛·꼬리가 천천히 움직이므로 초당 20장으로 계속 그린다
+        if view != self.view || (!open && !self.hidden) {
             self.view = view;
             self.dirty = true;
         }
@@ -317,7 +363,8 @@ impl App {
         // 노치 밖은 클릭이 아래 창으로 가도록 창 영역을 노치 크기로 맞춘다
         let s = self.scale;
         let p = ((h - BAR_H) / (OPEN.1 - BAR_H)).clamp(0.0, 1.0); // 0 닫힘 … 1 펼침
-        let m = SHADOW * p; // 그림자 자리만큼 영역을 넓힌다
+        let tail = self.face.tail.pos;
+        let m = (SHADOW * p).max(EAR + 1.0).max(if tail > 0.3 { TAIL_ROOM } else { 0.0 }); // 그림자·휜 모서리·꼬리 자리만큼 영역을 넓힌다
         let rgn = if h < 0.5 { [0; 4] } else { [((x - m) * s).floor() as i32, 0, ((x + w + m) * s).ceil() as i32, ((h + m) * s).ceil() as i32] };
         if rgn != self.rgn {
             self.rgn = rgn;
@@ -331,24 +378,118 @@ impl App {
                 let gr = (8 - i) as f32 * 2.2; // 겹겹이 옅게 → 부드러운 그림자
                 g.rrect(x - gr, -r, w + gr * 2.0, h + r + gr + 3.0, r + gr, (0.0, 0.0, 0.0), 0.045 * p);
             }
+            let t = self.born.elapsed().as_secs_f32();
+            let ca = (1.0 - p * 3.0).clamp(0.0, 1.0) * (h / BAR_H).min(1.0); // 닫힘 내용의 진하기
+            // 꼬리: 잠들면 옆에서 슬그머니. 몸보다 먼저 그려서 뿌리가 몸 뒤에 숨는다.
+            if tail > 0.3 && ca > 0.0 {
+                let f = &self.face;
+                let sd = f.tail_side;
+                let edge = if sd > 0.0 { x + w } else { x };
+                let k = tail / face::TAIL_OUT;
+                let (s1, s2) = ((t * 1.12).sin() * k, (t * 1.12 - 0.9).sin() * k); // 끝이 중간보다 늦게 따라온다
+                let c = [
+                    (edge - sd * 8.0, 19.0),
+                    (edge + sd * tail * 0.45, 25.5),
+                    (edge + sd * (tail * 0.98 + s1 * 0.8), 21.0 + s1),
+                    (edge + sd * (tail * 0.72 + s2 * 1.5), 9.5 + s2 * 2.0),
+                ];
+                let n = 18;
+                let (mut l, mut rr) = (Vec::new(), Vec::new());
+                let mut tip = c[3];
+                for i in 0..=n {
+                    let u = i as f32 / n as f32;
+                    let v = 1.0 - u;
+                    let bx = v * v * v * c[0].0 + 3.0 * v * v * u * c[1].0 + 3.0 * v * u * u * c[2].0 + u * u * u * c[3].0;
+                    let by = v * v * v * c[0].1 + 3.0 * v * v * u * c[1].1 + 3.0 * v * u * u * c[2].1 + u * u * u * c[3].1;
+                    let dx = 3.0 * v * v * (c[1].0 - c[0].0) + 6.0 * v * u * (c[2].0 - c[1].0) + 3.0 * u * u * (c[3].0 - c[2].0);
+                    let dy = 3.0 * v * v * (c[1].1 - c[0].1) + 6.0 * v * u * (c[2].1 - c[1].1) + 3.0 * u * u * (c[3].1 - c[2].1);
+                    let len = (dx * dx + dy * dy).sqrt().max(0.001);
+                    let hw = (4.5 + (1.3 - 4.5) * u) / 2.0 + 0.6; // 뿌리는 굵고 끝은 가늘게
+                    l.push((bx - dy / len * hw, by + dx / len * hw));
+                    rr.push((bx + dy / len * hw, by - dx / len * hw));
+                    tip = (bx, by);
+                }
+                rr.reverse();
+                l.extend(rr);
+                g.poly(&l, TAIL, ca);
+                g.ellipse(tip.0, tip.1, 1.25, 1.25, TAIL, ca);
+            }
             g.rrect(x, -r, w, h + r, r, BG, 1.0); // 위쪽은 화면 밖으로 넘겨 위 모서리를 각지게
+            // 위쪽 모서리가 화면 가장자리로 부드럽게 이어지게(바깥으로 휜다)
+            let e = EAR * (h / BAR_H).min(1.0);
+            for side in [-1.0f32, 1.0] {
+                let ex = if side < 0.0 { x } else { x + w };
+                let mut pts = vec![(ex + side * e, 0.0), (ex, 0.0)];
+                for k in 0..=6 {
+                    let th = k as f32 / 6.0 * std::f32::consts::FRAC_PI_2;
+                    pts.push((ex + side * e - side * e * th.cos(), e - e * th.sin()));
+                }
+                g.poly(&pts, BG, 1.0);
+            }
             g.clip(x, 0.0, w, h);
             let n = &self.n;
+            let tm = (self.tm.pos / 100.0).clamp(0.0, 1.0);
 
-            // ── 닫힘: 그림 + 한 줄 ──
-            let a = (1.0 - p * 3.0).clamp(0.0, 1.0) * (h / BAR_H).min(1.0);
-            if a > 0.0 && n.has {
-                match &self.art {
-                    Some(b) => g.art(b, x + 8.0, 5.0, 18.0, 5.0, a),
-                    None => g.rrect(x + 13.0, 10.0, 8.0, 8.0, 4.0, LIME, a),
+            // ── 닫힘: 고양이 눈 ──
+            if ca > 0.0 {
+                let f = &self.face;
+                let fcx = x + w / 2.0 + (26.0 - w / 2.0) * tm;
+                // 아래 빛: 넓고 옅은 것부터 세 겹. 숨 쉬듯 아주 조금만 변한다.
+                let gk = f.glow.pos / 100.0 * (1.0 + 0.12 * (t * 1.31).sin()) * (1.0 - 0.45 * tm) * 2.4;
+                for (i, (gw, gh, ga)) in [(72.0, 14.0, 0.035), (52.0, 8.0, 0.06), (28.0, 4.0, 0.1)].into_iter().enumerate() {
+                    g.ellipse(fcx, h - 2.0 + gh * 0.1, gw / 2.0, gh / 2.0, GLOW[i], ca * ga * gk);
                 }
+                let breath = if f.asleep { (t * 1.208).sin() * 0.35 } else { 0.0 };
+                let (ox, oy) = (f.ex.pos, f.ey.pos + breath);
+                let cy = 13.5 + oy;
+                // 귀: 반가울 때만 잠깐
+                let ea = (f.ear.pos / 10.0).clamp(0.0, 1.2);
+                if ea > 0.02 {
+                    for side in [-1.0f32, 1.0] {
+                        let bx = fcx + side * 17.5 + ox * 0.5;
+                        g.poly(&[(bx - 3.5, 7.0), (bx + side * 0.5, 7.0 - 4.0 * ea), (bx + 3.5, 7.0)], EYE, ca * 0.3 * ea.min(1.0));
+                    }
+                }
+                for side in [-1.0f32, 1.0] {
+                    let ex = fcx + side * 11.0 + ox;
+                    if f.happy_shape {
+                        // 웃는 눈 ∧: 보는 쪽으로 살짝 쏠리고, 그쪽 눈이 조금 넓다
+                        let rise = (f.lid.pos / face::EYE_H).clamp(0.0, 1.2) * 4.0;
+                        let hx = ex + f.px.pos * 0.6;
+                        let hw = 5.0 + side * f.px.pos / 2.2 * 0.4;
+                        let by = cy + 1.5 + f.py.pos * 0.5;
+                        g.line((hx - hw, by), (hx, by - rise), 1.8, EYE, ca);
+                        g.line((hx, by - rise), (hx + hw, by), 1.8, EYE, ca);
+                    } else {
+                        // 눈꺼풀이 위에서 덮는다(눈을 찌그러뜨리지 않는다)
+                        let open = f.lid.pos.clamp(0.0, 10.5);
+                        let band = open.max(1.3);
+                        let top = cy - 4.5 + (face::EYE_H - band).max(0.0) * 0.72 - (band - face::EYE_H).max(0.0) / 2.0;
+                        let ea = ca * (0.45 + 0.47 * ((open - 1.5) / 7.5).clamp(0.0, 1.0));
+                        if band < 2.2 {
+                            g.rrect(ex - 6.0, top, 12.0, band, band / 2.0, EYE, ea); // 감은 눈: 둥근 선
+                        } else {
+                            g.clip(ex - 8.0, top, 16.0, band);
+                            g.ellipse(ex, cy, 6.0, (band / 2.0).max(4.5), EYE, ea);
+                            // 세로 눈동자가 눈보다 먼저 움직인다
+                            let pw = 2.4 + (open - face::EYE_H).max(0.0) * 0.8;
+                            g.rrect(ex + f.px.pos - ox - pw / 2.0, cy + f.py.pos - oy - 3.5, pw, 7.0, pw / 2.0, PUPIL, ea);
+                            g.unclip();
+                        }
+                    }
+                }
+            }
+
+            // ── 닫힘: 한 줄(얼굴 오른쪽) ──
+            let a = ca * tm;
+            if a > 0.0 && n.has {
                 let dim = if n.playing { 1.0 } else { 0.55 };
                 let f = self.fade.pos.clamp(0.0, 1.0);
-                let tw = (w - 44.0).max(1.0);
-                let lw = (self.w.target - 44.0).max(1.0); // 목표 너비 기준으로 말줄임(움직이는 동안 글자가 흔들리지 않게)
-                g.clip(x + 33.0, 0.0, tw, BAR_H);
-                g.text(&self.prev_text, &g.f_bar, x + 33.0, 5.5 - f * 6.0, lw, FG, a * dim * (1.0 - f), Align::Left);
-                g.text(&self.text, &g.f_bar, x + 33.0, 5.5 + (1.0 - f) * 6.0, lw, FG, a * dim * f, Align::Left);
+                let tw = (w - 64.0).max(1.0);
+                let lw = (self.w.target - 64.0).max(1.0); // 목표 너비 기준으로 말줄임(움직이는 동안 글자가 흔들리지 않게)
+                g.clip(x + 52.0, 0.0, tw, BAR_H + 4.0);
+                g.text(&self.prev_text, &g.f_bar, x + 52.0, 5.5 - f * 6.0, lw, FG, a * dim * (1.0 - f), Align::Left);
+                g.text(&self.text, &g.f_bar, x + 52.0, 5.5 + (1.0 - f) * 6.0, lw, FG, a * dim * f, Align::Left);
                 g.unclip();
             }
 
@@ -582,6 +723,12 @@ unsafe fn run() -> Result<()> {
         h: Spring::new(0.0, 240.0, 0.82),
         fade: Spring::new(1.0, 200.0, 1.0),
         scroll: Spring::new(0.0, 170.0, 0.9),
+        tm: Spring::new(0.0, 220.0, 1.0),
+        face: face::Face::new(),
+        born: Instant::now(),
+        bump_until: Instant::now(),
+        was_title: String::new(),
+        was_playing: false,
         hover: false,
         showing_lyric: false,
         mouse: (-1.0, -1.0),
@@ -608,7 +755,7 @@ unsafe fn run() -> Result<()> {
     app.draw()?; // 빈(투명) 첫 장을 낸 뒤에 창을 보인다
     let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
     tray(hwnd, true);
-    SetTimer(hwnd, 1, 100, None);
+    SetTimer(hwnd, 1, 50, None);
     log("window ok");
 
     let mut last = Instant::now();
@@ -635,8 +782,15 @@ unsafe fn run() -> Result<()> {
                         let mut t = TRACKMOUSEEVENT { cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32, dwFlags: TME_LEAVE, hwndTrack: hwnd, dwHoverTime: 0 };
                         let _ = TrackMouseEvent(&mut t);
                     }
-                    if !app.hover {
+                    // 꼬리·그림자 여백 위에서는 펼치지 않는다
+                    let px0 = (WIN_W - app.w.pos) / 2.0;
+                    let on_pill = app.mouse.0 >= px0 - EAR && app.mouse.0 <= px0 + app.w.pos + EAR && app.mouse.1 <= app.h.pos + 2.0;
+                    if !app.hover && on_pill {
                         app.hover = true;
+                        app.face.touch();
+                        if !app.n.has {
+                            app.face.happy(900); // 펼칠 게 없을 땐 반가워한다
+                        }
                         app.tick();
                     }
                 }
@@ -662,6 +816,8 @@ unsafe fn run() -> Result<()> {
             app.w.step(dt);
             app.h.step(dt);
             app.fade.step(dt);
+            app.tm.step(dt);
+            app.face.step(dt);
             app.scroll.step(dt);
             app.dirty = false;
             app.draw()?;

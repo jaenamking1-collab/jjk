@@ -162,6 +162,22 @@ impl Gfx {
         self.dc.FillGeometry(&geo, &self.brush, None);
     }
 
+    pub unsafe fn ellipse(&self, cx: f32, cy: f32, rx: f32, ry: f32, c: Rgb, a: f32) {
+        if a <= 0.0 {
+            return;
+        }
+        self.color(c, a);
+        self.dc.FillEllipse(&D2D1_ELLIPSE { point: D2D_POINT_2F { x: cx, y: cy }, radiusX: rx, radiusY: ry }, &self.brush);
+    }
+
+    /// 끝이 둥근 굵은 선.
+    pub unsafe fn line(&self, p0: (f32, f32), p1: (f32, f32), width: f32, c: Rgb, a: f32) {
+        self.color(c, a);
+        self.dc.DrawLine(D2D_POINT_2F { x: p0.0, y: p0.1 }, D2D_POINT_2F { x: p1.0, y: p1.1 }, &self.brush, width, None);
+        self.ellipse(p0.0, p0.1, width / 2.0, width / 2.0, c, a);
+        self.ellipse(p1.0, p1.1, width / 2.0, width / 2.0, c, a);
+    }
+
     pub unsafe fn clip(&self, x: f32, y: f32, w: f32, h: f32) {
         self.dc.PushAxisAlignedClip(&D2D_RECT_F { left: x, top: y, right: x + w, bottom: y + h }, D2D1_ANTIALIAS_MODE_ALIASED);
     }
