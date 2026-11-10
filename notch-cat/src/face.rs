@@ -180,7 +180,7 @@ impl Face {
             self.touched = now;
         }
         let idle = now.duration_since(self.touched).as_secs();
-        let (mut drowsy_at, mut sleep_at) = if playing { (120, 240) } else { (45, 90) };
+        let (mut drowsy_at, mut sleep_at) = if playing { (20, 40) } else { (8, 15) };
         if let Some(n) = env_secs("NOTCH_CAT_SLEEP") {
             (drowsy_at, sleep_at) = (n / 2, n); // 시험용: 빨리 재운다
         }

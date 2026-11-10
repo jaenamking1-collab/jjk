@@ -373,7 +373,7 @@ impl App {
             self.hidden = self.cfg.hide_fullscreen && fullscreen_in_front(self.hwnd, &self.mon);
             let maxed = self.cfg.tiny && std::env::var("NOTCH_CAT_TINY").map_or(true, |v| v != "0") && maximized_in_front(self.hwnd, &self.mon);
             if maxed && !self.maxed {
-                self.moved = Instant::now() - Duration::from_secs(9);
+                self.moved = Instant::now() - Duration::from_secs(31);
                 self.keyed = self.moved; // 창을 꽉 채워 여는 순간 바로 줄어든다(마우스를 움직이면 돌아온다)
             }
             self.maxed = maxed;
@@ -416,7 +416,7 @@ impl App {
         let quiet = Duration::from_secs(8);
         let typing = self.keyed.elapsed() < quiet && self.keyed > self.moved;
         self.ck.target = if typing && self.text.is_empty() { 100.0 } else { 0.0 };
-        let tiny = self.maxed && !close && !self.hover && !typing && self.moved.elapsed() > quiet;
+        let tiny = self.maxed && !close && !self.hover && !typing && self.moved.elapsed() > Duration::from_secs(30); // 졸고 잠드는 모습을 보여 준 뒤에 줄어든다
         if tiny {
             self.face.tail.target = 0.0;
         }
