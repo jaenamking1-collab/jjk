@@ -284,7 +284,8 @@ struct App {
     hidden: bool,
     maxed: bool, // 앞 창이 화면을 꽉 채웠다(일하는 중)
     last_pt: (i32, i32),
-    moved: Instant, // 마우스가 마지막으로 움직인 때
+    last_input: u32,
+    moved: Instant, // 마지막으로 클릭하거나 자판을 친 때
     ticks: u32,
     n: Now,
     lines: Vec<(u64, String)>,
@@ -383,11 +384,15 @@ impl App {
         self.face.tick((mx - fcx, my - 13.5), near, self.hover, playing);
         // 창을 꽉 채워 일하는 동안엔 아주 작게 줄어 있다가, 마우스가 가까이 오면 돌아온다
         let close = mx > px0 - 50.0 && mx < px0 + pw + 50.0 && my < ph + 45.0;
-        if (pt.x, pt.y) != self.last_pt {
-            self.last_pt = (pt.x, pt.y);
-            self.moved = Instant::now();
+        // 클릭하거나 자판을 치면 고양이가 나오고(마우스만 움직여서는 안 나온다), 8초 조용하면 다시 줄어든다
+        let mut li = windows::Win32::UI::Input::KeyboardAndMouse::LASTINPUTINFO { cbSize: std::mem::size_of::<windows::Win32::UI::Input::KeyboardAndMouse::LASTINPUTINFO>() as u32, dwTime: 0 };
+        let _ = windows::Win32::UI::Input::KeyboardAndMouse::GetLastInputInfo(&mut li);
+        if li.dwTime != self.last_input && (pt.x, pt.y) == self.last_pt {
+            self.moved = Instant::now(); // 입력은 있었는데 마우스는 제자리 = 클릭·자판
         }
-        let tiny = self.maxed && !close && !self.hover && self.moved.elapsed() > Duration::from_secs(8); // 마우스가 움직이는 동안엔 고양이가 나와 있다
+        self.last_input = li.dwTime;
+        self.last_pt = (pt.x, pt.y);
+        let tiny = self.maxed && !close && !self.hover && self.moved.elapsed() > Duration::from_secs(8);
         if tiny {
             self.face.tail.target = 0.0;
         }
@@ -779,7 +784,7 @@ impl App {
         let _ = AppendMenuW(m, check(self.cfg.hide_fullscreen), 1, w!("전체 화면일 때 숨기기"));
         let _ = AppendMenuW(m, check(self.cfg.autostart), 2, w!("윈도우 시작할 때 자동 실행"));
         let _ = AppendMenuW(m, check(self.cfg.aside), 4, w!("오른쪽으로 비켜 놓기"));
-        let _ = AppendMenuW(m, check(self.cfg.tiny), 6, w!("최대화 창에서 마우스가 쉬면 작게 줄이기"));
+        let _ = AppendMenuW(m, check(self.cfg.tiny), 6, w!("최대화 창에서는 작게 줄이기"));
         let _ = AppendMenuW(m, MF_STRING, 5, w!("얼굴 바꾸기"));
         let _ = AppendMenuW(m, MF_SEPARATOR, 0, None);
         let _ = AppendMenuW(m, MF_STRING, 3, w!("끝내기"));
@@ -909,6 +914,7 @@ unsafe fn run() -> Result<()> {
         hidden: false,
         maxed: false,
         last_pt: (0, 0),
+        last_input: 0,
         moved: Instant::now(),
         ticks: 0,
         n: Now::default(),
