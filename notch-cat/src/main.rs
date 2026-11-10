@@ -45,7 +45,7 @@ const IDLE: (f32, f32) = (150.0, 28.0);
 const BAR_H: f32 = 28.0;
 const FACE_ZOOM: f32 = 1.15;
 const QUIET: (f32, f32) = (250.0, 104.0); // 음악이 없을 때 펼친 크기(시계)
-const NOTE_W: f32 = 340.0; // 알림이 왔을 때 펼친 너비
+const NOTE_W: f32 = 300.0; // 알림이 왔을 때 펼친 너비
 const TINY: (f32, f32) = (48.0, 9.0); // 일할 때 줄어든 크기
 const OPEN: (f32, f32) = (460.0, 246.0);
 const SHADOW: f32 = 20.0; // 펼쳤을 때 그림자가 번지는 폭
@@ -300,7 +300,9 @@ struct App {
     open_h: f32, // 마지막으로 펼친 높이
     mode: u8,    // 펼친 내용: 0 음악, 1 시계, 2 알림
     last_input: u32,
-    moved: Instant, // 마지막으로 클릭하거나 자판을 친 때
+    moved: Instant, // 마우스가 마지막으로 움직인 때
+    keyed: Instant, // 마지막으로 자판을 치거나 클릭한 때
+    ck: Spring,     // 0 = 고양이, 100 = 시계
     ticks: u32,
     n: Now,
     lines: Vec<(u64, String)>,
@@ -321,7 +323,7 @@ struct App {
 
 impl App {
     fn animating(&self) -> bool {
-        !(self.w.settled() && self.h.settled() && self.fade.settled() && self.scroll.settled() && self.tm.settled() && self.face.settled())
+        !(self.w.settled() && self.h.settled() && self.fade.settled() && self.scroll.settled() && self.tm.settled() && self.ck.settled() && self.face.settled())
     }
 
     /// 0.05초마다: 음악·가사 상태를 읽어 목표 크기와 보일 글자를 정한다.
@@ -371,7 +373,8 @@ impl App {
             self.hidden = self.cfg.hide_fullscreen && fullscreen_in_front(self.hwnd, &self.mon);
             let maxed = self.cfg.tiny && std::env::var("NOTCH_CAT_TINY").map_or(true, |v| v != "0") && maximized_in_front(self.hwnd, &self.mon);
             if maxed && !self.maxed {
-                self.moved = Instant::now() - Duration::from_secs(9); // 창을 꽉 채워 여는 순간 바로 줄어든다(마우스를 움직이면 돌아온다)
+                self.moved = Instant::now() - Duration::from_secs(9);
+                self.keyed = self.moved; // 창을 꽉 채워 여는 순간 바로 줄어든다(마우스를 움직이면 돌아온다)
             }
             self.maxed = maxed;
         }
@@ -399,15 +402,21 @@ impl App {
         self.face.tick((mx - fcx, my - 13.5), near, self.hover, playing);
         // 창을 꽉 채워 일하는 동안엔 아주 작게 줄어 있다가, 마우스가 가까이 오면 돌아온다
         let close = mx > px0 - 50.0 && mx < px0 + pw + 50.0 && my < ph + 45.0;
-        // 클릭하거나 자판을 치면 고양이가 나오고(마우스만 움직여서는 안 나온다), 8초 조용하면 다시 줄어든다
+        // 자판·클릭(입력은 있는데 마우스는 제자리)이면 시계, 마우스를 움직이면 고양이, 8초 조용하면 꽉 찬 창에서는 줄어든다
         let mut li = windows::Win32::UI::Input::KeyboardAndMouse::LASTINPUTINFO { cbSize: std::mem::size_of::<windows::Win32::UI::Input::KeyboardAndMouse::LASTINPUTINFO>() as u32, dwTime: 0 };
         let _ = windows::Win32::UI::Input::KeyboardAndMouse::GetLastInputInfo(&mut li);
-        if li.dwTime != self.last_input && (pt.x, pt.y) == self.last_pt {
-            self.moved = Instant::now(); // 입력은 있었는데 마우스는 제자리 = 클릭·자판
+        if (pt.x, pt.y) != self.last_pt {
+            self.moved = Instant::now();
+        } else if li.dwTime != self.last_input && self.moved.elapsed() > Duration::from_millis(400) {
+            self.keyed = Instant::now(); // 마우스가 미세하게 떨린 것은 치지 않는다
+            self.face.touch();
         }
         self.last_input = li.dwTime;
         self.last_pt = (pt.x, pt.y);
-        let tiny = self.maxed && !close && !self.hover && self.moved.elapsed() > Duration::from_secs(8);
+        let quiet = Duration::from_secs(8);
+        let typing = self.keyed.elapsed() < quiet && self.keyed > self.moved;
+        self.ck.target = if typing && self.text.is_empty() { 100.0 } else { 0.0 };
+        let tiny = self.maxed && !close && !self.hover && !typing && self.moved.elapsed() > quiet;
         if tiny {
             self.face.tail.target = 0.0;
         }
@@ -432,7 +441,7 @@ impl App {
         let (tw, th) = if self.hidden {
             (IDLE.0 * 0.6, 0.0)
         } else if noting {
-            (NOTE_W, if self.note.title.is_empty() || self.note.body.is_empty() { 56.0 } else { 76.0 })
+            (NOTE_W, 54.0)
         } else if tiny {
             TINY
         } else if self.hover {
@@ -496,9 +505,10 @@ impl App {
             let t = self.born.elapsed().as_secs_f32();
             let ca = (1.0 - p * 3.0).clamp(0.0, 1.0) * (h / BAR_H).min(1.0); // 닫힘 내용의 진하기
             let fa = ((h - 12.0) / 12.0).clamp(0.0, 1.0); // 아주 작게 줄면 얼굴은 사라진다
+            let fk = 1.0 - (self.ck.pos / 100.0).clamp(0.0, 1.0); // 시계가 나오면 얼굴이 비킨다
             // 꼬리: 잠들면 옆에서 슬그머니 나오는 짧고 도톰한 물음표. 몸보다 먼저 그려서 뿌리가 몸 뒤에 숨는다.
             let reveal = (self.face.tail.pos / 100.0).clamp(0.0, 1.0);
-            if reveal > 0.003 && ca * fa > 0.0 {
+            if reveal > 0.003 && ca * fa * fk > 0.0 {
                 use std::f32::consts::{PI, TAU};
                 let f = &self.face;
                 let sd = f.tail_side;
@@ -535,7 +545,7 @@ impl App {
                         ));
                     }
                 }
-                ribbon(g, &pts, |u| 2.0 * (3.1 - 0.9 * u * u * (3.0 - 2.0 * u)), TAIL, ca * fa);
+                ribbon(g, &pts, |u| 2.0 * (3.1 - 0.9 * u * u * (3.0 - 2.0 * u)), TAIL, ca * fa * fk);
             }
             g.rrect(x, -r, w, h + r, r, BG, 1.0); // 위쪽은 화면 밖으로 넘겨 위 모서리를 각지게
             // 위쪽 모서리가 화면 가장자리로 부드럽게 이어지게(바깥으로 휜다)
@@ -554,9 +564,9 @@ impl App {
             let tm = (self.tm.pos / 100.0).clamp(0.0, 1.0);
 
             // ── 닫힘: 고양이 얼굴 ──
-            if ca * fa > 0.0 {
+            if ca * fa * fk > 0.0 {
                 use std::f32::consts::PI;
-                let ca = ca * fa;
+                let ca = ca * fa * fk;
                 let f = &self.face;
                 let st = &face::STYLES[f.style];
                 let fcx = x + w / 2.0 + (28.0 - w / 2.0) * tm;
@@ -673,6 +683,15 @@ impl App {
                 }
             }
 
+            // ── 닫힘: 자판을 치는 동안엔 시계 ──
+            let cka = ca * fa * (1.0 - fk);
+            if cka > 0.01 {
+                let t = local();
+                let h12 = if t.wHour % 12 == 0 { 12 } else { t.wHour % 12 };
+                let time = format!("{} {}:{:02}", if t.wHour < 12 { "오전" } else { "오후" }, h12, t.wMinute);
+                g.text(&time, &g.f_time, x, 5.0 + fk * 4.0, w, FG, cka, Align::Center);
+            }
+
             // ── 닫힘: 한 줄(얼굴 오른쪽) ──
             let a = ca * fa * tm;
             if a > 0.0 && n.has {
@@ -773,15 +792,12 @@ impl App {
                 // 알림: 앱 그림 · 앱 이름 · 제목(· 내용)
                 let nt = &self.note;
                 match &self.note_icon {
-                    Some(b) => g.art(b, x + 16.0, 13.0, 30.0, 7.0, a),
-                    None => g.ellipse(x + 31.0, 28.0, 5.0, 5.0, LIME, a),
+                    Some(b) => g.art(b, x + 16.0, 12.0, 30.0, 7.0, a),
+                    None => g.ellipse(x + 31.0, 27.0, 5.0, 5.0, LIME, a),
                 }
-                let tw = w - 78.0;
-                g.text(&nt.app, &g.f_tiny, x + 60.0, 9.0, tw, FG, a * 0.55, Align::Left);
-                g.text(if nt.title.is_empty() { &nt.body } else { &nt.title }, &g.f_lyric, x + 60.0, 23.0, tw, FG, a, Align::Left);
-                if !nt.title.is_empty() && !nt.body.is_empty() {
-                    g.text(&nt.body, &g.f_sub, x + 60.0, 46.0, tw, FG, a * 0.6, Align::Left);
-                }
+                let tw = w - 76.0;
+                g.text(&nt.app, &g.f_tiny, x + 58.0, 9.0, tw, FG, a * 0.55, Align::Left);
+                g.text(if nt.title.is_empty() { &nt.body } else { &nt.title }, &g.f_lyric, x + 58.0, 22.0, tw, FG, a, Align::Left);
             } else if a > 0.0 && self.mode == 1 {
                 // 음악이 없으면 시계와 날짜
                 let t = local();
@@ -973,6 +989,8 @@ unsafe fn run() -> Result<()> {
         mode: 0,
         last_input: 0,
         moved: Instant::now(),
+        keyed: Instant::now() - Duration::from_secs(60),
+        ck: Spring::new(0.0, 200.0, 1.0),
         ticks: 0,
         n: Now::default(),
         lines: Vec::new(),
@@ -1056,6 +1074,7 @@ unsafe fn run() -> Result<()> {
             app.h.step(dt);
             app.fade.step(dt);
             app.tm.step(dt);
+            app.ck.step(dt);
             app.face.step(dt);
             app.scroll.step(dt);
             app.dirty = false;
