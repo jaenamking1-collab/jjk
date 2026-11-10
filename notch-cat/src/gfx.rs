@@ -34,6 +34,7 @@ pub struct Gfx {
     wic: IWICImagingFactory,
     pub f_title: IDWriteTextFormat,
     pub f_body: IDWriteTextFormat,
+    pub f_bar: IDWriteTextFormat,
     pub f_lyric: IDWriteTextFormat,
     pub f_sub: IDWriteTextFormat,
     pub f_time: IDWriteTextFormat,
@@ -107,6 +108,7 @@ impl Gfx {
         Ok(Gfx {
             f_title: font(&dw, mg, 17.0, true)?,
             f_body: font(&dw, mg, 13.0, false)?,
+            f_bar: font(&dw, mg, 12.0, false)?,
             f_lyric: font(&dw, mg, 15.0, true)?,
             f_sub: font(&dw, mg, 13.0, false)?,
             f_time: font(&dw, mg, 12.5, true)?,

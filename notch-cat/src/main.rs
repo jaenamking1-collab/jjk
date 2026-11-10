@@ -39,8 +39,8 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 const WIN_W: f32 = 560.0;
 const WIN_H: f32 = 290.0;
 // 노치 크기
-const IDLE: (f32, f32) = (110.0, 26.0);
-const BAR_H: f32 = 32.0;
+const IDLE: (f32, f32) = (96.0, 24.0);
+const BAR_H: f32 = 28.0;
 const OPEN: (f32, f32) = (460.0, 246.0);
 const SHADOW: f32 = 20.0; // 펼쳤을 때 그림자가 번지는 폭
 
@@ -208,6 +208,7 @@ struct App {
     scroll: Spring, // 가사 줄 넘어감
     // 상태
     hover: bool,
+    showing_lyric: bool,
     mouse: (f32, f32), // 논리 좌표. 밖이면 음수
     tracking: bool,
     hidden: bool,
@@ -268,9 +269,9 @@ impl App {
         let text = match (self.n.has, self.n.playing, line) {
             (false, _, _) => String::new(),
             (true, true, Some(l)) => l.to_string(),
-            _ if self.n.artist.is_empty() => self.n.title.clone(),
-            _ => format!("{} · {}", self.n.title, self.n.artist),
+            _ => self.n.title.clone(),
         };
+        self.showing_lyric = self.n.has && self.n.playing && line.is_some();
         if text != self.text {
             self.prev_text = std::mem::replace(&mut self.text, text);
             self.fade.pos = 0.0;
@@ -286,7 +287,11 @@ impl App {
         } else if self.hover {
             OPEN
         } else {
-            ((self.g.measure(&self.text, &self.g.f_body) + 62.0).clamp(150.0, 520.0), BAR_H)
+            {
+            // 닫힘은 작게: 곡명은 짧게 자르고, 가사 줄일 때만 조금 더 넓힌다
+            let max = if self.showing_lyric { 300.0 } else { 190.0 };
+            ((self.g.measure(&self.text, &self.g.f_bar) + 50.0).clamp(110.0, max), BAR_H)
+        }
         };
         self.w.target = tw;
         self.h.target = th;
@@ -321,7 +326,7 @@ impl App {
         self.hits.clear();
         g.begin();
         if h >= 0.5 {
-            let r = (16.0 + 14.0 * p).min(h);
+            let r = (14.0 + 16.0 * p).min(h);
             for i in 0..8 {
                 let gr = (8 - i) as f32 * 2.2; // 겹겹이 옅게 → 부드러운 그림자
                 g.rrect(x - gr, -r, w + gr * 2.0, h + r + gr + 3.0, r + gr, (0.0, 0.0, 0.0), 0.045 * p);
@@ -334,15 +339,16 @@ impl App {
             let a = (1.0 - p * 3.0).clamp(0.0, 1.0) * (h / BAR_H).min(1.0);
             if a > 0.0 && n.has {
                 match &self.art {
-                    Some(b) => g.art(b, x + 9.0, 5.0, 22.0, 6.0, a),
-                    None => g.rrect(x + 16.0, 12.0, 8.0, 8.0, 4.0, LIME, a),
+                    Some(b) => g.art(b, x + 8.0, 5.0, 18.0, 5.0, a),
+                    None => g.rrect(x + 13.0, 10.0, 8.0, 8.0, 4.0, LIME, a),
                 }
                 let dim = if n.playing { 1.0 } else { 0.55 };
                 let f = self.fade.pos.clamp(0.0, 1.0);
-                let tw = (w - 54.0).max(1.0);
-                g.clip(x + 40.0, 0.0, tw, BAR_H);
-                g.text(&self.prev_text, &g.f_body, x + 40.0, 7.0 - f * 6.0, 520.0, FG, a * dim * (1.0 - f), Align::Left);
-                g.text(&self.text, &g.f_body, x + 40.0, 7.0 + (1.0 - f) * 6.0, tw.max(self.w.target - 54.0), FG, a * dim * f, Align::Left);
+                let tw = (w - 44.0).max(1.0);
+                let lw = (self.w.target - 44.0).max(1.0); // 목표 너비 기준으로 말줄임(움직이는 동안 글자가 흔들리지 않게)
+                g.clip(x + 33.0, 0.0, tw, BAR_H);
+                g.text(&self.prev_text, &g.f_bar, x + 33.0, 5.5 - f * 6.0, lw, FG, a * dim * (1.0 - f), Align::Left);
+                g.text(&self.text, &g.f_bar, x + 33.0, 5.5 + (1.0 - f) * 6.0, lw, FG, a * dim * f, Align::Left);
                 g.unclip();
             }
 
@@ -577,6 +583,7 @@ unsafe fn run() -> Result<()> {
         fade: Spring::new(1.0, 200.0, 1.0),
         scroll: Spring::new(0.0, 170.0, 0.9),
         hover: false,
+        showing_lyric: false,
         mouse: (-1.0, -1.0),
         tracking: false,
         hidden: false,
