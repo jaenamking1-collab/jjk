@@ -42,6 +42,7 @@ const WIN_H: f32 = 290.0;
 // 노치 크기
 const IDLE: (f32, f32) = (150.0, 28.0);
 const BAR_H: f32 = 28.0;
+const FACE_ZOOM: f32 = 1.15;
 const TINY: (f32, f32) = (48.0, 9.0); // 일할 때 줄어든 크기
 const OPEN: (f32, f32) = (460.0, 246.0);
 const SHADOW: f32 = 20.0; // 펼쳤을 때 그림자가 번지는 폭
@@ -514,6 +515,7 @@ impl App {
                 for (i, (gw, gh, ga)) in [(72.0, 14.0, 0.035), (52.0, 8.0, 0.06), (28.0, 4.0, 0.1)].into_iter().enumerate() {
                     g.ellipse(fcx, h - 2.0 + gh * 0.1, gw / 2.0, gh / 2.0, GLOW[i], ca * ga * gk);
                 }
+                g.zoom(FACE_ZOOM, fcx, 14.0); // 눈·코·입·수염을 한꺼번에 키운다
                 let breath = if f.asleep { (t * 1.208).sin() * 0.35 } else { 0.0 };
                 let (ox, oy) = (f.ex.pos, f.ey.pos + breath);
                 let cy = 12.5 + oy;
@@ -610,6 +612,7 @@ impl App {
                         }
                     }
                 }
+                g.zoom(1.0, 0.0, 0.0);
             }
             // 아주 작게 줄었을 땐 눈 두 점만 남는다
             let da = ca * (1.0 - fa) * (h / 6.0).min(1.0);

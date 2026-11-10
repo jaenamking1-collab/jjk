@@ -115,7 +115,7 @@ impl Face {
             asleep: false,
             tail_side: 1.0,
             swap: false,
-            next_swap: now + Duration::from_secs(env_secs("NOTCH_CAT_FACE").unwrap_or(300)),
+            next_swap: now + Duration::from_secs(env_secs("NOTCH_CAT_FACE").unwrap_or(60)),
             gesture: 0,
             gesture_until: now + Duration::from_secs(7),
             side_phase: 0,
@@ -174,6 +174,7 @@ impl Face {
         if (m.0 - self.mouse.0).abs() + (m.1 - self.mouse.1).abs() > 1.0 {
             self.mouse = m;
             self.mouse_moved = now;
+            self.touched = now; // 마우스가 움직이면 어디에 있든 눈을 뜬다
         }
         if near || hover {
             self.touched = now;
@@ -196,7 +197,7 @@ impl Face {
             self.swap = true; // 자고 일어나면 다른 얼굴
         }
 
-        // ── 얼굴 바꾸기: 5분마다, 또는 깨어날 때. 눈을 감은 틈에 바꾼다 ──
+        // ── 얼굴 바꾸기: 1~2분마다, 또는 깨어날 때. 눈을 감은 틈에 바꾼다 ──
         if now >= self.next_swap && !self.asleep {
             self.swap = true;
         }
@@ -206,7 +207,7 @@ impl Face {
             }
             if self.lid.pos < 2.0 || self.happy_shape {
                 self.swap = false;
-                self.next_swap = now + Duration::from_secs(env_secs("NOTCH_CAT_FACE").unwrap_or(240 + (self.rand() * 240.0) as u64));
+                self.next_swap = now + Duration::from_secs(env_secs("NOTCH_CAT_FACE").unwrap_or(60 + (self.rand() * 60.0) as u64));
                 self.prev_style = self.style;
                 self.prev_whisk = self.whisk;
                 self.style = (self.style + 1) % STYLES.len();

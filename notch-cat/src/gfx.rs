@@ -171,6 +171,11 @@ impl Gfx {
         self.dc.FillEllipse(&D2D1_ELLIPSE { point: D2D_POINT_2F { x: cx, y: cy }, radiusX: rx, radiusY: ry }, &self.brush);
     }
 
+    /// 이후 그림을 (cx, cy) 기준으로 k배. k = 1 이면 원래대로.
+    pub unsafe fn zoom(&self, k: f32, cx: f32, cy: f32) {
+        self.dc.SetTransform(&Matrix3x2 { M11: k, M12: 0.0, M21: 0.0, M22: k, M31: cx * (1.0 - k), M32: cy * (1.0 - k) });
+    }
+
     pub unsafe fn clip(&self, x: f32, y: f32, w: f32, h: f32) {
         self.dc.PushAxisAlignedClip(&D2D_RECT_F { left: x, top: y, right: x + w, bottom: y + h }, D2D1_ANTIALIAS_MODE_ALIASED);
     }
