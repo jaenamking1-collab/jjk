@@ -576,7 +576,7 @@ impl App {
                     g.ellipse(fcx, h - 2.0 + gh * 0.1, gw / 2.0, gh / 2.0, GLOW[i], ca * ga * gk);
                 }
                 g.zoom(FACE_ZOOM, fcx, 14.0); // 눈·코·입·수염을 한꺼번에 키운다
-                let breath = if f.asleep { (t * 1.208).sin() * 0.35 } else { 0.0 };
+                let breath = if f.asleep { (t * 1.208).sin() * 0.7 } else { 0.0 };
                 let (ox, oy) = (f.ex.pos, f.ey.pos + breath);
                 let cy = 12.5 + oy;
                 let smile = (f.ear.pos / 10.0).clamp(0.0, 1.0);
@@ -650,9 +650,24 @@ impl App {
                         let band = full * (1.0 - shut);
                         let ea = ca * (0.55 + 0.37 * o.min(1.0));
                         if band < 1.8 {
-                            // 감은 눈 ∪
-                            let y = cy + 1.0;
-                            ribbon(g, &quad((ex - st.rx + 0.5, y), (ex, y + 3.2), (ex + st.rx - 0.5, y), 10), |_| 1.6, EYE, ea);
+                            // 감은 눈 ∪. 잠들면 더 크고 진해지고, 바깥쪽에 속눈썹이 위로 돋고, 숨 쉬듯 조금씩 움직인다.
+                            let sl = ((100.0 - f.glow.pos) / 60.0).clamp(0.0, 1.0); // 0 깜빡임 … 1 잠
+                            let wob = (t * 1.208).sin();
+                            let y = cy + 0.6;
+                            let hw = st.rx - 0.5 + sl;
+                            let dip = 3.2 + (1.8 + 0.6 * wob) * sl;
+                            let a = ea.max(ca * 0.95 * sl);
+                            ribbon(g, &quad((ex - hw, y), (ex, y + dip), (ex + hw, y), 10), |_| 1.6 + 0.6 * sl, EYE, a);
+                            if sl > 0.05 {
+                                for k in 0..3 {
+                                    let kf = k as f32;
+                                    let u = 0.5 + side * (0.14 + 0.16 * kf);
+                                    let p = (ex - hw + 2.0 * hw * u, y + 2.0 * u * (1.0 - u) * dip);
+                                    let (dx, len) = (side * (0.25 + 0.3 * kf) + 0.12 * wob, (2.6 - 0.25 * kf) * sl);
+                                    let n = (dx * dx + 1.0).sqrt();
+                                    ribbon(g, &[p, (p.0 + dx / n * len, p.1 - len / n)], |v| 1.1 - 0.5 * v, EYE, a);
+                                }
+                            }
                         } else {
                             g.clip(ex - st.rx - 1.0, top, st.rx * 2.0 + 2.0, band);
                             let e = 0.5 + 0.5 * st.point; // 0.5 = 타원, 1 = 양끝이 뾰족
