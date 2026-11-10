@@ -29,14 +29,15 @@ pub struct Gfx {
     _target: IDCompositionTarget,
     _visual: IDCompositionVisual,
     dw: IDWriteFactory,
+    d2f: ID2D1Factory1,
     brush: ID2D1SolidColorBrush,
     wic: IWICImagingFactory,
     pub f_title: IDWriteTextFormat,
     pub f_body: IDWriteTextFormat,
     pub f_lyric: IDWriteTextFormat,
-    pub f_small: IDWriteTextFormat,
+    pub f_sub: IDWriteTextFormat,
+    pub f_time: IDWriteTextFormat,
     pub f_tiny: IDWriteTextFormat,
-    pub f_icon: IDWriteTextFormat,
 }
 
 unsafe fn font(dw: &IDWriteFactory, name: PCWSTR, size: f32, bold: bool) -> Result<IDWriteTextFormat> {
@@ -104,13 +105,14 @@ impl Gfx {
         let wic: IWICImagingFactory = CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_INPROC_SERVER)?;
         let mg = w!("Malgun Gothic");
         Ok(Gfx {
-            f_title: font(&dw, mg, 15.0, true)?,
+            f_title: font(&dw, mg, 17.0, true)?,
             f_body: font(&dw, mg, 13.0, false)?,
-            f_lyric: font(&dw, mg, 14.0, true)?,
-            f_small: font(&dw, mg, 11.5, false)?,
+            f_lyric: font(&dw, mg, 15.0, true)?,
+            f_sub: font(&dw, mg, 13.0, false)?,
+            f_time: font(&dw, mg, 12.5, true)?,
             f_tiny: font(&dw, mg, 10.0, false)?,
-            f_icon: font(&dw, w!("Segoe MDL2 Assets"), 15.0, false)?,
             dc,
+            d2f,
             swap,
             _dcomp: dcomp,
             _target: target,
@@ -143,6 +145,19 @@ impl Gfx {
         self.color(c, a);
         let rr = D2D1_ROUNDED_RECT { rect: D2D_RECT_F { left: x, top: y, right: x + w, bottom: y + h }, radiusX: r, radiusY: r };
         self.dc.FillRoundedRectangle(&rr, &self.brush);
+    }
+
+    /// 꽉 찬 다각형(재생 버튼 세모 등).
+    pub unsafe fn poly(&self, pts: &[(f32, f32)], c: Rgb, a: f32) {
+        let Ok(geo) = self.d2f.CreatePathGeometry() else { return };
+        let Ok(sink) = geo.Open() else { return };
+        sink.BeginFigure(D2D_POINT_2F { x: pts[0].0, y: pts[0].1 }, D2D1_FIGURE_BEGIN_FILLED);
+        let rest: Vec<D2D_POINT_2F> = pts[1..].iter().map(|p| D2D_POINT_2F { x: p.0, y: p.1 }).collect();
+        sink.AddLines(&rest);
+        sink.EndFigure(D2D1_FIGURE_END_CLOSED);
+        let _ = sink.Close();
+        self.color(c, a);
+        self.dc.FillGeometry(&geo, &self.brush, None);
     }
 
     pub unsafe fn clip(&self, x: f32, y: f32, w: f32, h: f32) {

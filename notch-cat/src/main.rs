@@ -37,14 +37,15 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // 창(=그릴 수 있는 최대 넓이), 논리 단위
 const WIN_W: f32 = 560.0;
-const WIN_H: f32 = 240.0;
+const WIN_H: f32 = 290.0;
 // 노치 크기
 const IDLE: (f32, f32) = (110.0, 26.0);
 const BAR_H: f32 = 32.0;
-const OPEN: (f32, f32) = (440.0, 196.0);
+const OPEN: (f32, f32) = (460.0, 246.0);
+const SHADOW: f32 = 20.0; // 펼쳤을 때 그림자가 번지는 폭
 
 // 색: 디자인.md '대비 강한 조합' — 미드나잇 네이비 · 쿨 화이트 · 일렉트릭 라임
-const BG: Rgb = (0.035, 0.045, 0.07);
+const BG: Rgb = (0.0, 0.0, 0.0);
 const FG: Rgb = (0.953, 0.957, 0.965);
 const LIME: Rgb = (0.639, 0.902, 0.208);
 const WARN: Rgb = (1.0, 0.416, 0.102);
@@ -127,7 +128,7 @@ impl Cfg {
 // ── 창 메시지 → 사건 목록 ───────────────────────────────
 
 enum Ev {
-    Move,
+    Move(f32, f32),
     Leave,
     Click(f32, f32),
     Tick,
@@ -144,7 +145,7 @@ fn push(e: Ev) {
 
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     match msg {
-        WM_MOUSEMOVE => push(Ev::Move),
+        WM_MOUSEMOVE => push(Ev::Move((lp.0 & 0xFFFF) as i16 as f32, ((lp.0 >> 16) & 0xFFFF) as i16 as f32)),
         WM_MOUSELEAVE => push(Ev::Leave),
         WM_LBUTTONUP => push(Ev::Click((lp.0 & 0xFFFF) as i16 as f32, ((lp.0 >> 16) & 0xFFFF) as i16 as f32)),
         WM_TIMER => push(Ev::Tick),
@@ -207,6 +208,7 @@ struct App {
     scroll: Spring, // 가사 줄 넘어감
     // 상태
     hover: bool,
+    mouse: (f32, f32), // 논리 좌표. 밖이면 음수
     tracking: bool,
     hidden: bool,
     ticks: u32,
@@ -309,7 +311,9 @@ impl App {
         let x = (WIN_W - w) / 2.0;
         // 노치 밖은 클릭이 아래 창으로 가도록 창 영역을 노치 크기로 맞춘다
         let s = self.scale;
-        let rgn = if h < 0.5 { [0; 4] } else { [(x * s).floor() as i32, 0, ((x + w) * s).ceil() as i32, (h * s).ceil() as i32] };
+        let p = ((h - BAR_H) / (OPEN.1 - BAR_H)).clamp(0.0, 1.0); // 0 닫힘 … 1 펼침
+        let m = SHADOW * p; // 그림자 자리만큼 영역을 넓힌다
+        let rgn = if h < 0.5 { [0; 4] } else { [((x - m) * s).floor() as i32, 0, ((x + w + m) * s).ceil() as i32, ((h + m) * s).ceil() as i32] };
         if rgn != self.rgn {
             self.rgn = rgn;
             SetWindowRgn(self.hwnd, CreateRectRgn(rgn[0], rgn[1], rgn[2], rgn[3]), false);
@@ -317,8 +321,11 @@ impl App {
         self.hits.clear();
         g.begin();
         if h >= 0.5 {
-            let p = ((h - BAR_H) / (OPEN.1 - BAR_H)).clamp(0.0, 1.0); // 0 닫힘 … 1 펼침
-            let r = (16.0 + 8.0 * p).min(h);
+            let r = (16.0 + 14.0 * p).min(h);
+            for i in 0..8 {
+                let gr = (8 - i) as f32 * 2.2; // 겹겹이 옅게 → 부드러운 그림자
+                g.rrect(x - gr, -r, w + gr * 2.0, h + r + gr + 3.0, r + gr, (0.0, 0.0, 0.0), 0.045 * p);
+            }
             g.rrect(x, -r, w, h + r, r, BG, 1.0); // 위쪽은 화면 밖으로 넘겨 위 모서리를 각지게
             g.clip(x, 0.0, w, h);
             let n = &self.n;
@@ -343,37 +350,57 @@ impl App {
             let a = ((p - 0.35) / 0.65).clamp(0.0, 1.0);
             if a > 0.0 && n.has {
                 let live = p > 0.9; // 다 펼쳐졌을 때만 눌린다
+                let (mx, my) = self.mouse;
                 match &self.art {
-                    Some(b) => g.art(b, x + 16.0, 16.0, 56.0, 10.0, a),
-                    None => g.rrect(x + 16.0, 16.0, 56.0, 56.0, 10.0, FG, a * 0.12),
+                    Some(b) => g.art(b, x + 18.0, 16.0, 60.0, 12.0, a),
+                    None => g.rrect(x + 18.0, 16.0, 60.0, 60.0, 12.0, FG, a * 0.12),
                 }
-                let bx = x + w - 16.0 - 96.0;
-                g.text(&n.title, &g.f_title, x + 84.0, 20.0, bx - (x + 84.0) - 8.0, FG, a, Align::Left);
-                g.text(&n.artist, &g.f_small, x + 84.0, 43.0, bx - (x + 84.0) - 8.0, FG, a * 0.6, Align::Left);
-                let icons = [("\u{E892}", Hit::Prev), (if n.playing { "\u{E769}" } else { "\u{E768}" }, Hit::Toggle), ("\u{E893}", Hit::Next)];
-                for (i, (glyph, hit)) in icons.into_iter().enumerate() {
-                    let ix = bx + i as f32 * 32.0;
-                    g.text(glyph, &g.f_icon, ix, 35.0, 32.0, FG, a, Align::Center);
-                    if live {
-                        self.hits.push(([ix, 26.0, ix + 32.0, 62.0], hit));
-                    }
-                }
+                g.text(&n.title, &g.f_title, x + 92.0, 22.0, w - 110.0, FG, a, Align::Left);
+                g.text(&n.artist, &g.f_sub, x + 92.0, 48.0, w - 110.0, FG, a * 0.6, Align::Left);
                 // 진행 막대
                 let pos = n.pos();
-                let (b0, bw) = (x + 58.0, w - 116.0);
-                g.text(&mmss(pos), &g.f_small, x + 16.0, 85.0, 38.0, FG, a * 0.6, Align::Left);
-                g.text(&if n.dur_ms > 0 { mmss(n.dur_ms) } else { "–:––".into() }, &g.f_small, x + w - 54.0, 85.0, 38.0, FG, a * 0.6, Align::Right);
-                g.rrect(b0, 91.0, bw, 4.0, 2.0, FG, a * 0.18);
+                let (b0, bw) = (x + 66.0, w - 132.0);
+                g.text(&mmss(pos), &g.f_time, x + 18.0, 87.0, 44.0, FG, a, Align::Left);
+                g.text(&if n.dur_ms > 0 { mmss(n.dur_ms) } else { "–:––".into() }, &g.f_time, x + w - 62.0, 87.0, 44.0, FG, a, Align::Right);
+                g.rrect(b0, 94.0, bw, 5.0, 2.5, FG, a * 0.22);
                 if n.dur_ms > 0 {
-                    g.rrect(b0, 91.0, (bw * pos as f32 / n.dur_ms as f32).clamp(4.0, bw), 4.0, 2.0, LIME, a);
+                    g.rrect(b0, 94.0, (bw * pos as f32 / n.dur_ms as f32).clamp(5.0, bw), 5.0, 2.5, LIME, a);
                     if live {
-                        self.hits.push(([b0, 82.0, b0 + bw, 104.0], Hit::Bar(b0, bw)));
+                        self.hits.push(([b0, 84.0, b0 + bw, 108.0], Hit::Bar(b0, bw)));
+                    }
+                }
+                // 버튼 세 개(가운데). 마우스를 올리면 동그란 바탕이 켜진다.
+                for (i, hit) in [Hit::Prev, Hit::Toggle, Hit::Next].into_iter().enumerate() {
+                    let cx = x + w / 2.0 + (i as f32 - 1.0) * 62.0;
+                    let cy = 132.0;
+                    let r = [cx - 21.0, cy - 21.0, cx + 21.0, cy + 21.0];
+                    if live && mx >= r[0] && mx < r[2] && my >= r[1] && my < r[3] {
+                        g.rrect(r[0], r[1], 42.0, 42.0, 21.0, FG, a * 0.14);
+                    }
+                    let tri = |x0: f32, d: f32, k: f32| g.poly(&[(x0, cy - k), (x0 + d * k * 1.6, cy), (x0, cy + k)], FG, a);
+                    match hit {
+                        Hit::Toggle if n.playing => {
+                            g.rrect(cx - 7.0, cy - 8.0, 5.0, 16.0, 1.5, FG, a);
+                            g.rrect(cx + 2.0, cy - 8.0, 5.0, 16.0, 1.5, FG, a);
+                        }
+                        Hit::Toggle => tri(cx - 5.5, 1.0, 8.5),
+                        Hit::Next => {
+                            tri(cx - 10.0, 1.0, 6.5);
+                            tri(cx, 1.0, 6.5);
+                        }
+                        _ => {
+                            tri(cx + 10.0, -1.0, 6.5);
+                            tri(cx, -1.0, 6.5);
+                        }
+                    }
+                    if live {
+                        self.hits.push((r, hit));
                     }
                 }
                 // 가사 세 줄(가운데가 지금 줄)
                 const LH: f32 = 22.0;
-                let (ly, lw) = (108.0, w - 32.0);
-                g.clip(x + 16.0, ly, lw, LH * 3.0);
+                let (ly, lw) = (160.0, w - 36.0);
+                g.clip(x + 18.0, ly, lw, LH * 3.0);
                 if self.lyr_st == St::Found {
                     let c = self.cur.map(|i| i as i32).unwrap_or(-1);
                     for i in (c - 2).max(0)..(c + 3).min(self.lines.len() as i32) {
@@ -381,12 +408,12 @@ impl App {
                         let (t, l) = &self.lines[i as usize];
                         let near = 1.0 - ((y - (ly + LH)).abs() / LH).min(1.0); // 가운데에 가까울수록 밝게
                         if i == c {
-                            g.text(l, &g.f_lyric, x + 16.0, y, lw, LIME, a * (0.4 + 0.6 * near), Align::Center);
+                            g.text(l, &g.f_lyric, x + 18.0, y, lw, LIME, a * (0.4 + 0.6 * near), Align::Center);
                         } else {
-                            g.text(l, &g.f_body, x + 16.0, y + 1.0, lw, FG, a * (0.4 + 0.3 * near), Align::Center);
+                            g.text(l, &g.f_body, x + 18.0, y + 1.0, lw, FG, a * (0.4 + 0.3 * near), Align::Center);
                         }
                         if live && y >= ly - 1.0 && y <= ly + LH * 2.0 + 1.0 {
-                            self.hits.push(([x + 16.0, y, x + 16.0 + lw, y + LH], Hit::Line(*t)));
+                            self.hits.push(([x + 18.0, y, x + 18.0 + lw, y + LH], Hit::Line(*t)));
                         }
                     }
                 } else {
@@ -395,13 +422,13 @@ impl App {
                         St::Error => "가사를 못 받았습니다",
                         _ => "가사 찾는 중…",
                     };
-                    g.text(m, &g.f_body, x + 16.0, ly + LH + 1.0, lw, FG, a * 0.5, Align::Center);
+                    g.text(m, &g.f_body, x + 18.0, ly + LH + 1.0, lw, FG, a * 0.5, Align::Center);
                 }
                 g.unclip();
                 // 생존 표시: 마지막으로 받은 시각. 10분 넘게 못 받으면 경고색.
                 let stale = n.seen.map(|t| t.elapsed() > Duration::from_secs(600)).unwrap_or(true) || self.lyr_st == St::Error;
                 let alive = format!("음악 {} · 가사 {}", n.stamp, if self.lyr_stamp.is_empty() { "–" } else { &self.lyr_stamp });
-                g.text(&alive, &g.f_tiny, x + 16.0, 177.0, w - 32.0, if stale { WARN } else { FG }, a * if stale { 1.0 } else { 0.4 }, Align::Right);
+                g.text(&alive, &g.f_tiny, x + 18.0, 227.0, w - 36.0, if stale { WARN } else { FG }, a * if stale { 1.0 } else { 0.4 }, Align::Right);
             }
             g.unclip();
         }
@@ -550,6 +577,7 @@ unsafe fn run() -> Result<()> {
         fade: Spring::new(1.0, 200.0, 1.0),
         scroll: Spring::new(0.0, 170.0, 0.9),
         hover: false,
+        mouse: (-1.0, -1.0),
         tracking: false,
         hidden: false,
         ticks: 0,
@@ -592,7 +620,9 @@ unsafe fn run() -> Result<()> {
         let evs: Vec<Ev> = EVENTS.with(|v| v.borrow_mut().drain(..).collect());
         for e in evs {
             match e {
-                Ev::Move => {
+                Ev::Move(mx, my) => {
+                    app.mouse = (mx / app.scale, my / app.scale);
+                    app.dirty = true;
                     if !app.tracking {
                         app.tracking = true;
                         let mut t = TRACKMOUSEEVENT { cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32, dwFlags: TME_LEAVE, hwndTrack: hwnd, dwHoverTime: 0 };
@@ -606,6 +636,7 @@ unsafe fn run() -> Result<()> {
                 Ev::Leave => {
                     app.tracking = false;
                     app.hover = false;
+                    app.mouse = (-1.0, -1.0);
                     app.tick();
                 }
                 Ev::Click(x, y) => app.click(x, y),
