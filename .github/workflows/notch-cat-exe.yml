@@ -1,0 +1,55 @@
+# 노치 고양이(Rust)를 NotchCat.exe 하나로 만들어 릴리스(태그 notch)에 올린다.
+# 받는 곳: https://github.com/jaenamking1-collab/jjk/releases/tag/notch
+name: notch-cat-exe
+
+on:
+  push:
+    branches: [main]
+    paths: ['notch-cat/**', '.github/workflows/notch-cat-exe.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            notch-cat/target
+          key: notch-cat-${{ hashFiles('notch-cat/Cargo.lock') }}
+      - name: 시험 (cargo test)
+        working-directory: notch-cat
+        run: cargo test
+      - name: exe 만들기
+        working-directory: notch-cat
+        run: cargo build --release
+      - name: exe 실행 시험 (20초)
+        shell: pwsh
+        run: |
+          $env:NOTCH_CAT_TEST = '1'
+          $exe = 'notch-cat\target\release\NotchCat.exe'
+          $p = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 20
+          $alive = -not $p.HasExited
+          $log = Join-Path $env:APPDATA 'notch-cat\log.txt'
+          Get-Content $log -Tail 12
+          if ($alive) { Stop-Process -Id $p.Id -Force }
+          if (-not $alive) { throw 'exe 가 20초 안에 꺼졌다' }
+          if (-not (Select-String -Path $log -Pattern 'window ok' -Quiet)) { throw '창이 안 생겼다' }
+          if (-not (Select-String -Path $log -Pattern 'frame ok' -Quiet)) { throw '첫 화면을 못 그렸다' }
+          if (Select-String -Path $log -Pattern 'ERR' -Quiet) { throw '오류 기록이 있다' }
+          (Get-Item $exe).Length / 1MB
+      - name: 릴리스(notch)에 올리기
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view notch >/dev/null 2>&1 || gh release create notch --title "노치 고양이" \
+            --notes "NotchCat.exe 를 받아 더블클릭하면 화면 위 가운데에 노치가 뜹니다(설치 필요 없음). 끄기: 작업 표시줄 오른쪽 아이콘 → 끝내기. 처음 실행 때 'Windows의 PC 보호' 창이 뜨면 '추가 정보 → 실행'."
+          gh release upload notch notch-cat/target/release/NotchCat.exe --clobber
