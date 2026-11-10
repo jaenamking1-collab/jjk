@@ -91,6 +91,7 @@ fn trim_log() {
 struct Cfg {
     hide_fullscreen: bool,
     autostart: bool,
+    aside: bool, // 가운데 대신 오른쪽으로 비켜 놓기(다른 노치 앱과 나란히 볼 때)
 }
 
 impl Cfg {
@@ -99,11 +100,11 @@ impl Cfg {
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        Cfg { hide_fullscreen: v["hide_fullscreen"].as_bool().unwrap_or(true), autostart: v["autostart"].as_bool().unwrap_or(true) }
+        Cfg { hide_fullscreen: v["hide_fullscreen"].as_bool().unwrap_or(true), autostart: v["autostart"].as_bool().unwrap_or(true), aside: v["aside"].as_bool().unwrap_or(false) }
     }
 
     fn save(&self) {
-        let v = serde_json::json!({ "hide_fullscreen": self.hide_fullscreen, "autostart": self.autostart });
+        let v = serde_json::json!({ "hide_fullscreen": self.hide_fullscreen, "autostart": self.autostart, "aside": self.aside });
         let _ = std::fs::write(data_dir().join("settings.json"), v.to_string());
     }
 
@@ -412,6 +413,14 @@ impl App {
         Ok(())
     }
 
+    /// 창을 모니터 위 가운데(또는 오른쪽으로 비켜서)에 놓는다.
+    unsafe fn place(&self) {
+        let wpx = (WIN_W * self.scale).round() as i32;
+        let dx = if self.cfg.aside { (460.0 * self.scale) as i32 } else { 0 };
+        let x = self.mon.left + ((self.mon.right - self.mon.left) - wpx) / 2 + dx;
+        let _ = SetWindowPos(self.hwnd, None, x, self.mon.top, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+
     unsafe fn click(&mut self, px: f32, py: f32) {
         let (x, y) = (px / self.scale, py / self.scale);
         let Some(&(_, hit)) = self.hits.iter().find(|(r, _)| x >= r[0] && x < r[2] && y >= r[1] && y < r[3]) else { return };
@@ -433,6 +442,7 @@ impl App {
         let _ = AppendMenuW(m, MF_SEPARATOR, 0, None);
         let _ = AppendMenuW(m, check(self.cfg.hide_fullscreen), 1, w!("전체 화면일 때 숨기기"));
         let _ = AppendMenuW(m, check(self.cfg.autostart), 2, w!("윈도우 시작할 때 자동 실행"));
+        let _ = AppendMenuW(m, check(self.cfg.aside), 4, w!("오른쪽으로 비켜 놓기"));
         let _ = AppendMenuW(m, MF_SEPARATOR, 0, None);
         let _ = AppendMenuW(m, MF_STRING, 3, w!("끝내기"));
         let mut pt = POINT::default();
@@ -447,6 +457,10 @@ impl App {
                 self.cfg.apply_autostart();
             }
             3 => return true,
+            4 => {
+                self.cfg.aside = !self.cfg.aside;
+                self.place();
+            }
             _ => return false,
         }
         self.cfg.save();
@@ -555,6 +569,7 @@ unsafe fn run() -> Result<()> {
         dirty: true,
         first_frame: true,
     };
+    app.place();
     app.draw()?; // 빈(투명) 첫 장을 낸 뒤에 창을 보인다
     let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
     tray(hwnd, true);
