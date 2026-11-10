@@ -7,6 +7,7 @@ mod gfx;
 mod lrc;
 mod lyrics;
 mod media;
+mod notif;
 mod spring;
 
 use std::cell::RefCell;
@@ -44,6 +45,7 @@ const IDLE: (f32, f32) = (150.0, 28.0);
 const BAR_H: f32 = 28.0;
 const FACE_ZOOM: f32 = 1.15;
 const QUIET: (f32, f32) = (250.0, 104.0); // 음악이 없을 때 펼친 크기(시계)
+const NOTE_W: f32 = 340.0; // 알림이 왔을 때 펼친 너비
 const TINY: (f32, f32) = (48.0, 9.0); // 일할 때 줄어든 크기
 const OPEN: (f32, f32) = (460.0, 246.0);
 const SHADOW: f32 = 20.0; // 펼쳤을 때 그림자가 번지는 폭
@@ -192,9 +194,16 @@ unsafe fn fullscreen_in_front(own: HWND, mon: &RECT) -> bool {
 }
 
 /// 앞에 있는 창이 최대화돼 있나(일하는 중).
-unsafe fn maximized_in_front(own: HWND) -> bool {
+unsafe fn maximized_in_front(own: HWND, mon: &RECT) -> bool {
     let fg = GetForegroundWindow();
-    !fg.0.is_null() && fg != own && IsZoomed(fg).as_bool()
+    if fg.0.is_null() || fg == own || !IsZoomed(fg).as_bool() {
+        return false;
+    }
+    // 다른 모니터에 꽉 채운 창은 상관없다
+    let mut r = RECT::default();
+    let _ = GetWindowRect(fg, &mut r);
+    let cx = (r.left + r.right) / 2;
+    cx >= mon.left && cx < mon.right
 }
 
 /// 굽은 선 위의 점들(2차 곡선).
@@ -284,6 +293,12 @@ struct App {
     hidden: bool,
     maxed: bool, // 앞 창이 화면을 꽉 채웠다(일하는 중)
     last_pt: (i32, i32),
+    notes: Arc<Mutex<notif::Note>>,
+    note: notif::Note, // 지금 보여 주는(마지막) 알림
+    note_until: Instant,
+    note_icon: Option<ID2D1Bitmap>,
+    open_h: f32, // 마지막으로 펼친 높이
+    mode: u8,    // 펼친 내용: 0 음악, 1 시계, 2 알림
     last_input: u32,
     moved: Instant, // 마지막으로 클릭하거나 자판을 친 때
     ticks: u32,
@@ -354,7 +369,7 @@ impl App {
         }
         if self.ticks % 10 == 0 {
             self.hidden = self.cfg.hide_fullscreen && fullscreen_in_front(self.hwnd, &self.mon);
-            let maxed = self.cfg.tiny && std::env::var("NOTCH_CAT_TINY").map_or(true, |v| v != "0") && maximized_in_front(self.hwnd);
+            let maxed = self.cfg.tiny && std::env::var("NOTCH_CAT_TINY").map_or(true, |v| v != "0") && maximized_in_front(self.hwnd, &self.mon);
             if maxed && !self.maxed {
                 self.moved = Instant::now() - Duration::from_secs(9); // 창을 꽉 채워 여는 순간 바로 줄어든다(마우스를 움직이면 돌아온다)
             }
@@ -398,9 +413,26 @@ impl App {
         }
         self.tm.target = if self.text.is_empty() || tiny { 0.0 } else { 100.0 };
 
+        // ── 알림: 새로 오면 5초 동안 펼쳐 보여 준다 ──
+        let fresh = {
+            let n = self.notes.lock().unwrap();
+            if n.ver != self.note.ver { Some(n.clone()) } else { None }
+        };
+        if let Some(n) = fresh {
+            self.note_icon = n.icon.as_ref().and_then(|b| self.g.bitmap(b).ok());
+            self.note = n;
+            self.note_until = Instant::now() + Duration::from_secs(5);
+            self.face.touch();
+            self.face.blink();
+            self.dirty = true;
+        }
+        let noting = Instant::now() < self.note_until;
+
         let bump = if Instant::now() < self.bump_until { (6.0, 2.0) } else { (0.0, 0.0) };
         let (tw, th) = if self.hidden {
             (IDLE.0 * 0.6, 0.0)
+        } else if noting {
+            (NOTE_W, if self.note.title.is_empty() || self.note.body.is_empty() { 56.0 } else { 76.0 })
         } else if tiny {
             TINY
         } else if self.hover {
@@ -414,6 +446,8 @@ impl App {
         };
         // 펼칠 때는 끝에서 살짝 출렁이며 모이고(가로·세로 박자가 달라 물결처럼), 접힐 때는 차분하게
         if th > BAR_H + 10.0 {
+            self.open_h = th;
+            self.mode = if noting { 2 } else if self.n.has { 0 } else { 1 };
             self.w.tune(250.0, 0.62);
             self.h.tune(190.0, 0.68);
         } else {
@@ -444,7 +478,7 @@ impl App {
         let x = (WIN_W - w) / 2.0;
         // 노치 밖은 클릭이 아래 창으로 가도록 창 영역을 노치 크기로 맞춘다
         let s = self.scale;
-        let p = ((h - BAR_H) / (if self.n.has { OPEN.1 } else { QUIET.1 } - BAR_H)).clamp(0.0, 1.0); // 0 닫힘 … 1 펼침
+        let p = ((h - BAR_H) / (self.open_h - BAR_H)).clamp(0.0, 1.0); // 0 닫힘 … 1 펼침
                 let m = (SHADOW * p).max(EAR + 1.0).max(if self.face.tail.pos > 0.3 { TAIL_ROOM } else { 0.0 }); // 그림자·휜 모서리·꼬리 자리만큼 영역을 넓힌다
         let rgn = if h < 0.5 { [0; 4] } else { [((x - m) * s).floor() as i32, 0, ((x + w + m) * s).ceil() as i32, ((h + m) * s).ceil() as i32] };
         if rgn != self.rgn {
@@ -454,7 +488,7 @@ impl App {
         self.hits.clear();
         g.begin();
         if h >= 0.5 {
-            let r = (14.0 + 16.0 * p).min(h);
+            let r = (14.0 + 16.0 * p * ((self.open_h - BAR_H) / 90.0).clamp(0.2, 1.0)).min(h); // 낮게 펼칠수록 모서리도 작게
             for i in 0..8 {
                 let gr = (8 - i) as f32 * 2.2; // 겹겹이 옅게 → 부드러운 그림자
                 g.rrect(x - gr, -r, w + gr * 2.0, h + r + gr + 3.0, r + gr, (0.0, 0.0, 0.0), 0.045 * p);
@@ -654,7 +688,7 @@ impl App {
 
             // ── 펼침: 음악 쪽 ──
             let a = ((p - 0.35) / 0.65).clamp(0.0, 1.0);
-            if a > 0.0 && n.has {
+            if a > 0.0 && self.mode == 0 && n.has {
                 let live = p > 0.9; // 다 펼쳐졌을 때만 눌린다
                 let (mx, my) = self.mouse;
                 match &self.art {
@@ -735,7 +769,20 @@ impl App {
                 let stale = n.seen.map(|t| t.elapsed() > Duration::from_secs(600)).unwrap_or(true) || self.lyr_st == St::Error;
                 let alive = format!("음악 {} · 가사 {}", n.stamp, if self.lyr_stamp.is_empty() { "–" } else { &self.lyr_stamp });
                 g.text(&alive, &g.f_tiny, x + 18.0, 227.0, w - 36.0, if stale { WARN } else { FG }, a * if stale { 1.0 } else { 0.4 }, Align::Right);
-            } else if a > 0.0 {
+            } else if a > 0.0 && self.mode == 2 {
+                // 알림: 앱 그림 · 앱 이름 · 제목(· 내용)
+                let nt = &self.note;
+                match &self.note_icon {
+                    Some(b) => g.art(b, x + 16.0, 13.0, 30.0, 7.0, a),
+                    None => g.ellipse(x + 31.0, 28.0, 5.0, 5.0, LIME, a),
+                }
+                let tw = w - 78.0;
+                g.text(&nt.app, &g.f_tiny, x + 60.0, 9.0, tw, FG, a * 0.55, Align::Left);
+                g.text(if nt.title.is_empty() { &nt.body } else { &nt.title }, &g.f_lyric, x + 60.0, 23.0, tw, FG, a, Align::Left);
+                if !nt.title.is_empty() && !nt.body.is_empty() {
+                    g.text(&nt.body, &g.f_sub, x + 60.0, 46.0, tw, FG, a * 0.6, Align::Left);
+                }
+            } else if a > 0.0 && self.mode == 1 {
                 // 음악이 없으면 시계와 날짜
                 let t = local();
                 let h12 = if t.wHour % 12 == 0 { 12 } else { t.wHour % 12 };
@@ -914,6 +961,16 @@ unsafe fn run() -> Result<()> {
         hidden: false,
         maxed: false,
         last_pt: (0, 0),
+        notes: {
+            let n = Arc::new(Mutex::new(notif::Note::default()));
+            notif::spawn(n.clone());
+            n
+        },
+        note: notif::Note::default(),
+        note_until: Instant::now(),
+        note_icon: None,
+        open_h: OPEN.1,
+        mode: 0,
         last_input: 0,
         moved: Instant::now(),
         ticks: 0,
