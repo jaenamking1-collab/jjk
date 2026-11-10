@@ -18,6 +18,18 @@ pub struct Note {
     pub icon: Option<Arc<Vec<u8>>>,
 }
 
+/// 결과를 최대 1초만 기다린다. 앱 그림을 안 내주고 영영 붙잡는 앱이 있어서, 그냥 기다리면 알림 전체가 멈춘다.
+fn wait<T: windows::core::RuntimeType + 'static>(op: windows::Foundation::IAsyncOperation<T>) -> Result<T> {
+    for _ in 0..50 {
+        if op.Status()? != windows::Foundation::AsyncStatus::Started {
+            return op.GetResults();
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let _ = op.Cancel();
+    Err(windows::core::Error::empty())
+}
+
 fn read(n: &UserNotification) -> Result<Note> {
     let info = n.AppInfo()?.DisplayInfo()?;
     let mut lines = Vec::new();
@@ -28,10 +40,10 @@ fn read(n: &UserNotification) -> Result<Note> {
         }
     }
     let icon = (|| -> Result<Vec<u8>> {
-        let s = info.GetLogo(Size { Width: 48.0, Height: 48.0 })?.OpenReadAsync()?.get()?;
+        let s = wait(info.GetLogo(Size { Width: 48.0, Height: 48.0 })?.OpenReadAsync()?)?;
         let len = s.Size()? as u32;
         let rd = DataReader::CreateDataReader(&s)?;
-        rd.LoadAsync(len)?.get()?;
+        wait(windows::core::Interface::cast::<windows::Foundation::IAsyncOperation<u32>>(&rd.LoadAsync(len)?)?)?;
         let mut buf = vec![0u8; len as usize];
         rd.ReadBytes(&mut buf)?;
         Ok(buf)
@@ -55,21 +67,40 @@ fn watch(out: &Mutex<Note>) -> Result<()> {
         return Ok(());
     }
     crate::log("notif ok");
-    let mut seen = HashSet::new();
+    // 같은 번호를 다시 쓰는 앱(캡처 도구 등)이 있어 번호와 만든 시각을 함께 본다
+    let mut seen: HashSet<(u32, i64)> = HashSet::new();
     let mut first = true;
+    let mut count = u32::MAX;
     loop {
-        for n in l.GetNotificationsAsync(NotificationKinds::Toast)?.get()? {
-            // 켜기 전부터 쌓여 있던 알림은 건너뛴다
-            if seen.insert(n.Id()?) && !first {
-                if let Ok(mut note) = read(&n) {
+        let mut cur = HashSet::new();
+        let list = l.GetNotificationsAsync(NotificationKinds::Toast)?.get()?;
+        if list.Size()? != count {
+            count = list.Size()?;
+            crate::log(&format!("notif count: {count}"));
+        }
+        for n in list {
+            let key = (n.Id()?, n.CreationTime().map(|t| t.UniversalTime).unwrap_or(0));
+            cur.insert(key);
+            if seen.contains(&key) {
+                continue;
+            }
+            // 켜기 전부터 쌓여 있던 알림은 띄우지 않는다. 기록에는 앱 이름만 남긴다(내용은 안 남긴다).
+            if first {
+                continue;
+            }
+            match read(&n) {
+                Ok(mut note) => {
+                    crate::log(&format!("notif new: {}", note.app));
                     let mut o = out.lock().unwrap();
                     note.ver = o.ver + 1;
                     *o = note;
                 }
+                Err(e) => crate::log(&format!("notif skip: {:?}", e.code())),
             }
         }
+        seen = cur;
         first = false;
-        std::thread::sleep(Duration::from_millis(700));
+        std::thread::sleep(Duration::from_millis(500));
     }
 }
 
