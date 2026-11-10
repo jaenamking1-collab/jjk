@@ -44,6 +44,24 @@ pub fn clean(title: &str, artist: &str) -> (String, String) {
         a = l.trim().to_string();
         t = r.trim().to_string();
     }
+    // "NewJeans 'Ditto' Lyrics" 처럼 곡명을 따옴표로 싼 제목: 따옴표 안이 곡, 앞이 가수
+    for (o, c) in [('\'', '\''),('"', '"'), ('‘', '’'), ('“', '”')] {
+        if let Some((before, rest)) = t.split_once(o) {
+            if let Some((inner, _)) = rest.split_once(c) {
+                if !before.trim().is_empty() && !inner.trim().is_empty() && before.ends_with(' ') {
+                    a = before.trim().to_string();
+                    t = inner.trim().to_string();
+                    break;
+                }
+            }
+        }
+    }
+    // 끝에 붙는 군말
+    loop {
+        let low = t.to_lowercase();
+        let Some(w) = [" lyrics", " 가사", " official", " audio", " mv", " m/v"].iter().find(|w| low.ends_with(*w)) else { break };
+        t.truncate(t.len() - w.len());
+    }
     for cut in [" ft.", " feat.", " Feat.", " FT."] {
         if let Some(i) = t.find(cut) { t.truncate(i); }
     }
@@ -90,5 +108,8 @@ mod tests {
         assert_eq!(clean("IU - Love wins all (Official MV)", "이지금 [IU Official]"), ("IU".into(), "Love wins all".into()));
         assert_eq!(clean("Ditto", "NewJeans - Topic"), ("NewJeans".into(), "Ditto".into()));
         assert_eq!(clean("Song ft. Someone [Lyrics]", "A"), ("A".into(), "Song".into()));
+        assert_eq!(clean("NewJeans 'Ditto' Lyrics (뉴진스 Ditto 가사) (Color Coded Lyrics)", "Jaeguchi"), ("NewJeans".into(), "Ditto".into()));
+        assert_eq!(clean("Don't Stop Me Now", "Queen"), ("Queen".into(), "Don't Stop Me Now".into()));
+        assert_eq!(clean("밤편지 가사", "x"), ("x".into(), "밤편지".into()));
     }
 }
