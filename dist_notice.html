@@ -803,7 +803,9 @@ function renderMasterCalendar(allData){
         return b
         ? `<span class="cal-chip" style="${chipStyle}"><span class="chip-full">${s.name}${q}</span><span class="chip-min">${s.name.slice(0,3)}${q}</span></span>`
         : '<span class="cal-chip"></span>';
-      }).join('');
+      })
+        // 회사가 하나도 없는 줄은 뺀다(2026-11-11 사용자: 칸이 늘어나면 보기 안 좋다 — 늘 이렇게). 자리(열)는 그대로 둔다.
+        .filter((_, i) => DIST_SOURCES.slice(i - i % 3, i - i % 3 + 3).some(x => bySource[x.name])).join('');
       const gPlan = g.sources.length > 0 && g.sources.every(x => x.uncertain);   // 이 라벨이 통째로 예정인가
       const evtStyle = gPlan ? 'background:#e5e7eb;color:#64748b'
                              : `background:${g.labelColor}1a;color:${g.labelText || g.labelColor}`;
