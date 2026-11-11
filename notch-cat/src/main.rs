@@ -40,7 +40,7 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // 창(=그릴 수 있는 최대 넓이), 논리 단위
 const WIN_W: f32 = 560.0;
-const WIN_H: f32 = 290.0;
+const WIN_H: f32 = 350.0;
 // 노치 크기
 const IDLE: (f32, f32) = (150.0, 28.0);
 const BAR_H: f32 = 28.0;
@@ -120,7 +120,7 @@ impl Cfg {
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        Cfg { hide_fullscreen: v["hide_fullscreen"].as_bool().unwrap_or(true), autostart: v["autostart"].as_bool().unwrap_or(true), aside: v["aside"].as_bool().unwrap_or(false), tiny: v["tiny"].as_bool().unwrap_or(true), bar: v["bar"].as_bool().unwrap_or(true) }
+        Cfg { hide_fullscreen: v["hide_fullscreen"].as_bool().unwrap_or(true), autostart: v["autostart"].as_bool().unwrap_or(true), aside: v["aside"].as_bool().unwrap_or(false), tiny: v["tiny"].as_bool().unwrap_or(true), bar: v["bar"].as_bool().unwrap_or(false) }
     }
 
     fn save(&self) {
@@ -152,6 +152,7 @@ enum Ev {
     Click(f32, f32),
     Tick,
     Tray,
+    Wheel,
 }
 
 thread_local! {
@@ -166,6 +167,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
     match msg {
         WM_MOUSEMOVE => push(Ev::Move((lp.0 & 0xFFFF) as i16 as f32, ((lp.0 >> 16) & 0xFFFF) as i16 as f32)),
         WM_MOUSELEAVE => push(Ev::Leave),
+        WM_MOUSEWHEEL => push(Ev::Wheel),
         WM_LBUTTONUP => push(Ev::Click((lp.0 & 0xFFFF) as i16 as f32, ((lp.0 >> 16) & 0xFFFF) as i16 as f32)),
         WM_TIMER => push(Ev::Tick),
         WM_MOUSEACTIVATE => return LRESULT(MA_NOACTIVATE as isize),
@@ -267,6 +269,7 @@ enum Hit {
     Next,
     Bar(f32, f32), // x 시작, 너비
     Line(u64),
+    Page(i32), // 쪽 넘기기(-1 왼쪽, +1 오른쪽)
 }
 
 struct App {
@@ -303,6 +306,9 @@ struct App {
     q_seen: Option<Instant>,
     pct: Option<(String, Rgb)>, // 닫힘 시세 한 줄의 등락률(색을 따로 칠한다)
     typing: bool,
+    page: usize,       // 펼친 화면의 쪽: 0 기본(음악·시계), 1 시세
+    paged: Instant,    // 마지막으로 쪽을 넘긴 때(휠이 한 번에 여러 쪽 넘어가지 않게)
+    pgf: Spring,       // 쪽이 바뀔 때 내용이 다시 떠오르는 정도 0…1
     notes: Arc<Mutex<notif::Note>>,
     note: notif::Note, // 지금 보여 주는(마지막) 알림
     note_until: Instant,
@@ -333,7 +339,7 @@ struct App {
 
 impl App {
     fn animating(&self) -> bool {
-        !(self.w.settled() && self.h.settled() && self.fade.settled() && self.scroll.settled() && self.tm.settled() && self.ck.settled() && self.face.settled())
+        !(self.w.settled() && self.h.settled() && self.fade.settled() && self.scroll.settled() && self.tm.settled() && self.ck.settled() && self.pgf.settled() && self.face.settled())
     }
 
     /// 0.05초마다: 음악·가사 상태를 읽어 목표 크기와 보일 글자를 정한다.
@@ -476,12 +482,12 @@ impl App {
         } else if tiny {
             TINY
         } else if self.hover {
-            if self.n.has {
+            if self.page == 1 {
+                (520.0, 50.0 + ((self.q.len().max(2) + 1) / 2) as f32 * 20.0 + 28.0) // 시세 두 칸
+            } else if self.n.has {
                 OPEN
-            } else if self.q.is_empty() {
-                QUIET
             } else {
-                (460.0, 62.0 + ((self.q.len() + 1) / 2) as f32 * 20.0 + 26.0) // 시계 한 줄 + 시세 두 칸
+                QUIET
             }
         } else if self.text.is_empty() {
             (IDLE.0 + bump.0, IDLE.1 + bump.1)
@@ -494,7 +500,7 @@ impl App {
         // 펼칠 때는 끝에서 살짝 출렁이며 모이고(가로·세로 박자가 달라 물결처럼), 접힐 때는 차분하게
         if th > BAR_H + 10.0 {
             self.open_h = th;
-            self.mode = if noting { 2 } else if self.n.has { 0 } else { 1 };
+            self.mode = if noting { 2 } else if self.page == 1 { 3 } else if self.n.has { 0 } else { 1 };
             self.w.tune(250.0, 0.62);
             self.h.tune(190.0, 0.68);
         } else {
@@ -763,7 +769,24 @@ impl App {
             }
 
             // ── 펼침: 음악 쪽 ──
-            let a = ((p - 0.35) / 0.65).clamp(0.0, 1.0);
+            let a = ((p - 0.35) / 0.65).clamp(0.0, 1.0) * self.pgf.pos.clamp(0.0, 1.0);
+            // 쪽 표시(위 가운데 점)와 좌우 화살표. 휠을 굴리거나 화살표를 눌러 넘긴다.
+            if p > 0.5 && self.mode != 2 {
+                let pa = ((p - 0.5) * 2.0).clamp(0.0, 1.0);
+                for i in 0..2 {
+                    g.ellipse(x + w / 2.0 + (i as f32 - 0.5) * 12.0, 8.0, 2.5, 2.5, FG, pa * if i == self.page { 0.9 } else { 0.3 });
+                }
+                let (mx, my) = self.mouse;
+                for d in [-1.0f32, 1.0] {
+                    let ax = if d < 0.0 { x + 16.0 } else { x + w - 16.0 };
+                    let r = [ax - 16.0, 0.0, ax + 16.0, 22.0];
+                    let on = mx >= r[0] && mx < r[2] && my >= r[1] && my < r[3];
+                    ribbon(g, &[(ax - d * 2.5, 3.5), (ax + d * 2.5, 8.5), (ax - d * 2.5, 13.5)], |_| 1.6, FG, pa * if on { 1.0 } else { 0.45 });
+                    if p > 0.9 {
+                        self.hits.push((r, Hit::Page(d as i32)));
+                    }
+                }
+            }
             if a > 0.0 && self.mode == 0 && n.has {
                 let live = p > 0.9; // 다 펼쳐졌을 때만 눌린다
                 let (mx, my) = self.mouse;
@@ -861,26 +884,26 @@ impl App {
                 let h12 = if t.wHour % 12 == 0 { 12 } else { t.wHour % 12 };
                 let time = format!("{} {}:{:02}", if t.wHour < 12 { "오전" } else { "오후" }, h12, t.wMinute);
                 let day = format!("{}월 {}일 {}요일", t.wMonth, t.wDay, ["일", "월", "화", "수", "목", "금", "토"][t.wDayOfWeek as usize % 7]);
+                g.text(&time, &g.f_clock, x, 26.0, w, FG, a, Align::Center);
+                g.text(&day, &g.f_sub, x, 66.0, w, FG, a * 0.6, Align::Center);
+            } else if a > 0.0 && self.mode == 3 {
+                // 시세 쪽: 두 칸으로(이름 · 값 · 등락률)
+                g.text("시세", &g.f_title, x + 20.0, 18.0, 120.0, FG, a, Align::Left);
+                let rows = (self.q.len().max(2) + 1) / 2;
+                let cw = (w - 40.0 - 20.0) / 2.0;
                 if self.q.is_empty() {
-                    g.text(&time, &g.f_clock, x, 26.0, w, FG, a, Align::Center);
-                    g.text(&day, &g.f_sub, x, 66.0, w, FG, a * 0.6, Align::Center);
-                } else {
-                    // 위: 시계·날짜 한 줄. 아래: 시세를 두 칸으로(이름 · 값 · 등락률)
-                    g.text(&time, &g.f_title, x + 20.0, 20.0, 160.0, FG, a, Align::Left);
-                    g.text(&day, &g.f_sub, x + 20.0, 25.0, w - 40.0, FG, a * 0.6, Align::Right);
-                    let rows = (self.q.len() + 1) / 2;
-                    let cw = (w - 40.0 - 20.0) / 2.0;
-                    for (i, q) in self.q.iter().enumerate() {
-                        let (cx, y) = (x + 20.0 + (i / rows) as f32 * (cw + 20.0), 56.0 + (i % rows) as f32 * 20.0);
-                        let c = if q.pct > 0.0 { UP } else if q.pct < 0.0 { DOWN } else { FG };
-                        g.text(&q.name, &g.f_body, cx, y, cw - 122.0, FG, a * 0.85, Align::Left);
-                        g.text(&q.price, &g.f_body, cx + cw - 122.0, y, 68.0, FG, a, Align::Right);
-                        g.text(&format!("{:+.2}%", q.pct), &g.f_body, cx + cw - 52.0, y, 52.0, c, a, Align::Right);
-                    }
-                    // 생존 표시: 마지막으로 받은 시각. 10분 넘게 못 받으면 경고색.
-                    let stale = self.q_seen.map_or(true, |t| t.elapsed() > Duration::from_secs(600));
-                    g.text(&format!("시세 {}", self.q_stamp), &g.f_tiny, x + 20.0, 58.0 + rows as f32 * 20.0 + 4.0, w - 40.0, if stale { WARN } else { FG }, a * if stale { 1.0 } else { 0.4 }, Align::Right);
+                    g.text("시세를 받는 중…", &g.f_body, x + 20.0, 52.0, w - 40.0, FG, a * 0.5, Align::Center);
                 }
+                for (i, q) in self.q.iter().enumerate() {
+                    let (cx, y) = (x + 20.0 + (i / rows) as f32 * (cw + 20.0), 48.0 + (i % rows) as f32 * 20.0);
+                    let c = if q.pct > 0.0 { UP } else if q.pct < 0.0 { DOWN } else { FG };
+                    g.text(&q.name, &g.f_body, cx, y, cw - 122.0, FG, a * 0.85, Align::Left);
+                    g.text(&q.price, &g.f_body, cx + cw - 122.0, y, 68.0, FG, a, Align::Right);
+                    g.text(&format!("{:+.2}%", q.pct), &g.f_body, cx + cw - 52.0, y, 52.0, c, a, Align::Right);
+                }
+                // 생존 표시: 마지막으로 받은 시각. 10분 넘게 못 받으면 경고색.
+                let stale = self.q_seen.map_or(true, |t| t.elapsed() > Duration::from_secs(600));
+                g.text(&format!("시세 {}", self.q_stamp), &g.f_tiny, x + 20.0, 22.0, w - 40.0, if stale { WARN } else { FG }, a * if stale { 1.0 } else { 0.4 }, Align::Right);
             }
             g.unclip();
         }
@@ -900,15 +923,32 @@ impl App {
         let _ = SetWindowPos(self.hwnd, None, x, self.mon.top, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
+    /// 쪽 넘기기. 지금은 두 쪽이라 어느 쪽으로 넘겨도 서로 오간다.
+    unsafe fn turn(&mut self, d: i32) {
+        const PAGES: i32 = 2;
+        if !self.hover || self.paged.elapsed() < Duration::from_millis(250) {
+            return;
+        }
+        self.paged = Instant::now();
+        self.page = (self.page as i32 + d).rem_euclid(PAGES) as usize;
+        self.pgf.pos = 0.0;
+        self.pgf.target = 1.0;
+        self.tick();
+    }
+
     unsafe fn click(&mut self, px: f32, py: f32) {
         let (x, y) = (px / self.scale, py / self.scale);
         let Some(&(_, hit)) = self.hits.iter().find(|(r, _)| x >= r[0] && x < r[2] && y >= r[1] && y < r[3]) else { return };
+        if let Hit::Page(d) = hit {
+            return self.turn(d);
+        }
         let cmd = match hit {
             Hit::Prev => Cmd::Prev,
             Hit::Toggle => Cmd::Toggle,
             Hit::Next => Cmd::Next,
             Hit::Bar(b0, bw) => Cmd::Seek((((x - b0) / bw).clamp(0.0, 1.0) * self.n.dur_ms as f32) as i64),
             Hit::Line(t) => Cmd::Seek(t as i64),
+            Hit::Page(_) => return,
         };
         let _ = self.tx.send(cmd);
     }
@@ -1064,6 +1104,9 @@ unsafe fn run() -> Result<()> {
         q_seen: None,
         pct: None,
         typing: false,
+        page: 0,
+        paged: Instant::now(),
+        pgf: Spring::new(1.0, 260.0, 1.0),
         notes: {
             let n = Arc::new(Mutex::new(notif::Note::default()));
             notif::spawn(n.clone());
@@ -1138,9 +1181,11 @@ unsafe fn run() -> Result<()> {
                         app.tick();
                     }
                 }
+                Ev::Wheel => app.turn(1),
                 Ev::Leave => {
                     app.tracking = false;
                     app.hover = false;
+                    app.page = 0; // 다시 열면 기본 쪽부터
                     app.mouse = (-1.0, -1.0);
                     app.tick();
                 }
@@ -1162,6 +1207,7 @@ unsafe fn run() -> Result<()> {
             app.fade.step(dt);
             app.tm.step(dt);
             app.ck.step(dt);
+            app.pgf.step(dt);
             app.face.step(dt);
             app.scroll.step(dt);
             app.dirty = false;

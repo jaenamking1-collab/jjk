@@ -26,6 +26,7 @@ pub struct Quotes {
 pub enum Src {
     Stock, // 네이버 종목
     Index, // 네이버 지수
+    Coin, // 원화 코인: 국내 거래소(업비트) 값. 없으면 야후
     Yahoo,
 }
 
@@ -50,7 +51,7 @@ pub fn source(sym: &str) -> Option<(Src, String)> {
     }
     let b = sym.as_bytes();
     let code = b.len() == 6 && b[..4].iter().all(u8::is_ascii_digit) && b[4..].iter().all(|c| c.is_ascii_digit() || c.is_ascii_uppercase());
-    Some((if code { Src::Stock } else { Src::Yahoo }, sym.to_string()))
+    Some((if code { Src::Stock } else if sym.ends_with("-KRW") { Src::Coin } else { Src::Yahoo }, sym.to_string()))
 }
 
 /// 국내 ETF 브랜드는 약칭으로(위젯과 같은 표).
@@ -89,20 +90,23 @@ fn num(v: &Value) -> Option<f64> {
     v.as_f64().or_else(|| v.as_str()?.replace(',', "").parse().ok())
 }
 
-/// 네이버 응답 → (종목코드, 값 글자, 등락률).
-pub fn parse_naver(body: &str, dec: usize) -> Vec<(String, String, f64)> {
+/// 받은 한 종목: (심볼, 값 글자, 등락률, 받은 곳이 알려 준 이름).
+pub type Got = (String, String, f64, String);
+
+/// 네이버 응답.
+pub fn parse_naver(body: &str, dec: usize) -> Vec<Got> {
     let v: Value = serde_json::from_str(body).unwrap_or_default();
     let mut out = Vec::new();
     for d in v["datas"].as_array().into_iter().flatten() {
         if let (Some(code), Some(p), Some(pct)) = (d["itemCode"].as_str(), num(&d["closePrice"]), num(&d["fluctuationsRatio"])) {
-            out.push((code.to_string(), commas(p, dec), pct));
+            out.push((code.to_string(), commas(p, dec), pct, d["stockName"].as_str().unwrap_or(code).to_string()));
         }
     }
     out
 }
 
 /// 야후 응답 → (심볼, 값 글자, 등락률). 장 전후 값(fullday…)이 있으면 그걸 쓴다(위젯과 같다).
-pub fn parse_yahoo(body: &str) -> Vec<(String, String, f64)> {
+pub fn parse_yahoo(body: &str) -> Vec<Got> {
     let v: Value = serde_json::from_str(body).unwrap_or_default();
     let mut out = Vec::new();
     for r in v["spark"]["result"].as_array().into_iter().flatten() {
@@ -118,7 +122,20 @@ pub fn parse_yahoo(body: &str) -> Vec<(String, String, f64)> {
         };
         // 원화로 표시되는 자산은 정수, 환율·달러 종목은 소수 둘째 자리까지
         let won = m["currency"].as_str() == Some("KRW") && !sym.ends_with("=X");
-        out.push((sym.to_string(), commas(price, if won && price >= 100.0 { 0 } else { 2 }), pct));
+        let name = m["shortName"].as_str().unwrap_or(sym).to_string();
+        out.push((sym.to_string(), commas(price, if won && price >= 100.0 { 0 } else { 2 }), pct, name));
+    }
+    out
+}
+
+/// 업비트 응답(한 코인) → 심볼은 "XRP-KRW" 꼴로 돌려준다.
+pub fn parse_upbit(body: &str) -> Vec<Got> {
+    let v: Value = serde_json::from_str(body).unwrap_or_default();
+    let mut out = Vec::new();
+    for d in v.as_array().into_iter().flatten() {
+        if let (Some(coin), Some(p), Some(r)) = (d["market"].as_str().and_then(|m| m.strip_prefix("KRW-")), d["trade_price"].as_f64(), d["signed_change_rate"].as_f64()) {
+            out.push((format!("{coin}-KRW"), commas(p, if p >= 100.0 { 0 } else { 2 }), r * 100.0, coin.to_string()));
+        }
     }
     out
 }
@@ -134,9 +151,10 @@ fn config() -> Vec<(String, String)> {
 }
 
 fn fetch(c: &HttpClient) -> Vec<Quote> {
-    let want: Vec<(Src, String, String)> = config().into_iter().filter_map(|(sym, name)| source(&sym).map(|(s, key)| (s, key, short(&name)))).collect();
+    // 설정에 이름이 없으면(심볼만 적혀 있으면) 받은 곳의 이름을 쓴다
+    let want: Vec<(Src, String, Option<String>)> = config().into_iter().filter_map(|(sym, name)| source(&sym).map(|(s, key)| (s, key, (name != sym).then_some(name)))).collect();
     let keys = |src: Src| want.iter().filter(|w| w.0 == src).map(|w| w.1.clone()).collect::<Vec<_>>();
-    let mut got: Vec<(String, String, f64)> = Vec::new();
+    let mut got: Vec<Got> = Vec::new();
     for (src, kind, dec) in [(Src::Stock, "stock", 0), (Src::Index, "index", 2)] {
         let k = keys(src);
         if !k.is_empty() {
@@ -145,7 +163,13 @@ fn fetch(c: &HttpClient) -> Vec<Quote> {
             }
         }
     }
-    let k = keys(Src::Yahoo);
+    // 코인은 국내 값이 해외 값과 다르므로 업비트에서 먼저 받고, 거기 없는 코인만 야후에 묻는다
+    let mut k = keys(Src::Yahoo);
+    for coin in keys(Src::Coin) {
+        let b = get(c, &format!("https://api.upbit.com/v1/ticker?markets=KRW-{}", coin.trim_end_matches("-KRW"))).unwrap_or_default();
+        let one = parse_upbit(&b);
+        if one.is_empty() { k.push(coin) } else { got.extend(one) }
+    }
     if !k.is_empty() {
         let q = k.join(",").replace('^', "%5E").replace('=', "%3D");
         if let Ok(b) = get(c, &format!("https://query1.finance.yahoo.com/v7/finance/spark?range=1d&interval=1d&symbols={q}")) {
@@ -153,7 +177,7 @@ fn fetch(c: &HttpClient) -> Vec<Quote> {
         }
     }
     // 설정에 적힌 순서대로. 못 받은 종목은 빠진다.
-    want.iter().filter_map(|(_, key, name)| got.iter().find(|g| &g.0 == key).map(|g| Quote { name: name.clone(), price: g.1.clone(), pct: g.2 })).collect()
+    want.iter().filter_map(|(_, key, name)| got.iter().find(|g| &g.0 == key).map(|g| Quote { name: short(name.as_ref().unwrap_or(&g.3)), price: g.1.clone(), pct: g.2 })).collect()
 }
 
 pub fn spawn(out: Arc<Mutex<Quotes>>) {
@@ -197,6 +221,9 @@ mod tests {
         assert_eq!(source("0005A0"), Some((Src::Stock, "0005A0".into())));
         assert_eq!(source("^KS11"), Some((Src::Index, "KOSPI".into())));
         assert_eq!(source("JEPQ"), Some((Src::Yahoo, "JEPQ".into())));
+        assert_eq!(source("XRP-KRW"), Some((Src::Coin, "XRP-KRW".into())));
+        let u = parse_upbit(r#"[{"market":"KRW-XRP","trade_price":1429.0,"signed_change_rate":-0.0049}]"#);
+        assert_eq!((u[0].0.as_str(), u[0].1.as_str()), ("XRP-KRW", "1,429"));
         assert_eq!(source("---"), None);
         assert_eq!(source("XRP-KRW/KAIA-KRW"), None);
         assert_eq!(short("KODEX 200"), "K 200");
@@ -204,13 +231,13 @@ mod tests {
 
     #[test]
     fn parses_naver_and_yahoo() {
-        let n = r#"{"datas":[{"itemCode":"069500","closePrice":"81,950","compareToPreviousClosePrice":"-50","fluctuationsRatio":"-0.06"}]}"#;
-        assert_eq!(parse_naver(n, 0), vec![("069500".to_string(), "81,950".to_string(), -0.06)]);
+        let n = r#"{"datas":[{"itemCode":"069500","closePrice":"81,950","compareToPreviousClosePrice":"-50","fluctuationsRatio":"-0.06","stockName":"KODEX 200"}]}"#;
+        assert_eq!(parse_naver(n, 0), vec![("069500".to_string(), "81,950".to_string(), -0.06, "KODEX 200".to_string())]);
         let y = r#"{"spark":{"result":[
             {"symbol":"^GSPC","response":[{"meta":{"currency":"USD","regularMarketPrice":7500.0,"fulldayPrice":7520.93,"fulldayChangePercent":-0.384,"chartPreviousClose":7549.94}}]},
             {"symbol":"BTC-KRW","response":[{"meta":{"currency":"KRW","regularMarketPrice":150000000.0,"chartPreviousClose":148500000.0}}]}]}}"#;
         let got = parse_yahoo(y);
-        assert_eq!(got[0], ("^GSPC".to_string(), "7,520.93".to_string(), -0.384));
+        assert_eq!(got[0], ("^GSPC".to_string(), "7,520.93".to_string(), -0.384, "^GSPC".to_string()));
         assert_eq!(got[1].1, "150,000,000");
         assert!((got[1].2 - 1.0101).abs() < 0.001);
     }
