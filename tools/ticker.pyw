@@ -925,6 +925,22 @@ def save(cfg):
         Thread(target=sync, daemon=True).start()
 
 
+def adopt():
+    """다른 프로그램(노치 고양이 설정창)이 공용 목록을 고쳤으면 그걸 받아들인다. 바뀌었으면 True.
+    안 하면 켤 때 읽은 옛 목록을 들고 있다가, 설정을 저장하는 순간 그걸로 되돌려 버린다(2026-11-11)."""
+    global pushed
+    if not SHARED:
+        return False
+    tickers = read(SHARED).get("tickers")
+    if not tickers or tickers == pushed:
+        return False
+    cfg["tickers"] = list(tickers)
+    pushed = list(tickers)
+    write(LOCAL, cfg)
+    Thread(target=sync, daemon=True).start()       # 다른 PC로도 올린다
+    return True
+
+
 cfg = load()
 pushed = list(cfg["tickers"])            # 마지막으로 올린 종목 목록
 coin_prem.update(cfg.get("coin_prem") or {})
@@ -1259,6 +1275,8 @@ def schedule(sec):
 
 
 def refresh():
+    if adopt():
+        build()
     def work():
         keys = [split(x)[0] for x in visible()]
         # "A/B" 는 교환비율 줄이다(1 A = 몇 B). 화면엔 비율만 뜨지만 시세는 둘 다 받아야 한다.
