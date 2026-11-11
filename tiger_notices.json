@@ -1,5 +1,5 @@
 {
- "savedAt": "2026-11-11 10:05",
+ "savedAt": "2026-11-11 23:04",
  "items": [
   {
    "title": "TIGER ETF 2026년 11월 중순 분배금 지급 안내",
@@ -81,7 +81,7 @@
     },
     {
      "ticker": "0052D0",
-     "name": "TIGER코리아배당다우존스",
+     "name": "TIGER 코리아배당다우존스",
      "amount": 66,
      "rate": 0.47
     },
@@ -111,7 +111,7 @@
     },
     {
      "ticker": "482730",
-     "name": "TIGER 미국S&#38;P500타겟데일리커버드콜",
+     "name": "TIGER 미국S&P500타겟데일리커버드콜",
      "amount": 110,
      "rate": 1.0
     }
@@ -167,7 +167,7 @@
     },
     {
      "ticker": "429000",
-     "name": "TIGER 미국S&#38;P500배당귀족",
+     "name": "TIGER 미국S&P500배당귀족",
      "amount": 21,
      "rate": null
     },
@@ -269,13 +269,13 @@
     },
     {
      "ticker": "0238P0",
-     "name": "TIGER미국S&#38;P500미국채혼합50",
+     "name": "TIGER 미국S&P500미국채혼합50",
      "amount": 13,
      "rate": null
     },
     {
      "ticker": "0233J0",
-     "name": "TIGER삼성전자SK하이닉스미국채혼합50",
+     "name": "TIGER 삼성전자SK하이닉스미국채혼합50",
      "amount": 46,
      "rate": null
     },
@@ -443,7 +443,7 @@
     },
     {
      "ticker": "269370",
-     "name": "TIGER S&#38;P글로벌인프라(합성)",
+     "name": "TIGER S&P글로벌인프라(합성)",
      "amount": 73,
      "rate": null
     },
@@ -497,7 +497,7 @@
     },
     {
      "ticker": "360750",
-     "name": "TIGER 미국S&#38;P500",
+     "name": "TIGER 미국S&P500",
      "amount": 60,
      "rate": null
     },
@@ -575,7 +575,7 @@
     },
     {
      "ticker": "448290",
-     "name": "TIGER 미국S&#38;P500(H)",
+     "name": "TIGER 미국S&P500(H)",
      "amount": 40,
      "rate": null
     },
@@ -611,7 +611,7 @@
     },
     {
      "ticker": "488500",
-     "name": "TIGER 미국S&#38;P500동일가중",
+     "name": "TIGER 미국S&P500동일가중",
      "amount": 43,
      "rate": null
     },
@@ -653,7 +653,7 @@
     },
     {
      "ticker": "0190Y0",
-     "name": "TIGER구글밸류체인",
+     "name": "TIGER 구글밸류체인",
      "amount": 5,
      "rate": null
     }
@@ -709,7 +709,7 @@
     },
     {
      "ticker": "429000",
-     "name": "TIGER 미국S&amp;P500배당귀족",
+     "name": "TIGER 미국S&P500배당귀족",
      "amount": 21,
      "rate": 0.16
     },
@@ -811,13 +811,13 @@
     },
     {
      "ticker": "0238P0",
-     "name": "TIGER미국S&amp;P500미국채혼합50",
+     "name": "TIGER 미국S&P500미국채혼합50",
      "amount": 13,
      "rate": 0.13
     },
     {
      "ticker": "0233J0",
-     "name": "TIGER삼성전자SK하이닉스미국채혼합50",
+     "name": "TIGER 삼성전자SK하이닉스미국채혼합50",
      "amount": 46,
      "rate": 0.49
     }
@@ -861,7 +861,7 @@
     },
     {
      "ticker": "0052D0",
-     "name": "TIGER코리아배당다우존스",
+     "name": "TIGER 코리아배당다우존스",
      "amount": 66,
      "rate": 0.45
     },
@@ -891,7 +891,7 @@
     },
     {
      "ticker": "482730",
-     "name": "TIGER 미국S&amp;P500타겟데일리커버드콜",
+     "name": "TIGER 미국S&P500타겟데일리커버드콜",
      "amount": 115,
      "rate": 1.0
     }
@@ -947,7 +947,7 @@
     },
     {
      "ticker": "429000",
-     "name": "TIGER 미국S&amp;P500배당귀족",
+     "name": "TIGER 미국S&P500배당귀족",
      "amount": 25,
      "rate": 0.2
     },
@@ -1049,7 +1049,7 @@
     },
     {
      "ticker": "0233J0",
-     "name": "TIGER삼성전자SK하이닉스미국채혼합50",
+     "name": "TIGER 삼성전자SK하이닉스미국채혼합50",
      "amount": 7,
      "rate": 0.06
     }
@@ -1123,7 +1123,7 @@
     },
     {
      "ticker": "482730",
-     "name": "TIGER 미국S&amp;P500타겟데일리커버드콜",
+     "name": "TIGER 미국S&P500타겟데일리커버드콜",
      "amount": 114,
      "rate": 1.0
     }
