@@ -57,7 +57,7 @@ function _unauthorized() {
 // ⚠️ resetAllTriggers 는 여기서 도는지 **확인되지 않았다.** 트리거 설치는 스코프 재승인이
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
-  '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr',
+  '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr', '_diagOcrText',
   '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_probeTiger', '_probeTigerKind', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', '_addExtDepSheet', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp', '_syncDivRates', '_fillPastDivFromApp', 'setKrwCost', 'aptRefresh', '_molitKeyOnce', '_diagApt', '_aptHistory', '_aptGeoBackfill', '_exaoneKeyOnce', '_exaoneTest', '_exaoneNoticeTest', '_exaoneTigerTest', '_exaoneFallbackTest', '_tigerAiFill'
 ];
 
@@ -7865,6 +7865,12 @@ function _diagDeviation() {
 // OCR 이 왜 됐다 안 됐다 하는지 본다. _ocrDbg 는 예전부터 실패 사유를 적고 있었는데
 // 아무도 읽지 않아 버려졌다(2026-09-12). arg 로 운용사를 넘긴다(기본 ace).
 // ⚠️ force=true 라 실제로 스크랩한다 — 자주 부르지 마라.
+// 공지 그림 한 장을 읽은 글자 원문을 그대로 찍는다(runMaint, arg=그림 주소). 종목이 빠졌을 때 파서 탓인지 글자읽기 탓인지 가른다.
+function _diagOcrText(url) {
+  const t = ocrImageText(String(url || ''));
+  console.log('[' + _ocrDbg + '] ' + String(t).replace(/\s+/g, ' '));
+}
+
 function _diagOcr(source) {
   const s = String(source || 'ace').toLowerCase();
   const key = PropertiesService.getScriptProperties().getProperty('VISION_API_KEY');
