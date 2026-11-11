@@ -413,6 +413,7 @@ struct App {
     tracking: bool,
     hidden: bool,
     maxed: bool, // 앞 창이 화면을 꽉 채웠다(일하는 중)
+    shy: bool,   // 〃 + 마우스가 가까이 왔다 → 작게 줄어든다
     last_pt: (i32, i32),
     quotes: Arc<Mutex<quotes::Quotes>>,
     q: Vec<quotes::Quote>,
@@ -535,10 +536,6 @@ impl App {
             let nx = self.mon.left + ((self.mon.right - self.mon.left) as f32 / 2.0 + if self.cfg.aside { 460.0 * self.scale } else { 0.0 }) as i32;
             let ny = self.mon.top + ((self.h.pos.max(BAR_H) + 30.0) * self.scale) as i32;
             let maxed = self.cfg.tiny && std::env::var("NOTCH_CAT_TINY").map_or(true, |v| v != "0") && maximized_under(self.hwnd, nx, ny).unwrap_or(self.maxed);
-            if maxed && !self.maxed {
-                self.moved = Instant::now() - Duration::from_secs(31);
-                self.keyed = self.moved; // 창을 꽉 채워 여는 순간 바로 줄어든다(마우스를 움직이면 돌아온다)
-            }
             self.maxed = maxed;
         }
         // ── 얼굴 ──
@@ -581,7 +578,11 @@ impl App {
         self.typing = self.keyed.elapsed() < quiet && self.keyed > self.moved && std::env::var("NOTCH_CAT_SLEEP").is_err();
         let typing = self.typing;
         self.ck.target = if typing && self.text.is_empty() { 100.0 } else { 0.0 };
-        let tiny = self.maxed && !self.hover && !typing; // 꽉 찬 창에서 일하는 동안엔 탭을 가리지 않게 계속 숨는다(작은 노치에 마우스를 올리면 펼쳐진다)
+        // 꽉 찬 창에서 일할 때도 고양이는 보인다. 마우스가 탭 쪽으로 올라와 노치에서 10cm쯤(380) 안에 들어오면
+        // 탭을 가리지 않게 아주 작게 줄고, 멀어지면(420) 돌아온다. 작은 노치에 마우스를 올리면 펼쳐진다.
+        let far = ((mx - WIN_W / 2.0).powi(2) + my * my).sqrt();
+        self.shy = self.maxed && far < if self.shy { 420.0 } else { 380.0 };
+        let tiny = self.shy && !self.hover;
         if tiny {
             self.face.tail.target = 0.0;
         }
@@ -1179,7 +1180,7 @@ impl App {
         let _ = AppendMenuW(m, check(self.cfg.hide_fullscreen), 1, w!("전체 화면일 때 숨기기"));
         let _ = AppendMenuW(m, check(self.cfg.autostart), 2, w!("윈도우 시작할 때 자동 실행"));
         let _ = AppendMenuW(m, check(self.cfg.aside), 4, w!("오른쪽으로 비켜 놓기"));
-        let _ = AppendMenuW(m, check(self.cfg.tiny), 6, w!("최대화 창에서는 작게 줄이기"));
+        let _ = AppendMenuW(m, check(self.cfg.tiny), 6, w!("최대화 창에서 마우스가 가까이 오면 작게 줄이기"));
         let _ = AppendMenuW(m, check(self.cfg.bar), 7, w!("닫힘에 시세 한 줄"));
         let _ = AppendMenuW(m, check(self.cfg.two), 9, w!("시세를 세로 두 칸으로 (끄면 위젯처럼 한 칸)"));
         let _ = AppendMenuW(m, MF_STRING, 5, w!("얼굴 바꾸기"));
@@ -1332,6 +1333,7 @@ unsafe fn run() -> Result<()> {
         tracking: false,
         hidden: false,
         maxed: false,
+        shy: false,
         last_pt: (0, 0),
         quotes: {
             let q = Arc::new(Mutex::new(quotes::Quotes::default()));
