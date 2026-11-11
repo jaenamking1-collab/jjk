@@ -1079,18 +1079,17 @@ impl App {
                         sp.target = if on { 1.0 } else { 0.0 };
                     }
                     let e = self.qs.get(gi).map_or(0.0, |s| s.pos).clamp(-0.3, 1.4);
-                    // 구역 빛깔: 그 구역이 오늘 대체로 올랐으면 붉게, 내렸으면 푸르게
-                    let avg = self.q[first..first + n].iter().map(|q| q.pct).sum::<f64>() / n as f64;
-                    let col = if avg > 0.0 { UP } else if avg < 0.0 { DOWN } else { FG };
+                    // 구역 판은 빨강·파랑을 쓰지 않는다: 오름 빨강·내림 파랑은 종목 글자에만(판까지 칠하면 빨간 판 안의 파란 글자처럼 뒤섞여 보인다)
+                    let col = (0.55, 0.62, 0.72);
                     // 도톰해짐: 살짝 커지며 떠오르고 그림자가 깊어진다
                     let (bx, by, bw, bh) = (cx - 2.0 * e, cy - 2.0 * e, cw + 4.0 * e, ch + 2.0 * e);
                     let r = 15.0_f32.min(bh / 2.0);
-                    let body = mix((0.07, 0.08, 0.095), col, 0.15 + 0.07 * e);
+                    let body = mix((0.07, 0.08, 0.095), col, 0.12 + 0.06 * e);
                     g.rrect(bx + 1.0, by + 3.0 + 2.0 * e, bw - 2.0, bh, r, (0.0, 0.0, 0.0), a * (0.55 + 0.2 * e)); // 아래 그림자
                     g.rrect(bx, by, bw, bh, r, mix(body, FG, 0.22 + 0.1 * e), a); // 밝은 테두리
                     g.rrect(bx + 1.0, by + 1.0, bw - 2.0, bh - 2.0, r - 1.0, body, a);
                     let gl = (bh * 0.42).min(15.0); // 윤기·속빛의 두께(높은 버튼에서도 띠처럼 얇게)
-                    g.rrect(bx + 8.0, by + bh - gl - 2.5, bw - 16.0, gl, gl * 0.5, col, a * (0.1 + 0.06 * e)); // 아래에서 비치는 빛
+                    g.rrect(bx + 8.0, by + bh - gl - 2.5, bw - 16.0, gl, gl * 0.5, col, a * (0.06 + 0.04 * e)); // 아래에서 비치는 빛
                     g.rrect(bx + 3.0, by + 1.5, bw - 6.0, gl, r - 2.5, FG, a * (0.085 + 0.06 * e)); // 윗면 윤기(두 겹)
                     g.rrect(bx + 7.0, by + 2.0, bw - 14.0, gl * 0.5, gl * 0.25, FG, a * (0.07 + 0.04 * e));
                     for (q, c) in self.q[first..first + n].iter().zip(&cells[first..]) {
@@ -1105,7 +1104,7 @@ impl App {
                         g.text(&q.name, f, ix, iy + drop, nw(k), FG, a * 0.92, Align::Left);
                         let va = ((k - 0.35) / 0.65).clamp(0.0, 1.0);
                         g.text(&q.price, &g.f_time, ix + iw - 56.0 - vw, iy + 0.5, vw - 4.0, FG, a * va, Align::Right);
-                        g.text(&format!("{:+.2}%", q.pct), &g.f_time, ix + iw - 58.0, iy + 0.5, 58.0, mix(col, FG, 0.1), a, Align::Right);
+                        g.text(&format!("{:+.2}%", q.pct), &g.f_time, ix + iw - 58.0, iy + 0.5, 58.0, col, a * if q.pct == 0.0 { 0.55 } else { 1.0 }, Align::Right);
                     }
                     first += n;
                 }
