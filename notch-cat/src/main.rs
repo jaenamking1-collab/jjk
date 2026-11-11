@@ -166,7 +166,7 @@ enum Ev {
     Click(f32, f32),
     Tick,
     Tray,
-    Wheel,
+    Wheel(i32), // 휠: -1 왼쪽 쪽, +1 오른쪽 쪽
 }
 
 thread_local! {
@@ -181,7 +181,9 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
     match msg {
         WM_MOUSEMOVE => push(Ev::Move((lp.0 & 0xFFFF) as i16 as f32, ((lp.0 >> 16) & 0xFFFF) as i16 as f32)),
         WM_MOUSELEAVE => push(Ev::Leave),
-        WM_MOUSEWHEEL => push(Ev::Wheel),
+        // 휠을 위로(또는 왼쪽으로) 굴리면 왼쪽 쪽, 아래로(또는 오른쪽으로) 굴리면 오른쪽 쪽
+        WM_MOUSEWHEEL => push(Ev::Wheel(if ((wp.0 >> 16) as i16) > 0 { -1 } else { 1 })),
+        WM_MOUSEHWHEEL => push(Ev::Wheel(if ((wp.0 >> 16) as i16) > 0 { 1 } else { -1 })),
         WM_LBUTTONUP => push(Ev::Click((lp.0 & 0xFFFF) as i16 as f32, ((lp.0 >> 16) & 0xFFFF) as i16 as f32)),
         WM_TIMER => push(Ev::Tick),
         WM_MOUSEACTIVATE => return LRESULT(MA_NOACTIVATE as isize),
@@ -450,6 +452,7 @@ struct App {
     art_ptr: usize,
     hits: Vec<([f32; 4], Hit)>,
     rgn: [i32; 4],
+    hold: (f32, f32), // 펼쳐 둔 동안 가장 컸던 몸통 크기
     view: String,
     dirty: bool,
     first_frame: bool,
@@ -659,7 +662,11 @@ impl App {
         let s = self.scale;
         let p = ((h - BAR_H) / (self.open_h - BAR_H)).clamp(0.0, 1.0); // 0 닫힘 … 1 펼침
                 let m = (SHADOW * p).max(EAR + 1.0).max(if self.face.tail.pos > 0.3 { TAIL_ROOM } else { 0.0 }); // 그림자·휜 모서리·꼬리 자리만큼 영역을 넓힌다
-        let rgn = if h < 0.5 { [0; 4] } else { [((x - m) * s).floor() as i32, 0, ((x + w + m) * s).ceil() as i32, ((h + m) * s).ceil() as i32] };
+        // 펼쳐 둔 동안엔 영역을 줄이지 않는다: 쪽을 넘겨 몸통이 좁아지거나 낮아져도 마우스가 '밖'으로 떨어져 닫히지 않게
+        self.hold = if self.hover { (self.hold.0.max(w), self.hold.1.max(h)) } else { (0.0, 0.0) };
+        let (rw, rh) = (w.max(self.hold.0), h.max(self.hold.1));
+        let rx = (WIN_W - rw) / 2.0;
+        let rgn = if h < 0.5 { [0; 4] } else { [((rx - m) * s).floor() as i32, 0, ((rx + rw + m) * s).ceil() as i32, ((rh + m) * s).ceil() as i32] };
         if rgn != self.rgn {
             self.rgn = rgn;
             SetWindowRgn(self.hwnd, CreateRectRgn(rgn[0], rgn[1], rgn[2], rgn[3]), false);
@@ -1376,6 +1383,7 @@ unsafe fn run() -> Result<()> {
         art_ptr: 0,
         hits: Vec::new(),
         rgn: [-1; 4],
+        hold: (0.0, 0.0),
         view: String::new(),
         dirty: true,
         first_frame: true,
@@ -1430,7 +1438,7 @@ unsafe fn run() -> Result<()> {
                         app.tick();
                     }
                 }
-                Ev::Wheel => app.turn(1),
+                Ev::Wheel(d) => app.turn(d),
                 Ev::Leave => {
                     app.tracking = false;
                     app.hover = false;
