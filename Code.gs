@@ -2876,7 +2876,12 @@ function _fetchDistTigerSeibro(force, siteErr) {
     relStat.at = rl ? rl.savedAt : 'none'; relStat.dist = ((rl && rl.dist) || []).length;
     ((rl && rl.dist) || []).forEach(n => {
       const b = md(n.sched['기준일']);
-      if (!relCyc[n.cycle]) relCyc[n.cycle] = { base: b, sched: n.sched, items: {} };
+      if (!relCyc[n.cycle]) {
+        // 기준일 yyyymmdd — 공지 등록 연도 기준, 12월 공지의 1월 기준일이면 다음 해.
+        const bm = b.split('/').map(Number), nd = String(n.date || '').match(/(\d{4})\.(\d{2})/);
+        const std = (nd && bm.length === 2) ? String(Number(nd[1]) + (bm[0] < Number(nd[2]) ? 1 : 0)) + ('0' + bm[0]).slice(-2) + ('0' + bm[1]).slice(-2) : '';
+        relCyc[n.cycle] = { base: b, std: std, sched: n.sched, items: {} };
+      }
       (n.items || []).forEach(x => {
         const k = x.ticker + '|' + b, v = rel[k] || (rel[k] = { sched: n.sched });
         if (v.rate == null && x.rate != null) v.rate = x.rate;
@@ -2888,11 +2893,14 @@ function _fetchDistTigerSeibro(force, siteErr) {
   // SEIBRO 가 지난 회차를 일부만 남길 때 — 중계 표가 같은 기준일로 더 많이 갖고 있으면 그 회차는 중계 표로.
   ['월중', '월말'].forEach(c => {
     const rc = relCyc[c], sei = items.filter(it => it.cycle === c);
-    if (!rc || !sei.length || md(sei[0].sched['기준일']) !== rc.base) return;
+    if (!rc) return;
+    const same = sei.length && md(sei[0].sched['기준일']) === rc.base;
+    // SEIBRO 에 아직 없는 새 회차도 중계 표로 넣는다(2026-11-11: 11/11 공지·11/13 기준이 SEIBRO 에 없어 TIGER 만 11월 중순이 빠졌다).
+    const newer = !same && rc.std && (!sei.length || rc.std > sei[0]._std);
     const list = Object.keys(rc.items).map(t => rc.items[t]);
-    if (list.length <= sei.length) return;
+    if (!list.length || (!same && !newer) || (same && list.length <= sei.length)) return;
     items = items.filter(it => it.cycle !== c).concat(list.map(x => ({ name: x.name, ticker: x.ticker, amount: x.amount, rate: x.rate, cycle: c,
-      sched: { '기준일': rc.sched['기준일'], '지급일': rc.sched['지급일'] }, _std: sei[0]._std })));
+      sched: { '기준일': rc.sched['기준일'], '지급일': rc.sched['지급일'] }, _std: same ? sei[0]._std : rc.std })));
   });
   const byT = {};
   stItems.forEach(x => { byT[x.ticker] = x; });
