@@ -14,7 +14,8 @@ scope=$(awk '/"jjk-guard@jjk"/{f=1} f&&/"scope"/{print;exit} f&&/\]/{exit}' "$re
 [ "$scope" = "user" ] || have=""
 [ -n "$want" ] && [ "$want" = "$have" ] && [ -z "$missing" ] && exit 0
 # PATH 의 claude 는 옛판일 수 있다(2.1.201 은 이 모드 형식을 모른다) — 앱에 든 최신 claude.exe 를 먼저 쓴다
-c=$(ls -d "${APPDATA:-/nonexistent}"/Claude/claude-code/*/*/claude.exe 2>/dev/null | sort -V | tail -1)
+# 2026-11-11: 스토어판 앱은 %LOCALAPPDATA%\Claude-Data\<패키지>\claude-code 에 둔다(학교 PC — 옛 경로엔 없어 갱신이 조용히 건너뛰어졌다)
+c=$(ls -d "${APPDATA:-/nonexistent}"/Claude/claude-code/*/*/claude.exe "${LOCALAPPDATA:-/nonexistent}"/Claude-Data/*/claude-code/*/*/claude.exe 2>/dev/null | sort -V | tail -1)
 [ -n "$c" ] || c=$(command -v claude) || exit 0
 cp .claude/settings.json "${TMPDIR:-/tmp}/jjk-settings.bak" 2>/dev/null
 added=""; for x in $missing; do "$c" plugin install "$x@claude-plugins-official" --scope user >/dev/null 2>&1 && added="$added $x"; done

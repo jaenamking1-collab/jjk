@@ -38,6 +38,22 @@ test('session.measure: 상태줄에 컨텍스트·5시간·7일 사용량', asyn
   expect(seen.join('|')).toContain('⛈️ 컨텍스트 85% · 5시간 31% · 7일 12%')
 })
 
+test('7일 한도 알림: 다른 창이 이미 알린 단계면 다시 안 뜬다', async ($, on) => {
+  const toasts: string[] = []
+  on('ui.status', () => ({ value: undefined }) as never)
+  on('ui.toast', (_$, e) => { toasts.push(e.text); return { value: undefined } as never })
+  on('session.measure', (_$, e) => ({ changed: e.changed }))
+  const kept: Record<string, unknown> = { 'warned:7일 한도': 80 }
+  on('store.get', (_$, e) => ({ value: kept[e.key] }) as never)
+  on('store.set', (_$, e) => { kept[e.key] = e.value; return { value: undefined } as never })
+  const m = (p: number) => $.session.measure({ context: { window: 200000, percent: 10 }, rateLimits: [{ kind: 'seven_day', percentUsed: p }], changed: [] } as never)
+  await m(85)
+  expect(toasts.filter(t => t.includes('7일')).length).toBe(0)
+  await m(91)
+  expect(toasts.filter(t => t.includes('7일 한도 91%')).length).toBe(1)
+  expect(kept['warned:7일 한도']).toBe(90)
+})
+
 test('캐시 남은 시간·이번 답 사용량 표시', () => {
   expect(cacheLabel(0, 5)).toBe('')
   expect(cacheLabel(1000, 1000 + 18 * 60000)).toBe('캐시 42분')

@@ -156,7 +156,7 @@ export const register: Register = on => {
   })
 
   // ⑤ 사용량: 컨텍스트·5시간·7일 한도를 상태줄에, 80%·90% 를 처음 넘을 때 한 번씩 알림
-  on('session.measure', ($, e, next) => {
+  on('session.measure', async ($, e, next) => {
     const lim = (k: string) => e.rateLimits.find(r => r.kind === k)
     const pct = (v?: number) => (v === undefined ? '-' : Math.round(v) + '%')
     const f = lim('five_hour'), w = lim('seven_day')
@@ -170,7 +170,11 @@ export const register: Register = on => {
     }
     for (const [name, v] of [['컨텍스트', e.context.percent], ['5시간 한도', f?.percentUsed], ['7일 한도', w?.percentUsed]] as const) {
       const step = v === undefined ? 0 : v >= 90 ? 90 : v >= 80 ? 80 : 0
-      if (step > (warned[name] ?? 0)) $.ui.toast('jjk-guard: ' + name + ' ' + Math.round(v as number) + '% 사용')
+      // 5시간·7일 한도는 모든 창이 같은 값을 본다 — 알린 단계를 창 밖($.store)에 적어 새 창마다 또 뜨지 않게(2026-11-11)
+      const key = name === '컨텍스트' ? '' : 'warned:' + name
+      if (step > (warned[name] ?? 0) && (!key || step > Number((await $.store.get(key)) ?? 0)))
+        $.ui.toast('jjk-guard: ' + name + ' ' + Math.round(v as number) + '% 사용')
+      if (key && step !== warned[name]) await $.store.set(key, step)
       warned[name] = step
     }
     return next(e)

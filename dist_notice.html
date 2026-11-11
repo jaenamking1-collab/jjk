@@ -653,21 +653,11 @@ function renderMasterCalendar(allData){
     // 기준일의 '일'로 회차 추정(20일 이하=월중). 월 비교(base.m===month)는 월 경계에서 깨짐.
     return base.d <= 20 ? '월중' : '월말';
   };
-  // ⛔ 공시일이 제 기준일보다 뒤면 그건 공시일이 아니다. RISE 만 '공시일'을 실제 공시가 아니라
-  // **글 게시일**에서 뽑는데, 끝난 회차에 정정·확정 글이 올라오면 그 게시일이 그 회차에 붙는다
-  // (2026-09-21: 8월말 회차가 기준 8/31·지급 9/2 인데 공시 9/7 → 끝난 회차의 '분배금공시일'이
-  // 9월 달력에 떴다). 600 = 6개월치 여유 — 12월 공시 → 1월 기준 같은 정상 건은 지우지 않는다.
-  // portfolio.html / dist_notice.html 양쪽이 같아야 하는 '데이터 해석 규칙'이다.
-  const pubAfterBase = sch => {
-    const p = parseDay(sch['공시일']), b = parseDay(sch['기준일']);
-    if (!p || !b) return false;
-    const diff = (p.m * 100 + p.d) - (b.m * 100 + b.d);
-    return diff > 0 && diff < 600;
-  };
+  // 달력엔 공시일을 찍지 않는다(2026-11-11 사용자 결정 — 달력을 깔끔하게). 공시일은 '운용사별 일정' 표에만 나온다.
   const addAll = (c, sch, it, uncertain) => {
     const cyc = cycleOf(sch, it);
     SCHED_CFG.forEach(({ key, color, text, label, short }) => {
-      if (key === '공시일' && pubAfterBase(sch)) return;
+      if (key === '공시일') return;
       // 예정도 **라벨은 확정분과 똑같이** 둔다 → 같은 줄에 `SOL?` 배지로만 붙는다.
       // 라벨에 '예정'을 붙였더니 한 칸에 '분배락일'과 '분배락일 예정' 두 줄이 생겨 달력이 지저분해졌다.
       // (addMark의 회사+라벨 중복제거는 **같은 날짜 칸 안에서만** 걸리므로 라벨을 나눌 이유가 없었다.)
