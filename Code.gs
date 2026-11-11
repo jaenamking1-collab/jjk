@@ -2411,10 +2411,11 @@ function fetchDist_ace() {
 // 뽑아 값을 못 받고 밀려 있던 코드부터 순서대로 채운다.
 function plusOcrItems(ocrText, cycle) {
   const t = String(ocrText || '').replace(/\s+/g, ' ');
-  const codeRe = /\b([0-9]{6}|[0-9]{4}[A-Z][0-9])\b/g;
+  // 끝자리 0 을 영문 O 로 읽는 일이 있다(2026-11-10 공지: 0132K0 → '0132KO', 그 종목이 통째로 빠졌다) → O 도 받아 0 으로 되돌린다.
+  const codeRe = /\b([0-9]{6}|[0-9]{4}[A-Z][0-9O])\b/g;
   const codes = [];
   let cm;
-  while ((cm = codeRe.exec(t))) codes.push({ code: cm[1], idx: cm.index, end: cm.index + cm[0].length });
+  while ((cm = codeRe.exec(t))) codes.push({ code: cm[1].replace(/O$/, '0'), idx: cm.index, end: cm.index + cm[0].length });
   const out = [];
   let pending = [];   // 아직 값을 못 받은 코드(덩어리 앞쪽 행)
   for (let i = 0; i < codes.length; i++) {
@@ -2427,8 +2428,10 @@ function plusOcrItems(ocrText, cycle) {
     const use = pending.slice(-pairs.length);   // 쌍보다 많이 밀려 있으면 가장 오래된 것은 버린다
     // 종목명은 모두 'PLUS'로 시작한다 — 값 앞 구간을 이름 단위로 자른다.
     const names = seg.slice(0, pairs[0].index).split(/(?=PLUS\s)/)
-      .map(x => x.replace(/[●•·.]/g, '').replace(/\s+/g, ' ').trim())
+      .map(x => x.replace(/[●•·.]/g, '').replace(/\s*(원배당|월배당|분배금\(원\)|분배율\(%\)).*$/, '').replace(/\s+/g, ' ').trim())
       .filter(x => /^PLUS/.test(x));
+    // 표 위 안내문에 'PLUS ○○' 가 끼면 이름이 하나 더 잡힌다(2026-11-10) — 값에 가까운 뒤쪽 것이 종목명이다.
+    if (names.length > use.length) names.splice(0, names.length - use.length);
     use.forEach((c, j) => out.push({
       name: names.length === use.length ? names[j] : '',
       ticker: c.code, amount: Number(parseInt(pairs[j][1])), rate: parseFloat(pairs[j][2]), cycle
