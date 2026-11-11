@@ -19,13 +19,13 @@ async function text(url, init) {
 }
 
 // 목록: 분배 신고 + 종목명 TIGER. 한 회차가 종목 수만큼(10/28 은 88행) 나온다.
-async function listRows(from, to) {
+async function listRows(brand, from, to) {
   const rows = [];
   for (let p = 1; p <= 5; p++) {
     const body = new URLSearchParams({
       method: 'searchDisclosureByStockTypeEtfSub', forward: 'disclosurebystocktype_etf_sub',
       currentPageSize: '100', pageIndex: String(p), orderMode: '1', orderStat: 'D',
-      reportNm: REPORT, etfIsuSrtNm: 'TIGER', fromDate: from, toDate: to
+      reportNm: REPORT, etfIsuSrtNm: brand, fromDate: from, toDate: to
     });
     const h = await text(LIST_URL, { method: 'POST', body,
       headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' } });
@@ -33,7 +33,7 @@ async function listRows(from, to) {
     let m, n = 0;
     while ((m = re.exec(h))) {
       n++;
-      if (m[4] === REPORT && /^TIGER/.test(m[2].trim())) rows.push({ time: m[1].trim(), name: m[2].trim(), acptNo: m[3] });
+      if (m[4] === REPORT && m[2].trim().startsWith(brand)) rows.push({ time: m[1].trim(), name: m[2].trim(), acptNo: m[3] });
     }
     if (n < 100) break;
   }
@@ -52,33 +52,36 @@ async function docUrl(acptNo) {
 }
 
 // 원문 표: ISIN | 종목명 | 지급기준일 | 지급예정일 | 분배금(원). 다른 운용사 행도 섞여 있어 TIGER 만 고른다.
-async function docRows(url) {
+async function docRows(url, brand) {
   const h = await text(url);
   const t = h.replace(/<[^>]+>/g, '|').replace(/&amp;|&#38;/g, '&').replace(/\s+/g, ' ').replace(/(\| ?)+/g, '|');
   const out = [], re = /KR7(\w{6})\d{3}\|([^|]+)\|(\d{4}-\d\d-\d\d)\|(\d{4}-\d\d-\d\d)\|([\d,]+)\|/g;
   let m;
   while ((m = re.exec(t))) {
     const name = m[2].trim();
-    if (/^TIGER/.test(name)) out.push({ ticker: m[1], name, record: m[3], pay: m[4], amount: Number(m[5].replace(/,/g, '')) });
+    if (name.startsWith(brand)) out.push({ ticker: m[1], name, record: m[3], pay: m[4], amount: Number(m[5].replace(/,/g, '')) });
   }
   return out;
 }
 
-async function build(days) {
+async function build(brand, days) {
   const now = new Date(), from = ymd(new Date(now.getTime() - days * 86400e3)), to = ymd(now);
-  const rows = await listRows(from, to);
+  const rows = await listRows(brand, from, to);
   const by = {};
   rows.forEach(r => { (by[r.acptNo] = by[r.acptNo] || { acptNo: r.acptNo, time: r.time, count: 0 }).count++; });
   const groups = Object.values(by).sort((a, b) => b.time.localeCompare(a.time)).slice(0, 6);
   const items = [];
   for (const g of groups) {
     const url = await docUrl(g.acptNo);
-    const dr = await docRows(url);
+    const dr = await docRows(url, brand);
     const rec = dr.length ? dr[0].record : '';
     const [y, mo, d] = rec.split('-').map(Number);
     const cyc = d <= 20 ? ' 중순' : '말';   // 앱과 같은 규칙: 기준일 20일 이하 = 월중
     items.push({
-      title: rec ? `TIGER ETF ${y}년 ${mo}월${cyc} 분배금 지급 안내` : 'TIGER ETF 분배금 지급 안내',
+      // 제목은 각 운용사 홈페이지 공지 제목 모양을 따른다(서버가 제목의 '월말/중순/월중' 글자로 회차를 가른다).
+      title: !rec ? brand + ' ETF 분배금 지급 안내'
+        : brand === 'PLUS' ? `PLUS ETF ${mo}월 분배금 공지(${d <= 20 ? '월중' : '월말'})`
+        : `TIGER ETF ${y}년 ${mo}월${cyc} 분배금 지급 안내`,
       date: g.time.slice(0, 10).replace(/-/g, '.'),
       time: g.time, url, acptNo: g.acptNo, listed: g.count, record: rec,
       pay: dr.length ? dr[0].pay : '', rows: dr
@@ -90,16 +93,18 @@ async function build(days) {
 export default {
   async fetch(req, env, ctx) {
     const u = new URL(req.url);
-    if (u.pathname !== '/tiger') return new Response('not found', { status: 404 });
+    // /tiger (2026-11-05) · /plus (2026-11-11: 한화 사이트가 구글 서버에서 안 열리고 PC 도 꺼져 있을 때의 예비 길)
+    const brand = { '/tiger': 'TIGER', '/plus': 'PLUS' }[u.pathname];
+    if (!brand) return new Response('not found', { status: 404 });
     const days = Math.min(Math.max(Number(u.searchParams.get('days')) || 45, 1), 120);
-    const key = new Request('https://cache.local/tiger?days=' + days);
+    const key = new Request('https://cache.local' + u.pathname + '?days=' + days);
     const fresh = u.searchParams.has('fresh');
     if (!fresh) {
       const hit = await caches.default.match(key);
       if (hit) return hit;
     }
     try {
-      const body = JSON.stringify(await build(days));
+      const body = JSON.stringify(await build(brand, days));
       const res = new Response(body, { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'max-age=1800' } });
       ctx.waitUntil(caches.default.put(key, res.clone()));
       return res;

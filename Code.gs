@@ -2468,7 +2468,61 @@ function _plusMirrorGet(file) {
   return r.getContentText('UTF-8');
 }
 
+// 거래소 공시(KIND) 중계가 준 회차별 종목 표 — [{cycle, std:'yyyymmdd'(기준일), pub, record, pay, items:[{ticker,name,amount}]}] 최신순.
+// 왜(2026-11-11): TIGER·PLUS 는 운용사 사이트가 구글 서버에서 안 열려 PC 사본에 기대는데, PC 가 둘 다 꺼진 날 공지가 나오면 켤 때까지 빠진다.
+// 운용사는 같은 내용을 거래소에도 신고하고(당일 15:40~17:00), 그 중계(workers/kind-tiger)는 클라우드에서 돈다 → PC 없이도 그날 저녁엔 들어온다.
+// 분배율은 공시에 없다(쓰는 쪽이 NAV 로 계산). 날짜는 'yyyy-mm-dd' 그대로 넘기고 표기는 쓰는 쪽이 제 형식으로 바꾼다.
+function _kindRounds(path) {
+  const cache = CacheService.getScriptCache(), ck = 'kindRounds_' + path;
+  let raw = cache.get(ck);
+  if (!raw) {
+    try {
+      const r = UrlFetchApp.fetch('https://kind-tiger.distributionjn.workers.dev/' + path, { muteHttpExceptions: true });
+      if (r.getResponseCode() !== 200) return [];
+      raw = JSON.stringify((JSON.parse(r.getContentText('UTF-8')).items || []).filter(n => n.record && n.pay && (n.rows || []).length).map(n => ({
+        cycle: Number(n.record.slice(8, 10)) <= 20 ? '월중' : '월말', std: n.record.replace(/-/g, ''),
+        pub: String(n.time).slice(0, 10), record: n.record, pay: n.pay,
+        items: n.rows.map(x => ({ ticker: x.ticker, name: x.name, amount: x.amount })) })));
+      cache.put(ck, raw, 1800);
+    } catch (e) { return []; }
+  }
+  try { return JSON.parse(raw); } catch (e) { return []; }
+}
+
+// PLUS = 한화 사이트(막히면 PC 사본) 먼저, 그보다 새 회차가 거래소 공시에 있으면 그 회차는 공시로.
 function fetchDist_plus() {
+  const r = _fetchDistPlusSite();
+  try {
+    const ko = d => Number(d.slice(5, 7)) + '월 ' + Number(d.slice(8, 10)) + '일';
+    let items = r.items || [], used = null, navs = null;
+    ['월중', '월말'].forEach(c => {
+      const kr = _kindRounds('plus').find(k => k.cycle === c);
+      if (!kr) return;
+      // 가진 회차의 기준일('11월 13일')에 연도를 붙여 비교한다 — 공시 회차와 반년 넘게 벌어지면 해가 다른 것.
+      const have = items.filter(it => it.cycle === c).map(it => {
+        const m = String((it.sched || {})['기준일'] || '').match(/(\d{1,2})\D+(\d{1,2})/);
+        if (!m) return '';
+        let y = Number(kr.std.slice(0, 4));
+        const mo = Number(m[1]), kmo = Number(kr.std.slice(4, 6));
+        if (mo - kmo > 6) y--; else if (kmo - mo > 6) y++;
+        return y + ('0' + mo).slice(-2) + ('0' + m[2]).slice(-2);
+      }).sort().pop() || '';
+      if (have >= kr.std) return;
+      const d = new Date(Number(kr.std.slice(0, 4)), Number(kr.std.slice(4, 6)) - 1, Number(kr.std.slice(6, 8)));
+      do { d.setDate(d.getDate() - 1); } while (_isOffDay(d));
+      const sched = { '공시일': ko(kr.pub), '분배락일': (d.getMonth() + 1) + '월 ' + d.getDate() + '일', '기준일': ko(kr.record), '지급일': ko(kr.pay) };
+      if (!navs) { try { navs = getNavMap().navs || {}; } catch (e) { navs = {}; } }
+      items = items.filter(it => it.cycle !== c).concat(kr.items.map(x => ({ name: x.name, ticker: x.ticker, amount: x.amount,
+        rate: navs[x.ticker] ? Math.round(x.amount / navs[x.ticker] * 10000) / 100 : null, cycle: c, sched: Object.assign({}, sched) })));
+      if (!used || kr.std > used.std) used = { std: kr.std, sched: sched };
+    });
+    if (!used) return r;
+    return { success: true, items: items, schedule: used.sched, title: 'PLUS 분배금 (거래소 공시 — 한화 사이트·PC 사본에 새 회차 없음)',
+             _fallback: 'kind', _siteError: r.error || '', _usedOcr: !!r._usedOcr };
+  } catch (e) { console.log('PLUS 거래소 공시 보충 실패: ' + e); return r; }
+}
+
+function _fetchDistPlusSite() {
   // PLUS 사이트는 정상인데도(curl 0.2초) Apps Script에서 간헐적으로 Timeout이 난다.
   // 목록·상세 어느 쪽이 죽어도 6월짜리 뉴스 폴백으로 밀리므로 둘 다 재시도한다.
   let viaPc = false;   // 한 번 사본으로 넘어가면 나머지도 사본으로(상세마다 3번씩 다시 기다리지 않게)
@@ -2920,6 +2974,15 @@ function _fetchDistTigerSeibro(force, siteErr) {
     items = items.filter(it => it.cycle !== c).concat(list.map(x => ({ name: x.name, ticker: x.ticker, amount: x.amount, rate: x.rate, cycle: c,
       sched: { '기준일': rc.sched['기준일'], '지급일': rc.sched['지급일'] }, _std: same ? sei[0]._std : rc.std })));
   });
+  // 예탁결제원에도 PC 중계에도 없는 새 회차 — 거래소 공시(KIND)로 채운다(2026-11-11: PC 가 꺼져 있어도 당일 저녁엔 들어오게).
+  try {
+    ['월중', '월말'].forEach(c => {
+      const kr = _kindRounds('tiger').find(k => k.cycle === c), cur = items.filter(it => it.cycle === c);
+      if (!kr || (cur.length && cur[0]._std >= kr.std)) return;
+      items = items.filter(it => it.cycle !== c).concat(kr.items.map(x => ({ name: x.name, ticker: x.ticker, amount: x.amount, rate: null, cycle: c,
+        sched: { '공시일': md(kr.pub.slice(5)), '기준일': md(kr.record.slice(5)), '지급일': md(kr.pay.slice(5)) }, _std: kr.std })));
+    });
+  } catch(e) { console.log('TIGER 거래소 공시 보충 실패: ' + e); }
   const byT = {};
   stItems.forEach(x => { byT[x.ticker] = x; });
   // 분배캐시의 지난 저장분(사이트·뉴스로 읽던 때)에서 같은 종목·같은 기준일의 공시일·분배율을 잇는다 —
