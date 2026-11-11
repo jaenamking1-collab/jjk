@@ -308,6 +308,7 @@ struct App {
     typing: bool,
     page: usize,       // 펼친 화면의 쪽: 0 기본(음악·시계), 1 시세
     paged: Instant,    // 마지막으로 쪽을 넘긴 때(휠이 한 번에 여러 쪽 넘어가지 않게)
+    arr: [Spring; 2],  // 좌우 손잡이에 마우스가 올라간 정도 0…1(살짝 튕긴다)
     pgf: Spring,       // 쪽이 바뀔 때 내용이 다시 떠오르는 정도 0…1
     notes: Arc<Mutex<notif::Note>>,
     note: notif::Note, // 지금 보여 주는(마지막) 알림
@@ -339,7 +340,7 @@ struct App {
 
 impl App {
     fn animating(&self) -> bool {
-        !(self.w.settled() && self.h.settled() && self.fade.settled() && self.scroll.settled() && self.tm.settled() && self.ck.settled() && self.pgf.settled() && self.face.settled())
+        !(self.w.settled() && self.h.settled() && self.fade.settled() && self.scroll.settled() && self.tm.settled() && self.ck.settled() && self.pgf.settled() && self.arr[0].settled() && self.arr[1].settled() && self.face.settled())
     }
 
     /// 0.05초마다: 음악·가사 상태를 읽어 목표 크기와 보일 글자를 정한다.
@@ -591,6 +592,31 @@ impl App {
                 }
                 ribbon(g, &pts, |u| 2.0 * (3.1 - 0.9 * u * u * (3.0 - 2.0 * u)), TAIL, ca * fa * fk);
             }
+            // 쪽 넘김 손잡이: 몸통 양옆 아래쪽으로 살짝 튀어나온 귀. 마우스를 올리면 더 나오며 도톰해지고 화살표가 바깥으로 튕긴다.
+            if p > 0.5 && self.mode != 2 {
+                let pa = ((p - 0.5) * 2.0).clamp(0.0, 1.0);
+                let (mx, my) = self.mouse;
+                let (ty, th) = (h * 0.62 - 30.0, 60.0);
+                for (i, d) in [-1.0f32, 1.0].into_iter().enumerate() {
+                    let edge = if d < 0.0 { x } else { x + w };
+                    let hit = if d < 0.0 { [x - 18.0, ty, x + 12.0, ty + th] } else { [x + w - 12.0, ty, x + w + 18.0, ty + th] };
+                    let on = p > 0.9 && mx >= hit[0] && mx < hit[2] && my >= hit[1] && my < hit[3];
+                    self.arr[i].target = if on { 1.0 } else { 0.0 };
+                    let k = self.arr[i].pos.clamp(-0.2, 1.4);
+                    let out = (11.0 + 4.0 * k) * pa;
+                    let (xl, wd) = (if d < 0.0 { edge - out } else { edge - 14.0 }, 14.0 + out);
+                    let tone = (0.075 + 0.085 * k, 0.085 + 0.1 * k, 0.075 + 0.085 * k);
+                    g.rrect(xl - 1.0, ty + 2.0 + 2.5 * k, wd + 2.0, th, 11.0, (0.0, 0.0, 0.0), 0.3 * pa); // 아래 그림자
+                    g.rrect(xl, ty, wd, th, 10.0, tone, pa);
+                    g.rrect(xl + 1.5, ty + 1.5, wd - 3.0, th * 0.42, 8.0, FG, (0.025 + 0.06 * k.max(0.0)) * pa); // 윗면 윤기
+                    let (cx, cy) = (edge + d * (out * 0.5 - 0.5 + 1.0 * k), ty + th / 2.0);
+                    let c = (FG.0 + (LIME.0 - FG.0) * k.clamp(0.0, 1.0), FG.1 + (LIME.1 - FG.1) * k.clamp(0.0, 1.0), FG.2 + (LIME.2 - FG.2) * k.clamp(0.0, 1.0));
+                    ribbon(g, &[(cx - d * 2.6, cy - 6.5), (cx + d * 2.6, cy), (cx - d * 2.6, cy + 6.5)], |_| 2.2, c, (0.8 + 0.2 * k.clamp(0.0, 1.0)) * pa);
+                    if p > 0.9 {
+                        self.hits.push((hit, Hit::Page(d as i32)));
+                    }
+                }
+            }
             g.rrect(x, -r, w, h + r, r, BG, 1.0); // 위쪽은 화면 밖으로 넘겨 위 모서리를 각지게
             // 위쪽 모서리가 화면 가장자리로 부드럽게 이어지게(바깥으로 휜다)
             let e = EAR * (h / BAR_H).min(1.0);
@@ -770,21 +796,11 @@ impl App {
 
             // ── 펼침: 음악 쪽 ──
             let a = ((p - 0.35) / 0.65).clamp(0.0, 1.0) * self.pgf.pos.clamp(0.0, 1.0);
-            // 쪽 표시(위 가운데 점)와 좌우 화살표. 휠을 굴리거나 화살표를 눌러 넘긴다.
+            // 쪽 표시(위 가운데 점). 넘기는 손잡이는 몸통 옆에 따로 그린다.
             if p > 0.5 && self.mode != 2 {
                 let pa = ((p - 0.5) * 2.0).clamp(0.0, 1.0);
                 for i in 0..2 {
                     g.ellipse(x + w / 2.0 + (i as f32 - 0.5) * 12.0, 8.0, 2.5, 2.5, FG, pa * if i == self.page { 0.9 } else { 0.3 });
-                }
-                let (mx, my) = self.mouse;
-                for d in [-1.0f32, 1.0] {
-                    let ax = if d < 0.0 { x + 16.0 } else { x + w - 16.0 };
-                    let r = [ax - 16.0, 0.0, ax + 16.0, 22.0];
-                    let on = mx >= r[0] && mx < r[2] && my >= r[1] && my < r[3];
-                    ribbon(g, &[(ax - d * 2.5, 3.5), (ax + d * 2.5, 8.5), (ax - d * 2.5, 13.5)], |_| 1.6, FG, pa * if on { 1.0 } else { 0.45 });
-                    if p > 0.9 {
-                        self.hits.push((r, Hit::Page(d as i32)));
-                    }
                 }
             }
             if a > 0.0 && self.mode == 0 && n.has {
@@ -1122,6 +1138,7 @@ unsafe fn run() -> Result<()> {
         page: 0,
         paged: Instant::now(),
         pgf: Spring::new(1.0, 260.0, 1.0),
+        arr: [Spring::new(0.0, 320.0, 0.42), Spring::new(0.0, 320.0, 0.42)],
         notes: {
             let n = Arc::new(Mutex::new(notif::Note::default()));
             notif::spawn(n.clone());
@@ -1223,6 +1240,8 @@ unsafe fn run() -> Result<()> {
             app.tm.step(dt);
             app.ck.step(dt);
             app.pgf.step(dt);
+            app.arr[0].step(dt);
+            app.arr[1].step(dt);
             app.face.step(dt);
             app.scroll.step(dt);
             app.dirty = false;
