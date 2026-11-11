@@ -13,6 +13,7 @@ pub struct Quote {
     pub name: String,
     pub price: String,
     pub pct: f64,
+    pub group: usize, // 설정의 --- 구분선으로 나뉜 묶음 번호
 }
 
 #[derive(Default)]
@@ -20,6 +21,7 @@ pub struct Quotes {
     pub list: Vec<Quote>,
     pub stamp: String,         // 마지막으로 받은 시각 "hh:mm"
     pub seen: Option<Instant>, // 〃
+    pub reload: bool,          // 설정을 방금 고쳤다 → 기다리지 말고 바로 다시 받는다
 }
 
 #[derive(PartialEq, Debug)]
@@ -208,15 +210,82 @@ fn get(c: &HttpClient, url: &str) -> Result<String> {
     Ok(c.GetStringAsync(&Uri::CreateUri(&HSTRING::from(url))?)?.get()?.to_string())
 }
 
-fn config() -> Vec<(String, String)> {
-    let path = std::path::PathBuf::from(std::env::var("USERPROFILE").unwrap_or_default()).join("claude-memory/ticker/ticker_config.json");
+/// 종목 목록 파일. 시세 위젯과 같은 파일이다. 시험할 땐 NOTCH_CAT_TICKER_CONFIG 로 임시 파일을 가리킨다(실제 목록을 건드리지 않게).
+pub fn config_path() -> std::path::PathBuf {
+    match std::env::var("NOTCH_CAT_TICKER_CONFIG") {
+        Ok(p) if !p.is_empty() => p.into(),
+        _ => std::path::PathBuf::from(std::env::var("USERPROFILE").unwrap_or_default()).join("claude-memory/ticker/ticker_config.json"),
+    }
+}
+
+/// 목록의 줄들(적힌 그대로).
+pub fn read_lines(path: &std::path::Path) -> Vec<String> {
     let v: Value = std::fs::read_to_string(path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
-    v["tickers"].as_array().into_iter().flatten().filter_map(|t| t.as_str()).map(split).collect()
+    v["tickers"].as_array().into_iter().flatten().filter_map(|t| t.as_str()).map(str::to_string).collect()
+}
+
+/// 설정창 글자 → 줄들. 위젯과 같은 규칙: 앞뒤 빈칸을 떼고 빈 줄은 버린다. 줄 안쪽(@목표·비율 줄)은 손대지 않는다.
+pub fn text_lines(text: &str) -> Vec<String> {
+    text.lines().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect()
+}
+
+/// 목록만 바꿔 저장한다. 파일에 있던 다른 값은 그대로 둔다. 위젯이 쓰는 모양(들여쓰기 2칸·한글 그대로)과 같다.
+pub fn save_lines(path: &std::path::Path, lines: &[String]) -> std::result::Result<(), String> {
+    if !lines.iter().any(|l| !l.starts_with("---")) {
+        return Err("종목을 하나 이상 입력하세요".into());
+    }
+    let mut v = match std::fs::read_to_string(path) {
+        // 읽히지 않는 파일을 덮어쓰면 그 안의 것을 잃는다 → 멈춘다
+        Ok(s) => serde_json::from_str::<Value>(&s).ok().filter(Value::is_object).ok_or("설정 파일을 읽지 못해 저장하지 않았습니다")?,
+        Err(_) => serde_json::json!({}),
+    };
+    v["tickers"] = lines.iter().map(|l| Value::from(l.as_str())).collect();
+    let body = serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?;
+    if let Some(d) = path.parent() {
+        let _ = std::fs::create_dir_all(d);
+    }
+    // 옆에 다 쓴 뒤 바꿔치기: 쓰다 끊겨도 원래 목록이 남는다
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, body).and_then(|_| std::fs::rename(&tmp, path)).map_err(|e| format!("저장 실패: {e}"))
+}
+
+/// 설정창 지수 버튼. 시세 위젯(tools/ticker.pyw)·폰(ticker.html)의 IDX_BTNS 와 같은 값.
+pub const IDX_BTNS: [&[(&str, &str)]; 2] = [
+    &[("코스피", "KOSPI=코스피"), ("코스닥", "KOSDAQ=코스닥")],
+    &[("S&P500", "^GSPC=S&P500"), ("나스닥", "^IXIC=나스닥"), ("다우", "^DJI=다우"), ("반도체", "^SOX=필라델피아반도체")],
+];
+
+pub fn has_idx(lines: &[String], row: &str) -> bool {
+    lines.iter().any(|l| split(l).0 == split(row).0)
+}
+
+/// 지수 버튼: 없으면 목록 맨 위에 넣고, 있으면 뺀다(위젯과 같다).
+pub fn toggle_idx(lines: &mut Vec<String>, row: &str) {
+    if has_idx(lines, row) {
+        lines.retain(|l| split(l).0 != split(row).0);
+    } else {
+        lines.insert(0, row.to_string());
+    }
+}
+
+/// (심볼, 이름, 묶음 번호). 구분선(---)을 만날 때마다 묶음이 바뀐다.
+fn config() -> Vec<(String, String, usize)> {
+    let mut group = 0;
+    let mut out = Vec::new();
+    for line in read_lines(&config_path()) {
+        if line.starts_with("---") {
+            group += 1;
+        } else {
+            let (sym, name) = split(&line);
+            out.push((sym, name, group));
+        }
+    }
+    out
 }
 
 fn fetch(c: &HttpClient, gecko: &mut Gecko, bithumb_off: &mut Option<Instant>) -> Vec<Quote> {
     // 설정에 이름이 없으면(심볼만 적혀 있으면) 받은 곳의 이름을 쓴다
-    let want: Vec<(Src, String, Option<String>)> = config().into_iter().filter_map(|(sym, name)| source(&sym).map(|(s, key)| (s, key, (name != sym).then_some(name)))).collect();
+    let want: Vec<(Src, String, Option<String>, usize)> = config().into_iter().filter_map(|(sym, name, grp)| source(&sym).map(|(s, key)| (s, key, (name != sym).then_some(name), grp))).collect();
     let keys = |src: Src| want.iter().filter(|w| w.0 == src).map(|w| w.1.clone()).collect::<Vec<_>>();
     let mut got: Vec<Got> = Vec::new();
     for (src, kind, dec) in [(Src::Stock, "stock", 0), (Src::Index, "index", 2)] {
@@ -262,7 +331,7 @@ fn fetch(c: &HttpClient, gecko: &mut Gecko, bithumb_off: &mut Option<Instant>) -
         }
     }
     // 설정에 적힌 순서대로. 못 받은 종목은 빠진다.
-    want.iter().filter_map(|(_, key, name)| got.iter().find(|g| &g.0 == key).map(|g| Quote { name: short(name.as_ref().unwrap_or(&g.3)), price: g.1.clone(), pct: g.2 })).collect()
+    want.iter().filter_map(|(_, key, name, grp)| got.iter().find(|g| &g.0 == key).map(|g| Quote { name: short(name.as_ref().unwrap_or(&g.3)), price: g.1.clone(), pct: g.2, group: *grp })).collect()
 }
 
 pub fn spawn(out: Arc<Mutex<Quotes>>) {
@@ -284,7 +353,13 @@ pub fn spawn(out: Arc<Mutex<Quotes>>) {
                 o.stamp = crate::hhmm();
                 o.seen = Some(Instant::now());
             }
-            std::thread::sleep(Duration::from_secs(15));
+            // 15초 쉰다. 설정을 고치면 바로 깬다.
+            for _ in 0..30 {
+                std::thread::sleep(Duration::from_millis(500));
+                if std::mem::take(&mut out.lock().unwrap().reload) {
+                    break;
+                }
+            }
         }
     });
 }
@@ -299,6 +374,53 @@ mod tests {
         assert_eq!(split("USDKRW=X=달러"), ("USDKRW=X".into(), "달러".into()));
         assert_eq!(split("USDKRW=X"), ("USDKRW=X".into(), "USDKRW=X".into()));
         assert_eq!(split("XRP-KRW/KAIA-KRW=비율@49,50,v41").0, "XRP-KRW/KAIA-KRW");
+    }
+
+    #[test]
+    fn saving_keeps_every_line_and_other_keys() {
+        let p = std::env::temp_dir().join(format!("notch-cat-test-{}.json", std::process::id()));
+        std::fs::write(&p, r#"{"tickers": ["069500=코덱스200"], "refresh_sec": 5, "coin_prem": {"XRP": 1.01}}"#).unwrap();
+        let lines = text_lines("^KS11=코스피
+  069500=코덱스200 
+
+USDKRW=X=환율
+---
+XRP-KRW/KAIA-KRW=XRP당 카이아 @49,50,v41
+---
+0005A0
+");
+        save_lines(&p, &lines).unwrap();
+        assert_eq!(read_lines(&p), lines);
+        assert_eq!(lines[4], "XRP-KRW/KAIA-KRW=XRP당 카이아 @49,50,v41");
+        let body = std::fs::read_to_string(&p).unwrap();
+        let v: Value = serde_json::from_str(&body).unwrap();
+        assert_eq!((v["refresh_sec"].as_i64(), v["coin_prem"]["XRP"].as_f64()), (Some(5), Some(1.01)));
+        assert!(body.contains("코덱스200") && body.contains("
+  \"tickers\": [
+    \""), "한글 그대로·들여쓰기 2칸: {body}");
+        // 종목이 없으면 저장하지 않고, 깨진 파일은 덮어쓰지 않는다
+        assert!(save_lines(&p, &["---".to_string()]).is_err());
+        std::fs::write(&p, "{깨진").unwrap();
+        assert!(save_lines(&p, &lines).is_err());
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "{깨진");
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn index_buttons_match_the_widget() {
+        let mut l = text_lines("069500
+^GSPC=S&P500");
+        assert!(has_idx(&l, "^GSPC=S&P500") && !has_idx(&l, "KOSPI=코스피"));
+        toggle_idx(&mut l, "KOSPI=코스피");
+        assert_eq!(l, ["KOSPI=코스피", "069500", "^GSPC=S&P500"]);
+        toggle_idx(&mut l, "^GSPC=S&P500");
+        assert_eq!(l, ["KOSPI=코스피", "069500"]);
+        // 위젯 코드에 같은 줄이 그대로 있어야 한다(한쪽만 바뀌면 여기서 걸린다)
+        if let Ok(py) = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../tools/ticker.pyw")) {
+            for (label, row) in IDX_BTNS.iter().flat_map(|g| g.iter()) {
+                assert!(py.contains(&format!("(\"{label}\", [\"{row}\"])")), "위젯에 없는 지수 버튼: {label} {row}");
+            }
+        }
     }
 
     #[test]
