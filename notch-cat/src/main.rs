@@ -9,7 +9,9 @@ mod lyrics;
 mod media;
 mod notif;
 mod quotes;
+mod settings;
 mod spring;
+mod weather;
 
 use std::cell::RefCell;
 use std::io::Write;
@@ -39,8 +41,8 @@ use spring::Spring;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // 창(=그릴 수 있는 최대 넓이), 논리 단위
-const WIN_W: f32 = 560.0;
-const WIN_H: f32 = 350.0;
+const WIN_W: f32 = 600.0;
+const WIN_H: f32 = 480.0;
 // 노치 크기
 const IDLE: (f32, f32) = (150.0, 28.0);
 const BAR_H: f32 = 28.0;
@@ -66,6 +68,7 @@ const EAR: f32 = 6.0; // 위쪽 모서리가 바깥으로 휘는 크기
 const TAIL_ROOM: f32 = 22.0; // 꼬리가 나올 옆 여백
 const LIME: Rgb = (0.639, 0.902, 0.208);
 const WARN: Rgb = (1.0, 0.416, 0.102);
+const SUN: Rgb = (1.0, 0.8, 0.28);
 
 const WM_TRAY: u32 = WM_APP + 1;
 const WM_MOUSELEAVE: u32 = 0x02A3;
@@ -112,6 +115,7 @@ struct Cfg {
     tiny: bool,  // 창을 꽉 채워 일할 때 작게 줄이기
     bar: bool,   // 닫힘에 시세 한 줄
     aside: bool, // 가운데 대신 오른쪽으로 비켜 놓기(다른 노치 앱과 나란히 볼 때)
+    place: (f64, f64), // 날씨를 볼 곳(위도, 경도). settings.json 의 lat·lon, 없으면 서울
 }
 
 impl Cfg {
@@ -120,11 +124,11 @@ impl Cfg {
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        Cfg { hide_fullscreen: v["hide_fullscreen"].as_bool().unwrap_or(true), autostart: v["autostart"].as_bool().unwrap_or(true), aside: v["aside"].as_bool().unwrap_or(false), tiny: v["tiny"].as_bool().unwrap_or(true), bar: v["bar"].as_bool().unwrap_or(false) }
+        Cfg { hide_fullscreen: v["hide_fullscreen"].as_bool().unwrap_or(true), autostart: v["autostart"].as_bool().unwrap_or(true), aside: v["aside"].as_bool().unwrap_or(false), tiny: v["tiny"].as_bool().unwrap_or(true), bar: v["bar"].as_bool().unwrap_or(false), place: (v["lat"].as_f64().unwrap_or(37.57), v["lon"].as_f64().unwrap_or(126.98)) }
     }
 
     fn save(&self) {
-        let v = serde_json::json!({ "hide_fullscreen": self.hide_fullscreen, "autostart": self.autostart, "aside": self.aside, "tiny": self.tiny, "bar": self.bar });
+        let v = serde_json::json!({ "hide_fullscreen": self.hide_fullscreen, "autostart": self.autostart, "aside": self.aside, "tiny": self.tiny, "bar": self.bar, "lat": self.place.0, "lon": self.place.1 });
         let _ = std::fs::write(data_dir().join("settings.json"), v.to_string());
     }
 
@@ -212,6 +216,87 @@ unsafe fn maximized_under(own: HWND, x: i32, y: i32) -> Option<bool> {
     Some(IsZoomed(root).as_bool())
 }
 
+/// 시세 쪽의 알약 자리. k: 0 작은 판(이름·등락률) … 1 큰 판(값까지). 묶음(--- 구분선)이 바뀌면 줄을 바꾸고 틈을 둔다.
+/// 돌려주는 것: 알약마다 [왼쪽(몸통 기준), 위, 너비, 높이] 와 몸통 전체 (너비, 높이).
+fn q_layout(groups: &[usize], k: f32) -> (Vec<[f32; 4]>, (f32, f32)) {
+    const COLS: usize = 3;
+    let w = 500.0 + 40.0 * k;
+    if groups.is_empty() {
+        return (Vec::new(), (w, 104.0));
+    }
+    let (pad, gap, ph) = (20.0, 6.0, 24.0 + 14.0 * k);
+    let cw = (w - pad * 2.0 - gap * (COLS - 1) as f32) / COLS as f32;
+    let (mut y, mut col, mut out) = (46.0, 0, Vec::with_capacity(groups.len()));
+    for (i, g) in groups.iter().enumerate() {
+        let fresh = i > 0 && *g != groups[i - 1];
+        if fresh || col == COLS {
+            y += ph + gap + if fresh { 10.0 } else { 0.0 };
+            col = 0;
+        }
+        out.push([pad + col as f32 * (cw + gap), y, cw, ph]);
+        col += 1;
+    }
+    // ponytail: 종목이 아주 많으면(큰 판 9줄 넘게) 아래가 잘린다. 그때는 쪽을 나누거나 넘겨 보게.
+    (out, (w, (y + ph + 16.0).min(WIN_H - SHADOW - 4.0)))
+}
+
+fn mix(a: Rgb, b: Rgb, t: f32) -> Rgb {
+    (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t, a.2 + (b.2 - a.2) * t)
+}
+
+/// 날씨 그림(가로 24쯤). kind 는 weather::NAMES 번호.
+unsafe fn wx_icon(g: &Gfx, kind: usize, day: bool, cx: f32, cy: f32, a: f32) {
+    let cloud = |cx: f32, cy: f32, a: f32| {
+        g.ellipse(cx - 5.0, cy + 1.0, 5.0, 4.5, FG, a);
+        g.ellipse(cx + 1.0, cy - 2.5, 6.5, 6.0, FG, a);
+        g.ellipse(cx + 7.0, cy + 1.5, 4.5, 4.0, FG, a);
+        g.rrect(cx - 10.0, cy + 0.5, 21.5, 5.5, 2.75, FG, a);
+    };
+    // 해(낮) 또는 초승달(밤)
+    let light = |cx: f32, cy: f32, r: f32| {
+        if day {
+            g.ellipse(cx, cy, r, r, SUN, a);
+            for i in 0..8 {
+                let (s, c) = (i as f32 * std::f32::consts::FRAC_PI_4).sin_cos();
+                ribbon(g, &[(cx + c * (r + 2.6), cy + s * (r + 2.6)), (cx + c * (r + 5.0), cy + s * (r + 5.0))], |_| 1.7, SUN, a);
+            }
+        } else {
+            g.ellipse(cx, cy, r + 1.0, r + 1.0, SUN, a);
+            g.ellipse(cx + r * 0.55, cy - r * 0.35, r * 0.95, r * 0.95, BG, a);
+        }
+    };
+    match kind {
+        0 => light(cx, cy, 6.0),
+        1 => {
+            light(cx + 5.0, cy - 4.0, 4.0);
+            cloud(cx - 2.0, cy + 3.0, a);
+        }
+        2 => {
+            cloud(cx + 4.0, cy - 4.0, a * 0.4);
+            cloud(cx - 1.0, cy + 2.0, a);
+        }
+        3 => {
+            for (i, wd) in [20.0f32, 14.0, 20.0].into_iter().enumerate() {
+                g.rrect(cx - 10.0 + (i % 2) as f32 * 6.0, cy - 7.0 + i as f32 * 6.0, wd, 2.6, 1.3, FG, a * 0.8);
+            }
+        }
+        _ => {
+            cloud(cx, cy - 4.0, a);
+            for i in 0..3 {
+                let dx = cx - 6.0 + i as f32 * 6.0;
+                match kind {
+                    4 => ribbon(g, &[(dx + 1.5, cy + 5.0), (dx - 0.5, cy + 10.5)], |_| 1.8, DOWN, a),
+                    5 => g.ellipse(dx, cy + 6.5 + (i % 2) as f32 * 3.5, 1.6, 1.6, FG, a),
+                    _ => {}
+                }
+            }
+            if kind == 6 {
+                g.poly(&[(cx + 2.5, cy + 2.0), (cx - 3.5, cy + 8.5), (cx - 0.2, cy + 8.5), (cx - 2.0, cy + 14.0), (cx + 4.5, cy + 6.3), (cx + 1.2, cy + 6.3), (cx + 4.0, cy + 2.0)], SUN, a);
+            }
+        }
+    }
+}
+
 /// 굽은 선 위의 점들(2차 곡선).
 fn quad(p0: (f32, f32), c: (f32, f32), p1: (f32, f32), n: usize) -> Vec<(f32, f32)> {
     (0..=n)
@@ -270,6 +355,7 @@ enum Hit {
     Bar(f32, f32), // x 시작, 너비
     Line(u64),
     Page(i32), // 쪽 넘기기(-1 왼쪽, +1 오른쪽)
+    Size,      // 시세 쪽: 작은 판 ↔ 큰 판
 }
 
 struct App {
@@ -310,6 +396,11 @@ struct App {
     paged: Instant,    // 마지막으로 쪽을 넘긴 때(휠이 한 번에 여러 쪽 넘어가지 않게)
     arr: [Spring; 2],  // 좌우 손잡이에 마우스가 올라간 정도 0…1(살짝 튕긴다)
     pgf: Spring,       // 쪽이 바뀔 때 내용이 다시 떠오르는 정도 0…1
+    big: bool,         // 시세 쪽: 값까지 나오는 큰 판
+    bg: Spring,        // 〃 0 작은 판 … 1 큰 판(몸통 높이와 같은 박자)
+    qs: Vec<Spring>,   // 시세 알약마다 마우스가 올라간 정도 0…1
+    wx: Arc<Mutex<weather::Weather>>,
+    wxn: weather::Weather, // 지금 보여 주는 날씨
     notes: Arc<Mutex<notif::Note>>,
     note: notif::Note, // 지금 보여 주는(마지막) 알림
     note_until: Instant,
@@ -340,13 +431,16 @@ struct App {
 
 impl App {
     fn animating(&self) -> bool {
-        !(self.w.settled() && self.h.settled() && self.fade.settled() && self.scroll.settled() && self.tm.settled() && self.ck.settled() && self.pgf.settled() && self.arr[0].settled() && self.arr[1].settled() && self.face.settled())
+        !(self.w.settled() && self.h.settled() && self.fade.settled() && self.scroll.settled() && self.tm.settled() && self.ck.settled() && self.pgf.settled() && self.arr[0].settled() && self.arr[1].settled() && self.bg.settled() && self.qs.iter().all(Spring::settled) && self.face.settled())
     }
 
     /// 0.05초마다: 음악·가사 상태를 읽어 목표 크기와 보일 글자를 정한다.
     unsafe fn tick(&mut self) {
         self.ticks += 1;
         self.n = self.now.lock().unwrap().clone();
+        if std::env::var("NOTCH_CAT_NOMEDIA").is_ok() {
+            self.n.has = false; // 시험용: 음악이 없는 척(시계·날씨 쪽을 본다)
+        }
         {
             let l = self.lyr.lock().unwrap();
             if l.ver != self.lyr_ver {
@@ -380,8 +474,12 @@ impl App {
                 self.q = q.list.clone();
                 self.q_stamp = q.stamp.clone();
                 self.q_seen = q.seen;
+                self.qs.resize(self.q.len(), Spring::new(0.0, 320.0, 0.5));
                 self.dirty = true;
             }
+        }
+        if self.ticks % 20 == 1 {
+            self.wxn = self.wx.lock().unwrap().clone();
         }
         let mut text = match (self.n.has, self.n.playing, line) {
             (false, _, _) => String::new(),
@@ -484,11 +582,11 @@ impl App {
             TINY
         } else if self.hover {
             if self.page == 1 {
-                (520.0, 50.0 + ((self.q.len().max(2) + 1) / 2) as f32 * 20.0 + 28.0) // 시세 두 칸
+                q_layout(&self.q.iter().map(|q| q.group).collect::<Vec<_>>(), self.big as u8 as f32).1
             } else if self.n.has {
                 OPEN
             } else {
-                QUIET
+                (QUIET.0, QUIET.1 + if self.wxn.seen.is_some() { 34.0 } else { 0.0 }) // 날씨 한 줄
             }
         } else if self.text.is_empty() {
             (IDLE.0 + bump.0, IDLE.1 + bump.1)
@@ -500,7 +598,8 @@ impl App {
         };
         // 펼칠 때는 끝에서 살짝 출렁이며 모이고(가로·세로 박자가 달라 물결처럼), 접힐 때는 차분하게
         if th > BAR_H + 10.0 {
-            self.open_h = th;
+            // 시세 쪽은 작은 판 높이를 '다 펼친 높이'로 삼는다(큰 판으로 자라는 동안 내용이 흐려지지 않게)
+            self.open_h = if self.page == 1 && !noting { q_layout(&self.q.iter().map(|q| q.group).collect::<Vec<_>>(), 0.0).1 .1 } else { th };
             self.mode = if noting { 2 } else if self.page == 1 { 3 } else if self.n.has { 0 } else { 1 };
             self.w.tune(250.0, 0.62);
             self.h.tune(190.0, 0.68);
@@ -513,8 +612,8 @@ impl App {
         // 보이는 것이 달라졌을 때만 다시 그린다(쉴 때 CPU 를 안 쓴다)
         let open = self.h.target > BAR_H;
         let view = format!(
-            "{}|{}|{}|{}|{}|{:?}|{}|{}|{}|{}",
-            local().wMinute, self.text, self.n.title, self.n.playing, self.art_ptr, self.cur, self.lyr_st as u8,
+            "{}|{}|{}|{}|{}|{}|{:?}|{}|{}|{}|{}",
+            self.wxn.stamp, local().wMinute, self.text, self.n.title, self.n.playing, self.art_ptr, self.cur, self.lyr_st as u8,
             if open { pos / 500 } else { 0 },
             if open { self.n.stamp.as_str() } else { "" },
             self.lyr_stamp
@@ -774,7 +873,15 @@ impl App {
                 let t = local();
                 let h12 = if t.wHour % 12 == 0 { 12 } else { t.wHour % 12 };
                 let time = format!("{} {}:{:02}", if t.wHour < 12 { "오전" } else { "오후" }, h12, t.wMinute);
-                g.text(&time, &g.f_time, x, 5.0 + fk * 4.0, w, FG, cka, Align::Center);
+                let wx = self.wxn.seen.is_some();
+                let sh = if wx { 10.0 } else { 0.0 };
+                g.text(&time, &g.f_time, x + sh, 5.0 + fk * 4.0, w, FG, cka, Align::Center);
+                if wx {
+                    let ix = x + w / 2.0 + sh - g.measure(&time, &g.f_time) / 2.0 - 13.0;
+                    g.zoom(0.62, ix, 14.0 + fk * 4.0);
+                    wx_icon(g, self.wxn.kind, self.wxn.day, ix, 14.0 + fk * 4.0, cka);
+                    g.zoom(1.0, 0.0, 0.0);
+                }
             }
 
             // ── 닫힘: 한 줄(얼굴 오른쪽) ──
@@ -902,24 +1009,63 @@ impl App {
                 let day = format!("{}월 {}일 {}요일", t.wMonth, t.wDay, ["일", "월", "화", "수", "목", "금", "토"][t.wDayOfWeek as usize % 7]);
                 g.text(&time, &g.f_clock, x, 26.0, w, FG, a, Align::Center);
                 g.text(&day, &g.f_sub, x, 66.0, w, FG, a * 0.6, Align::Center);
-            } else if a > 0.0 && self.mode == 3 {
-                // 시세 쪽: 두 칸으로(이름 · 값 · 등락률)
-                g.text("시세", &g.f_title, x + 20.0, 18.0, 120.0, FG, a, Align::Left);
-                let rows = (self.q.len().max(2) + 1) / 2;
-                let cw = (w - 40.0 - 20.0) / 2.0;
-                if self.q.is_empty() {
-                    g.text("시세를 받는 중…", &g.f_body, x + 20.0, 52.0, w - 40.0, FG, a * 0.5, Align::Center);
+                let wx = &self.wxn;
+                if let Some(seen) = wx.seen {
+                    let label = format!("{}  {:.0}°", weather::NAMES[wx.kind], wx.temp);
+                    let tw = g.measure(&label, &g.f_lyric);
+                    let x0 = x + (w - tw - 34.0) / 2.0;
+                    wx_icon(g, wx.kind, wx.day, x0 + 12.0, 106.0, a);
+                    g.text(&label, &g.f_lyric, x0 + 34.0, 95.0, tw + 4.0, FG, a, Align::Left);
+                    // 생존 표시: 마지막으로 받은 시각. 1시간 넘게 못 받으면 경고색.
+                    let stale = seen.elapsed() > Duration::from_secs(3600);
+                    g.text(&format!("날씨 {}", wx.stamp), &g.f_tiny, x + 14.0, 120.0, w - 28.0, if stale { WARN } else { FG }, a * if stale { 1.0 } else { 0.4 }, Align::Right);
                 }
-                for (i, q) in self.q.iter().enumerate() {
-                    let (cx, y) = (x + 20.0 + (i / rows) as f32 * (cw + 20.0), 48.0 + (i % rows) as f32 * 20.0);
-                    let c = if q.pct > 0.0 { UP } else if q.pct < 0.0 { DOWN } else { FG };
-                    g.text(&q.name, &g.f_body, cx, y, cw - 122.0, FG, a * 0.85, Align::Left);
-                    g.text(&q.price, &g.f_body, cx + cw - 122.0, y, 68.0, FG, a, Align::Right);
-                    g.text(&format!("{:+.2}%", q.pct), &g.f_body, cx + cw - 52.0, y, 52.0, c, a, Align::Right);
+            } else if a > 0.0 && self.mode == 3 {
+                // 시세 쪽: 종목마다 윤기 나는 알약. 묶음(--- 구분선)마다 줄을 바꾼다. 누르면 값까지 나오는 큰 판으로 자란다.
+                g.text("시세", &g.f_title, x + 20.0, 16.0, 120.0, FG, a, Align::Left);
+                if self.q.is_empty() {
+                    g.text("시세를 받는 중…", &g.f_body, x + 20.0, 56.0, w - 40.0, FG, a * 0.5, Align::Center);
+                }
+                let k = self.bg.pos.clamp(0.0, 1.0);
+                let (cells, (lw, _)) = q_layout(&self.q.iter().map(|q| q.group).collect::<Vec<_>>(), self.bg.pos);
+                let live = p > 0.9;
+                let (mx, my) = self.mouse;
+                let base = ((p - 0.35) / 0.65).clamp(0.0, 1.0);
+                for (i, (q, c)) in self.q.iter().zip(&cells).enumerate() {
+                    // 쪽이 열릴 때 앞에서부터 차례로 떠오른다
+                    let rise = (self.pgf.pos * 2.4 - i as f32 * 0.07).clamp(0.0, 1.0);
+                    let a = base * rise;
+                    let (cx, cy, cw, ch) = (x + (w - lw) / 2.0 + c[0], c[1] + (1.0 - rise) * 6.0, c[2], c[3]);
+                    let on = live && mx >= cx && mx < cx + cw && my >= cy && my < cy + ch;
+                    if let Some(sp) = self.qs.get_mut(i) {
+                        sp.target = if on { 1.0 } else { 0.0 };
+                    }
+                    let e = self.qs.get(i).map_or(0.0, |s| s.pos).clamp(-0.3, 1.4);
+                    let col = if q.pct > 0.0 { UP } else if q.pct < 0.0 { DOWN } else { FG };
+                    // 도톰해짐: 살짝 커지며 떠오르고 그림자가 깊어진다
+                    let (bx, by, bw, bh) = (cx - 1.5 * e, cy - 2.2 * e, cw + 3.0 * e, ch + 1.4 * e);
+                    let r = 12.0 + 1.0 * k;
+                    let body = mix((0.075, 0.085, 0.1), col, if q.pct == 0.0 { 0.06 } else { 0.2 + 0.12 * e });
+                    g.rrect(bx + 1.0, by + 2.0 + 1.6 * e, bw - 2.0, bh, r, (0.0, 0.0, 0.0), a * (0.5 + 0.2 * e)); // 아래 그림자
+                    g.rrect(bx, by, bw, bh, r, mix(body, FG, 0.2 + 0.1 * e), a); // 밝은 테두리
+                    g.rrect(bx + 1.0, by + 1.0, bw - 2.0, bh - 2.0, r - 1.0, body, a);
+                    g.rrect(bx + 5.0, by + bh * 0.58, bw - 10.0, bh * 0.36, r * 0.6, col, a * (0.09 + 0.05 * e)); // 아래에서 비치는 빛
+                    g.rrect(bx + 2.5, by + 1.5, bw - 5.0, bh * 0.44, r - 2.0, FG, a * (0.085 + 0.07 * e)); // 윗면 윤기(두 겹)
+                    g.rrect(bx + 5.0, by + 2.0, bw - 10.0, bh * 0.2, r * 0.5, FG, a * (0.06 + 0.03 * e));
+                    let pct = format!("{:+.2}%", q.pct);
+                    let pw = g.measure(&pct, &g.f_time);
+                    // 작은 판: 이름 · 등락률 한 줄. 큰 판: 이름 아래에 값, 등락률은 오른쪽 아래로 내려간다.
+                    g.text(&q.name, &g.f_body, cx + 10.0, cy + 3.0 - 0.5 * k, cw - 20.0 - (pw + 6.0) * (1.0 - k), FG, a * 0.92, Align::Left);
+                    g.text(&pct, &g.f_time, cx + cw - 10.0 - pw - 1.0, cy + 3.5 + 15.0 * k, pw + 2.0, mix(col, FG, 0.12), a, Align::Left);
+                    let va = ((k - 0.35) / 0.65).clamp(0.0, 1.0);
+                    g.text(&q.price, &g.f_lyric, cx + 10.0, cy + 16.0 + 1.0 * va, cw - 30.0 - pw, FG, a * va, Align::Left);
+                }
+                if live {
+                    self.hits.push(([x, 0.0, x + w, h], Hit::Size));
                 }
                 // 생존 표시: 마지막으로 받은 시각. 10분 넘게 못 받으면 경고색.
                 let stale = self.q_seen.map_or(true, |t| t.elapsed() > Duration::from_secs(600));
-                g.text(&format!("시세 {}", self.q_stamp), &g.f_tiny, x + 20.0, 22.0, w - 40.0, if stale { WARN } else { FG }, a * if stale { 1.0 } else { 0.4 }, Align::Right);
+                g.text(&format!("시세 {}", self.q_stamp), &g.f_tiny, x + 20.0, 20.0, w - 40.0, if stale { WARN } else { FG }, a * if stale { 1.0 } else { 0.4 }, Align::Right);
             }
             g.unclip();
         }
@@ -958,13 +1104,18 @@ impl App {
         if let Hit::Page(d) = hit {
             return self.turn(d);
         }
+        if let Hit::Size = hit {
+            self.big = !self.big;
+            self.bg.target = self.big as u8 as f32;
+            return self.tick();
+        }
         let cmd = match hit {
             Hit::Prev => Cmd::Prev,
             Hit::Toggle => Cmd::Toggle,
             Hit::Next => Cmd::Next,
             Hit::Bar(b0, bw) => Cmd::Seek((((x - b0) / bw).clamp(0.0, 1.0) * self.n.dur_ms as f32) as i64),
             Hit::Line(t) => Cmd::Seek(t as i64),
-            Hit::Page(_) => return,
+            Hit::Page(_) | Hit::Size => return,
         };
         let _ = self.tx.send(cmd);
     }
@@ -974,6 +1125,8 @@ impl App {
         let check = |on: bool| if on { MF_CHECKED } else { MF_UNCHECKED };
         let title: Vec<u16> = format!("노치 고양이 {VERSION}").encode_utf16().chain([0]).collect();
         let _ = AppendMenuW(m, MF_GRAYED, 0, PCWSTR(title.as_ptr()));
+        let _ = AppendMenuW(m, MF_SEPARATOR, 0, None);
+        let _ = AppendMenuW(m, MF_STRING, 8, w!("시세 종목 설정…"));
         let _ = AppendMenuW(m, MF_SEPARATOR, 0, None);
         let _ = AppendMenuW(m, check(self.cfg.hide_fullscreen), 1, w!("전체 화면일 때 숨기기"));
         let _ = AppendMenuW(m, check(self.cfg.autostart), 2, w!("윈도우 시작할 때 자동 실행"));
@@ -1005,6 +1158,10 @@ impl App {
                 return false;
             }
             7 => self.cfg.bar = !self.cfg.bar,
+            8 => {
+                settings::open(self.quotes.clone(), cat_icon());
+                return false;
+            }
             6 => {
                 self.cfg.tiny = !self.cfg.tiny;
                 self.maxed = false;
@@ -1098,6 +1255,7 @@ unsafe fn run() -> Result<()> {
     let tx = media::spawn(now.clone(), lyr.clone());
     let cfg = Cfg::load();
     cfg.apply_autostart();
+    let spot = cfg.place;
 
     let mut app = App {
         hwnd,
@@ -1138,7 +1296,16 @@ unsafe fn run() -> Result<()> {
         page: 0,
         paged: Instant::now(),
         pgf: Spring::new(1.0, 260.0, 1.0),
+        big: false,
+        bg: Spring::new(0.0, 190.0, 0.68),
+        qs: Vec::new(),
         arr: [Spring::new(0.0, 320.0, 0.42), Spring::new(0.0, 320.0, 0.42)],
+        wx: {
+            let w = Arc::new(Mutex::new(weather::Weather::default()));
+            weather::spawn(w.clone(), spot.0, spot.1);
+            w
+        },
+        wxn: weather::Weather::default(),
         notes: {
             let n = Arc::new(Mutex::new(notif::Note::default()));
             notif::spawn(n.clone());
@@ -1176,6 +1343,9 @@ unsafe fn run() -> Result<()> {
     tray(hwnd, true);
     SetTimer(hwnd, 1, 50, None);
     log("window ok");
+    if std::env::var("NOTCH_CAT_SETTINGS").is_ok() {
+        settings::open(app.quotes.clone(), cat_icon()); // 시험용: 켜자마자 설정창
+    }
 
     let mut last = Instant::now();
     let mut was_anim = false;
@@ -1186,6 +1356,10 @@ unsafe fn run() -> Result<()> {
                 tray(hwnd, false);
                 log("quit");
                 return Ok(());
+            }
+            // 설정창이 열려 있으면 Tab·Esc 같은 자판을 그 창이 먼저 받는다
+            if settings::hwnd().is_some_and(|h| IsDialogMessageW(h, &msg).as_bool()) {
+                continue;
             }
             let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
@@ -1218,6 +1392,8 @@ unsafe fn run() -> Result<()> {
                     app.tracking = false;
                     app.hover = false;
                     app.page = 0; // 다시 열면 기본 쪽부터
+                    app.big = false; // 시세도 작은 판부터
+                    app.bg.target = 0.0;
                     app.mouse = (-1.0, -1.0);
                     app.tick();
                 }
@@ -1242,6 +1418,8 @@ unsafe fn run() -> Result<()> {
             app.pgf.step(dt);
             app.arr[0].step(dt);
             app.arr[1].step(dt);
+            app.bg.step(dt);
+            app.qs.iter_mut().for_each(|s| s.step(dt));
             app.face.step(dt);
             app.scroll.step(dt);
             app.dirty = false;

@@ -206,7 +206,7 @@ impl Gecko {
     }
 }
 
-fn get(c: &HttpClient, url: &str) -> Result<String> {
+pub fn get(c: &HttpClient, url: &str) -> Result<String> {
     Ok(c.GetStringAsync(&Uri::CreateUri(&HSTRING::from(url))?)?.get()?.to_string())
 }
 
