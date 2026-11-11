@@ -954,7 +954,7 @@ function getEtfNotices(source) {
         try {
           html = UrlFetchApp.fetch(_plusUrls[i], { headers:{'User-Agent':'Mozilla/5.0'}, muteHttpExceptions:true }).getContentText('UTF-8');
           if (html) break;
-        } catch(e) { if (i === _plusUrls.length - 1) throw e; }
+        } catch(e) { if (i === _plusUrls.length - 1) { html = _plusMirrorGet('list.html'); var _plusViaPc = true; } }
       }
       const re = /href="(\/customer\/notice\/detail\?n=\d+)"[^>]*>([\s\S]*?)<\/a>/g;
       let m;
@@ -979,6 +979,7 @@ function getEtfNotices(source) {
     }
     if (!items.length) return _noticeFallback(source, '0건' + diag);   // 상류는 응답했는데 못 읽은 경우
     const result = { success: true, items };
+    if (source === 'plus' && _plusViaPc) result.relay = true;   // PC 사본으로 읽음 — tools/tiger_relay.py 가 이 표시를 보고 계속 올린다
     cache.put(cacheKey, JSON.stringify(result), distCacheTtlSec()); // 0건은 캐시 안 함(일시 실패 장기 캐시 방지)
     _saveLastNotices(source, items);
     return result;
@@ -2456,17 +2457,31 @@ function plusOcrSched(ocrText) {
   return { '분배락일': f(ds[1]), '기준일': f(ds[2]), '지급일': f(ds[3]) };
 }
 
+// 한화(plusetf.co.kr)가 구글 서버에서 주소조차 안 열릴 때(2026-11-09~11: 'Address unavailable', 11/10 월중 공지를 놓침)
+// 집·학교 PC 가 올려 둔 사본(tools/tiger_relay.py relay_plus → plus_relay/)을 읽는다. 목록·공지 그림 원본 그대로라 파서는 같다.
+function _plusMirrorGet(file) {
+  const r = UrlFetchApp.fetch('https://raw.githubusercontent.com/jaenamking1-collab/jjk/main/plus_relay/' + file, { muteHttpExceptions: true });
+  if (r.getResponseCode() !== 200) throw new Error('PLUS PC 사본 없음: ' + file);
+  return r.getContentText('UTF-8');
+}
+
 function fetchDist_plus() {
   // PLUS 사이트는 정상인데도(curl 0.2초) Apps Script에서 간헐적으로 Timeout이 난다.
   // 목록·상세 어느 쪽이 죽어도 6월짜리 뉴스 폴백으로 밀리므로 둘 다 재시도한다.
+  let viaPc = false;   // 한 번 사본으로 넘어가면 나머지도 사본으로(상세마다 3번씩 다시 기다리지 않게)
   const fetchPlus = (url) => {
     let lastErr;
-    for (let a = 0; a < 3; a++) {
+    for (let a = 0; a < 3 && !viaPc; a++) {
       try {
         return UrlFetchApp.fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, muteHttpExceptions: true }).getContentText('UTF-8');
       } catch (e) { lastErr = e; Utilities.sleep(1000 * (a + 1)); }
     }
-    throw lastErr;
+    try {
+      const n = (url.match(/detail\?n=(\d+)/) || [])[1];
+      const t = _plusMirrorGet(n ? 'detail_' + n + '.html' : 'list.html');
+      viaPc = true;
+      return t;
+    } catch (e) { throw lastErr || e; }
   };
   try {
     const listHtml = fetchPlus('https://www.plusetf.co.kr/customer/notice/list');

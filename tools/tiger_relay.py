@@ -15,6 +15,8 @@ API = 'https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7
 LIST = 'https://investments.miraeasset.com/tigeretf/ko/customer/notice/list.ajax'
 VIEW = 'https://investments.miraeasset.com/tigeretf/ko/customer/notice/view.do?detailsKey='
 KST = timezone(timedelta(hours=9))
+PLUS_DIR = os.path.join(REPO, 'plus_relay')
+PLUS_RAW = 'https://raw.githubusercontent.com/jaenamking1-collab/jjk/main/plus_relay/'
 
 
 def log(msg):
@@ -140,7 +142,63 @@ def fetch_dist(notices):
     return out
 
 
+def relay_plus(force=False):
+    """한화(PLUS) 사본 — plusetf.co.kr 이 구글 서버에서 주소조차 안 열릴 때(2026-11-09~) 목록과
+    최신 월중·월말 분배금 공지(그림)를 plus_relay/ 에 올린다. 서버(Code.gs _plusMirrorGet)는 직접 읽기가
+    실패할 때만 이걸 읽는다. 서버가 직접 읽고 있으면 한화 사이트를 열지 않는다."""
+    if not force:
+        p = json.load(urllib.request.urlopen(API + '?action=getEtfNoticesAll', timeout=120))['sources'].get('plus') or {}
+        if p.get('items') and not p.get('stale') and not p.get('fallback') and not p.get('relay'):
+            return
+    get = lambda u: urllib.request.urlopen(urllib.request.Request(u, headers={'User-Agent': 'Mozilla/5.0'}), timeout=30).read()
+    html = get('https://www.plusetf.co.kr/customer/notice/list').decode('utf-8', 'ignore')
+    rows = []
+    for n, body in re.findall(r'href="/customer/notice/detail\?n=(\d+)"[^>]*>([\s\S]*?)</a>', html)[:20]:
+        cols = [re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', '', c)).strip() for c in re.findall(r'<div[^>]*>([\s\S]*?)</div>', body)]
+        rows.append((n, ' '.join(cols)))
+    if not rows:
+        log('PLUS 목록 0건 — 올리지 않음')
+        return
+    files = {'list.html': '\n'.join('<a href="/customer/notice/detail?n=%s"><div>%s</div></a>' % r for r in rows).encode('utf-8')}
+    for cyc in ('월중', '월말'):   # 서버 파서와 같은 고르기: 회차별 최신 분배금 공지 1건
+        hit = next((r for r in rows if 'PLUS ETF' in r[1] and '분배금' in r[1] and cyc in r[1]), None)
+        if not hit:
+            continue
+        d = get('https://www.plusetf.co.kr/customer/notice/detail?n=' + hit[0]).decode('utf-8', 'ignore')
+        parts = []
+        for src in re.findall(r'''<img[^>]+src=["'](https?://[^"']*/upload/[^"']+\.(?:png|jpe?g))["']''', d, re.I):
+            name = re.sub(r'[^A-Za-z0-9._-]', '', src.rsplit('/', 1)[1])
+            files['upload/' + name] = get(src)
+            parts.append('<img src="%supload/%s">' % (PLUS_RAW, name))
+        parts += re.findall(r'<table[\s\S]*?</table>', d)   # 글자 표로 올리는 달 대비
+        files['detail_%s.html' % hit[0]] = '\n'.join(parts).encode('utf-8')
+    changed = False
+    os.makedirs(os.path.join(PLUS_DIR, 'upload'), exist_ok=True)
+    for rel, data in files.items():
+        p = os.path.join(PLUS_DIR, rel)
+        if not os.path.exists(p) or open(p, 'rb').read() != data:
+            open(p, 'wb').write(data)
+            changed = True
+    for root, _, names in os.walk(PLUS_DIR):   # 지난 회차 사본은 지운다
+        for nm in names:
+            if os.path.relpath(os.path.join(root, nm), PLUS_DIR).replace(os.sep, '/') not in files:
+                os.remove(os.path.join(root, nm))
+                changed = True
+    if not changed:
+        return
+    g = lambda *a: subprocess.run(['git', '-C', REPO] + list(a), capture_output=True, text=True)
+    g('pull', '-q', '--rebase', '--autostash')
+    g('add', '-A', 'plus_relay')
+    r = g('commit', '-qm', 'PLUS 공지 사본(PC) — 최신 ' + rows[0][1][:50])
+    p = g('push', '-q')
+    log('PLUS 사본 올림 %d개, 최신 %s · commit %s · push %s' % (len(files), rows[0][1][:40], r.returncode, p.returncode or 'ok'))
+
+
 def main():
+    try:
+        relay_plus('--force' in sys.argv)
+    except Exception as e:
+        log('PLUS 사본 실패: %s' % e)
     if '--force' not in sys.argv:
         go, why = need_fetch()
         if not go:
