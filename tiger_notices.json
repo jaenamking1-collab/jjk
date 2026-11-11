@@ -1,6 +1,11 @@
 {
- "savedAt": "2026-11-06 11:05",
+ "savedAt": "2026-11-11 10:05",
  "items": [
+  {
+   "title": "TIGER ETF 2026년 11월 중순 분배금 지급 안내",
+   "date": "2026.11.11",
+   "url": "https://investments.miraeasset.com/tigeretf/ko/customer/notice/view.do?detailsKey=777"
+  },
   {
    "title": "TIGER ETF 2026년 10월말 분배금 지급 안내",
    "date": "2026.10.28",
@@ -35,14 +40,83 @@
    "title": "TIGER ETF 2026년 8월말 분배금 지급 안내",
    "date": "2026.08.27",
    "url": "https://investments.miraeasset.com/tigeretf/ko/customer/notice/view.do?detailsKey=756"
-  },
-  {
-   "title": "TIGER ETF 2026년 8월 중순 분배금 지급 안내",
-   "date": "2026.08.12",
-   "url": "https://investments.miraeasset.com/tigeretf/ko/customer/notice/view.do?detailsKey=755"
   }
  ],
  "dist": [
+  {
+   "key": "777",
+   "title": "TIGER ETF 2026년 11월 중순 분배금 지급 안내",
+   "date": "2026.11.11",
+   "cycle": "월중",
+   "sched": {
+    "공시일": "11/11",
+    "분배락일": "11/12",
+    "기준일": "11/13",
+    "지급일": "11/17"
+   },
+   "items": [
+    {
+     "ticker": "458750",
+     "name": "TIGER 미국배당다우존스타겟커버드콜1호",
+     "amount": 53,
+     "rate": 0.41
+    },
+    {
+     "ticker": "474220",
+     "name": "TIGER 미국테크TOP10타겟커버드콜",
+     "amount": 115,
+     "rate": 0.82
+    },
+    {
+     "ticker": "493810",
+     "name": "TIGER 미국AI빅테크10타겟데일리커버드콜",
+     "amount": 127,
+     "rate": 1.24
+    },
+    {
+     "ticker": "0008S0",
+     "name": "TIGER 미국배당다우존스타겟데일리커버드콜",
+     "amount": 99,
+     "rate": 1.0
+    },
+    {
+     "ticker": "0052D0",
+     "name": "TIGER코리아배당다우존스",
+     "amount": 66,
+     "rate": 0.47
+    },
+    {
+     "ticker": "0086B0",
+     "name": "TIGER 리츠부동산인프라TOP10액티브",
+     "amount": 54,
+     "rate": 0.62
+    },
+    {
+     "ticker": "0086C0",
+     "name": "TIGER 리츠부동산인프라10채권혼합액티브",
+     "amount": 28,
+     "rate": 0.3
+    },
+    {
+     "ticker": "0104N0",
+     "name": "TIGER 200타겟위클리커버드콜",
+     "amount": 92,
+     "rate": 0.59
+    },
+    {
+     "ticker": "0177R0",
+     "name": "TIGER 반도체TOP10커버드콜액티브",
+     "amount": 118,
+     "rate": 1.5
+    },
+    {
+     "ticker": "482730",
+     "name": "TIGER 미국S&#38;P500타겟데일리커버드콜",
+     "amount": 110,
+     "rate": 1.0
+    }
+   ]
+  },
   {
    "key": "774",
    "title": "TIGER ETF 2026년 10월말 분배금 지급 안내",
@@ -1052,164 +1126,6 @@
      "name": "TIGER 미국S&amp;P500타겟데일리커버드콜",
      "amount": 114,
      "rate": 1.0
-    }
-   ]
-  },
-  {
-   "key": "756",
-   "title": "TIGER ETF 2026년 8월말 분배금 지급 안내",
-   "date": "2026.08.27",
-   "cycle": "월말",
-   "sched": {
-    "공시일": "8/27",
-    "분배락일": "8/28",
-    "기준일": "8/31",
-    "지급일": "9/2"
-   },
-   "items": [
-    {
-     "ticker": "166400",
-     "name": "TIGER 200커버드콜OTM",
-     "amount": 94,
-     "rate": 0.4
-    },
-    {
-     "ticker": "182480",
-     "name": "TIGER 미국MSCI리츠(합성 H)",
-     "amount": 20,
-     "rate": 0.14
-    },
-    {
-     "ticker": "245340",
-     "name": "TIGER 미국다우존스30",
-     "amount": 35,
-     "rate": 0.1
-    },
-    {
-     "ticker": "289480",
-     "name": "TIGER 200커버드콜",
-     "amount": 88,
-     "rate": 0.7
-    },
-    {
-     "ticker": "329200",
-     "name": "TIGER 리츠부동산인프라",
-     "amount": 33,
-     "rate": 0.8
-    },
-    {
-     "ticker": "341850",
-     "name": "TIGER 리츠부동산인프라채권",
-     "amount": 24,
-     "rate": 0.52
-    },
-    {
-     "ticker": "429000",
-     "name": "TIGER 미국S&amp;P500배당귀족",
-     "amount": 20,
-     "rate": 0.15
-    },
-    {
-     "ticker": "440340",
-     "name": "TIGER 글로벌멀티에셋TIF액티브",
-     "amount": 46,
-     "rate": 0.38
-    },
-    {
-     "ticker": "441680",
-     "name": "TIGER 미국나스닥100커버드콜(합성)",
-     "amount": 108,
-     "rate": 1.0
-    },
-    {
-     "ticker": "458260",
-     "name": "TIGER 미국투자등급회사채액티브(H)",
-     "amount": 175,
-     "rate": 0.38
-    },
-    {
-     "ticker": "458730",
-     "name": "TIGER 미국배당다우존스",
-     "amount": 30,
-     "rate": 0.19
-    },
-    {
-     "ticker": "458760",
-     "name": "TIGER 미국배당다우존스타겟커버드콜2호",
-     "amount": 90,
-     "rate": 0.79
-    },
-    {
-     "ticker": "465670",
-     "name": "TIGER 미국캐시카우100",
-     "amount": 17,
-     "rate": 0.1
-    },
-    {
-     "ticker": "466940",
-     "name": "TIGER 은행고배당플러스TOP10",
-     "amount": 100,
-     "rate": 0.38
-    },
-    {
-     "ticker": "472150",
-     "name": "TIGER 배당커버드콜액티브",
-     "amount": 413,
-     "rate": 2.0
-    },
-    {
-     "ticker": "476690",
-     "name": "TIGER 글로벌비만치료제TOP2Plus",
-     "amount": 11,
-     "rate": 0.1
-    },
-    {
-     "ticker": "476550",
-     "name": "TIGER 미국30년국채커버드콜액티브(H)",
-     "amount": 69,
-     "rate": 1.0
-    },
-    {
-     "ticker": "482730",
-     "name": "TIGER 미국S&amp;P500타겟데일리커버드콜",
-     "amount": 100,
-     "rate": 0.84
-    },
-    {
-     "ticker": "486290",
-     "name": "TIGER 미국나스닥100타겟데일리커버드콜",
-     "amount": 132,
-     "rate": 1.25
-    },
-    {
-     "ticker": "496080",
-     "name": "TIGER 코리아밸류업",
-     "amount": 28,
-     "rate": 0.09
-    },
-    {
-     "ticker": "0000D0",
-     "name": "TIGER 엔비디아미국채커버드콜밸런스(합성)",
-     "amount": 91,
-     "rate": 0.99
-    },
-    {
-     "ticker": "499660",
-     "name": "TIGER CD금리플러스액티브(합성)",
-     "amount": 2400,
-     "rate": 0.24
-    },
-    {
-     "ticker": "0046A0",
-     "name": "TIGER 미국초단기(3개월이하)국채",
-     "amount": 26,
-     "rate": 0.27
-    },
-    {
-     "ticker": "0104P0",
-     "name": "TIGER 코리아배당다우존스위클리커버드콜",
-     "amount": 109,
-     "rate": 0.97
     }
    ]
   }
