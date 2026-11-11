@@ -4194,6 +4194,14 @@ function distWatchdog() {
     if (judge && !fp.hasItems) problems.push(s + ' 종목 0건 — 파서 점검 필요');
     else if (judge && fp.hasItems && _pubMonth(fp.pubDate) !== curMonth)
       problems.push(s + ' 이번 달 공시일 없음(현재 ' + (fp.pubDate || '없음') + ') — 공지 지연 또는 파서 이상');
+    // 한 운용사만 영업일 이틀 넘게 그대로 — 서버가 그 사이트를 못 읽는 중이다(2026-11-09~11 PLUS: 이틀간 조용히 멈춰 11/10 공지를 놓쳤다).
+    // 하루짜리 일시 실패는 알리지 않는다(사용자 결정 2026-11-11: 이틀 이상 위험할 때만).
+    if (!pipelineDead && r.savedAt) {
+      const at = new Date(String(r.savedAt).replace(/\s*\(.*\)$/, ''));
+      let biz = 0;
+      for (let d = new Date(at.getTime() + 864e5); !isNaN(at) && d <= now && biz < 9; d = new Date(d.getTime() + 864e5)) if (!_isOffDay(d)) biz++;
+      if (biz >= 2) problems.push(s + ' 자료가 영업일 ' + biz + '일째 그대로 — 서버가 운용사 사이트를 못 읽는 중');
+    }
     // itemCount 는 attachDistHistory 로 **직전 2회차가 병합된** 목록의 건수다(분배캐시 행은 이번 회차만).
     // 그냥 '37건'으로 찍으면 이번 회차 종목 수로 읽힌다 — 실제로 그렇게 오해했다(2026-08-28).
     lines.push(s + ' ' + fp.itemCount + '건(이력 포함) / 공시일 ' + (fp.pubDate || '-') + (r.stale ? ' (캐시)' : ''));
