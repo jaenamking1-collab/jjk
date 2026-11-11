@@ -40,6 +40,7 @@ pub struct Gfx {
     pub f_sub: IDWriteTextFormat,
     pub f_time: IDWriteTextFormat,
     pub f_tiny: IDWriteTextFormat,
+    pub f_small: IDWriteTextFormat,
 }
 
 unsafe fn font(dw: &IDWriteFactory, name: PCWSTR, size: f32, bold: bool) -> Result<IDWriteTextFormat> {
@@ -115,6 +116,7 @@ impl Gfx {
             f_sub: font(&dw, mg, 13.0, false)?,
             f_time: font(&dw, mg, 12.5, true)?,
             f_tiny: font(&dw, mg, 10.0, false)?,
+            f_small: font(&dw, mg, 11.0, false)?,
             dc,
             d2f,
             swap,

@@ -41,8 +41,8 @@ use spring::Spring;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // 창(=그릴 수 있는 최대 넓이), 논리 단위
-const WIN_W: f32 = 600.0;
-const WIN_H: f32 = 480.0;
+const WIN_W: f32 = 640.0;
+const WIN_H: f32 = 620.0;
 // 노치 크기
 const IDLE: (f32, f32) = (150.0, 28.0);
 const BAR_H: f32 = 28.0;
@@ -115,20 +115,30 @@ struct Cfg {
     tiny: bool,  // 창을 꽉 채워 일할 때 작게 줄이기
     bar: bool,   // 닫힘에 시세 한 줄
     aside: bool, // 가운데 대신 오른쪽으로 비켜 놓기(다른 노치 앱과 나란히 볼 때)
+    two: bool,   // 시세를 세로 두 칸으로(끄면 시세 위젯처럼 한 칸)
     place: (f64, f64), // 날씨를 볼 곳(위도, 경도). settings.json 의 lat·lon, 없으면 서울
 }
 
 impl Cfg {
+    /// 시세 칸 수. 시험할 땐 NOTCH_CAT_COLS=1 또는 2 로 바꿔 본다.
+    fn cols(&self) -> usize {
+        match std::env::var("NOTCH_CAT_COLS").as_deref() {
+            Ok("1") => 1,
+            Ok("2") => 2,
+            _ => 1 + self.two as usize,
+        }
+    }
+
     fn load() -> Cfg {
         let v: serde_json::Value = std::fs::read_to_string(data_dir().join("settings.json"))
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        Cfg { hide_fullscreen: v["hide_fullscreen"].as_bool().unwrap_or(true), autostart: v["autostart"].as_bool().unwrap_or(true), aside: v["aside"].as_bool().unwrap_or(false), tiny: v["tiny"].as_bool().unwrap_or(true), bar: v["bar"].as_bool().unwrap_or(false), place: (v["lat"].as_f64().unwrap_or(37.57), v["lon"].as_f64().unwrap_or(126.98)) }
+        Cfg { hide_fullscreen: v["hide_fullscreen"].as_bool().unwrap_or(true), autostart: v["autostart"].as_bool().unwrap_or(true), aside: v["aside"].as_bool().unwrap_or(false), tiny: v["tiny"].as_bool().unwrap_or(true), bar: v["bar"].as_bool().unwrap_or(false), two: v["two"].as_bool().unwrap_or(true), place: (v["lat"].as_f64().unwrap_or(37.57), v["lon"].as_f64().unwrap_or(126.98)) }
     }
 
     fn save(&self) {
-        let v = serde_json::json!({ "hide_fullscreen": self.hide_fullscreen, "autostart": self.autostart, "aside": self.aside, "tiny": self.tiny, "bar": self.bar, "lat": self.place.0, "lon": self.place.1 });
+        let v = serde_json::json!({ "hide_fullscreen": self.hide_fullscreen, "autostart": self.autostart, "aside": self.aside, "tiny": self.tiny, "bar": self.bar, "two": self.two, "lat": self.place.0, "lon": self.place.1 });
         let _ = std::fs::write(data_dir().join("settings.json"), v.to_string());
     }
 
@@ -216,32 +226,44 @@ unsafe fn maximized_under(own: HWND, x: i32, y: i32) -> Option<bool> {
     Some(IsZoomed(root).as_bool())
 }
 
-/// 시세 쪽의 자리. 설정의 --- 구분선으로 나뉜 구역마다 버튼 하나, 그 안에 종목을 세 칸으로 놓는다.
-/// k: 0 작은 판(이름·등락률) … 1 큰 판(값까지).
-/// 돌려주는 것: 구역 버튼들, 종목 칸들(각 [왼쪽(몸통 기준), 위, 너비, 높이]), 몸통 전체 (너비, 높이).
-fn q_layout(groups: &[usize], k: f32) -> (Vec<[f32; 4]>, Vec<[f32; 4]>, (f32, f32)) {
-    const COLS: usize = 3;
-    let w = 500.0 + 40.0 * k;
+/// 시세 쪽의 자리. 설정의 --- 구분선으로 나뉜 구역마다 버튼 하나, 그 안에 종목을 시세 위젯처럼 한 줄에 하나씩 내려 적는다.
+/// cols: 1 = 위젯처럼 한 칸, 2 = 세로 두 칸(구역째로 왼쪽·오른쪽에 나눠 담는다). k: 0 작은 판(이름·등락률) … 1 큰 판(값까지).
+/// 돌려주는 것: 구역 버튼들, 종목 줄들(각 [왼쪽(몸통 기준), 위, 너비, 높이]), 몸통 전체 (너비, 높이).
+fn q_layout(groups: &[usize], k: f32, cols: usize) -> (Vec<[f32; 4]>, Vec<[f32; 4]>, (f32, f32)) {
+    let w = if cols == 1 { 270.0 + 80.0 * k } else { 500.0 + 80.0 * k };
     if groups.is_empty() {
         return (Vec::new(), Vec::new(), (w, 104.0));
     }
-    let (side, inx, iny, gap, rh) = (16.0, 12.0, 7.0, 8.0, 20.0 + 16.0 * k);
-    let pw = w - side * 2.0;
-    let cw = (pw - inx * 2.0 - gap * (COLS - 1) as f32) / COLS as f32;
-    let (mut panels, mut cells) = (Vec::new(), Vec::with_capacity(groups.len()));
-    let (mut y, mut i) = (44.0, 0);
+    let (side, inx, iny, gap, rh) = (16.0, 12.0, 7.0, 8.0, 20.0 + if cols == 1 { 2.0 } else { 4.0 } * k);
+    // 구역 크기(줄 수)
+    let mut sizes = Vec::new();
+    let mut i = 0;
     while i < groups.len() {
         let n = groups[i..].iter().take_while(|g| **g == groups[i]).count();
-        let ph = n.div_ceil(COLS) as f32 * rh + iny * 2.0;
-        panels.push([side, y, pw, ph]);
-        for j in 0..n {
-            cells.push([side + inx + (j % COLS) as f32 * (cw + gap), y + iny + (j / COLS) as f32 * rh, cw, rh]);
-        }
-        y += ph + gap;
+        sizes.push(n);
         i += n;
     }
-    // ponytail: 종목이 아주 많으면(큰 판 9줄 넘게) 아래가 잘린다. 그때는 쪽을 나누거나 넘겨 보게.
-    (panels, cells, (w, (y - gap + 14.0).min(WIN_H - SHADOW - 4.0)))
+    let tall = |r: &[usize]| r.iter().map(|n| *n as f32 * rh + iny * 2.0 + gap).sum::<f32>();
+    // 두 칸이면 두 칸의 키가 가장 비슷해지는 구역 경계에서 나눈다
+    let cut = if cols == 1 { sizes.len() } else { (1..=sizes.len()).min_by(|a, b| tall(&sizes[..*a]).max(tall(&sizes[*a..])).total_cmp(&tall(&sizes[..*b]).max(tall(&sizes[*b..])))).unwrap_or(sizes.len()) };
+    let pw = if cut < sizes.len() { (w - side * 2.0 - gap) / 2.0 } else { w - side * 2.0 };
+    let (mut panels, mut cells) = (Vec::new(), Vec::with_capacity(groups.len()));
+    let (mut y, mut bottom) = (44.0f32, 0.0f32);
+    for (gi, n) in sizes.iter().enumerate() {
+        if gi == cut {
+            y = 44.0;
+        }
+        let x = side + if gi >= cut { pw + gap } else { 0.0 };
+        let ph = *n as f32 * rh + iny * 2.0;
+        panels.push([x, y, pw, ph]);
+        for j in 0..*n {
+            cells.push([x + inx, y + iny + j as f32 * rh, pw - inx * 2.0, rh]);
+        }
+        y += ph + gap;
+        bottom = bottom.max(y - gap);
+    }
+    // ponytail: 종목이 아주 많으면 아래가 잘린다(한 칸 24줄·두 칸 48줄쯤). 그때는 쪽을 나누거나 넘겨 보게.
+    (panels, cells, (w, (bottom + 14.0).min(WIN_H - SHADOW - 4.0)))
 }
 
 fn mix(a: Rgb, b: Rgb, t: f32) -> Rgb {
@@ -586,7 +608,7 @@ impl App {
             TINY
         } else if self.hover {
             if self.page == 1 {
-                q_layout(&self.q.iter().map(|q| q.group).collect::<Vec<_>>(), self.big as u8 as f32).2
+                q_layout(&self.q.iter().map(|q| q.group).collect::<Vec<_>>(), self.big as u8 as f32, self.cfg.cols()).2
             } else if self.n.has {
                 OPEN
             } else {
@@ -603,7 +625,7 @@ impl App {
         // 펼칠 때는 끝에서 살짝 출렁이며 모이고(가로·세로 박자가 달라 물결처럼), 접힐 때는 차분하게
         if th > BAR_H + 10.0 {
             // 시세 쪽은 작은 판 높이를 '다 펼친 높이'로 삼는다(큰 판으로 자라는 동안 내용이 흐려지지 않게)
-            self.open_h = if self.page == 1 && !noting { q_layout(&self.q.iter().map(|q| q.group).collect::<Vec<_>>(), 0.0).2 .1 } else { th };
+            self.open_h = if self.page == 1 && !noting { q_layout(&self.q.iter().map(|q| q.group).collect::<Vec<_>>(), 0.0, self.cfg.cols()).2 .1 } else { th };
             self.mode = if noting { 2 } else if self.page == 1 { 3 } else if self.n.has { 0 } else { 1 };
             self.w.tune(250.0, 0.62);
             self.h.tune(190.0, 0.68);
@@ -1032,7 +1054,7 @@ impl App {
                 }
                 let k = self.bg.pos.clamp(0.0, 1.0);
                 let groups: Vec<usize> = self.q.iter().map(|q| q.group).collect();
-                let (panels, cells, (lw, _)) = q_layout(&groups, self.bg.pos);
+                let (panels, cells, (lw, _)) = q_layout(&groups, self.bg.pos, self.cfg.cols());
                 let live = p > 0.9;
                 let (mx, my) = self.mouse;
                 let base = ((p - 0.35) / 0.65).clamp(0.0, 1.0);
@@ -1064,15 +1086,18 @@ impl App {
                     g.rrect(bx + 3.0, by + 1.5, bw - 6.0, gl, r - 2.5, FG, a * (0.085 + 0.06 * e)); // 윗면 윤기(두 겹)
                     g.rrect(bx + 7.0, by + 2.0, bw - 14.0, gl * 0.5, gl * 0.25, FG, a * (0.07 + 0.04 * e));
                     for (q, c) in self.q[first..first + n].iter().zip(&cells[first..]) {
-                        let (ix, iy, iw) = (ox + c[0], c[1] + dy - 2.0 * e * 0.5, c[2]);
+                        let (ix, iy, iw) = (ox + c[0], c[1] + dy - e + (c[3] - 18.0) / 2.0, c[2]);
                         let col = if q.pct > 0.0 { UP } else if q.pct < 0.0 { DOWN } else { FG };
-                        let pct = format!("{:+.2}%", q.pct);
-                        let pw = g.measure(&pct, &g.f_time);
-                        // 작은 판: 이름 · 등락률 한 줄. 큰 판: 이름 아래에 값, 등락률은 오른쪽 아래로 내려간다.
-                        g.text(&q.name, &g.f_body, ix, iy + 1.0, iw - (pw + 8.0) * (1.0 - k), FG, a * 0.92, Align::Left);
-                        g.text(&pct, &g.f_time, ix + iw - pw - 1.0, iy + 1.5 + 15.0 * k, pw + 2.0, mix(col, FG, 0.1), a, Align::Left);
+                        // 시세 위젯처럼 한 줄: 이름 · (큰 판이면 값) · 등락률
+                        let vw = g.measure(&q.price, &g.f_time) + 12.0;
+                        let nw = |k: f32| iw - 58.0 - vw * k;
+                        // 칸이 좁으면 글자를 줄인다(그래도 넘치면 말줄임). 자라는 중에 글자 크기가 흔들리지 않게 목표 크기로 고른다.
+                        let room = nw(self.big as u8 as f32);
+                        let (f, drop) = [(&g.f_body, 0.0), (&g.f_bar, 0.7), (&g.f_small, 1.4), (&g.f_tiny, 2.2)].into_iter().find(|(f, _)| g.measure(&q.name, f) <= room).unwrap_or((&g.f_tiny, 2.2));
+                        g.text(&q.name, f, ix, iy + drop, nw(k), FG, a * 0.92, Align::Left);
                         let va = ((k - 0.35) / 0.65).clamp(0.0, 1.0);
-                        g.text(&q.price, &g.f_lyric, ix, iy + 14.0 + 1.0 * va, iw - pw - 10.0, FG, a * va, Align::Left);
+                        g.text(&q.price, &g.f_time, ix + iw - 56.0 - vw, iy + 0.5, vw - 4.0, FG, a * va, Align::Right);
+                        g.text(&format!("{:+.2}%", q.pct), &g.f_time, ix + iw - 58.0, iy + 0.5, 58.0, mix(col, FG, 0.1), a, Align::Right);
                     }
                     first += n;
                 }
@@ -1149,6 +1174,7 @@ impl App {
         let _ = AppendMenuW(m, check(self.cfg.aside), 4, w!("오른쪽으로 비켜 놓기"));
         let _ = AppendMenuW(m, check(self.cfg.tiny), 6, w!("최대화 창에서는 작게 줄이기"));
         let _ = AppendMenuW(m, check(self.cfg.bar), 7, w!("닫힘에 시세 한 줄"));
+        let _ = AppendMenuW(m, check(self.cfg.two), 9, w!("시세를 세로 두 칸으로 (끄면 위젯처럼 한 칸)"));
         let _ = AppendMenuW(m, MF_STRING, 5, w!("얼굴 바꾸기"));
         let _ = AppendMenuW(m, MF_SEPARATOR, 0, None);
         let _ = AppendMenuW(m, MF_STRING, 3, w!("끝내기"));
@@ -1174,6 +1200,7 @@ impl App {
                 return false;
             }
             7 => self.cfg.bar = !self.cfg.bar,
+            9 => self.cfg.two = !self.cfg.two,
             8 => {
                 settings::open(self.quotes.clone(), cat_icon());
                 return false;
