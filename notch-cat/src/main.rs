@@ -8,6 +8,7 @@ mod lrc;
 mod lyrics;
 mod media;
 mod notif;
+mod quotes;
 mod spring;
 
 use std::cell::RefCell;
@@ -57,6 +58,8 @@ const EYE: Rgb = (0.639, 0.902, 0.208); // 고양이 눈(라임)
 const PUPIL: Rgb = (0.063, 0.086, 0.043);
 const TAIL: Rgb = (0.075, 0.095, 0.075);
 const NOSE: Rgb = (0.757, 0.784, 0.741);
+const UP: Rgb = (1.0, 0.361, 0.4); // 국내식: 오르면 빨강, 내리면 파랑
+const DOWN: Rgb = (0.353, 0.659, 1.0);
 const WHISK: Rgb = (0.81, 0.83, 0.81);
 const GLOW: [Rgb; 3] = [(0.176, 0.831, 0.749), (0.3, 0.8, 0.45), (0.55, 0.85, 0.2)]; // 아래 빛: 청록 → 라임
 const EAR: f32 = 6.0; // 위쪽 모서리가 바깥으로 휘는 크기
@@ -107,6 +110,7 @@ struct Cfg {
     hide_fullscreen: bool,
     autostart: bool,
     tiny: bool,  // 창을 꽉 채워 일할 때 작게 줄이기
+    bar: bool,   // 닫힘에 시세 한 줄
     aside: bool, // 가운데 대신 오른쪽으로 비켜 놓기(다른 노치 앱과 나란히 볼 때)
 }
 
@@ -116,11 +120,11 @@ impl Cfg {
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        Cfg { hide_fullscreen: v["hide_fullscreen"].as_bool().unwrap_or(true), autostart: v["autostart"].as_bool().unwrap_or(true), aside: v["aside"].as_bool().unwrap_or(false), tiny: v["tiny"].as_bool().unwrap_or(true) }
+        Cfg { hide_fullscreen: v["hide_fullscreen"].as_bool().unwrap_or(true), autostart: v["autostart"].as_bool().unwrap_or(true), aside: v["aside"].as_bool().unwrap_or(false), tiny: v["tiny"].as_bool().unwrap_or(true), bar: v["bar"].as_bool().unwrap_or(true) }
     }
 
     fn save(&self) {
-        let v = serde_json::json!({ "hide_fullscreen": self.hide_fullscreen, "autostart": self.autostart, "aside": self.aside, "tiny": self.tiny });
+        let v = serde_json::json!({ "hide_fullscreen": self.hide_fullscreen, "autostart": self.autostart, "aside": self.aside, "tiny": self.tiny, "bar": self.bar });
         let _ = std::fs::write(data_dir().join("settings.json"), v.to_string());
     }
 
@@ -293,6 +297,12 @@ struct App {
     hidden: bool,
     maxed: bool, // 앞 창이 화면을 꽉 채웠다(일하는 중)
     last_pt: (i32, i32),
+    quotes: Arc<Mutex<quotes::Quotes>>,
+    q: Vec<quotes::Quote>,
+    q_stamp: String,
+    q_seen: Option<Instant>,
+    pct: Option<(String, Rgb)>, // 닫힘 시세 한 줄의 등락률(색을 따로 칠한다)
+    typing: bool,
     notes: Arc<Mutex<notif::Note>>,
     note: notif::Note, // 지금 보여 주는(마지막) 알림
     note_until: Instant,
@@ -357,13 +367,29 @@ impl App {
         }
         // 닫힘에 보일 한 줄: 재생 중이고 가사가 있으면 가사, 아니면 곡명
         let line = cur.map(|i| self.lines[i].1.as_str()).filter(|s| !s.is_empty());
-        let text = match (self.n.has, self.n.playing, line) {
+        {
+            let q = self.quotes.lock().unwrap();
+            if q.seen != self.q_seen {
+                self.q = q.list.clone();
+                self.q_stamp = q.stamp.clone();
+                self.q_seen = q.seen;
+                self.dirty = true;
+            }
+        }
+        let mut text = match (self.n.has, self.n.playing, line) {
             (false, _, _) => String::new(),
             (true, true, Some(l)) => l.to_string(),
             (true, true, None) => self.n.title.clone(),
             _ => String::new(), // 멈춰 있으면 얼굴만
         };
         self.showing_lyric = self.n.has && self.n.playing && line.is_some();
+        // 음악 글자가 없을 땐 시세를 한 종목씩 4초마다 돌려 보여 준다(자판을 치는 동안엔 시계가 먼저)
+        self.pct = None;
+        if text.is_empty() && self.cfg.bar && !self.typing && !self.q.is_empty() {
+            let q = &self.q[(self.born.elapsed().as_secs() / 4) as usize % self.q.len()];
+            text = format!("{}  {}", q.name, q.price);
+            self.pct = Some((format!("{:+.2}%", q.pct), if q.pct > 0.0 { UP } else if q.pct < 0.0 { DOWN } else { FG }));
+        }
         if text != self.text {
             self.prev_text = std::mem::replace(&mut self.text, text);
             self.fade.pos = 0.0;
@@ -418,7 +444,8 @@ impl App {
         self.last_input = li.dwTime;
         self.last_pt = (pt.x, pt.y);
         let quiet = Duration::from_secs(8);
-        let typing = self.keyed.elapsed() < quiet && self.keyed > self.moved && std::env::var("NOTCH_CAT_SLEEP").is_err();
+        self.typing = self.keyed.elapsed() < quiet && self.keyed > self.moved && std::env::var("NOTCH_CAT_SLEEP").is_err();
+        let typing = self.typing;
         self.ck.target = if typing && self.text.is_empty() { 100.0 } else { 0.0 };
         let tiny = self.maxed && !self.hover && !typing; // 꽉 찬 창에서 일하는 동안엔 탭을 가리지 않게 계속 숨는다(작은 노치에 마우스를 올리면 펼쳐진다)
         if tiny {
@@ -449,13 +476,20 @@ impl App {
         } else if tiny {
             TINY
         } else if self.hover {
-            if self.n.has { OPEN } else { QUIET }
+            if self.n.has {
+                OPEN
+            } else if self.q.is_empty() {
+                QUIET
+            } else {
+                (460.0, 62.0 + ((self.q.len() + 1) / 2) as f32 * 20.0 + 26.0) // 시계 한 줄 + 시세 두 칸
+            }
         } else if self.text.is_empty() {
             (IDLE.0 + bump.0, IDLE.1 + bump.1)
         } else {
             // 닫힘은 작게: 곡명은 짧게 자르고, 가사 줄일 때만 조금 더 넓힌다
-            let max = if self.showing_lyric { 300.0 } else { 230.0 };
-            ((self.g.measure(&self.text, &self.g.f_bar) + 70.0).clamp(IDLE.0, max) + bump.0, BAR_H + bump.1)
+            let max = if self.showing_lyric || self.pct.is_some() { 300.0 } else { 230.0 };
+            let pw = self.pct.as_ref().map_or(0.0, |p| self.g.measure(&p.0, &self.g.f_bar) + 8.0);
+            ((self.g.measure(&self.text, &self.g.f_bar) + pw + 70.0).clamp(IDLE.0, max) + bump.0, BAR_H + bump.1)
         };
         // 펼칠 때는 끝에서 살짝 출렁이며 모이고(가로·세로 박자가 달라 물결처럼), 접힐 때는 차분하게
         if th > BAR_H + 10.0 {
@@ -713,14 +747,18 @@ impl App {
 
             // ── 닫힘: 한 줄(얼굴 오른쪽) ──
             let a = ca * fa * tm;
-            if a > 0.0 && n.has {
-                let dim = if n.playing { 1.0 } else { 0.55 };
+            if a > 0.0 {
+                let dim = if n.has && !n.playing && self.pct.is_none() { 0.55 } else { 1.0 };
                 let f = self.fade.pos.clamp(0.0, 1.0);
                 let tw = (w - 68.0).max(1.0);
                 let lw = (self.w.target - 68.0).max(1.0); // 목표 너비 기준으로 말줄임(움직이는 동안 글자가 흔들리지 않게)
                 g.clip(x + 56.0, 0.0, tw, BAR_H + 4.0);
                 g.text(&self.prev_text, &g.f_bar, x + 56.0, 5.5 - f * 6.0, lw, FG, a * dim * (1.0 - f), Align::Left);
                 g.text(&self.text, &g.f_bar, x + 56.0, 5.5 + (1.0 - f) * 6.0, lw, FG, a * dim * f, Align::Left);
+                if let Some((pct, c)) = &self.pct {
+                    let px = x + 56.0 + g.measure(&self.text, &g.f_bar).min(lw) + 8.0;
+                    g.text(pct, &g.f_bar, px, 5.5 + (1.0 - f) * 6.0, 80.0, *c, a * f, Align::Left);
+                }
                 g.unclip();
             }
 
@@ -823,8 +861,26 @@ impl App {
                 let h12 = if t.wHour % 12 == 0 { 12 } else { t.wHour % 12 };
                 let time = format!("{} {}:{:02}", if t.wHour < 12 { "오전" } else { "오후" }, h12, t.wMinute);
                 let day = format!("{}월 {}일 {}요일", t.wMonth, t.wDay, ["일", "월", "화", "수", "목", "금", "토"][t.wDayOfWeek as usize % 7]);
-                g.text(&time, &g.f_clock, x, 26.0, w, FG, a, Align::Center);
-                g.text(&day, &g.f_sub, x, 66.0, w, FG, a * 0.6, Align::Center);
+                if self.q.is_empty() {
+                    g.text(&time, &g.f_clock, x, 26.0, w, FG, a, Align::Center);
+                    g.text(&day, &g.f_sub, x, 66.0, w, FG, a * 0.6, Align::Center);
+                } else {
+                    // 위: 시계·날짜 한 줄. 아래: 시세를 두 칸으로(이름 · 값 · 등락률)
+                    g.text(&time, &g.f_title, x + 20.0, 20.0, 160.0, FG, a, Align::Left);
+                    g.text(&day, &g.f_sub, x + 20.0, 25.0, w - 40.0, FG, a * 0.6, Align::Right);
+                    let rows = (self.q.len() + 1) / 2;
+                    let cw = (w - 40.0 - 20.0) / 2.0;
+                    for (i, q) in self.q.iter().enumerate() {
+                        let (cx, y) = (x + 20.0 + (i / rows) as f32 * (cw + 20.0), 56.0 + (i % rows) as f32 * 20.0);
+                        let c = if q.pct > 0.0 { UP } else if q.pct < 0.0 { DOWN } else { FG };
+                        g.text(&q.name, &g.f_body, cx, y, cw - 122.0, FG, a * 0.85, Align::Left);
+                        g.text(&q.price, &g.f_body, cx + cw - 122.0, y, 68.0, FG, a, Align::Right);
+                        g.text(&format!("{:+.2}%", q.pct), &g.f_body, cx + cw - 52.0, y, 52.0, c, a, Align::Right);
+                    }
+                    // 생존 표시: 마지막으로 받은 시각. 10분 넘게 못 받으면 경고색.
+                    let stale = self.q_seen.map_or(true, |t| t.elapsed() > Duration::from_secs(600));
+                    g.text(&format!("시세 {}", self.q_stamp), &g.f_tiny, x + 20.0, 58.0 + rows as f32 * 20.0 + 4.0, w - 40.0, if stale { WARN } else { FG }, a * if stale { 1.0 } else { 0.4 }, Align::Right);
+                }
             }
             g.unclip();
         }
@@ -867,6 +923,7 @@ impl App {
         let _ = AppendMenuW(m, check(self.cfg.autostart), 2, w!("윈도우 시작할 때 자동 실행"));
         let _ = AppendMenuW(m, check(self.cfg.aside), 4, w!("오른쪽으로 비켜 놓기"));
         let _ = AppendMenuW(m, check(self.cfg.tiny), 6, w!("최대화 창에서는 작게 줄이기"));
+        let _ = AppendMenuW(m, check(self.cfg.bar), 7, w!("닫힘에 시세 한 줄"));
         let _ = AppendMenuW(m, MF_STRING, 5, w!("얼굴 바꾸기"));
         let _ = AppendMenuW(m, MF_SEPARATOR, 0, None);
         let _ = AppendMenuW(m, MF_STRING, 3, w!("끝내기"));
@@ -891,6 +948,7 @@ impl App {
                 self.face.next_face();
                 return false;
             }
+            7 => self.cfg.bar = !self.cfg.bar,
             6 => {
                 self.cfg.tiny = !self.cfg.tiny;
                 self.maxed = false;
@@ -996,6 +1054,16 @@ unsafe fn run() -> Result<()> {
         hidden: false,
         maxed: false,
         last_pt: (0, 0),
+        quotes: {
+            let q = Arc::new(Mutex::new(quotes::Quotes::default()));
+            quotes::spawn(q.clone());
+            q
+        },
+        q: Vec::new(),
+        q_stamp: String::new(),
+        q_seen: None,
+        pct: None,
+        typing: false,
         notes: {
             let n = Arc::new(Mutex::new(notif::Note::default()));
             notif::spawn(n.clone());
