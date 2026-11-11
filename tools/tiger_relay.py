@@ -6,7 +6,7 @@
 # 국내 PC 에선 열리므로 여기서 목록을 받아 tiger_notices.json 으로 저장소에 올리고,
 # 서버(Code.gs _tigerRelay)가 그 파일을 raw 로 읽어 공지 목록·공시일로 쓴다.
 # 서버가 TIGER 를 제대로 읽고 있으면 아무것도 안 하고 끝난다(차단이 풀리면 저절로 멈춘다).
-import json, os, re, subprocess, sys, urllib.request
+import html as html_lib, json, os, re, subprocess, sys, urllib.request
 from datetime import datetime, timezone, timedelta
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -94,7 +94,10 @@ def parse_view(html):
                 amount = float(re.sub(r'[^\d.]', '', c))
         if amount is None:
             continue
-        items.append({'ticker': cols[idx], 'name': re.sub(r'\s*ETF\s*$', '', cols[idx + 1] if idx + 1 < len(cols) else '').strip(),
+        # 표 글자가 `S&#38;P500`(이중 이스케이프)·`TIGER코리아…`(띄어쓰기 없음)로 와서 화면에 그대로 나갔다(2026-11-11)
+        nm = html_lib.unescape(html_lib.unescape(cols[idx + 1] if idx + 1 < len(cols) else ''))
+        nm = re.sub(r'^TIGER(?=\S)', 'TIGER ', nm)
+        items.append({'ticker': cols[idx], 'name': re.sub(r'\s*ETF\s*$', '', nm).strip(),
                       'amount': int(amount) if amount == int(amount) else amount, 'rate': rate})
     text = _txt(html)
     i = text.find('분배금 지급 일정')
