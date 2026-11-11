@@ -1000,6 +1000,21 @@ impl App {
     }
 }
 
+/// 트레이에 띄울 고양이 얼굴. 실행 파일에 넣어 둔 ico 에서 32px 그림을 꺼낸다.
+unsafe fn cat_icon() -> HICON {
+    const ICO: &[u8] = include_bytes!("../assets/cat.ico");
+    let n = u16::from_le_bytes([ICO[4], ICO[5]]) as usize;
+    for e in (0..n).map(|i| &ICO[6 + 16 * i..22 + 16 * i]) {
+        if e[0] == 32 {
+            let (size, off) = (u32::from_le_bytes([e[8], e[9], e[10], e[11]]) as usize, u32::from_le_bytes([e[12], e[13], e[14], e[15]]) as usize);
+            if let Ok(h) = CreateIconFromResourceEx(&ICO[off..off + size], true, 0x0003_0000, 32, 32, LR_DEFAULTCOLOR) {
+                return h;
+            }
+        }
+    }
+    LoadIconW(None, IDI_APPLICATION).unwrap_or_default()
+}
+
 unsafe fn tray(hwnd: HWND, add: bool) {
     let mut d = NOTIFYICONDATAW {
         cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
@@ -1007,7 +1022,7 @@ unsafe fn tray(hwnd: HWND, add: bool) {
         uID: 1,
         uFlags: NIF_ICON | NIF_MESSAGE | NIF_TIP,
         uCallbackMessage: WM_TRAY,
-        hIcon: LoadIconW(None, IDI_APPLICATION).unwrap_or_default(),
+        hIcon: cat_icon(),
         ..Default::default()
     };
     for (i, c) in "노치 고양이".encode_utf16().enumerate() {

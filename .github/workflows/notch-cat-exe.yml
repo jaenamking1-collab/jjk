@@ -29,6 +29,9 @@ jobs:
       - name: exe 만들기
         working-directory: notch-cat
         run: cargo build --release
+      - name: exe 에 고양이 아이콘 심기
+        working-directory: notch-cat
+        run: python seticon.py target/release/NotchCat.exe assets/cat.ico
       - name: exe 실행 시험 (20초)
         shell: pwsh
         run: |
