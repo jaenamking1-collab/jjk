@@ -48,3 +48,6 @@ tools/ticker_config.json
 tools/tiger_relay.log
 tools/ticker_exe.py
 .wrangler/
+
+# 개인 사진 폴더 — 공개 금지(2026-11-11 기록째 삭제)
+/썰/
