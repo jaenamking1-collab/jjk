@@ -82,7 +82,7 @@ pub unsafe fn open(quotes: Arc<Mutex<Quotes>>, icon: HICON) {
     let lines = quotes::read_lines(&path);
     // ponytail: 줄이 24줄을 넘으면 입력칸 안에서 휠·화살표로 넘겨 본다(스크롤 막대 없음)
     let edit_h = (lines.len() + 2).clamp(10, 24) as f32 * 18.0 + 12.0;
-    let h = 100.0 + edit_h + 150.0;
+    let h = 100.0 + edit_h + 168.0;
 
     let style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU;
     let mut rc = RECT { left: 0, top: 0, right: px(W), bottom: px(h) };
@@ -104,7 +104,7 @@ pub unsafe fn open(quotes: Arc<Mutex<Quotes>>, icon: HICON) {
         c
     };
     let (tab, btn) = (WS_TABSTOP.0, WS_TABSTOP.0 | BS_OWNERDRAW as u32);
-    mk(w!("STATIC"), "목록 (한 줄에 하나 · 심볼=이름 · --- 는 구분선)", 0, 14.0, 12.0, W - 28.0, 18.0, -1, 0);
+    mk(w!("STATIC"), "목록 (한 줄에 하나 · 심볼=이름)", 0, 14.0, 12.0, W - 28.0, 18.0, -1, 0);
     let mut id = ID_IDX;
     for (r, group) in IDX_BTNS.iter().enumerate() {
         let mut x = 14.0;
@@ -119,8 +119,9 @@ pub unsafe fn open(quotes: Arc<Mutex<Quotes>>, icon: HICON) {
     mk(w!("STATIC"), "", 0, 14.0, 100.0, W - 28.0, edit_h, -2, 0);
     let edit = mk(w!("EDIT"), &lines.join("\r\n"), tab | (ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL | ES_WANTRETURN) as u32, 22.0, 106.0, W - 44.0, edit_h - 12.0, ID_EDIT, 1);
     let y = 100.0 + edit_h + 8.0;
-    let tip = "국내 6자리 코드(069500) · 지수 KOSPI KOSDAQ\n환율 USDKRW=X · 코인 BTC-KRW · 미국 AAPL\n이름이 길면 069500=코덱스200 처럼 직접 지정\n비율 줄(A/B)·@목표는 위젯용이라 그대로 둡니다";
-    mk(w!("STATIC"), tip, 0, 14.0, y, W - 28.0, 72.0, -1, 0);
+    let tip = "--- 한 줄을 넣으면 그 자리에서 구역(버튼)이 나뉩니다\n국내 6자리 코드(069500) · 지수 KOSPI KOSDAQ\n환율 USDKRW=X · 코인 BTC-KRW · 미국 AAPL\n이름이 길면 069500=코덱스200 처럼 직접 지정\n비율 줄(A/B)·@목표는 위젯용이라 그대로 둡니다";
+    mk(w!("STATIC"), tip, 0, 14.0, y, W - 28.0, 90.0, -1, 0);
+    let y = y + 18.0;
     // 어느 파일을 고치는지 보여 준다(시세 위젯과 같은 파일)
     let tail: Vec<String> = path.components().rev().take(2).map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
     mk(w!("STATIC"), &format!("시세 위젯과 같은 목록 · {}", tail.into_iter().rev().collect::<Vec<_>>().join("\\")), 0x4000, 14.0, y + 74.0, W - 28.0, 18.0, -1, 0);

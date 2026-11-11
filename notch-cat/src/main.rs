@@ -216,28 +216,32 @@ unsafe fn maximized_under(own: HWND, x: i32, y: i32) -> Option<bool> {
     Some(IsZoomed(root).as_bool())
 }
 
-/// 시세 쪽의 알약 자리. k: 0 작은 판(이름·등락률) … 1 큰 판(값까지). 묶음(--- 구분선)이 바뀌면 줄을 바꾸고 틈을 둔다.
-/// 돌려주는 것: 알약마다 [왼쪽(몸통 기준), 위, 너비, 높이] 와 몸통 전체 (너비, 높이).
-fn q_layout(groups: &[usize], k: f32) -> (Vec<[f32; 4]>, (f32, f32)) {
+/// 시세 쪽의 자리. 설정의 --- 구분선으로 나뉜 구역마다 버튼 하나, 그 안에 종목을 세 칸으로 놓는다.
+/// k: 0 작은 판(이름·등락률) … 1 큰 판(값까지).
+/// 돌려주는 것: 구역 버튼들, 종목 칸들(각 [왼쪽(몸통 기준), 위, 너비, 높이]), 몸통 전체 (너비, 높이).
+fn q_layout(groups: &[usize], k: f32) -> (Vec<[f32; 4]>, Vec<[f32; 4]>, (f32, f32)) {
     const COLS: usize = 3;
     let w = 500.0 + 40.0 * k;
     if groups.is_empty() {
-        return (Vec::new(), (w, 104.0));
+        return (Vec::new(), Vec::new(), (w, 104.0));
     }
-    let (pad, gap, ph) = (20.0, 6.0, 24.0 + 14.0 * k);
-    let cw = (w - pad * 2.0 - gap * (COLS - 1) as f32) / COLS as f32;
-    let (mut y, mut col, mut out) = (46.0, 0, Vec::with_capacity(groups.len()));
-    for (i, g) in groups.iter().enumerate() {
-        let fresh = i > 0 && *g != groups[i - 1];
-        if fresh || col == COLS {
-            y += ph + gap + if fresh { 10.0 } else { 0.0 };
-            col = 0;
+    let (side, inx, iny, gap, rh) = (16.0, 12.0, 7.0, 8.0, 20.0 + 16.0 * k);
+    let pw = w - side * 2.0;
+    let cw = (pw - inx * 2.0 - gap * (COLS - 1) as f32) / COLS as f32;
+    let (mut panels, mut cells) = (Vec::new(), Vec::with_capacity(groups.len()));
+    let (mut y, mut i) = (44.0, 0);
+    while i < groups.len() {
+        let n = groups[i..].iter().take_while(|g| **g == groups[i]).count();
+        let ph = n.div_ceil(COLS) as f32 * rh + iny * 2.0;
+        panels.push([side, y, pw, ph]);
+        for j in 0..n {
+            cells.push([side + inx + (j % COLS) as f32 * (cw + gap), y + iny + (j / COLS) as f32 * rh, cw, rh]);
         }
-        out.push([pad + col as f32 * (cw + gap), y, cw, ph]);
-        col += 1;
+        y += ph + gap;
+        i += n;
     }
     // ponytail: 종목이 아주 많으면(큰 판 9줄 넘게) 아래가 잘린다. 그때는 쪽을 나누거나 넘겨 보게.
-    (out, (w, (y + ph + 16.0).min(WIN_H - SHADOW - 4.0)))
+    (panels, cells, (w, (y - gap + 14.0).min(WIN_H - SHADOW - 4.0)))
 }
 
 fn mix(a: Rgb, b: Rgb, t: f32) -> Rgb {
@@ -398,7 +402,7 @@ struct App {
     pgf: Spring,       // 쪽이 바뀔 때 내용이 다시 떠오르는 정도 0…1
     big: bool,         // 시세 쪽: 값까지 나오는 큰 판
     bg: Spring,        // 〃 0 작은 판 … 1 큰 판(몸통 높이와 같은 박자)
-    qs: Vec<Spring>,   // 시세 알약마다 마우스가 올라간 정도 0…1
+    qs: Vec<Spring>,   // 시세 구역 버튼마다 마우스가 올라간 정도 0…1
     wx: Arc<Mutex<weather::Weather>>,
     wxn: weather::Weather, // 지금 보여 주는 날씨
     notes: Arc<Mutex<notif::Note>>,
@@ -582,7 +586,7 @@ impl App {
             TINY
         } else if self.hover {
             if self.page == 1 {
-                q_layout(&self.q.iter().map(|q| q.group).collect::<Vec<_>>(), self.big as u8 as f32).1
+                q_layout(&self.q.iter().map(|q| q.group).collect::<Vec<_>>(), self.big as u8 as f32).2
             } else if self.n.has {
                 OPEN
             } else {
@@ -599,7 +603,7 @@ impl App {
         // 펼칠 때는 끝에서 살짝 출렁이며 모이고(가로·세로 박자가 달라 물결처럼), 접힐 때는 차분하게
         if th > BAR_H + 10.0 {
             // 시세 쪽은 작은 판 높이를 '다 펼친 높이'로 삼는다(큰 판으로 자라는 동안 내용이 흐려지지 않게)
-            self.open_h = if self.page == 1 && !noting { q_layout(&self.q.iter().map(|q| q.group).collect::<Vec<_>>(), 0.0).1 .1 } else { th };
+            self.open_h = if self.page == 1 && !noting { q_layout(&self.q.iter().map(|q| q.group).collect::<Vec<_>>(), 0.0).2 .1 } else { th };
             self.mode = if noting { 2 } else if self.page == 1 { 3 } else if self.n.has { 0 } else { 1 };
             self.w.tune(250.0, 0.62);
             self.h.tune(190.0, 0.68);
@@ -1021,44 +1025,56 @@ impl App {
                     g.text(&format!("날씨 {}", wx.stamp), &g.f_tiny, x + 14.0, 120.0, w - 28.0, if stale { WARN } else { FG }, a * if stale { 1.0 } else { 0.4 }, Align::Right);
                 }
             } else if a > 0.0 && self.mode == 3 {
-                // 시세 쪽: 종목마다 윤기 나는 알약. 묶음(--- 구분선)마다 줄을 바꾼다. 누르면 값까지 나오는 큰 판으로 자란다.
-                g.text("시세", &g.f_title, x + 20.0, 16.0, 120.0, FG, a, Align::Left);
+                // 시세 쪽: 설정의 --- 구분선으로 나뉜 구역마다 윤기 나는 버튼 하나. 누르면 값까지 나오는 큰 판으로 자란다.
+                g.text("시세", &g.f_title, x + 20.0, 15.0, 120.0, FG, a, Align::Left);
                 if self.q.is_empty() {
                     g.text("시세를 받는 중…", &g.f_body, x + 20.0, 56.0, w - 40.0, FG, a * 0.5, Align::Center);
                 }
                 let k = self.bg.pos.clamp(0.0, 1.0);
-                let (cells, (lw, _)) = q_layout(&self.q.iter().map(|q| q.group).collect::<Vec<_>>(), self.bg.pos);
+                let groups: Vec<usize> = self.q.iter().map(|q| q.group).collect();
+                let (panels, cells, (lw, _)) = q_layout(&groups, self.bg.pos);
                 let live = p > 0.9;
                 let (mx, my) = self.mouse;
                 let base = ((p - 0.35) / 0.65).clamp(0.0, 1.0);
-                for (i, (q, c)) in self.q.iter().zip(&cells).enumerate() {
-                    // 쪽이 열릴 때 앞에서부터 차례로 떠오른다
-                    let rise = (self.pgf.pos * 2.4 - i as f32 * 0.07).clamp(0.0, 1.0);
-                    let a = base * rise;
-                    let (cx, cy, cw, ch) = (x + (w - lw) / 2.0 + c[0], c[1] + (1.0 - rise) * 6.0, c[2], c[3]);
+                let ox = x + (w - lw) / 2.0;
+                let mut first = 0; // 이 구역의 첫 종목
+                for (gi, pn) in panels.iter().enumerate() {
+                    let n = groups[first..].iter().take_while(|g| **g == groups[first]).count();
+                    // 쪽이 열릴 때 위 구역부터 차례로 떠오른다
+                    let rise = (self.pgf.pos * 1.6 - gi as f32 * 0.14).clamp(0.0, 1.0);
+                    let (a, dy) = (base * rise, (1.0 - rise) * 8.0);
+                    let (cx, cy, cw, ch) = (ox + pn[0], pn[1] + dy, pn[2], pn[3]);
                     let on = live && mx >= cx && mx < cx + cw && my >= cy && my < cy + ch;
-                    if let Some(sp) = self.qs.get_mut(i) {
+                    if let Some(sp) = self.qs.get_mut(gi) {
                         sp.target = if on { 1.0 } else { 0.0 };
                     }
-                    let e = self.qs.get(i).map_or(0.0, |s| s.pos).clamp(-0.3, 1.4);
-                    let col = if q.pct > 0.0 { UP } else if q.pct < 0.0 { DOWN } else { FG };
+                    let e = self.qs.get(gi).map_or(0.0, |s| s.pos).clamp(-0.3, 1.4);
+                    // 구역 빛깔: 그 구역이 오늘 대체로 올랐으면 붉게, 내렸으면 푸르게
+                    let avg = self.q[first..first + n].iter().map(|q| q.pct).sum::<f64>() / n as f64;
+                    let col = if avg > 0.0 { UP } else if avg < 0.0 { DOWN } else { FG };
                     // 도톰해짐: 살짝 커지며 떠오르고 그림자가 깊어진다
-                    let (bx, by, bw, bh) = (cx - 1.5 * e, cy - 2.2 * e, cw + 3.0 * e, ch + 1.4 * e);
-                    let r = 12.0 + 1.0 * k;
-                    let body = mix((0.075, 0.085, 0.1), col, if q.pct == 0.0 { 0.06 } else { 0.2 + 0.12 * e });
-                    g.rrect(bx + 1.0, by + 2.0 + 1.6 * e, bw - 2.0, bh, r, (0.0, 0.0, 0.0), a * (0.5 + 0.2 * e)); // 아래 그림자
-                    g.rrect(bx, by, bw, bh, r, mix(body, FG, 0.2 + 0.1 * e), a); // 밝은 테두리
+                    let (bx, by, bw, bh) = (cx - 2.0 * e, cy - 2.0 * e, cw + 4.0 * e, ch + 2.0 * e);
+                    let r = 15.0_f32.min(bh / 2.0);
+                    let body = mix((0.07, 0.08, 0.095), col, 0.15 + 0.07 * e);
+                    g.rrect(bx + 1.0, by + 3.0 + 2.0 * e, bw - 2.0, bh, r, (0.0, 0.0, 0.0), a * (0.55 + 0.2 * e)); // 아래 그림자
+                    g.rrect(bx, by, bw, bh, r, mix(body, FG, 0.22 + 0.1 * e), a); // 밝은 테두리
                     g.rrect(bx + 1.0, by + 1.0, bw - 2.0, bh - 2.0, r - 1.0, body, a);
-                    g.rrect(bx + 5.0, by + bh * 0.58, bw - 10.0, bh * 0.36, r * 0.6, col, a * (0.09 + 0.05 * e)); // 아래에서 비치는 빛
-                    g.rrect(bx + 2.5, by + 1.5, bw - 5.0, bh * 0.44, r - 2.0, FG, a * (0.085 + 0.07 * e)); // 윗면 윤기(두 겹)
-                    g.rrect(bx + 5.0, by + 2.0, bw - 10.0, bh * 0.2, r * 0.5, FG, a * (0.06 + 0.03 * e));
-                    let pct = format!("{:+.2}%", q.pct);
-                    let pw = g.measure(&pct, &g.f_time);
-                    // 작은 판: 이름 · 등락률 한 줄. 큰 판: 이름 아래에 값, 등락률은 오른쪽 아래로 내려간다.
-                    g.text(&q.name, &g.f_body, cx + 10.0, cy + 3.0 - 0.5 * k, cw - 20.0 - (pw + 6.0) * (1.0 - k), FG, a * 0.92, Align::Left);
-                    g.text(&pct, &g.f_time, cx + cw - 10.0 - pw - 1.0, cy + 3.5 + 15.0 * k, pw + 2.0, mix(col, FG, 0.12), a, Align::Left);
-                    let va = ((k - 0.35) / 0.65).clamp(0.0, 1.0);
-                    g.text(&q.price, &g.f_lyric, cx + 10.0, cy + 16.0 + 1.0 * va, cw - 30.0 - pw, FG, a * va, Align::Left);
+                    let gl = (bh * 0.42).min(15.0); // 윤기·속빛의 두께(높은 버튼에서도 띠처럼 얇게)
+                    g.rrect(bx + 8.0, by + bh - gl - 2.5, bw - 16.0, gl, gl * 0.5, col, a * (0.1 + 0.06 * e)); // 아래에서 비치는 빛
+                    g.rrect(bx + 3.0, by + 1.5, bw - 6.0, gl, r - 2.5, FG, a * (0.085 + 0.06 * e)); // 윗면 윤기(두 겹)
+                    g.rrect(bx + 7.0, by + 2.0, bw - 14.0, gl * 0.5, gl * 0.25, FG, a * (0.07 + 0.04 * e));
+                    for (q, c) in self.q[first..first + n].iter().zip(&cells[first..]) {
+                        let (ix, iy, iw) = (ox + c[0], c[1] + dy - 2.0 * e * 0.5, c[2]);
+                        let col = if q.pct > 0.0 { UP } else if q.pct < 0.0 { DOWN } else { FG };
+                        let pct = format!("{:+.2}%", q.pct);
+                        let pw = g.measure(&pct, &g.f_time);
+                        // 작은 판: 이름 · 등락률 한 줄. 큰 판: 이름 아래에 값, 등락률은 오른쪽 아래로 내려간다.
+                        g.text(&q.name, &g.f_body, ix, iy + 1.0, iw - (pw + 8.0) * (1.0 - k), FG, a * 0.92, Align::Left);
+                        g.text(&pct, &g.f_time, ix + iw - pw - 1.0, iy + 1.5 + 15.0 * k, pw + 2.0, mix(col, FG, 0.1), a, Align::Left);
+                        let va = ((k - 0.35) / 0.65).clamp(0.0, 1.0);
+                        g.text(&q.price, &g.f_lyric, ix, iy + 14.0 + 1.0 * va, iw - pw - 10.0, FG, a * va, Align::Left);
+                    }
+                    first += n;
                 }
                 if live {
                     self.hits.push(([x, 0.0, x + w, h], Hit::Size));
