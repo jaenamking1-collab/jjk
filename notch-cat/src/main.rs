@@ -115,6 +115,7 @@ struct Cfg {
     tiny: bool,  // 창을 꽉 채워 일할 때 작게 줄이기
     bar: bool,   // 닫힘에 시세 한 줄
     aside: bool, // 가운데 대신 오른쪽으로 비켜 놓기(다른 노치 앱과 나란히 볼 때)
+    lnk: String, // 바탕화면 바로가기를 마지막으로 만든 실행 파일 경로(같으면 다시 만들지 않는다 — 지운 바로가기가 되살아나지 않게)
     two: bool,   // 시세를 세로 두 칸으로(끄면 시세 위젯처럼 한 칸)
     place: (f64, f64), // 날씨를 볼 곳(위도, 경도). settings.json 의 lat·lon, 없으면 서울
 }
@@ -134,12 +135,43 @@ impl Cfg {
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        Cfg { hide_fullscreen: v["hide_fullscreen"].as_bool().unwrap_or(true), autostart: v["autostart"].as_bool().unwrap_or(true), aside: v["aside"].as_bool().unwrap_or(false), tiny: v["tiny"].as_bool().unwrap_or(true), bar: v["bar"].as_bool().unwrap_or(false), two: v["two"].as_bool().unwrap_or(true), place: (v["lat"].as_f64().unwrap_or(37.57), v["lon"].as_f64().unwrap_or(126.98)) }
+        Cfg { hide_fullscreen: v["hide_fullscreen"].as_bool().unwrap_or(true), autostart: v["autostart"].as_bool().unwrap_or(true), aside: v["aside"].as_bool().unwrap_or(false), tiny: v["tiny"].as_bool().unwrap_or(true), bar: v["bar"].as_bool().unwrap_or(false), two: v["two"].as_bool().unwrap_or(true), lnk: v["lnk"].as_str().unwrap_or("").into(), place: (v["lat"].as_f64().unwrap_or(37.57), v["lon"].as_f64().unwrap_or(126.98)) }
     }
 
     fn save(&self) {
-        let v = serde_json::json!({ "hide_fullscreen": self.hide_fullscreen, "autostart": self.autostart, "aside": self.aside, "tiny": self.tiny, "bar": self.bar, "two": self.two, "lat": self.place.0, "lon": self.place.1 });
+        let v = serde_json::json!({ "hide_fullscreen": self.hide_fullscreen, "autostart": self.autostart, "aside": self.aside, "tiny": self.tiny, "bar": self.bar, "two": self.two, "lnk": self.lnk, "lat": self.place.0, "lon": self.place.1 });
         let _ = std::fs::write(data_dir().join("settings.json"), v.to_string());
+    }
+
+    /// 바탕화면에 '노치 고양이' 바로가기. 이 실행 파일로 처음 켤 때 한 번 만든다(파일을 옮기거나 새로 받으면 다시).
+    unsafe fn ensure_shortcut(&mut self) {
+        use windows::core::{Interface, HSTRING};
+        use windows::Win32::System::Com::{CoCreateInstance, CoTaskMemFree, IPersistFile, CLSCTX_INPROC_SERVER};
+        if cfg!(debug_assertions) || std::env::var("NOTCH_CAT_TEST").is_ok() {
+            return;
+        }
+        let Ok(exe) = std::env::current_exe() else { return };
+        let path = exe.display().to_string();
+        if self.lnk == path {
+            return;
+        }
+        let made = (|| -> Result<()> {
+            let desk = SHGetKnownFolderPath(&FOLDERID_Desktop, KNOWN_FOLDER_FLAG(0), None)?;
+            let lnk = format!("{}\\노치 고양이.lnk", desk.to_string().unwrap_or_default());
+            CoTaskMemFree(Some(desk.0 as _));
+            let link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)?;
+            link.SetPath(&HSTRING::from(&path))?;
+            if let Some(dir) = exe.parent() {
+                link.SetWorkingDirectory(&HSTRING::from(dir.display().to_string()))?;
+            }
+            link.SetIconLocation(&HSTRING::from(&path), 0)?;
+            link.cast::<IPersistFile>()?.Save(&HSTRING::from(lnk), true)
+        })();
+        log(&format!("shortcut {}", if made.is_ok() { "ok" } else { "ERR" }));
+        if made.is_ok() {
+            self.lnk = path;
+            self.save();
+        }
     }
 
     /// 윈도우 시작할 때 자동 실행(HKCU Run). 시험 중·개발 빌드에선 건드리지 않는다.
@@ -1303,8 +1335,9 @@ unsafe fn run() -> Result<()> {
     let now = Arc::new(Mutex::new(Now::default()));
     let lyr = Arc::new(Mutex::new(Lyr::default()));
     let tx = media::spawn(now.clone(), lyr.clone());
-    let cfg = Cfg::load();
+    let mut cfg = Cfg::load();
     cfg.apply_autostart();
+    cfg.ensure_shortcut();
     let spot = cfg.place;
 
     let mut app = App {
