@@ -28,6 +28,10 @@ jobs:
         run: cargo test
       - name: exe 만들기
         working-directory: notch-cat
+        # 구글 캘린더 등록증(데스크톱 앱용). 저장소엔 없고 Actions 비밀값에만 있다 — 비어 있으면 실행 파일 옆 google_client.json 을 찾는다.
+        env:
+          NOTCH_GOOGLE_ID: ${{ secrets.NOTCH_GOOGLE_ID }}
+          NOTCH_GOOGLE_SECRET: ${{ secrets.NOTCH_GOOGLE_SECRET }}
         run: cargo build --release
       - name: exe 에 고양이 아이콘 심기
         working-directory: notch-cat
