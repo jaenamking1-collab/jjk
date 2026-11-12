@@ -7,6 +7,7 @@ mod gfx;
 mod lrc;
 mod lyrics;
 mod media;
+mod meter;
 mod notif;
 mod quotes;
 mod settings;
@@ -51,6 +52,9 @@ const QUIET: (f32, f32) = (250.0, 104.0); // 음악이 없을 때 펼친 크기(
 const NOTE_W: f32 = 300.0; // 알림이 왔을 때 펼친 너비
 const TINY: (f32, f32) = (48.0, 9.0); // 일할 때 줄어든 크기
 const OPEN: (f32, f32) = (460.0, 246.0);
+// 음악 화면 모양: 0 기본(가사 아래) · 1 와이드(소리 막대) · 2 가사 옆
+const MUSIC: [(f32, f32); 3] = [OPEN, (540.0, 128.0), (590.0, 184.0)];
+const MUSIC_NAMES: [&str; 3] = ["기본 (가사 아래)", "와이드 (소리 막대)", "가사 옆"];
 const SHADOW: f32 = 20.0; // 펼쳤을 때 그림자가 번지는 폭
 
 // 색: 디자인.md '대비 강한 조합' — 미드나잇 네이비 · 쿨 화이트 · 일렉트릭 라임
@@ -117,6 +121,7 @@ struct Cfg {
     aside: bool, // 가운데 대신 오른쪽으로 비켜 놓기(다른 노치 앱과 나란히 볼 때)
     lnk: String, // 바탕화면 바로가기를 마지막으로 만든 실행 파일 경로(같으면 다시 만들지 않는다 — 지운 바로가기가 되살아나지 않게)
     two: bool,   // 시세를 세로 두 칸으로(끄면 시세 위젯처럼 한 칸)
+    ml: usize,   // 음악 화면 모양(MUSIC 번호)
     place: (f64, f64), // 날씨를 볼 곳(위도, 경도). settings.json 의 lat·lon, 없으면 서울
 }
 
@@ -135,11 +140,11 @@ impl Cfg {
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        Cfg { hide_fullscreen: v["hide_fullscreen"].as_bool().unwrap_or(true), autostart: v["autostart"].as_bool().unwrap_or(true), aside: v["aside"].as_bool().unwrap_or(false), tiny: v["tiny"].as_bool().unwrap_or(true), bar: v["bar"].as_bool().unwrap_or(false), two: v["two"].as_bool().unwrap_or(true), lnk: v["lnk"].as_str().unwrap_or("").into(), place: (v["lat"].as_f64().unwrap_or(37.57), v["lon"].as_f64().unwrap_or(126.98)) }
+        Cfg { hide_fullscreen: v["hide_fullscreen"].as_bool().unwrap_or(true), autostart: v["autostart"].as_bool().unwrap_or(true), aside: v["aside"].as_bool().unwrap_or(false), tiny: v["tiny"].as_bool().unwrap_or(true), bar: v["bar"].as_bool().unwrap_or(false), two: v["two"].as_bool().unwrap_or(true), ml: (v["ml"].as_u64().unwrap_or(0) as usize).min(2), lnk: v["lnk"].as_str().unwrap_or("").into(), place: (v["lat"].as_f64().unwrap_or(37.57), v["lon"].as_f64().unwrap_or(126.98)) }
     }
 
     fn save(&self) {
-        let v = serde_json::json!({ "hide_fullscreen": self.hide_fullscreen, "autostart": self.autostart, "aside": self.aside, "tiny": self.tiny, "bar": self.bar, "two": self.two, "lnk": self.lnk, "lat": self.place.0, "lon": self.place.1 });
+        let v = serde_json::json!({ "hide_fullscreen": self.hide_fullscreen, "autostart": self.autostart, "aside": self.aside, "tiny": self.tiny, "bar": self.bar, "two": self.two, "ml": self.ml, "lnk": self.lnk, "lat": self.place.0, "lon": self.place.1 });
         let _ = std::fs::write(data_dir().join("settings.json"), v.to_string());
     }
 
@@ -416,6 +421,9 @@ enum Hit {
     Line(u64),
     Page(i32), // 쪽 넘기기(-1 왼쪽, +1 오른쪽)
     Size,      // 시세 쪽: 작은 판 ↔ 큰 판
+    Layout,    // 음악 화면 모양 바꾸기
+    Shuffle,
+    Repeat,
 }
 
 struct App {
@@ -460,6 +468,8 @@ struct App {
     pgf: Spring,       // 쪽이 바뀔 때 내용이 다시 떠오르는 정도 0…1
     big: bool,         // 시세 쪽: 값까지 나오는 큰 판
     bg: Spring,        // 〃 0 작은 판 … 1 큰 판(몸통 높이와 같은 박자)
+    meter: meter::Meter,
+    bars: [f32; 28], // 소리 막대 높이 0…1
     qs: Vec<Spring>,   // 시세 구역 버튼마다 마우스가 올라간 정도 0…1
     wx: Arc<Mutex<weather::Weather>>,
     wxn: weather::Weather, // 지금 보여 주는 날씨
@@ -504,6 +514,15 @@ impl App {
         if std::env::var("NOTCH_CAT_NOMEDIA").is_ok() {
             self.n.has = false; // 시험용: 음악이 없는 척(시계·날씨 쪽을 본다)
         }
+        if std::env::var("NOTCH_CAT_SHOT").is_ok() {
+            // 시험용: 곡이 흐르는 척(재생기가 없는 PC에서 음악 화면을 찍어 보려고)
+            let t = self.born.elapsed().as_millis() as i64;
+            self.n = media::Now { has: true, title: "GOOD DAY".into(), artist: "Forrest Frank · CHILD OF GOD".into(), playing: true, pos_ms: 11_000 + t, pos_at: None, dur_ms: 171_000, shuffle: Some(false), repeat: Some(2), seen: Some(Instant::now()), stamp: hhmm(), art: None };
+            if self.lines.is_empty() {
+                self.lines = [(0, "they say)"), (8_000, "The sun is shinin' down on me, birds are singing praise"), (60_000, "I'm 'bout to have a good day (good day) in every single way"), (70_000, "Tell me what you need"), (80_000, "끝")].iter().map(|(t, l)| (*t, l.to_string())).collect();
+                self.lyr_st = St::Found;
+            }
+        }
         {
             let l = self.lyr.lock().unwrap();
             if l.ver != self.lyr_ver {
@@ -547,6 +566,20 @@ impl App {
         }
         if self.ticks % 20 == 1 {
             self.wxn = self.wx.lock().unwrap().clone();
+        }
+        if self.hover && self.page == 0 && self.mode == 0 && self.cfg.ml == 1 && self.n.playing {
+            let t = self.born.elapsed().as_secs_f32();
+            let lvl = self.meter.peak().filter(|_| std::env::var("NOTCH_CAT_SHOT").is_err()).map_or(0.55 + 0.2 * (t * 2.1).sin(), |v| (v * 1.8).min(1.0).sqrt()); // 소리를 못 읽으면 잔잔히 흔들기만
+            let n = self.bars.len() as f32;
+            for (i, b) in self.bars.iter_mut().enumerate() {
+                let f = i as f32;
+                let wob = 0.5 + 0.5 * (t * (2.3 + f * 0.37) + f * 1.7).sin() * (t * 1.3 + f * 0.9).cos();
+                let want = lvl * (0.25 + 0.75 * wob) * (1.0 - 0.35 * f / n);
+                *b = want.max(*b * 0.82); // 오를 땐 바로, 내릴 땐 천천히
+            }
+            self.dirty = true;
+        } else if self.bars[0] != 0.0 {
+            self.bars = [0.0; 28];
         }
         let mut text = match (self.n.has, self.n.playing, line) {
             (false, _, _) => String::new(),
@@ -651,7 +684,7 @@ impl App {
             if self.page == 1 {
                 q_layout(&self.q.iter().map(|q| q.group).collect::<Vec<_>>(), self.big as u8 as f32, self.cfg.cols()).2
             } else if self.n.has {
-                OPEN
+                MUSIC[self.cfg.ml]
             } else {
                 (QUIET.0, QUIET.1 + if self.wxn.seen.is_some() { 34.0 } else { 0.0 }) // 날씨 한 줄
             }
@@ -982,6 +1015,151 @@ impl App {
                 }
             }
             if a > 0.0 && self.mode == 0 && n.has {
+                // 모양 바꾸기 단추(오른쪽 아래). 다른 단추보다 먼저 넣어 겹쳐도 이게 눌린다.
+                let (mx, my) = self.mouse;
+                let (bx, by) = (x + w - 26.0, h - 26.0);
+                let on = p > 0.9 && mx >= bx - 4.0 && mx < bx + 22.0 && my >= by - 4.0 && my < by + 22.0;
+                g.ellipse(bx + 9.0, by + 9.0, 11.0, 11.0, FG, a * if on { 0.2 } else { 0.08 });
+                for d in [-1.0f32, 1.0] {
+                    // 바깥을 가리키는 두 화살표(⤢)
+                    let (cx, cy) = (bx + 9.0 + d * 4.0, by + 9.0 - d * 4.0);
+                    ribbon(g, &[(cx - d * 3.5, cy), (cx, cy), (cx, cy + d * 3.5)], |_| 1.5, FG, a * 0.85);
+                }
+                if p > 0.9 {
+                    self.hits.push(([bx - 4.0, by - 4.0, bx + 22.0, by + 22.0], Hit::Layout));
+                }
+            }
+            if a > 0.0 && self.mode == 0 && n.has && self.cfg.ml != 0 {
+                let live = p > 0.9;
+                let (mx, my) = self.mouse;
+                let wide = self.cfg.ml == 1;
+                // 왼쪽: 앨범 그림 · 곡명 · 가수
+                let (art, tx) = if wide { (68.0, x + 98.0) } else { (82.0, x + 116.0) };
+                match &self.art {
+                    Some(b) => g.art(b, x + 18.0, 16.0, art, 12.0, a),
+                    None => g.rrect(x + 18.0, 16.0, art, art, 12.0, FG, a * 0.12),
+                }
+                let left = if wide { 250.0 } else { 300.0 }; // 왼쪽 묶음 너비(그림 포함)
+                let cw = x + 18.0 + left - tx;
+                g.text(&n.title, &g.f_title, tx, if wide { 14.0 } else { 26.0 }, cw, FG, a, Align::Left);
+                g.text(&n.artist, &g.f_sub, tx, if wide { 38.0 } else { 52.0 }, cw, FG, a * 0.6, Align::Left);
+                // 진행 막대와 시각
+                let pos = n.pos();
+                let (b0, bw, by) = if wide { (tx, cw, 64.0) } else { (x + 18.0, left, 112.0) };
+                g.rrect(b0, by, bw, 4.0, 2.0, FG, a * 0.22);
+                if n.dur_ms > 0 {
+                    g.rrect(b0, by, (bw * pos as f32 / n.dur_ms as f32).clamp(4.0, bw), 4.0, 2.0, LIME, a);
+                    if live {
+                        self.hits.push(([b0, by - 8.0, b0 + bw, by + 10.0], Hit::Bar(b0, bw)));
+                    }
+                }
+                g.text(&mmss(pos), &g.f_tiny, b0, by + 7.0, 50.0, FG, a * 0.6, Align::Left);
+                g.text(&if n.dur_ms > 0 { mmss(n.dur_ms) } else { "–:––".into() }, &g.f_tiny, b0 + bw - 50.0, by + 7.0, 50.0, FG, a * 0.6, Align::Right);
+                // 단추: (섞기) 이전 재생 다음 (반복)
+                let cy = if wide { 102.0 } else { 152.0 };
+                let mid = b0 + bw / 2.0;
+                let gap = if wide { 40.0 } else { 52.0 };
+                let mut row: Vec<(f32, Hit)> = vec![(-1.0, Hit::Prev), (0.0, Hit::Toggle), (1.0, Hit::Next)];
+                if n.shuffle.is_some() {
+                    row.insert(0, (-2.0, Hit::Shuffle));
+                }
+                if n.repeat.is_some() {
+                    row.push((2.0, Hit::Repeat));
+                }
+                for (k, hit) in row {
+                    let cx = mid + k * gap;
+                    let rr = if matches!(hit, Hit::Toggle) { 19.0 } else { 15.0 };
+                    let r = [cx - rr, cy - rr, cx + rr, cy + rr];
+                    let over = live && mx >= r[0] && mx < r[2] && my >= r[1] && my < r[3];
+                    if matches!(hit, Hit::Toggle) || over {
+                        g.ellipse(cx, cy, rr, rr, FG, a * if over { 0.2 } else { 0.1 }); // 재생 단추는 늘 둥근 바탕
+                    }
+                    let tri = |x0: f32, d: f32, k: f32| g.poly(&[(x0, cy - k), (x0 + d * k * 1.6, cy), (x0, cy + k)], FG, a);
+                    match hit {
+                        Hit::Toggle if n.playing => {
+                            g.rrect(cx - 6.0, cy - 7.0, 4.5, 14.0, 1.5, FG, a);
+                            g.rrect(cx + 1.5, cy - 7.0, 4.5, 14.0, 1.5, FG, a);
+                        }
+                        Hit::Toggle => tri(cx - 4.5, 1.0, 7.5),
+                        Hit::Next => {
+                            tri(cx - 8.5, 1.0, 5.5);
+                            tri(cx, 1.0, 5.5);
+                        }
+                        Hit::Prev => {
+                            tri(cx + 8.5, -1.0, 5.5);
+                            tri(cx, -1.0, 5.5);
+                        }
+                        Hit::Shuffle => {
+                            // 엇갈린 두 화살표. 켜져 있으면 라임.
+                            let c = if n.shuffle == Some(true) { LIME } else { FG };
+                            ribbon(g, &quad((cx - 7.0, cy - 4.5), (cx, cy - 4.5), (cx + 6.0, cy + 4.5), 8), |_| 1.5, c, a);
+                            ribbon(g, &quad((cx - 7.0, cy + 4.5), (cx, cy + 4.5), (cx + 6.0, cy - 4.5), 8), |_| 1.5, c, a);
+                            for d in [-1.0f32, 1.0] {
+                                g.poly(&[(cx + 8.0, cy + d * 4.5), (cx + 4.5, cy + d * 4.5 - 2.6), (cx + 4.5, cy + d * 4.5 + 2.6)], c, a);
+                            }
+                        }
+                        Hit::Repeat => {
+                            // 둥근 고리 + 화살표. 한 곡 반복이면 가운데 1.
+                            let c = if n.repeat.unwrap_or(0) != 0 { LIME } else { FG };
+                            let ring: Vec<(f32, f32)> = (0..=22).map(|i| {
+                                let t = 0.35 + i as f32 / 22.0 * (std::f32::consts::TAU - 0.9);
+                                (cx + 7.0 * t.cos(), cy + 5.0 * t.sin())
+                            }).collect();
+                            ribbon(g, &ring, |_| 1.5, c, a);
+                            g.poly(&[(cx + 8.5, cy - 4.0), (cx + 3.5, cy - 7.2), (cx + 3.5, cy - 0.8)], c, a);
+                            if n.repeat == Some(1) {
+                                g.text("1", &g.f_tiny, cx - 4.0, cy - 6.5, 8.0, c, a, Align::Center);
+                            }
+                        }
+                        _ => {}
+                    }
+                    if live {
+                        self.hits.push((r, hit));
+                    }
+                }
+                let rx = x + 18.0 + left + 26.0; // 오른쪽 칸
+                let rw = x + w - 40.0 - rx;
+                if wide {
+                    // 소리 막대: 실제 소리 크기를 따라 오르내린다(아래에서 위로, 끝은 둥글게)
+                    let nb = self.bars.len();
+                    let step = rw / nb as f32;
+                    for (i, b) in self.bars.iter().enumerate() {
+                        let bh = 4.0 + 74.0 * b.clamp(0.0, 1.0);
+                        let bx = rx + i as f32 * step;
+                        g.rrect(bx, 108.0 - bh, step * 0.62, bh, step * 0.31, mix(FG, LIME, 0.25 + 0.6 * b), a * (0.35 + 0.6 * b));
+                    }
+                } else {
+                    // 가사: 지난 줄 · 지금 줄(크게) · 다음 줄 두 개. 긴 줄은 줄을 바꾼다.
+                    g.text("가사", &g.f_tiny, rx, 14.0, 60.0, FG, a * 0.45, Align::Left);
+                    g.clip(rx, 30.0, rw, h - 62.0);
+                    if self.lyr_st == St::Found && !self.lines.is_empty() {
+                        let c = self.cur.map(|i| i as i32).unwrap_or(-1);
+                        let mut y = 66.0 + self.scroll.pos * 26.0;
+                        if c > 0 {
+                            let prev = &self.lines[c as usize - 1].1;
+                            let ph = g.para(prev, &g.f_body, rx, 0.0, rw, FG, 0.0);
+                            g.para(prev, &g.f_body, rx, y - ph - 6.0, rw, FG, a * 0.3);
+                        }
+                        for i in c.max(0)..(c + 3).min(self.lines.len() as i32) {
+                            let (t, l) = &self.lines[i as usize];
+                            let now = i == c;
+                            let lh = g.para(l, if now { &g.f_lyric } else { &g.f_body }, rx, y, rw, if now { FG } else { FG }, a * if now { 1.0 } else { 0.45 });
+                            if live {
+                                self.hits.push(([rx, y, rx + rw, y + lh], Hit::Line(*t)));
+                            }
+                            y += lh + 6.0;
+                        }
+                    } else {
+                        let m = match self.lyr_st {
+                            St::Missing => "시간 맞춘 가사가 없는 곡입니다",
+                            St::Error => "가사를 못 받았습니다",
+                            _ => "가사 찾는 중…",
+                        };
+                        g.text(m, &g.f_body, rx, 70.0, rw, FG, a * 0.5, Align::Left);
+                    }
+                    g.unclip();
+                }
+            } else if a > 0.0 && self.mode == 0 && n.has {
                 let live = p > 0.9; // 다 펼쳐졌을 때만 눌린다
                 let (mx, my) = self.mouse;
                 match &self.art {
@@ -1061,7 +1239,7 @@ impl App {
                 // 생존 표시: 마지막으로 받은 시각. 10분 넘게 못 받으면 경고색.
                 let stale = n.seen.map(|t| t.elapsed() > Duration::from_secs(600)).unwrap_or(true) || self.lyr_st == St::Error;
                 let alive = format!("음악 {} · 가사 {}", n.stamp, if self.lyr_stamp.is_empty() { "–" } else { &self.lyr_stamp });
-                g.text(&alive, &g.f_tiny, x + 18.0, 227.0, w - 36.0, if stale { WARN } else { FG }, a * if stale { 1.0 } else { 0.4 }, Align::Right);
+                g.text(&alive, &g.f_tiny, x + 18.0, 227.0, w - 62.0, if stale { WARN } else { FG }, a * if stale { 1.0 } else { 0.4 }, Align::Right);
             } else if a > 0.0 && self.mode == 2 {
                 // 알림: 앱 그림 · 앱 이름 · 제목(· 내용)
                 let nt = &self.note;
@@ -1156,6 +1334,9 @@ impl App {
             g.unclip();
         }
         g.present()?;
+        if let Ok(dir) = std::env::var("NOTCH_CAT_SHOT") {
+            let _ = g.snapshot(&PathBuf::from(dir).join("shot.raw"));
+        }
         if self.first_frame {
             self.first_frame = false;
             log("frame ok");
@@ -1190,6 +1371,13 @@ impl App {
         if let Hit::Page(d) = hit {
             return self.turn(d);
         }
+        if let Hit::Layout = hit {
+            self.cfg.ml = (self.cfg.ml + 1) % MUSIC.len();
+            self.cfg.save();
+            self.pgf.pos = 0.0;
+            self.pgf.target = 1.0;
+            return self.tick();
+        }
         if let Hit::Size = hit {
             self.big = !self.big;
             self.bg.target = self.big as u8 as f32;
@@ -1201,7 +1389,9 @@ impl App {
             Hit::Next => Cmd::Next,
             Hit::Bar(b0, bw) => Cmd::Seek((((x - b0) / bw).clamp(0.0, 1.0) * self.n.dur_ms as f32) as i64),
             Hit::Line(t) => Cmd::Seek(t as i64),
-            Hit::Page(_) | Hit::Size => return,
+            Hit::Shuffle => Cmd::Shuffle,
+            Hit::Repeat => Cmd::Repeat,
+            Hit::Page(_) | Hit::Size | Hit::Layout => return,
         };
         let _ = self.tx.send(cmd);
     }
@@ -1220,6 +1410,11 @@ impl App {
         let _ = AppendMenuW(m, check(self.cfg.tiny), 6, w!("최대화 창에서 마우스가 가까이 오면 작게 줄이기"));
         let _ = AppendMenuW(m, check(self.cfg.bar), 7, w!("닫힘에 시세 한 줄"));
         let _ = AppendMenuW(m, check(self.cfg.two), 9, w!("시세를 세로 두 칸으로 (끄면 위젯처럼 한 칸)"));
+        let _ = AppendMenuW(m, MF_SEPARATOR, 0, None);
+        for (i, name) in MUSIC_NAMES.iter().enumerate() {
+            let t: Vec<u16> = format!("음악 화면: {name}").encode_utf16().chain([0]).collect();
+            let _ = AppendMenuW(m, check(self.cfg.ml == i), 20 + i, PCWSTR(t.as_ptr()));
+        }
         let _ = AppendMenuW(m, MF_STRING, 5, w!("얼굴 바꾸기"));
         let _ = AppendMenuW(m, MF_SEPARATOR, 0, None);
         let _ = AppendMenuW(m, MF_STRING, 3, w!("끝내기"));
@@ -1246,6 +1441,7 @@ impl App {
             }
             7 => self.cfg.bar = !self.cfg.bar,
             9 => self.cfg.two = !self.cfg.two,
+            20..=22 => self.cfg.ml = id as usize - 20,
             8 => {
                 settings::open(self.quotes.clone(), cat_icon());
                 return false;
@@ -1398,6 +1594,8 @@ unsafe fn run() -> Result<()> {
         pgf: Spring::new(1.0, 260.0, 1.0),
         big: false,
         bg: Spring::new(0.0, 190.0, 0.68),
+        meter: meter::Meter::default(),
+        bars: [0.0; 28],
         qs: Vec::new(),
         arr: [Spring::new(0.0, 320.0, 0.42), Spring::new(0.0, 320.0, 0.42)],
         wx: {
@@ -1489,6 +1687,7 @@ unsafe fn run() -> Result<()> {
                     }
                 }
                 Ev::Wheel(d) => app.turn(d),
+                Ev::Leave if std::env::var("NOTCH_CAT_SHOT").is_ok() => {} // 시험 중엔 마우스가 없어도 펼친 채로
                 Ev::Leave => {
                     app.tracking = false;
                     app.hover = false;

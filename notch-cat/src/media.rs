@@ -18,6 +18,8 @@ pub enum Cmd {
     Next,
     Prev,
     Seek(i64),
+    Shuffle,
+    Repeat,
 }
 
 #[derive(Default, Clone)]
@@ -29,6 +31,8 @@ pub struct Now {
     pub pos_ms: i64,
     pub pos_at: Option<Instant>,
     pub dur_ms: i64,
+    pub shuffle: Option<bool>, // 재생기가 알려 줄 때만(모르면 단추를 안 그린다)
+    pub repeat: Option<i32>,   // 0 끔, 1 한 곡, 2 전체
     pub art: Option<Arc<Vec<u8>>>,
     pub seen: Option<Instant>, // 마지막으로 읽기에 성공한 때(생존 표시)
     pub stamp: String,
@@ -110,6 +114,17 @@ pub fn spawn(now: Arc<Mutex<Now>>, lyr: Arc<Mutex<Lyr>>) -> mpsc::Sender<Cmd> {
                     Cmd::Next => s.TrySkipNextAsync().and_then(|a| a.get()),
                     Cmd::Prev => s.TrySkipPreviousAsync().and_then(|a| a.get()),
                     Cmd::Seek(ms) => s.TryChangePlaybackPositionAsync(ms * 10_000).and_then(|a| a.get()),
+                    Cmd::Shuffle => {
+                        let on = s.GetPlaybackInfo().and_then(|i| i.IsShuffleActive()).and_then(|v| v.Value()).unwrap_or(false);
+                        s.TryChangeShuffleActiveAsync(!on).and_then(|a| a.get())
+                    }
+                    Cmd::Repeat => {
+                        use windows::Media::MediaPlaybackAutoRepeatMode as M;
+                        let now = s.GetPlaybackInfo().and_then(|i| i.AutoRepeatMode()).and_then(|v| v.Value()).unwrap_or(M::None);
+                        // 끔 → 전체 → 한 곡 → 끔 (휴대폰 음악 앱과 같은 순서)
+                        let next = if now == M::None { M::List } else if now == M::List { M::Track } else { M::None };
+                        s.TryChangeAutoRepeatModeAsync(next).and_then(|a| a.get())
+                    }
                 };
                 if let Err(e) = r {
                     crate::log(&format!("WARN 재생 명령 실패: {e}"));
@@ -158,6 +173,9 @@ pub fn spawn(now: Arc<Mutex<Now>>, lyr: Arc<Mutex<Lyr>>) -> mpsc::Sender<Cmd> {
                 n.pos_ms = pos;
                 n.pos_at = Some(Instant::now());
                 n.dur_ms = dur;
+                let info = s.GetPlaybackInfo().ok();
+                n.shuffle = info.as_ref().and_then(|i| i.IsShuffleActive().ok()).and_then(|v| v.Value().ok());
+                n.repeat = info.as_ref().and_then(|i| i.AutoRepeatMode().ok()).and_then(|v| v.Value().ok()).map(|m| m.0);
                 if changed || art.is_some() {
                     n.art = art;
                 }

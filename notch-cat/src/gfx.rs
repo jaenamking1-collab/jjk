@@ -138,6 +138,31 @@ impl Gfx {
         self.dc.Clear(Some(&D2D1_COLOR_F { r: 0.0, g: 0.0, b: 0.0, a: 0.0 }));
     }
 
+    /// 시험용: 방금 그린 장을 그대로 파일로(너비·높이·한 줄 바이트 수 + BGRA). 화면을 못 찍는 때(원격 연결이 끊긴 PC)에도 확인할 수 있게.
+    pub unsafe fn snapshot(&self, path: &std::path::Path) -> Result<()> {
+        let target: ID2D1Bitmap1 = self.dc.GetTarget()?.cast()?;
+        let size = target.GetPixelSize();
+        let props = D2D1_BITMAP_PROPERTIES1 {
+            pixelFormat: D2D1_PIXEL_FORMAT { format: DXGI_FORMAT_B8G8R8A8_UNORM, alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED },
+            dpiX: 96.0,
+            dpiY: 96.0,
+            bitmapOptions: D2D1_BITMAP_OPTIONS_CPU_READ | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+            ..Default::default()
+        };
+        let cpu = self.dc.CreateBitmap(size, None, 0, &props)?;
+        cpu.CopyFromBitmap(None, &target, None)?;
+        let m = cpu.Map(D2D1_MAP_OPTIONS_READ)?;
+        let n = (m.pitch * size.height) as usize;
+        let mut out = Vec::with_capacity(n + 12);
+        for v in [size.width, size.height, m.pitch] {
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+        out.extend_from_slice(std::slice::from_raw_parts(m.bits, n));
+        cpu.Unmap()?;
+        let _ = std::fs::write(path, out);
+        Ok(())
+    }
+
     /// 다 그린 뒤 다음 화면 갱신 때 내보낸다(모니터 주사율에 맞춰 기다린다).
     pub unsafe fn present(&self) -> Result<()> {
         self.dc.EndDraw(None, None)?;
@@ -200,6 +225,19 @@ impl Gfx {
             let _ = l.GetMetrics(&mut m);
         }
         m.width
+    }
+
+    /// 너비 w 안에서 줄을 바꿔 가며 쓴다(가사처럼 긴 줄). 쓴 높이를 돌려준다.
+    pub unsafe fn para(&self, s: &str, f: &IDWriteTextFormat, x: f32, y: f32, w: f32, c: Rgb, a: f32) -> f32 {
+        let Some(l) = self.layout(s, f, w) else { return 0.0 };
+        let _ = l.SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
+        let mut m = DWRITE_TEXT_METRICS::default();
+        let _ = l.GetMetrics(&mut m);
+        if a > 0.01 && !s.is_empty() {
+            self.color(c, a);
+            self.dc.DrawTextLayout(D2D_POINT_2F { x, y }, &l, &self.brush, D2D1_DRAW_TEXT_OPTIONS_NONE);
+        }
+        m.height
     }
 
     /// 너비 w 안에 한 줄. 넘치면 말줄임.
