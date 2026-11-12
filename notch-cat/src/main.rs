@@ -454,6 +454,7 @@ struct App {
     hidden: bool,
     maxed: bool, // 앞 창이 화면을 꽉 채웠다(일하는 중)
     shy: bool,   // 〃 + 마우스가 가까이 왔다 → 작게 줄어든다
+    note_shy: bool, // 알림이 떠 있는데 마우스가 다가와 접었다(멀어질 때까지 작게)
     last_pt: (i32, i32),
     quotes: Arc<Mutex<quotes::Quotes>>,
     q: Vec<quotes::Quote>,
@@ -621,6 +622,19 @@ impl App {
         }
         let mut pt = POINT::default();
         let _ = GetCursorPos(&mut pt);
+        if let Ok(dir) = std::env::var("NOTCH_CAT_SHOT") {
+            // 시험용: 마우스 위치를 파일(mouse.txt "x,y")에서, 알림을 note.txt 가 생기면 하나 띄운다(원격이 끊겨 마우스를 못 움직이는 PC)
+            let d = PathBuf::from(dir);
+            if let Some((a, b)) = std::fs::read_to_string(d.join("mouse.txt")).ok().and_then(|t| t.trim().split_once(',').map(|(a, b)| (a.parse().unwrap_or(0), b.parse().unwrap_or(0)))) {
+                pt = POINT { x: a, y: b };
+            }
+            if std::fs::remove_file(d.join("note.txt")).is_ok() {
+                let mut n = self.notes.lock().unwrap();
+                n.ver += 1;
+                n.app = "캡처 도구".into();
+                n.title = "캡처가 클립보드에 복사됨".into();
+            }
+        }
         let wpx = (WIN_W * self.scale).round();
         let dxw = if self.cfg.aside { 460.0 * self.scale } else { 0.0 };
         let left = self.mon.left as f32 + ((self.mon.right - self.mon.left) as f32 - wpx) / 2.0 + dxw;
@@ -651,7 +665,16 @@ impl App {
         // 꽉 찬 창에서 일할 때도 고양이는 보인다. 마우스가 탭 쪽으로 올라와 노치에서 10cm쯤(380) 안에 들어오면
         // 탭을 가리지 않게 아주 작게 줄고, 멀어지면(420) 돌아온다. 작은 노치에 마우스를 올리면 펼쳐진다.
         let far = ((mx - WIN_W / 2.0).powi(2) + my * my).sqrt();
-        self.shy = self.maxed && far < if self.shy { 420.0 } else { 380.0 };
+        // 알림이 떠 있을 때도 같다: 마우스가 다가오면 알림을 접고 비켜 준다(화면 캡처 알림 등이 탭을 가리지 않게)
+        let near = far < if self.shy { 420.0 } else { 380.0 };
+        if near && !self.hover && Instant::now() < self.note_until {
+            self.note_until = Instant::now();
+            self.note_shy = true; // 마우스가 멀어질 때까지 작게 있는다
+        }
+        if !near {
+            self.note_shy = false;
+        }
+        self.shy = (self.maxed || self.note_shy) && near;
         let tiny = self.shy && !self.hover;
         if tiny {
             self.face.tail.target = 0.0;
@@ -1577,6 +1600,7 @@ unsafe fn run() -> Result<()> {
         hidden: false,
         maxed: false,
         shy: false,
+        note_shy: false,
         last_pt: (0, 0),
         quotes: {
             let q = Arc::new(Mutex::new(quotes::Quotes::default()));

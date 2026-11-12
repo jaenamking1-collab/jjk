@@ -94,4 +94,17 @@ mod live {
         let r = crate::quotes::get(&super::client().unwrap(), &super::url(37.57, 126.98));
         println!("weather: {:?}", r.as_ref().map(|b| super::parse(b)));
     }
+
+    // 여러 주소를 윈도우 통신으로 시험(WX_URLS 공백 구분)
+    #[test]
+    #[ignore]
+    fn probe_urls() {
+        let c = super::client().unwrap();
+        for u in std::env::var("WX_URLS").unwrap_or_default().split(' ').filter(|u| !u.is_empty()) {
+            match crate::quotes::get(&c, u) {
+                Ok(b) => println!("OK  {u}\n    {}", b.chars().take(300).collect::<String>().replace('\n', " ")),
+                Err(e) => println!("ERR {u}\n    {e:?}"),
+            }
+        }
+    }
 }
