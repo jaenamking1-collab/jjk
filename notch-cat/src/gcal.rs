@@ -285,8 +285,15 @@ fn login(c: &HttpClient, id: &str, secret: &str) -> std::result::Result<(String,
         "https://accounts.google.com/o/oauth2/v2/auth?client_id={}&redirect_uri={}&response_type=code&scope={}&access_type=offline&prompt={}&code_challenge={verifier}&code_challenge_method=plain&state={state}",
         enc(id), enc(&redirect), enc("openid email https://www.googleapis.com/auth/calendar"), enc("select_account consent")
     );
-    unsafe {
-        windows::Win32::UI::Shell::ShellExecuteW(None, &HSTRING::from("open"), &HSTRING::from(url), None, None, windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL);
+    // 시험용: 실행 파일 옆에 login_url.txt 가 있으면 브라우저를 열지 않고 주소를 거기에 적는다
+    let hook = std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join("login_url.txt"))).filter(|f| f.exists());
+    match hook {
+        Some(f) => {
+            let _ = std::fs::write(f, &url);
+        }
+        None => unsafe {
+            windows::Win32::UI::Shell::ShellExecuteW(None, &HSTRING::from("open"), &HSTRING::from(url), None, None, windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL);
+        },
     }
     // 5분 기다린다
     l.set_nonblocking(true).map_err(|e| e.to_string())?;
@@ -333,6 +340,7 @@ pub fn spawn(out: Arc<Mutex<Cal>>) -> mpsc::Sender<Cmd> {
         let Ok(c) = HttpClient::new() else { return };
         let mut tokens: Vec<Option<(String, Instant)>> = Vec::new();
         let mut cmd: Option<Cmd> = Some(Cmd::Refresh);
+        let mut seen_counts = (usize::MAX, 0);
         loop {
             let Some((id, secret)) = client() else {
                 let mut o = out.lock().unwrap();
@@ -413,7 +421,10 @@ pub fn spawn(out: Arc<Mutex<Cal>>) -> mpsc::Sender<Cmd> {
                     cals.push(info);
                 }
             }
-            // 넣을 수 있는 캘린더가 앞에(기본 캘린더 → 나머지)
+            if (cals.len(), events.len()) != seen_counts {
+                seen_counts = (cals.len(), events.len());
+                crate::log(&format!("gcal: 계정 {} 캘린더 {} 일정 {}", accts.len(), cals.len(), events.len()));
+            }
             {
                 let mut o = out.lock().unwrap();
                 o.ready = true;
