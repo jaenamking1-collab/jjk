@@ -54,6 +54,7 @@ const TINY: (f32, f32) = (48.0, 9.0); // 일할 때 줄어든 크기
 const OPEN: (f32, f32) = (460.0, 246.0);
 // 음악 화면 모양: 0 기본(가사 아래) · 1 와이드(소리 막대) · 2 가사 옆
 const MUSIC: [(f32, f32); 3] = [OPEN, (540.0, 128.0), (590.0, 184.0)];
+const WX: [(f32, f32); 2] = [(600.0, 128.0), (600.0, 240.0)]; // 날씨 쪽: 작은 판 · 큰 판
 const MUSIC_NAMES: [&str; 3] = ["기본 (가사 아래)", "와이드 (소리 막대)", "가사 옆"];
 const SHADOW: f32 = 20.0; // 펼쳤을 때 그림자가 번지는 폭
 
@@ -89,6 +90,11 @@ fn local() -> SYSTEMTIME {
     unsafe { GetLocalTime() }
 }
 
+pub fn ymd() -> String {
+    let t = local();
+    format!("{:04}-{:02}-{:02}", t.wYear, t.wMonth, t.wDay)
+}
+
 pub fn hhmm() -> String {
     let t = local();
     format!("{:02}:{:02}", t.wHour, t.wMinute)
@@ -122,6 +128,7 @@ struct Cfg {
     lnk: String, // 바탕화면 바로가기를 마지막으로 만든 실행 파일 경로(같으면 다시 만들지 않는다 — 지운 바로가기가 되살아나지 않게)
     two: bool,   // 시세를 세로 두 칸으로(끄면 시세 위젯처럼 한 칸)
     ml: usize,   // 음악 화면 모양(MUSIC 번호)
+    wbig: bool,  // 날씨 쪽을 큰 판으로
     place: (f64, f64), // 날씨를 볼 곳(위도, 경도). settings.json 의 lat·lon, 없으면 서울
 }
 
@@ -140,11 +147,11 @@ impl Cfg {
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        Cfg { hide_fullscreen: v["hide_fullscreen"].as_bool().unwrap_or(true), autostart: v["autostart"].as_bool().unwrap_or(true), aside: v["aside"].as_bool().unwrap_or(false), tiny: v["tiny"].as_bool().unwrap_or(true), bar: v["bar"].as_bool().unwrap_or(false), two: v["two"].as_bool().unwrap_or(true), ml: (v["ml"].as_u64().unwrap_or(0) as usize).min(2), lnk: v["lnk"].as_str().unwrap_or("").into(), place: (v["lat"].as_f64().unwrap_or(37.57), v["lon"].as_f64().unwrap_or(126.98)) }
+        Cfg { hide_fullscreen: v["hide_fullscreen"].as_bool().unwrap_or(true), autostart: v["autostart"].as_bool().unwrap_or(true), aside: v["aside"].as_bool().unwrap_or(false), tiny: v["tiny"].as_bool().unwrap_or(true), bar: v["bar"].as_bool().unwrap_or(false), two: v["two"].as_bool().unwrap_or(true), ml: (v["ml"].as_u64().unwrap_or(0) as usize).min(2), wbig: v["wbig"].as_bool().unwrap_or(true), lnk: v["lnk"].as_str().unwrap_or("").into(), place: (v["lat"].as_f64().unwrap_or(37.57), v["lon"].as_f64().unwrap_or(126.98)) }
     }
 
     fn save(&self) {
-        let v = serde_json::json!({ "hide_fullscreen": self.hide_fullscreen, "autostart": self.autostart, "aside": self.aside, "tiny": self.tiny, "bar": self.bar, "two": self.two, "ml": self.ml, "lnk": self.lnk, "lat": self.place.0, "lon": self.place.1 });
+        let v = serde_json::json!({ "hide_fullscreen": self.hide_fullscreen, "autostart": self.autostart, "aside": self.aside, "tiny": self.tiny, "bar": self.bar, "two": self.two, "ml": self.ml, "wbig": self.wbig, "lnk": self.lnk, "lat": self.place.0, "lon": self.place.1 });
         let _ = std::fs::write(data_dir().join("settings.json"), v.to_string());
     }
 
@@ -704,7 +711,9 @@ impl App {
         } else if tiny {
             TINY
         } else if self.hover {
-            if self.page == 1 {
+            if self.page == 2 {
+                WX[self.cfg.wbig as usize]
+            } else if self.page == 1 {
                 q_layout(&self.q.iter().map(|q| q.group).collect::<Vec<_>>(), self.big as u8 as f32, self.cfg.cols()).2
             } else if self.n.has {
                 MUSIC[self.cfg.ml]
@@ -723,7 +732,7 @@ impl App {
         if th > BAR_H + 10.0 {
             // 시세 쪽은 작은 판 높이를 '다 펼친 높이'로 삼는다(큰 판으로 자라는 동안 내용이 흐려지지 않게)
             self.open_h = if self.page == 1 && !noting { q_layout(&self.q.iter().map(|q| q.group).collect::<Vec<_>>(), 0.0, self.cfg.cols()).2 .1 } else { th };
-            self.mode = if noting { 2 } else if self.page == 1 { 3 } else if self.n.has { 0 } else { 1 };
+            self.mode = if noting { 2 } else if self.page == 2 { 4 } else if self.page == 1 { 3 } else if self.n.has { 0 } else { 1 };
             self.w.tune(250.0, 0.62);
             self.h.tune(190.0, 0.68);
         } else {
@@ -1033,11 +1042,11 @@ impl App {
             // 쪽 표시(위 가운데 점). 넘기는 손잡이는 몸통 옆에 따로 그린다.
             if p > 0.5 && self.mode != 2 {
                 let pa = ((p - 0.5) * 2.0).clamp(0.0, 1.0);
-                for i in 0..2 {
-                    g.ellipse(x + w / 2.0 + (i as f32 - 0.5) * 12.0, 8.0, 2.5, 2.5, FG, pa * if i == self.page { 0.9 } else { 0.3 });
+                for i in 0..3 {
+                    g.ellipse(x + w / 2.0 + (i as f32 - 1.0) * 12.0, 8.0, 2.5, 2.5, FG, pa * if i == self.page { 0.9 } else { 0.3 });
                 }
             }
-            if a > 0.0 && self.mode == 0 && n.has {
+            if a > 0.0 && ((self.mode == 0 && n.has) || self.mode == 4) {
                 // 모양 바꾸기 단추(오른쪽 아래). 다른 단추보다 먼저 넣어 겹쳐도 이게 눌린다.
                 let (mx, my) = self.mouse;
                 let (bx, by) = (x + w - 26.0, h - 26.0);
@@ -1292,6 +1301,93 @@ impl App {
                     let stale = seen.elapsed() > Duration::from_secs(3600);
                     g.text(&format!("날씨 {}", wx.stamp), &g.f_tiny, x + 14.0, 120.0, w - 28.0, if stale { WARN } else { FG }, a * if stale { 1.0 } else { 0.4 }, Align::Right);
                 }
+            } else if a > 0.0 && self.mode == 4 {
+                // ── 날씨 쪽: 지금 있는 곳의 날씨(큰 판 / 작은 판) ──
+                let wx = &self.wxn;
+                let big = self.cfg.wbig;
+                let (l, r) = (x + 20.0, x + w - 20.0);
+                let dim = |k: f32| a * k;
+                if wx.seen.is_none() {
+                    g.text("날씨를 받는 중…", &g.f_body, l, 50.0, w - 40.0, FG, dim(0.5), Align::Center);
+                } else {
+                    // 위 줄: 동네 · (큰 판이면) 일출·일몰 · 받은 시각
+                    let stale = wx.seen.map_or(true, |t| t.elapsed() > Duration::from_secs(3600));
+                    g.text(if wx.place.is_empty() { "지금 있는 곳" } else { &wx.place }, &g.f_tiny, l, 12.0, 220.0, FG, dim(0.6), Align::Left);
+                    let mut top = format!("날씨 {}", wx.stamp);
+                    if !wx.sunrise.is_empty() {
+                        top = format!("일출 {} · 일몰 {}   {top}", wx.sunrise, wx.sunset);
+                    }
+                    g.text(&top, &g.f_tiny, r - 300.0, 12.0, 300.0, if stale { WARN } else { FG }, dim(if stale { 1.0 } else { 0.5 }), Align::Right);
+                    // 지금: 그림 · 기온 · 하늘 · 최고/최저
+                    let (iy, ik) = if big { (62.0, 1.9) } else { (44.0, 1.25) };
+                    g.zoom(ik, l + 22.0, iy);
+                    wx_icon(g, wx.kind, wx.day, l + 22.0, iy, a);
+                    g.zoom(1.0, 0.0, 0.0);
+                    let tx = l + if big { 58.0 } else { 44.0 };
+                    let temp = format!("{:.0}°", wx.temp);
+                    let tf = if big { &g.f_clock } else { &g.f_title };
+                    g.text(&temp, tf, tx, if big { 36.0 } else { 32.0 }, 90.0, FG, a, Align::Left);
+                    let nx = tx + g.measure(&temp, tf) + 10.0;
+                    g.text(weather::NAMES[wx.kind], &g.f_body, nx, if big { 40.0 } else { 30.0 }, 120.0, FG, a, Align::Left);
+                    g.text(&format!("최고 {:.0}° · 최저 {:.0}°", wx.hi, wx.lo), &g.f_tiny, nx, if big { 60.0 } else { 47.0 }, 140.0, FG, dim(0.6), Align::Left);
+                    // 알아 둘 것들(칸): 체감 · 습도 · 바람 · 자외선 · 강수 · 기압 · 미세먼지
+                    let mut chips: Vec<(String, String, Rgb)> = vec![
+                        ("체감".into(), format!("{:.0}°", wx.feels), FG),
+                        ("습도".into(), format!("{:.0}%", wx.humid), FG),
+                        ("바람".into(), format!("{} {:.1}m/s", weather::wind_name(wx.wind_dir), wx.wind), FG),
+                    ];
+                    if big {
+                        chips.push(("자외선".into(), format!("{:.0} {}", wx.uv, weather::uv_name(wx.uv)), if wx.uv >= 6.0 { WARN } else { FG }));
+                        chips.push(("강수".into(), format!("{:.1}mm", wx.rain), if wx.rain > 0.0 { LIME } else { FG }));
+                        chips.push(("기압".into(), format!("{:.0}hPa", wx.pressure), FG));
+                    }
+                    for (v, fine, name) in [(wx.pm10, false, "미세먼지"), (wx.pm25, true, "초미세먼지")] {
+                        if let Some(v) = v.filter(|_| big || !fine) {
+                            let gr = weather::dust_grade(v, fine);
+                            chips.push((name.into(), format!("{} {:.0}", weather::DUST[gr], v), [LIME, FG, WARN, WARN][gr]));
+                        }
+                    }
+                    if big {
+                        let cw = (r - l) / chips.len() as f32;
+                        for (i, (k, v, c)) in chips.iter().enumerate() {
+                            let cx = l + i as f32 * cw;
+                            g.text(k, &g.f_tiny, cx, 94.0, cw - 6.0, FG, dim(0.5), Align::Left);
+                            g.text(v, &g.f_body, cx, 108.0, cw - 6.0, *c, a, Align::Left);
+                        }
+                    } else {
+                        // 작은 판: 오른쪽에 한 줄로
+                        let mut cx = r - 30.0;
+                        for (k, v, c) in chips.iter().rev() {
+                            let vw = g.measure(v, &g.f_body);
+                            let kw = g.measure(k, &g.f_tiny);
+                            cx -= vw;
+                            g.text(v, &g.f_body, cx, 30.0, vw + 2.0, *c, a, Align::Left);
+                            cx -= kw + 5.0;
+                            g.text(k, &g.f_tiny, cx, 33.0, kw + 2.0, FG, dim(0.5), Align::Left);
+                            cx -= 16.0;
+                            if cx < nx + 130.0 {
+                                break;
+                            }
+                        }
+                    }
+                    // 시간별 12칸
+                    let hy = if big { 144.0 } else { 70.0 };
+                    if big {
+                        g.rrect(l, hy - 8.0, r - l, 1.0, 0.5, FG, dim(0.12));
+                        g.text("시간별", &g.f_tiny, l, hy - 2.0, 60.0, FG, dim(0.5), Align::Left);
+                    }
+                    let y0 = hy + if big { 14.0 } else { 0.0 };
+                    let n = wx.hours.len().max(1);
+                    let cw = (r - l - 26.0) / n as f32;
+                    for (i, hr) in wx.hours.iter().enumerate() {
+                        let cx = l + cw * (i as f32 + 0.5);
+                        g.text(&format!("{}시", hr.hour), &g.f_tiny, cx - cw / 2.0, y0, cw, FG, dim(0.55), Align::Center);
+                        g.zoom(0.8, cx, y0 + 25.0);
+                        wx_icon(g, hr.kind, hr.day, cx, y0 + 25.0, a);
+                        g.zoom(1.0, 0.0, 0.0);
+                        g.text(&format!("{:.0}°", hr.temp), &g.f_time, cx - cw / 2.0, y0 + 37.0, cw, FG, a, Align::Center);
+                    }
+                }
             } else if a > 0.0 && self.mode == 3 {
                 // 시세 쪽: 설정의 --- 구분선으로 나뉜 구역마다 윤기 나는 버튼 하나. 누르면 값까지 나오는 큰 판으로 자란다.
                 g.text("시세", &g.f_title, x + 20.0, 15.0, 120.0, FG, a, Align::Left);
@@ -1377,7 +1473,7 @@ impl App {
 
     /// 쪽 넘기기. 지금은 두 쪽이라 어느 쪽으로 넘겨도 서로 오간다.
     unsafe fn turn(&mut self, d: i32) {
-        const PAGES: i32 = 2;
+        const PAGES: i32 = 3;
         if !self.hover || self.paged.elapsed() < Duration::from_millis(250) {
             return;
         }
@@ -1395,7 +1491,11 @@ impl App {
             return self.turn(d);
         }
         if let Hit::Layout = hit {
-            self.cfg.ml = (self.cfg.ml + 1) % MUSIC.len();
+            if self.page == 2 {
+                self.cfg.wbig = !self.cfg.wbig;
+            } else {
+                self.cfg.ml = (self.cfg.ml + 1) % MUSIC.len();
+            }
             self.cfg.save();
             self.pgf.pos = 0.0;
             self.pgf.target = 1.0;
