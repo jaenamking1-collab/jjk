@@ -15,16 +15,16 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::quotes::{self, Quotes, IDX_BTNS};
 
-const fn rgb(r: u32, g: u32, b: u32) -> COLORREF {
+pub(crate) const fn rgb(r: u32, g: u32, b: u32) -> COLORREF {
     COLORREF(r | g << 8 | b << 16)
 }
-const BG: COLORREF = rgb(0x0E, 0x10, 0x14);
-const FIELD: COLORREF = rgb(0x1A, 0x1E, 0x26);
-const FG: COLORREF = rgb(0xF3, 0xF4, 0xF6);
-const DIM: COLORREF = rgb(0xA4, 0xAC, 0xB8);
-const LIME: COLORREF = rgb(0xA3, 0xE6, 0x35);
-const INK: COLORREF = rgb(0x10, 0x16, 0x0B);
-const BAD: COLORREF = rgb(0xFF, 0x5C, 0x66);
+pub(crate) const BG: COLORREF = rgb(0x0E, 0x10, 0x14);
+pub(crate) const FIELD: COLORREF = rgb(0x1A, 0x1E, 0x26);
+pub(crate) const FG: COLORREF = rgb(0xF3, 0xF4, 0xF6);
+pub(crate) const DIM: COLORREF = rgb(0xA4, 0xAC, 0xB8);
+pub(crate) const LIME: COLORREF = rgb(0xA3, 0xE6, 0x35);
+pub(crate) const INK: COLORREF = rgb(0x10, 0x16, 0x0B);
+pub(crate) const BAD: COLORREF = rgb(0xFF, 0x5C, 0x66);
 
 const ID_EDIT: i32 = 10;
 const ID_IDX: i32 = 100; // 지수 버튼 100…105
@@ -53,11 +53,11 @@ pub fn hwnd() -> Option<HWND> {
     st().map(|s| s.win)
 }
 
-fn wz(s: &str) -> Vec<u16> {
+pub(crate) fn wz(s: &str) -> Vec<u16> {
     s.encode_utf16().chain([0]).collect()
 }
 
-unsafe fn text_of(h: HWND) -> String {
+pub(crate) unsafe fn text_of(h: HWND) -> String {
     let mut buf = vec![0u16; GetWindowTextLengthW(h) as usize + 1];
     let n = GetWindowTextW(h, &mut buf) as usize;
     String::from_utf16_lossy(&buf[..n])
@@ -138,6 +138,35 @@ pub unsafe fn open(quotes: Arc<Mutex<Quotes>>, icon: HICON) {
     let _ = SetFocus(edit);
 }
 
+
+/// 둥근 단추 그리기(설정 창·일정 넣기 창이 같이 쓴다). on = 라임(켜짐·저장).
+pub(crate) unsafe fn paint_button(d: &DRAWITEMSTRUCT, on: bool, bg: HBRUSH) {
+            let down = d.itemState.0 & ODS_SELECTED.0 != 0;
+            let fill = match (on, down) {
+                (true, false) => LIME,
+                (true, true) => rgb(0x86, 0xC4, 0x24),
+                (false, false) => FIELD,
+                (false, true) => rgb(0x26, 0x2C, 0x38),
+            };
+            let (rc, dc) = (d.rcItem, d.hDC);
+            FillRect(dc, &rc, bg);
+            let brush = CreateSolidBrush(fill);
+            let focus = d.itemState.0 & ODS_FOCUS.0 != 0;
+            let pen = CreatePen(PS_SOLID, 1, if focus && !on { LIME } else { fill });
+            let (ob, op) = (SelectObject(dc, brush), SelectObject(dc, pen));
+            let r = (rc.bottom - rc.top) * 2 / 5;
+            let _ = RoundRect(dc, rc.left, rc.top, rc.right, rc.bottom, r, r);
+            SelectObject(dc, ob);
+            SelectObject(dc, op);
+            let _ = DeleteObject(brush);
+            let _ = DeleteObject(pen);
+            SetBkMode(dc, TRANSPARENT);
+            SetTextColor(dc, if on { INK } else { FG });
+            let mut t: Vec<u16> = text_of(d.hwndItem).encode_utf16().collect();
+            let mut tr = RECT { top: rc.top + down as i32, bottom: rc.bottom + down as i32, ..rc };
+            DrawTextW(dc, &mut t, &mut tr, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+}
+
 unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     let Some(s) = st() else { return DefWindowProcW(hwnd, msg, wp, lp) };
     match msg {
@@ -159,30 +188,7 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             let id = d.CtlID as i32;
             // 켜진 지수 버튼과 저장은 라임, 나머지는 입력칸 색
             let on = id == IDOK.0 || idx_rows().get((id - ID_IDX) as usize).is_some_and(|r| quotes::has_idx(&quotes::text_lines(&text_of(s.edit)), r.1));
-            let down = d.itemState.0 & ODS_SELECTED.0 != 0;
-            let fill = match (on, down) {
-                (true, false) => LIME,
-                (true, true) => rgb(0x86, 0xC4, 0x24),
-                (false, false) => FIELD,
-                (false, true) => rgb(0x26, 0x2C, 0x38),
-            };
-            let (rc, dc) = (d.rcItem, d.hDC);
-            FillRect(dc, &rc, s.brushes[0]);
-            let brush = CreateSolidBrush(fill);
-            let focus = d.itemState.0 & ODS_FOCUS.0 != 0;
-            let pen = CreatePen(PS_SOLID, 1, if focus && !on { LIME } else { fill });
-            let (ob, op) = (SelectObject(dc, brush), SelectObject(dc, pen));
-            let r = (rc.bottom - rc.top) * 2 / 5;
-            let _ = RoundRect(dc, rc.left, rc.top, rc.right, rc.bottom, r, r);
-            SelectObject(dc, ob);
-            SelectObject(dc, op);
-            let _ = DeleteObject(brush);
-            let _ = DeleteObject(pen);
-            SetBkMode(dc, TRANSPARENT);
-            SetTextColor(dc, if on { INK } else { FG });
-            let mut t: Vec<u16> = text_of(d.hwndItem).encode_utf16().collect();
-            let mut tr = RECT { top: rc.top + down as i32, bottom: rc.bottom + down as i32, ..rc };
-            DrawTextW(dc, &mut t, &mut tr, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+            paint_button(d, on, s.brushes[0]);
             return LRESULT(1);
         }
         WM_COMMAND => {

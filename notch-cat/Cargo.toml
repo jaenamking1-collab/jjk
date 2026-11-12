@@ -16,7 +16,7 @@ features = [
   "Foundation", "Foundation_Collections", "Media_Control", "Storage_Streams", "Web_Http", "Web_Http_Headers",
   "Foundation_Numerics", "UI_Notifications", "UI_Notifications_Management", "ApplicationModel",
   "Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_HiDpi", "Win32_UI_Shell",
-  "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Controls", "Media", "Win32_Media_Audio", "Win32_Media_Audio_Endpoints", "Devices_Geolocation", "Web_Http_Filters", "Security_Cryptography_Certificates", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm",
+  "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Controls", "Media", "Win32_Media_Audio", "Win32_Media_Audio_Endpoints", "Devices_Geolocation", "Web_Http_Filters", "Security_Cryptography_Certificates", "Win32_Security_Cryptography", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm",
   "Win32_Graphics_Direct2D", "Win32_Graphics_Direct2D_Common", "Win32_Graphics_DirectWrite",
   "Win32_Graphics_DirectComposition", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11",
   "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_Graphics_Imaging",
