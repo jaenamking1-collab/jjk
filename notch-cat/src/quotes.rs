@@ -22,6 +22,7 @@ pub struct Quotes {
     pub stamp: String,         // 마지막으로 받은 시각 "hh:mm"
     pub seen: Option<Instant>, // 〃
     pub reload: bool,          // 설정을 방금 고쳤다 → 기다리지 말고 바로 다시 받는다
+    pub tried: String,         // 마지막으로 받아 보려 한 시각(하나도 못 받았을 때 '받는 중'에 멈춰 있지 않게)
 }
 
 #[derive(PartialEq, Debug)]
@@ -214,9 +215,16 @@ pub fn get(c: &HttpClient, url: &str) -> Result<String> {
 pub fn config_path() -> std::path::PathBuf {
     match std::env::var("NOTCH_CAT_TICKER_CONFIG") {
         Ok(p) if !p.is_empty() => p.into(),
-        _ => std::path::PathBuf::from(std::env::var("USERPROFILE").unwrap_or_default()).join("claude-memory/ticker/ticker_config.json"),
+        _ => {
+            // 내 PC 두 대는 시세 위젯과 같은 공용 목록. 그게 없는 PC(전산실 등)는 노치 고양이 자기 목록.
+            let shared = std::path::PathBuf::from(std::env::var("USERPROFILE").unwrap_or_default()).join("claude-memory");
+            if shared.is_dir() { shared.join("ticker/ticker_config.json") } else { crate::data_dir().join("ticker_config.json") }
+        }
     }
 }
+
+/// 목록이 없을 때 쓰는 기본 종목(시세 위젯 DEFAULT 와 같다).
+pub const DEFAULT: [&str; 9] = ["KOSPI=코스피", "069500=코덱스200", "USDKRW=X=환율", "---", "BTC-KRW=비트코인", "XRP-KRW=XRP", "---", "AAPL", "NVDA"];
 
 /// 목록의 줄들(적힌 그대로).
 pub fn read_lines(path: &std::path::Path) -> Vec<String> {
@@ -272,7 +280,11 @@ pub fn toggle_idx(lines: &mut Vec<String>, row: &str) {
 fn config() -> Vec<(String, String, usize)> {
     let mut group = 0;
     let mut out = Vec::new();
-    for line in read_lines(&config_path()) {
+    let mut lines = read_lines(&config_path());
+    if lines.is_empty() {
+        lines = DEFAULT.iter().map(|s| s.to_string()).collect();
+    }
+    for line in lines {
         if line.starts_with("---") {
             group += 1;
         } else {
@@ -347,6 +359,7 @@ pub fn spawn(out: Arc<Mutex<Quotes>>) {
         let (mut gecko, mut bithumb_off) = (Gecko::default(), None);
         loop {
             let list = fetch(&c, &mut gecko, &mut bithumb_off);
+            out.lock().unwrap().tried = crate::hhmm();
             if !list.is_empty() {
                 let mut o = out.lock().unwrap();
                 o.list = list;
@@ -475,5 +488,31 @@ mod live {
         for q in fetch(&c, &mut g, &mut off).iter().skip(5).take(3) {
             println!("2nd {:<20} {:>14} {:+.2}%", q.name, q.price, q.pct);
         }
+    }
+}
+
+#[cfg(test)]
+mod no_shared {
+    use super::*;
+
+    // 공용 목록(claude-memory)이 없는 PC: 기본 목록으로 실제로 받아지는지(통신 필요): cargo test no_shared -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn fresh_pc_gets_default_quotes() {
+        let home = std::env::temp_dir().join(format!("notch-cat-fresh-{}", std::process::id()));
+        std::fs::create_dir_all(&home).unwrap();
+        std::env::set_var("USERPROFILE", &home);
+        assert!(!config_path().starts_with(&home), "공용 목록 자리가 아니라 노치 고양이 폴더여야 한다: {:?}", config_path());
+        assert_eq!(config().len(), 7);
+        let c = HttpClient::new().unwrap();
+        let h = c.DefaultRequestHeaders().unwrap();
+        h.UserAgent().unwrap().TryParseAdd(&HSTRING::from("Mozilla/5.0")).unwrap();
+        h.Append(&HSTRING::from("Referer"), &HSTRING::from("https://finance.naver.com/")).unwrap();
+        let got = fetch(&c, &mut Gecko::default(), &mut None);
+        for q in &got {
+            println!("{} {:<12} {:>14} {:+.2}%", q.group, q.name, q.price, q.pct);
+        }
+        assert!(got.len() >= 5, "기본 목록 7개 중 {}개만", got.len());
+        let _ = std::fs::remove_dir(&home);
     }
 }

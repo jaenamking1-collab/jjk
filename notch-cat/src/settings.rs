@@ -79,7 +79,10 @@ pub unsafe fn open(quotes: Arc<Mutex<Quotes>>, icon: HICON) {
     let k = GetDpiForSystem() as f32 / 96.0;
     let px = |v: f32| (v * k).round() as i32;
     let path = quotes::config_path();
-    let lines = quotes::read_lines(&path);
+    let mut lines = quotes::read_lines(&path);
+    if lines.is_empty() {
+        lines = quotes::DEFAULT.iter().map(|s| s.to_string()).collect(); // 처음엔 기본 목록을 보여 주고 고치게
+    }
     // ponytail: 줄이 24줄을 넘으면 입력칸 안에서 휠·화살표로 넘겨 본다(스크롤 막대 없음)
     let edit_h = (lines.len() + 2).clamp(10, 24) as f32 * 18.0 + 12.0;
     let h = 100.0 + edit_h + 168.0;

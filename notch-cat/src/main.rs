@@ -450,6 +450,7 @@ struct App {
     quotes: Arc<Mutex<quotes::Quotes>>,
     q: Vec<quotes::Quote>,
     q_stamp: String,
+    q_tried: String,
     q_seen: Option<Instant>,
     pct: Option<(String, Rgb)>, // 닫힘 시세 한 줄의 등락률(색을 따로 칠한다)
     typing: bool,
@@ -532,6 +533,10 @@ impl App {
         let line = cur.map(|i| self.lines[i].1.as_str()).filter(|s| !s.is_empty());
         {
             let q = self.quotes.lock().unwrap();
+            if q.tried != self.q_tried {
+                self.q_tried = q.tried.clone();
+                self.dirty = true;
+            }
             if q.seen != self.q_seen {
                 self.q = q.list.clone();
                 self.q_stamp = q.stamp.clone();
@@ -1090,7 +1095,8 @@ impl App {
                 // 시세 쪽: 설정의 --- 구분선으로 나뉜 구역마다 윤기 나는 버튼 하나. 누르면 값까지 나오는 큰 판으로 자란다.
                 g.text("시세", &g.f_title, x + 20.0, 15.0, 120.0, FG, a, Align::Left);
                 if self.q.is_empty() {
-                    g.text("시세를 받는 중…", &g.f_body, x + 20.0, 56.0, w - 40.0, FG, a * 0.5, Align::Center);
+                    let msg = if self.q_tried.is_empty() { "시세를 받는 중…".to_string() } else { format!("{} 시세를 못 받았습니다 · 15초마다 다시 시도", self.q_tried) };
+                    g.text(&msg, &g.f_body, x + 20.0, 56.0, w - 40.0, if self.q_tried.is_empty() { FG } else { WARN }, a * if self.q_tried.is_empty() { 0.5 } else { 1.0 }, Align::Center);
                 }
                 let k = self.bg.pos.clamp(0.0, 1.0);
                 let groups: Vec<usize> = self.q.iter().map(|q| q.group).collect();
@@ -1289,7 +1295,16 @@ unsafe fn tray(hwnd: HWND, add: bool) {
 unsafe fn run() -> Result<()> {
     let _one = CreateMutexW(None, true, w!("notch-cat-single"))?;
     if GetLastError() == ERROR_ALREADY_EXISTS {
-        return Ok(()); // 이미 켜져 있다
+        // 이미 켜져 있으면 그걸 닫고 내가 대신 뜬다(새로 받은 판을 실행하면 그대로 바뀌게)
+        let Ok(old) = FindWindowW(w!("NotchCat"), None) else { return Ok(()) };
+        let _ = PostMessageW(old, WM_CLOSE, WPARAM(0), LPARAM(0));
+        for _ in 0..40 {
+            std::thread::sleep(Duration::from_millis(100));
+            if !IsWindow(old).as_bool() {
+                break;
+            }
+        }
+        log("replaced the running copy");
     }
     trim_log();
     log(&format!("start {VERSION}"));
@@ -1374,6 +1389,7 @@ unsafe fn run() -> Result<()> {
         },
         q: Vec::new(),
         q_stamp: String::new(),
+        q_tried: String::new(),
         q_seen: None,
         pct: None,
         typing: false,
