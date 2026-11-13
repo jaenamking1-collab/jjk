@@ -79,6 +79,19 @@ fn art_bytes(p: &Props) -> Result<Vec<u8>> {
     Ok(buf)
 }
 
+/// 파일에 든 앨범 그림(윈도우 탐색기 썸네일과 같은 것). 레거시 WMP 는 그림을 안 넘겨 줘서 파일에서 직접 읽는다.
+fn file_art(path: &str) -> Result<Vec<u8>> {
+    use windows::Storage::{FileProperties::ThumbnailMode, StorageFile};
+    let f = StorageFile::GetFileFromPathAsync(&windows::core::HSTRING::from(path))?.get()?;
+    let stream = f.GetThumbnailAsyncOverloadDefaultSizeDefaultOptions(ThumbnailMode::MusicView)?.get()?;
+    let n = stream.Size()? as u32;
+    let rd = DataReader::CreateDataReader(&stream)?;
+    rd.LoadAsync(n)?.get()?;
+    let mut buf = vec![0u8; n as usize];
+    rd.ReadBytes(&mut buf)?;
+    Ok(buf)
+}
+
 fn now_ticks() -> i64 {
     // 1601년부터 100ns (윈도우 DateTime 과 같은 눈금)
     let d = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
@@ -87,6 +100,7 @@ fn now_ticks() -> i64 {
 
 pub fn spawn(now: Arc<Mutex<Now>>, lyr: Arc<Mutex<Lyr>>) -> mpsc::Sender<Cmd> {
     let (tx, rx) = mpsc::channel::<Cmd>();
+    let (wmp, wtx) = crate::wmp::spawn(crate::log);
     std::thread::spawn(move || {
         let mut mgr: Option<Manager> = None;
         let mut key = String::new(); // 지금 곡
@@ -113,7 +127,14 @@ pub fn spawn(now: Arc<Mutex<Now>>, lyr: Arc<Mutex<Lyr>>) -> mpsc::Sender<Cmd> {
                 }
             }
             let sess = pick(mgr.as_ref().unwrap());
-            if let (Ok(c), true) = (&cmd, key.starts_with("ALSong|")) {
+            if let (Ok(c), true) = (&cmd, key.starts_with("WMP|")) {
+                use crate::wmp::Cmd as W;
+                let w = match c { Cmd::Toggle => Some(W::Toggle), Cmd::Next => Some(W::Next), Cmd::Prev => Some(W::Prev), Cmd::Seek(ms) => Some(W::Seek(*ms)), _ => None };
+                if let Some(w) = w {
+                    let _ = wtx.send(w);
+                }
+                std::thread::sleep(Duration::from_millis(400)); // 플레이어 스레드가 명령을 보내고 다시 읽을 틈
+            } else if let (Ok(c), true) = (&cmd, key.starts_with("ALSong|")) {
                 let code = match c { Cmd::Toggle => 14, Cmd::Next => 11, Cmd::Prev => 12, _ => 0 };
                 if code > 0 && !crate::alsong::cmd(code) {
                     crate::log("WARN 알송 명령 실패");
@@ -153,6 +174,39 @@ pub fn spawn(now: Arc<Mutex<Now>>, lyr: Arc<Mutex<Lyr>>) -> mpsc::Sender<Cmd> {
                     crate::log(&format!("WARN 재생 명령 실패: {e}"));
                 }
                 std::thread::sleep(Duration::from_millis(120)); // 재생기가 상태를 바꿀 틈
+            }
+            // 레거시 Windows Media Player 도 '지금 재생'에 안 나온다. 다른 재생기가 안 틀 때(또는 이미 보고 있던 게 이것일 때) 보인다.
+            let w = wmp.lock().unwrap().clone();
+            if let Some(w) = w.filter(|w| !w.title.is_empty() && (w.playing || sess.is_none() || key.starts_with("WMP|")) && !sess.as_ref().map_or(false, playing)) {
+                let k = format!("WMP|{}|{}", w.artist, w.title);
+                let changed = k != key;
+                if changed {
+                    key = k.clone();
+                    since = 0;
+                    crate::log(&format!("WMP: '{}' / '{}' 길이 {}초", w.title, w.artist, w.dur_ms / 1000));
+                }
+                since += 1;
+                let art = if changed { file_art(&w.path).ok().filter(|b| !b.is_empty()).map(Arc::new) } else { None };
+                {
+                    let mut n = now.lock().unwrap();
+                    if changed {
+                        *n = Now { app: "wmplayer".into(), art, ..Default::default() };
+                    }
+                    n.has = true;
+                    n.title = w.title.clone();
+                    n.artist = w.artist.clone();
+                    n.playing = w.playing;
+                    n.pos_ms = w.pos_ms;
+                    n.pos_at = Some(Instant::now());
+                    n.dur_ms = w.dur_ms;
+                    n.seen = Some(Instant::now());
+                    n.stamp = crate::hhmm();
+                }
+                if lyr_key != key {
+                    lyr_key = key.clone();
+                    lyrics::fetch(lyr.clone(), key.clone(), w.title, w.artist, w.dur_ms);
+                }
+                continue;
             }
             // 알송은 '지금 재생'에 안 나온다. 다른 재생기가 안 틀 때만 창 제목으로 대신 보인다.
             if !sess.as_ref().map_or(false, playing) {

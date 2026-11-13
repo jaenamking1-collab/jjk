@@ -13,6 +13,7 @@ mod meter;
 mod notif;
 mod queue;
 mod alsong;
+mod wmp;
 mod quotes;
 mod settings;
 mod spring;
