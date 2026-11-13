@@ -97,7 +97,7 @@ pub fn calendars(c: &HttpClient, id: &str, pw: &str) -> std::result::Result<Vec<
     let ask = |url: &str, depth: &str, q: &str| -> std::result::Result<String, String> {
         match dav(c, "PROPFIND", url, id, pw, Some(depth), Some((q, XML)), None) {
             Ok((207, b)) => Ok(b),
-            Ok((401 | 403, _)) => Err("네이버 아이디나 비밀번호가 맞지 않습니다".into()),
+            Ok((401 | 403, _)) => Err("네이버가 거절했습니다. 로그인 비밀번호가 아니라 '애플리케이션 비밀번호'를 넣어 주세요".into()),
             Ok((st, _)) => Err(format!("네이버가 응답하지 않습니다({st})")),
             Err(e) => Err(format!("네이버에 닿지 않습니다: {e}")),
         }
@@ -145,7 +145,29 @@ pub fn events(c: &HttpClient, id: &str, pw: &str, url: &str, from: i64, to: i64,
         r#"<?xml version="1.0" encoding="utf-8"?><c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:prop><c:calendar-data/></d:prop><c:filter><c:comp-filter name="VCALENDAR"><c:comp-filter name="VEVENT"><c:time-range start="{a}" end="{b}"/></c:comp-filter></c:comp-filter></c:filter></c:calendar-query>"#
     );
     match dav(c, "REPORT", url, id, pw, Some("1"), Some((&q, XML)), None) {
-        Ok((207, body)) => Ok(elems(&body, "calendar-data").iter().flat_map(|d| parse_ics(&unxml(d), color, from, to)).collect()),
+        Ok((207, body)) => {
+            let resps = elems(&body, "response");
+            let mut datas: Vec<String> = elems(&body, "calendar-data").iter().map(|d| unxml(d)).filter(|d| d.contains("BEGIN:")).collect();
+            let hrefs: Vec<String> = resps.iter().filter_map(|r| elems(r, "href").into_iter().next()).map(unxml).filter(|h| !url.ends_with(h.as_str())).collect();
+            if datas.is_empty() && !hrefs.is_empty() {
+                // 목록만 주고 내용은 안 주는 서버: 주소로 한 번에 다시 받는다
+                let hs: String = hrefs.iter().map(|h| format!("<d:href>{}</d:href>", h.replace('&', "&amp;"))).collect();
+                let q = format!(r#"<?xml version="1.0" encoding="utf-8"?><c:calendar-multiget xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:prop><c:calendar-data/></d:prop>{hs}</c:calendar-multiget>"#);
+                if let Ok((207, b)) = dav(c, "REPORT", url, id, pw, Some("1"), Some((&q, XML)), None) {
+                    datas = elems(&b, "calendar-data").iter().map(|d| unxml(d)).filter(|d| d.contains("BEGIN:")).collect();
+                }
+            }
+            let ev: Vec<Event> = datas.iter().flat_map(|d| parse_ics(d, color, from, to)).collect();
+            let mut line = format!("naver: 일정 응답 {} 자료 {} 일정 {}", resps.len(), datas.len(), ev.len());
+            if ev.is_empty() {
+                // 정말 비었나, 받는 방법이 틀렸나: 캘린더 안 전체 개수와 응답 앞부분을 남긴다(제목은 안 나온다)
+                let all = dav(c, "PROPFIND", url, id, pw, Some("1"), Some((r#"<?xml version="1.0" encoding="utf-8"?><d:propfind xmlns:d="DAV:"><d:prop><d:getetag/></d:prop></d:propfind>"#, XML)), None)
+                    .map(|(st, b)| format!("{st}/{}", elems(&b, "response").len().saturating_sub(1))).unwrap_or_else(|e| e.to_string());
+                line += &format!(" (캘린더 안 전체 {all}, 응답 {:?})", body.chars().take(200).collect::<String>());
+            }
+            crate::log(&line);
+            Ok(ev)
+        }
         Ok((st, _)) => Err(format!("{st}")),
         Err(e) => Err(e.to_string()),
     }
@@ -383,7 +405,8 @@ pub fn parse_ics(ics: &str, color: (f32, f32, f32), from: i64, to: i64) -> Vec<E
 /// 아이디·비밀번호 묻는 창(윈도우 기본 창). 취소하면 None.
 pub fn ask(owner: isize) -> Option<(String, String)> {
     use windows::Win32::Security::Credentials::*;
-    let msg: Vec<u16> = "네이버 아이디와 애플리케이션 비밀번호를 넣어 주세요.\n(네이버 → 내정보 → 보안설정 → 2단계 인증 → 애플리케이션 비밀번호. 2단계 인증을 안 쓰면 로그인 비밀번호)\0".encode_utf16().collect();
+    let msg: Vec<u16> = "사용자 이름: 네이버 아이디
+암호: 네이버에서 만든 '애플리케이션 비밀번호'(로그인 비밀번호 아님) ".encode_utf16().collect();
     let cap: Vec<u16> = "노치 고양이 - 네이버 캘린더 연결\0".encode_utf16().collect();
     let info = CREDUI_INFOW { cbSize: std::mem::size_of::<CREDUI_INFOW>() as u32, hwndParent: windows::Win32::Foundation::HWND(owner as _), pszMessageText: PCWSTR(msg.as_ptr()), pszCaptionText: PCWSTR(cap.as_ptr()), ..Default::default() };
     let (mut user, mut pass) = ([0u16; 514], [0u16; 257]);
@@ -435,6 +458,6 @@ mod tests {
         let c = windows::Web::Http::Filters::HttpBaseProtocolFilter::new().and_then(|f| { f.SetAllowUI(false)?; HttpClient::Create(&f) }).unwrap();
         let r = calendars(&c, "nobody_test_x", "wrong");
         println!("{:?}", r.as_ref().err());
-        assert_eq!(r.err().as_deref(), Some("네이버 아이디나 비밀번호가 맞지 않습니다"));
+        assert!(r.err().unwrap().starts_with("네이버가 거절했습니다"));
     }
 }

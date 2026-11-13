@@ -597,6 +597,9 @@ enum Hit {
     CalLogin,    // 달력: 구글 계정 연결
     CalNaver,    // 달력: 네이버 캘린더 연결
     CalAcct,     // 달력: '＋ 계정' 고르기 판 열고 닫기
+    NaverOpen,   // 네이버 안내: 보안설정 페이지 열기
+    NaverInput,  // 네이버 안내: 아이디·비밀번호 창
+    NaverClose,  // 네이버 안내 닫기
     EntField,    // 일정 넣기: 글자 칸(자판을 다시 잡는다)
     EntDay(usize),
     EntTime(usize),
@@ -667,6 +670,8 @@ struct App {
     cal_month: i32,    // 이번 달에서 몇 달 넘겼나
     cal_big: bool,     // 달력을 눌러 크게 편 판(칸마다 일정 제목)
     acct_menu: bool, // '＋ 계정' 고르기 판이 열려 있다
+    naver_guide: bool, // 네이버 연결 안내 판(연결되면 저절로 닫힘)
+    naver_n: usize,    // 안내를 열 때 연결돼 있던 네이버 계정 수
     cal_pop: Option<(i64, usize)>, // 큰 달력에서 눌러 연 일정(날, 그날 몇 번째)
     cal_sel: i64,      // 고른 날
     cal_wait: Instant, // 브라우저에서 로그인하는 중(이때까지)
@@ -967,7 +972,10 @@ impl App {
             TINY
         } else if self.hover {
             if self.page == 3 {
-                if self.caln.accounts.is_empty() { (440.0, 140.0) } else if self.cal_big { CAL_BIG } else { CALV[self.cfg.cv] }
+                if self.naver_guide && self.caln.accounts.iter().filter(|a| a.starts_with("네이버 ")).count() > self.naver_n {
+                    self.naver_guide = false; // 연결됐다
+                }
+                if self.naver_guide { (600.0, 262.0) } else if self.caln.accounts.is_empty() { (440.0, 140.0) } else if self.cal_big { CAL_BIG } else { CALV[self.cfg.cv] }
             } else if self.page == 2 {
                 WX[self.cfg.wbig as usize]
             } else if self.page == 1 {
@@ -1309,7 +1317,7 @@ impl App {
             // 다음 곡 목록이 펼쳐지는 만큼 오른쪽을 떼어 둔다(음악 화면은 제 너비 그대로)
             let qw = if self.mode == 0 && n.has && self.page == 0 { (w - MUSIC[self.cfg.ml].0).clamp(0.0, QW) } else { 0.0 };
             let w = w - qw;
-            if a > 0.0 && ((self.mode == 0 && n.has) || self.mode == 4 || (self.mode == 5 && !self.caln.accounts.is_empty())) {
+            if a > 0.0 && ((self.mode == 0 && n.has) || self.mode == 4 || (self.mode == 5 && !self.caln.accounts.is_empty() && !self.naver_guide)) {
                 // 모양 바꾸기 단추(오른쪽 아래): 글자가 들어간 알약. 음악·날씨·달력 모두 같은 자리·같은 모양.
                 let (mx, my) = self.mouse;
                 let (bw, bh) = (64.0, 24.0);
@@ -1606,7 +1614,39 @@ impl App {
                 let (l, r) = (x + 20.0, x + w - 20.0);
                 let (today, now) = gcal::today();
                 let over = |b: [f32; 4]| live && mx >= b[0] && mx < b[2] && my >= b[1] && my < b[3];
-                if cal.accounts.is_empty() {
+                if self.naver_guide {
+                    // 네이버 연결 안내: 처음 하는 사람도 따라 할 수 있게 순서대로
+                    g.ellipse(l + 9.0, 28.0, 9.0, 9.0, NAVER, a);
+                    g.text("N", &g.f_small, l, 19.0, 18.0, FG, a, Align::Center);
+                    g.text("네이버 캘린더 연결", &g.f_title, l + 26.0, 15.0, 300.0, FG, a, Align::Left);
+                    let steps = [
+                        ("1", "네이버 보안설정에서 '2단계 인증'을 켭니다", "아래 '보안설정 열기' → 2단계 인증 관리 (이미 켜져 있으면 넘어가세요)"),
+                        ("2", "'애플리케이션 비밀번호'를 하나 만듭니다", "2단계 인증 관리 → 애플리케이션 비밀번호 관리 → 기기 '기타' → 생성 → 나온 비밀번호 복사"),
+                        ("3", "노치에 아이디와 그 비밀번호를 넣습니다", "'아이디·비밀번호 넣기' → 사용자 이름에 네이버 아이디, 암호에 복사한 비밀번호"),
+                    ];
+                    for (i, (n, head, sub)) in steps.iter().enumerate() {
+                        let y = 54.0 + i as f32 * 42.0;
+                        g.ellipse(l + 9.0, y + 9.0, 9.0, 9.0, NAVER, a * 0.9);
+                        g.text(n, &g.f_tiny, l, y + 2.0, 18.0, FG, a, Align::Center);
+                        g.text(head, &g.f_body, l + 26.0, y - 1.0, r - l - 26.0, FG, a, Align::Left);
+                        g.text(sub, &g.f_tiny, l + 26.0, y + 19.0, r - l - 26.0, FG, a * 0.55, Align::Left);
+                    }
+                    g.text("로그인 비밀번호로는 연결되지 않습니다. 넣은 비밀번호는 이 PC 안에만 잠가 둡니다.", &g.f_tiny, l, 182.0, r - l, LIME, a * 0.8, Align::Left);
+                    let by = 204.0;
+                    let mut bx = l;
+                    for (label, wdt, c, hit) in [("보안설정 열기", 128.0, NAVER, Hit::NaverOpen), ("아이디·비밀번호 넣기", 170.0, LIME, Hit::NaverInput), ("닫기", 64.0, FG, Hit::NaverClose)] {
+                        let b = [bx, by, bx + wdt, by + 32.0];
+                        g.rrect(b[0], b[1], wdt, 32.0, 16.0, c, a * if over(b) { 0.45 } else { 0.22 });
+                        g.text(label, &g.f_small, b[0], b[1] + 7.0, wdt, FG, a, Align::Center);
+                        if live {
+                            self.hits.push((b, hit));
+                        }
+                        bx += wdt + 8.0;
+                    }
+                    if cal.note.starts_with("네이버") {
+                        g.text(&cal.note, &g.f_tiny, l, h - 18.0, r - l, WARN, a, Align::Left);
+                    }
+                } else if cal.accounts.is_empty() {
                     g.text("달력", &g.f_title, l, 15.0, 120.0, FG, a, Align::Left);
                     if !cal.ready {
                         g.text("구글 캘린더 연결을 준비하는 중입니다 (등록증이 아직 없습니다)", &g.f_body, l, 60.0, w - 40.0, FG, a * 0.6, Align::Center);
@@ -2268,7 +2308,9 @@ impl App {
     unsafe fn leave(&mut self) {
         self.tracking = false;
         self.hover = false;
-        self.page = 0;
+        if !self.naver_guide {
+            self.page = 0; // 네이버 안내 중이면 브라우저에 다녀와도 달력 쪽 그대로
+        }
         self.cal_month = 0;
         self.cal_big = false;
         self.cal_pop = None;
@@ -2699,6 +2741,19 @@ impl App {
             Hit::EntSave => self.ent_save(),
             Hit::EntClose => self.ent_close(),
             Hit::CalNaver => {
+                self.naver_guide = true;
+                self.naver_n = self.caln.accounts.iter().filter(|a| a.starts_with("네이버 ")).count();
+                self.cal_big = false;
+                self.tick();
+            }
+            Hit::NaverClose => {
+                self.naver_guide = false;
+                self.tick();
+            }
+            Hit::NaverOpen => {
+                ShellExecuteW(None, w!("open"), w!("https://nid.naver.com/user2/help/myInfoV2?m=viewSecurity&lang=ko_KR"), None, None, SW_SHOWNORMAL);
+            }
+            Hit::NaverInput => {
                 // 윈도우 기본 '아이디·비밀번호' 창을 따로 띄운다(노치는 그대로 돈다)
                 log("naver: 연결 단추");
                 let tx = self.cal_tx.clone();
@@ -2715,7 +2770,7 @@ impl App {
             }
             _ => {}
         }
-        if matches!(hit, Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntSeg(_) | Hit::EntSave | Hit::EntClose) {
+        if matches!(hit, Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntSeg(_) | Hit::EntSave | Hit::EntClose) {
             self.dirty = true;
             return;
         }
@@ -2768,7 +2823,7 @@ impl App {
             Hit::Line(t) => Cmd::Seek(t as i64),
             Hit::Shuffle => Cmd::Shuffle,
             Hit::Repeat => Cmd::Repeat,
-            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntSeg(_) | Hit::EntSave | Hit::EntClose => return,
+            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntSeg(_) | Hit::EntSave | Hit::EntClose => return,
         };
         let _ = self.tx.send(cmd);
     }
@@ -2997,6 +3052,8 @@ unsafe fn run() -> Result<()> {
         cal_big: false,
         cal_pop: None,
         acct_menu: false,
+        naver_guide: false,
+        naver_n: 0,
         cal_sel: gcal::today().0,
         cal_wait: Instant::now(),
         notes: {
@@ -3053,6 +3110,7 @@ unsafe fn run() -> Result<()> {
         app.page = n;
         app.cal_big = std::env::var("NOTCH_CAT_CALBIG").is_ok();
         app.acct_menu = std::env::var("NOTCH_CAT_ACCT").is_ok(); // 시험용: '＋ 계정' 고르기 판
+        app.naver_guide = std::env::var("NOTCH_CAT_NAVER").is_ok(); // 시험용: 네이버 연결 안내
         if std::env::var("NOTCH_CAT_CALPOP").is_ok() {
             app.cal_pop = Some((gcal::today().0, 1)); // 시험용: 오늘 두 번째 일정 카드
         }
