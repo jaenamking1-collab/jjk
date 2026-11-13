@@ -135,6 +135,14 @@ fn hex_color(s: &str) -> (f32, f32, f32) {
     if s.len() == 7 { (h(1), h(3), h(5)) } else { (0.53, 0.6, 0.7) }
 }
 
+/// 같은 일정(제목 — 띄어쓰기·대소문자 무시 — 과 시작·끝이 같다)이 여러 캘린더에 있으면 처음 것 하나만 남긴다.
+/// 원본 캘린더에서 지우지는 않는다(어느 쪽이 원본인지 노치가 알 수 없다).
+pub fn dedup(events: &mut Vec<Event>) {
+    let key = |e: &Event| (e.title.chars().filter(|c| !c.is_whitespace()).collect::<String>().to_lowercase(), e.day, e.start, e.end_day, e.end);
+    let mut seen = std::collections::HashSet::new();
+    events.retain(|e| seen.insert(key(e)));
+}
+
 /// 구글 일정 설명(HTML 이 섞여 온다) → 보통 글. <br>·</p> 는 줄바꿈, 나머지 태그는 지운다.
 pub fn plain(s: &str) -> String {
     let s = s.replace("<br>", "
@@ -537,6 +545,12 @@ pub fn spawn(out: Arc<Mutex<Cal>>) -> mpsc::Sender<Cmd> {
                     cals.push(info);
                 }
             }
+            // 구글·네이버(네이버 안의 '구글'·'카카오' 캘린더 포함)에 같은 일정이 여러 번 들어 있으면 하나만 보인다
+            let before = events.len();
+            dedup(&mut events);
+            if events.len() != before && seen_counts.1 != events.len() {
+                crate::log(&format!("gcal: 겹친 일정 {}개 숨김", before - events.len()));
+            }
             if !failed && (cals.len(), events.len()) != seen_counts {
                 seen_counts = (cals.len(), events.len());
                 // 날짜만 남긴다(제목은 안 남김): 사용자가 본 달력과 노치가 받은 것을 맞춰 볼 수 있게
@@ -591,6 +605,14 @@ mod tests {
         assert_eq!(parse_when("2026-11-12T10:00:00.000-05:00"), Some((d + 1, 0)));
         assert_eq!(parse_when("2026-11-12"), Some((d, -1)));
         assert_eq!(rfc3339(d, 545), "2026-11-12T09:05:00+09:00");
+    }
+
+    #[test]
+    fn dedup_across_calendars() {
+        let e = |t: &str, d: i64, s: i32| Event { title: t.into(), place: String::new(), day: d, start: s, end_day: d, end: s + 60, color: (0.0, 0.0, 0.0), memo: String::new() };
+        let mut v = vec![e("치과 예약", 1, 600), e("치과예약", 1, 600), e("치과 예약", 1, 600), e("치과 예약", 2, 600), e("치과 예약", 1, 660)];
+        dedup(&mut v);
+        assert_eq!(v.iter().map(|x| (x.day, x.start)).collect::<Vec<_>>(), vec![(1, 600), (2, 600), (1, 660)]);
     }
 
     #[test]

@@ -2408,6 +2408,7 @@ impl App {
             let (end_day, end) = if e.min < 0 { (e.day, -1) } else { (e.day + (e.min + 60) as i64 / 1440, (e.min + 60) % 1440) };
             self.caln.events.push(gcal::Event { title: title.clone(), place: String::new(), day: e.day, start: e.min, end_day, end, color, memo: String::new() });
         }
+        gcal::dedup(&mut self.caln.events); // 두 곳에 넣어도 달력에는 하나
         self.saved_hold = Some(Instant::now() + Duration::from_secs(5));
         self.cal_sel = e.day;
         self.face.happy(900);
