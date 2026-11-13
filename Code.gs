@@ -6951,9 +6951,10 @@ function resetAllTriggers() {
   const before = ScriptApp.getProjectTriggers();
   const others = {};
   let removed = 0;
+  const retired = ['flushCalPending'];   // 쓰지 않게 된 트리거(2026-11-13 캘린더 알림 끔) — 남아 있으면 지운다
   before.forEach(t => {
     const f = t.getHandlerFunction();
-    if (known.indexOf(f) >= 0) { ScriptApp.deleteTrigger(t); removed++; }
+    if (known.indexOf(f) >= 0 || retired.indexOf(f) >= 0) { ScriptApp.deleteTrigger(t); removed++; }
     else others[f] = (others[f] || 0) + 1;
   });
   console.log('옛 트리거 ' + removed + '개 삭제(전체 ' + before.length + '개 중)');
