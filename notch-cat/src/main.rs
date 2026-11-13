@@ -2109,13 +2109,7 @@ impl App {
                             g.rrect(x0, y + 17.0, bw, 7.0, 3.5, FG, a * 0.1);
                             g.rrect(x0, y + 17.0, (bw * b.pct.clamp(0.0, 100.0) / 100.0).max(3.0), 7.0, 3.5, c, a);
                             if b.reset > 0 {
-                                let left = (b.reset - ai::now()).max(0);
-                                let txt = if left < 86400 { format!("{}시간 {}분 뒤 초기화", left / 3600, left % 3600 / 60) } else {
-                                    let z = (b.reset + 9 * 3600).div_euclid(86400);
-                                    let (_, mo, d) = gcal::ymd(z);
-                                    let hm = (b.reset + 9 * 3600).rem_euclid(86400);
-                                    format!("{mo}/{d} ({}) {}:{:02} 초기화", gcal::WEEK[gcal::weekday(z)], hm / 3600, hm % 3600 / 60)
-                                };
+                                let txt = ai::reset_text(b.reset);
                                 g.text(&txt, &g.f_tiny, x0, y + 28.0, bw, FG, a * 0.45, Align::Left);
                             }
                         }
@@ -3343,7 +3337,7 @@ unsafe fn run() -> Result<()> {
     if std::env::var("NOTCH_CAT_SETTINGS").is_ok() {
         settings::open(app.quotes.clone(), cat_icon()); // 시험용: 켜자마자 설정창
     }
-    ai::spawn(app.ai.clone(), app.ai_poke.clone()); // AI 사용량(5분마다)
+    ai::spawn(app.ai.clone(), app.ai_poke.clone(), app.notes.clone()); // AI 사용량(5분마다, 50·70·90% 알림)
     if let Some(n) = std::env::var("NOTCH_CAT_PAGE").ok().and_then(|v| v.parse().ok()) {
         app.hover = true; // 시험용: 그 쪽을 펼친 채로 띄운다(NOTCH_CAT_SHOT 과 함께 쓰면 마우스 없이 찍힌다)
         app.page = n;

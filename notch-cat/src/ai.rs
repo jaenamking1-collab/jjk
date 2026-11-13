@@ -271,13 +271,65 @@ fn gemini(c: &HttpClient) -> Svc {
     s
 }
 
-/// 5분마다(연결을 누른 뒤 5분 동안은 10초마다) 세 곳을 받는다
-pub fn spawn(out: Arc<Mutex<Usage>>, poke: Arc<Mutex<Option<Instant>>>) {
+/// 50·70·90% 문턱
+pub fn level(p: f32) -> u8 {
+    if p >= 90.0 { 90 } else if p >= 70.0 { 70 } else if p >= 50.0 { 50 } else { 0 }
+}
+
+/// 남은 시간 말(“2시간 10분 뒤”, 하루 넘으면 “11/19 (목) 11:34”)
+pub fn reset_text(reset: i64) -> String {
+    let left = (reset - now()).max(0);
+    if left < 3600 {
+        format!("{}분 뒤 초기화", left / 60)
+    } else if left < 86400 {
+        format!("{}시간 {}분 뒤 초기화", left / 3600, left % 3600 / 60)
+    } else {
+        let z = (reset + 9 * 3600).div_euclid(86400);
+        let (_, mo, d) = crate::gcal::ymd(z);
+        let hm = (reset + 9 * 3600).rem_euclid(86400);
+        format!("{mo}/{d} ({}) {}:{:02} 초기화", crate::gcal::WEEK[crate::gcal::weekday(z)], hm / 3600, hm % 3600 / 60)
+    }
+}
+
+/// 새로 넘은 문턱들. seen 은 (서비스|막대|초기화 시각) → 이미 알린 가장 높은 문턱. 한 기간에 문턱마다 한 번만.
+pub fn crossings(seen: &mut std::collections::HashMap<String, u8>, svcs: &[Svc]) -> Vec<(u8, String, String)> {
+    let mut out = Vec::new();
+    for s in svcs.iter().filter(|s| s.login) {
+        for b in &s.bars {
+            let key = format!("{}|{}|{}", s.name, b.label, b.reset / 600);
+            let lv = level(b.pct);
+            if lv > *seen.get(&key).unwrap_or(&0) {
+                seen.insert(key, lv);
+                out.push((lv, format!("{} {} {:.0}%", s.name, b.label, b.pct), reset_text(b.reset)));
+            }
+        }
+    }
+    seen.retain(|k, _| k.rsplit('|').next().and_then(|r| r.parse::<i64>().ok()).is_none_or(|r| r * 600 + 600 > now() - 86400));
+    out
+}
+
+/// 5분마다(연결을 누른 뒤 5분 동안은 10초마다) 세 곳을 받는다. 문턱(50·70·90%)을 넘으면 노치 알림으로 알린다.
+pub fn spawn(out: Arc<Mutex<Usage>>, poke: Arc<Mutex<Option<Instant>>>, notes: Arc<Mutex<crate::notif::Note>>) {
     std::thread::spawn(move || {
         let Ok(c) = HttpClient::new() else { return };
         let mut last: Vec<(bool, usize, String)> = Vec::new();
+        // 이미 알린 문턱은 파일에 둔다(노치를 다시 켜도 같은 알림을 또 띄우지 않게)
+        let path = crate::data_dir().join("ai_alerts.json");
+        let mut seen: std::collections::HashMap<String, u8> = std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
         loop {
             let svcs: Vec<Svc> = vec![claude(&c), codex(&c), gemini(&c)];
+            let news = crossings(&mut seen, &svcs);
+            if !news.is_empty() {
+                let _ = std::fs::write(&path, serde_json::to_string(&seen).unwrap_or_default());
+                crate::log(&format!("ai: 알림 {}", news.iter().map(|x| format!("{} {}", x.1, x.2)).collect::<Vec<_>>().join(" / ")));
+                let top = news.iter().map(|x| x.0).max().unwrap_or(50);
+                let mut n = notes.lock().unwrap();
+                n.ver += 1;
+                n.app = format!("AI 사용량 {top}% 넘음 · {}", news[0].2);
+                n.title = news[0].1.clone();
+                n.body = news[1..].iter().map(|x| x.1.clone()).collect::<Vec<_>>().join(" · ");
+                n.icon = None;
+            }
             let stamp = crate::hhmm();
             let sig: Vec<(bool, usize, String)> = svcs.iter().map(|s| (s.login, s.bars.len(), s.note.clone())).collect();
             if sig != last {
@@ -391,6 +443,19 @@ mod tests {
         assert_eq!(x.iter().map(|b| (b.pct, b.reset)).collect::<Vec<_>>(), vec![(1.0, 100), (17.0, 200)]);
         let g = parse_gemini(&serde_json::json!({"buckets": [{"modelId": "gemini-2.5-pro", "remainingFraction": 0.9}, {"modelId": "gemini-2.5-pro-preview", "remainingFraction": 0.5}, {"modelId": "gemini-2.5-flash", "remainingFraction": 1.0}]}));
         assert_eq!(g.iter().map(|b| (b.label.as_str(), b.pct.round())).collect::<Vec<_>>(), vec![("프로", 50.0), ("플래시", 0.0)]);
+    }
+
+    #[test]
+    fn thresholds_once_per_window() {
+        let mut seen = std::collections::HashMap::new();
+        let r = now() + 3600;
+        let svc = |p: f32, reset: i64| vec![Svc { name: "클로드", login: true, bars: vec![Bar { label: "5시간".into(), pct: p, reset }], ..Default::default() }];
+        assert!(crossings(&mut seen, &svc(30.0, r)).is_empty());
+        assert_eq!(crossings(&mut seen, &svc(55.0, r)).len(), 1); // 50%
+        assert!(crossings(&mut seen, &svc(60.0, r)).is_empty()); // 같은 문턱은 한 번
+        assert_eq!(crossings(&mut seen, &svc(91.0, r))[0].0, 90); // 70 을 건너뛰면 높은 것 하나
+        assert!(crossings(&mut seen, &svc(95.0, r)).is_empty());
+        assert_eq!(crossings(&mut seen, &svc(52.0, r + 18000)).len(), 1); // 새 기간이면 다시
     }
 
     #[test]
