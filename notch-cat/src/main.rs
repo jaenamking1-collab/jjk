@@ -60,7 +60,7 @@ const TINY: (f32, f32) = (48.0, 9.0); // 일할 때 줄어든 크기
 const OPEN: (f32, f32) = (460.0, 246.0);
 // 음악 화면 모양: 0 기본(가사 아래) · 1 와이드(소리 막대) · 2 가사 옆
 const MUSIC: [(f32, f32); 3] = [OPEN, (540.0, 128.0), (590.0, 184.0)];
-const WX: [(f32, f32); 2] = [(600.0, 128.0), (600.0, 240.0)]; // 날씨 쪽: 작은 판 · 큰 판
+const WX: [(f32, f32); 2] = [(600.0, 168.0), (600.0, 262.0)]; // 날씨 쪽: 작은 판 · 큰 판
 const CALV: [(f32, f32); 3] = [(560.0, 186.0), (500.0, 322.0), (600.0, 282.0)]; // 달력 쪽: 한 주 줄 · 한 달 · 달력+목록
 const MUSIC_NAMES: [&str; 3] = ["기본 (가사 아래)", "와이드 (소리 막대)", "가사 옆"];
 const SHADOW: f32 = 20.0; // 펼쳤을 때 그림자가 번지는 폭
@@ -977,31 +977,6 @@ impl App {
                 }
                 ribbon(g, &pts, |u| 2.0 * (3.1 - 0.9 * u * u * (3.0 - 2.0 * u)), TAIL, ca * fa * fk);
             }
-            // 쪽 넘김 손잡이: 몸통 양옆 아래쪽으로 살짝 튀어나온 귀. 마우스를 올리면 더 나오며 도톰해지고 화살표가 바깥으로 튕긴다.
-            if p > 0.5 && self.mode != 2 {
-                let pa = ((p - 0.5) * 2.0).clamp(0.0, 1.0);
-                let (mx, my) = self.mouse;
-                let (ty, th) = (h * 0.62 - 30.0, 60.0);
-                for (i, d) in [-1.0f32, 1.0].into_iter().enumerate() {
-                    let edge = if d < 0.0 { x } else { x + w };
-                    let hit = if d < 0.0 { [x - 18.0, ty, x + 12.0, ty + th] } else { [x + w - 12.0, ty, x + w + 18.0, ty + th] };
-                    let on = p > 0.9 && mx >= hit[0] && mx < hit[2] && my >= hit[1] && my < hit[3];
-                    self.arr[i].target = if on { 1.0 } else { 0.0 };
-                    let k = self.arr[i].pos.clamp(-0.2, 1.4);
-                    let out = (11.0 + 4.0 * k) * pa;
-                    let (xl, wd) = (if d < 0.0 { edge - out } else { edge - 14.0 }, 14.0 + out);
-                    let tone = (0.075 + 0.085 * k, 0.085 + 0.1 * k, 0.075 + 0.085 * k);
-                    g.rrect(xl - 1.0, ty + 2.0 + 2.5 * k, wd + 2.0, th, 11.0, (0.0, 0.0, 0.0), 0.3 * pa); // 아래 그림자
-                    g.rrect(xl, ty, wd, th, 10.0, tone, pa);
-                    g.rrect(xl + 1.5, ty + 1.5, wd - 3.0, th * 0.42, 8.0, FG, (0.025 + 0.06 * k.max(0.0)) * pa); // 윗면 윤기
-                    let (cx, cy) = (edge + d * (out * 0.5 - 0.5 + 1.0 * k), ty + th / 2.0);
-                    let c = (FG.0 + (LIME.0 - FG.0) * k.clamp(0.0, 1.0), FG.1 + (LIME.1 - FG.1) * k.clamp(0.0, 1.0), FG.2 + (LIME.2 - FG.2) * k.clamp(0.0, 1.0));
-                    ribbon(g, &[(cx - d * 2.6, cy - 6.5), (cx + d * 2.6, cy), (cx - d * 2.6, cy + 6.5)], |_| 2.2, c, (0.8 + 0.2 * k.clamp(0.0, 1.0)) * pa);
-                    if p > 0.9 {
-                        self.hits.push((hit, Hit::Page(d as i32)));
-                    }
-                }
-            }
             g.rrect(x, -r, w, h + r, r, BG, 1.0); // 위쪽은 화면 밖으로 넘겨 위 모서리를 각지게
             // 위쪽 모서리가 화면 가장자리로 부드럽게 이어지게(바깥으로 휜다)
             let e = EAR * (h / BAR_H).min(1.0);
@@ -1196,11 +1171,32 @@ impl App {
                     g.ellipse(x + w / 2.0 + (i as f32 - 1.5) * 12.0, 8.0, 2.5, 2.5, FG, pa * if i == self.page { 0.9 } else { 0.3 });
                 }
             }
+            // 쪽 넘김: 몸통 안쪽 양끝의 얇은 화살표. 평소엔 거의 안 보이고, 끝에 마우스를 대면 라임색으로 또렷해진다.
+            if p > 0.5 && self.mode != 2 {
+                let pa = ((p - 0.5) * 2.0).clamp(0.0, 1.0);
+                let (mx, my) = self.mouse;
+                let (ty, th) = (h * 0.5 - 34.0, 68.0);
+                for (i, d) in [-1.0f32, 1.0].into_iter().enumerate() {
+                    let hit = if d < 0.0 { [x, ty, x + 16.0, ty + th] } else { [x + w - 16.0, ty, x + w, ty + th] };
+                    let on = p > 0.9 && mx >= hit[0] && mx < hit[2] && my >= hit[1] && my < hit[3];
+                    self.arr[i].target = if on { 1.0 } else { 0.0 };
+                    let k = self.arr[i].pos.clamp(0.0, 1.2);
+                    if k > 0.02 {
+                        g.rrect(hit[0] + 2.0, ty, 12.0, th, 6.0, FG, 0.07 * k * pa);
+                    }
+                    let cx = if d < 0.0 { x + 8.0 } else { x + w - 8.0 } + d * 1.5 * k;
+                    let cy = ty + th / 2.0;
+                    ribbon(g, &[(cx - d * 2.2, cy - 5.5), (cx + d * 2.2, cy), (cx - d * 2.2, cy + 5.5)], |_| 1.8, mix(FG, LIME, k.min(1.0)), (0.22 + 0.75 * k.min(1.0)) * pa);
+                    if p > 0.9 {
+                        self.hits.push((hit, Hit::Page(d as i32)));
+                    }
+                }
+            }
             // 다음 곡 목록이 펼쳐지는 만큼 오른쪽을 떼어 둔다(음악 화면은 제 너비 그대로)
             let qw = if self.mode == 0 && n.has && self.page == 0 { (w - MUSIC[self.cfg.ml].0).clamp(0.0, QW) } else { 0.0 };
             let w = w - qw;
-            if a > 0.0 && self.mode == 0 && n.has {
-                // 모양 바꾸기 단추(오른쪽 아래): 글자가 들어간 알약 모양이라 눈에 띈다
+            if a > 0.0 && ((self.mode == 0 && n.has) || self.mode == 4 || (self.mode == 5 && !self.caln.accounts.is_empty())) {
+                // 모양 바꾸기 단추(오른쪽 아래): 글자가 들어간 알약. 음악·날씨·달력 모두 같은 자리·같은 모양.
                 let (mx, my) = self.mouse;
                 let (bw, bh) = (64.0, 24.0);
                 let (bx, by) = (x + w - bw - 12.0, h - bh - 10.0);
@@ -1214,20 +1210,6 @@ impl App {
                 g.text("모양", &g.f_bar, bx + 26.0, by + 4.0, bw - 30.0, LIME, a, Align::Left);
                 if p > 0.9 {
                     self.hits.push(([bx, by, bx + bw, by + bh], Hit::Layout));
-                }
-            } else if a > 0.0 && (self.mode == 4 || (self.mode == 5 && !self.caln.accounts.is_empty())) {
-                // 모양 바꾸기 단추(오른쪽 아래). 다른 단추보다 먼저 넣어 겹쳐도 이게 눌린다.
-                let (mx, my) = self.mouse;
-                let (bx, by) = (x + w - 26.0, h - 26.0);
-                let on = p > 0.9 && mx >= bx - 4.0 && mx < bx + 22.0 && my >= by - 4.0 && my < by + 22.0;
-                g.ellipse(bx + 9.0, by + 9.0, 11.0, 11.0, FG, a * if on { 0.2 } else { 0.08 });
-                for d in [-1.0f32, 1.0] {
-                    // 바깥을 가리키는 두 화살표(⤢)
-                    let (cx, cy) = (bx + 9.0 + d * 4.0, by + 9.0 - d * 4.0);
-                    ribbon(g, &[(cx - d * 3.5, cy), (cx, cy), (cx, cy + d * 3.5)], |_| 1.5, FG, a * 0.85);
-                }
-                if p > 0.9 {
-                    self.hits.push(([bx - 4.0, by - 4.0, bx + 22.0, by + 22.0], Hit::Layout));
                 }
             }
             if a > 0.0 && self.mode == 0 && n.has && self.cfg.ml != 0 {
@@ -1710,7 +1692,7 @@ impl App {
                                 shown += 1;
                             }
                             if week.len() > shown {
-                                g.text(&format!("외 {}개", week.len() - shown), &g.f_tiny, r - 130.0, h - 24.0, 96.0, FG, a * 0.5, Align::Right);
+                                g.text(&format!("외 {}개", week.len() - shown), &g.f_tiny, r - 170.0, h - 24.0, 96.0, FG, a * 0.5, Align::Right);
                             }
                             g.text(&format!("달력 {}", cal.stamp), &g.f_tiny, l, h - 20.0, 120.0, if stale { WARN } else { FG }, a * if stale { 1.0 } else { 0.4 }, Align::Left);
                         }
