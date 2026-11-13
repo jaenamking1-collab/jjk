@@ -35,7 +35,8 @@ use windows::Win32::System::Registry::*;
 use windows::Win32::System::SystemInformation::GetLocalTime;
 use windows::Win32::System::Threading::CreateMutexW;
 use windows::Win32::UI::HiDpi::*;
-use windows::Win32::UI::Input::KeyboardAndMouse::{TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT};
+use windows::Win32::UI::Input::KeyboardAndMouse::{SetFocus, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT};
+use windows::Win32::UI::Input::Ime::{ImmGetCompositionStringW, ImmGetContext, ImmReleaseContext, GCS_COMPSTR, GCS_RESULTSTR};
 use windows::Win32::UI::Shell::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -50,6 +51,22 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 const WIN_W: f32 = 920.0; // 음악 화면 + 다음 곡 목록까지 들어가게
 const QW: f32 = 290.0; // 다음 곡 목록 칸 너비
 const WIN_H: f32 = 620.0;
+// 일정 넣기 칸(노치 아래로 물방울처럼 나온다)
+const ENT_W: f32 = 560.0;
+const ENT_H: f32 = 112.0;
+const ENT_GAP: f32 = 12.0;
+
+struct Ent {
+    text: String,
+    comp: String, // 조합 중인 한글
+    day: i64,
+    min: i32, // -1 종일
+    cal: usize,
+    prev: HWND, // 칸을 열기 전 앞에 있던 창(닫으면 돌려준다)
+    focused: bool,
+    closing: bool,
+    caret: Instant,
+}
 // 노치 크기
 const IDLE: (f32, f32) = (150.0, 28.0);
 const BAR_H: f32 = 28.0;
@@ -219,6 +236,27 @@ enum Ev {
     Tick,
     Tray,
     Wheel(i32), // 휠: -1 왼쪽 쪽, +1 오른쪽 쪽
+    Char(u32),      // 일정 넣기: 글자(영문·숫자·지운 글자)
+    Key(u32),       // 일정 넣기: Enter·Esc 등
+    Text(String),   // 일정 넣기: 한글 조합이 끝난 글자
+    Comp(String),   // 일정 넣기: 조합 중인 한글(밑줄로 보인다)
+    Blur,           // 일정 넣기: 다른 창을 눌러 자판을 잃었다
+}
+
+thread_local! {
+    static TYPING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; // 일정 넣기 칸이 열려 자판을 받는 중
+}
+
+/// IME 조합 글자 읽기
+unsafe fn ime_str(hwnd: HWND, kind: windows::Win32::UI::Input::Ime::IME_COMPOSITION_STRING) -> String {
+    let c = ImmGetContext(hwnd);
+    let n = ImmGetCompositionStringW(c, kind, None, 0);
+    let mut buf = vec![0u16; (n.max(0) as usize) / 2];
+    if n > 0 {
+        ImmGetCompositionStringW(c, kind, Some(buf.as_mut_ptr() as _), n as u32);
+    }
+    let _ = ImmReleaseContext(hwnd, c);
+    String::from_utf16_lossy(&buf)
 }
 
 thread_local! {
@@ -259,7 +297,23 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         WM_MOUSEHWHEEL => push(Ev::Wheel(if ((wp.0 >> 16) as i16) > 0 { 1 } else { -1 })),
         WM_LBUTTONUP => push(Ev::Click((lp.0 & 0xFFFF) as i16 as f32, ((lp.0 >> 16) & 0xFFFF) as i16 as f32)),
         WM_TIMER => push(Ev::Tick),
-        WM_MOUSEACTIVATE => return LRESULT(MA_NOACTIVATE as isize),
+        WM_MOUSEACTIVATE if !TYPING.with(|t| t.get()) => return LRESULT(MA_NOACTIVATE as isize),
+        WM_CHAR if TYPING.with(|t| t.get()) => {
+            push(Ev::Char(wp.0 as u32));
+            return LRESULT(0);
+        }
+        WM_KEYDOWN if TYPING.with(|t| t.get()) => push(Ev::Key(wp.0 as u32)),
+        WM_KILLFOCUS if TYPING.with(|t| t.get()) => push(Ev::Blur),
+        // 한글 조합: 윈도우 기본 조합 창(화면 구석의 작은 창)을 띄우지 않고 노치에 직접 그린다
+        0x010D /* WM_IME_STARTCOMPOSITION */ if TYPING.with(|t| t.get()) => return LRESULT(0),
+        0x010F /* WM_IME_COMPOSITION */ if TYPING.with(|t| t.get()) => {
+            if lp.0 as u32 & GCS_RESULTSTR.0 != 0 {
+                push(Ev::Text(ime_str(hwnd, GCS_RESULTSTR)));
+            }
+            push(Ev::Comp(if lp.0 as u32 & GCS_COMPSTR.0 != 0 { ime_str(hwnd, GCS_COMPSTR) } else { String::new() }));
+            return LRESULT(0);
+        }
+        0x010E /* WM_IME_ENDCOMPOSITION */ if TYPING.with(|t| t.get()) => push(Ev::Comp(String::new())),
         WM_TRAY => {
             let m = lp.0 as u32 & 0xFFFF;
             if m == WM_RBUTTONUP || m == WM_LBUTTONUP {
@@ -508,6 +562,12 @@ enum Hit {
     CalDay(i64), // 달력: 날 고르기
     CalAdd,      // 달력: 일정 넣기 창
     CalLogin,    // 달력: 구글 계정 연결
+    EntField,    // 일정 넣기: 글자 칸(자판을 다시 잡는다)
+    EntDay(usize),
+    EntTime(usize),
+    EntCal,      // 일정 넣기: 넣을 캘린더 바꾸기
+    EntSave,
+    EntClose,
     Shuffle,
     Repeat,
     Queue,        // 다음 곡 목록 열고 닫기
@@ -554,6 +614,8 @@ struct App {
     page: usize,       // 펼친 화면의 쪽: 0 기본(음악·시계), 1 시세
     paged: Instant,    // 마지막으로 쪽을 넘긴 때(휠이 한 번에 여러 쪽 넘어가지 않게)
     arr: [Spring; 2],  // 좌우 손잡이에 마우스가 올라간 정도 0…1(살짝 튕긴다)
+    ent: Option<Ent>,  // 노치에서 튀어나온 일정 넣기 칸
+    drop: Spring,      // 그 칸이 물방울처럼 나오는 정도 0…1
     pgf: Spring,       // 쪽이 바뀔 때 내용이 다시 떠오르는 정도 0…1
     big: bool,         // 시세 쪽: 값까지 나오는 큰 판
     bg: Spring,        // 〃 0 작은 판 … 1 큰 판(몸통 높이와 같은 박자)
@@ -607,7 +669,7 @@ struct App {
 
 impl App {
     fn animating(&self) -> bool {
-        !(self.w.settled() && self.h.settled() && self.fade.settled() && self.scroll.settled() && self.tm.settled() && self.ck.settled() && self.pgf.settled() && self.arr[0].settled() && self.arr[1].settled() && self.bg.settled() && self.qs.iter().all(Spring::settled) && self.face.settled())
+        !(self.w.settled() && self.h.settled() && self.fade.settled() && self.scroll.settled() && self.tm.settled() && self.ck.settled() && self.pgf.settled() && self.arr[0].settled() && self.arr[1].settled() && self.drop.settled() && self.bg.settled() && self.qs.iter().all(Spring::settled) && self.face.settled())
     }
 
     /// 0.05초마다: 음악·가사 상태를 읽어 목표 크기와 보일 글자를 정한다.
@@ -918,6 +980,7 @@ impl App {
         // 펼쳐 둔 동안엔 영역을 줄이지 않는다: 쪽을 넘겨 몸통이 좁아지거나 낮아져도 마우스가 '밖'으로 떨어져 닫히지 않게
         self.hold = if self.hover { (self.hold.0.max(w), self.hold.1.max(h)) } else { (0.0, 0.0) };
         let (rw, rh) = (w.max(self.hold.0), h.max(self.hold.1));
+        let (rw, rh) = if self.ent.is_some() { (rw.max(ENT_W + 4.0), rh.max(h + ENT_GAP + ENT_H * self.drop.pos.max(1.0) + 6.0)) } else { (rw, rh) };
         let rx = (WIN_W - rw) / 2.0;
         let rgn = if h < 0.5 { [0; 4] } else { [((rx - m) * s).floor() as i32, 0, ((rx + rw + m) * s).ceil() as i32, ((rh + m) * s).ceil() as i32] };
         if rgn != self.rgn {
@@ -1853,6 +1916,9 @@ impl App {
             }
             g.unclip();
         }
+        if self.ent.is_some() && h >= 0.5 {
+            self.draw_entry(h);
+        }
         let g = &self.g;
         g.present()?;
         if let Ok(dir) = std::env::var("NOTCH_CAT_SHOT") {
@@ -1987,6 +2053,214 @@ impl App {
         self.tick();
     }
 
+    /// 일정 넣기 칸을 연다: 노치가 잠깐 자판을 받게 하고, 칸이 물방울처럼 흘러나온다.
+    unsafe fn ent_open(&mut self) {
+        if self.ent.as_ref().is_some_and(|e| !e.closing) {
+            return self.ent_focus();
+        }
+        let (today, now) = gcal::today();
+        let day = self.cal_sel;
+        let min = if day == today { ((now / 60 + 1) * 60).min(23 * 60) } else { 540 };
+        // 처음 고르는 캘린더: 계정의 기본 캘린더(아이디가 메일 주소), 없으면 쓸 수 있는 첫 캘린더
+        let cals = &self.caln.cals;
+        let cal = cals.iter().position(|c| c.writable && self.caln.accounts.iter().any(|a| *a == c.id)).or_else(|| cals.iter().position(|c| c.writable)).unwrap_or(0);
+        self.ent = Some(Ent { text: String::new(), comp: String::new(), day, min, cal, prev: GetForegroundWindow(), focused: false, closing: false, caret: Instant::now() });
+        self.drop.target = 1.0;
+        self.ent_focus();
+    }
+
+    unsafe fn ent_focus(&mut self) {
+        TYPING.with(|t| t.set(true));
+        let ex = GetWindowLongW(self.hwnd, GWL_EXSTYLE) as u32;
+        SetWindowLongW(self.hwnd, GWL_EXSTYLE, (ex & !WS_EX_NOACTIVATE.0) as i32);
+        let ok = SetForegroundWindow(self.hwnd).as_bool();
+        let _ = SetFocus(self.hwnd);
+        if let Some(e) = self.ent.as_mut() {
+            e.focused = ok || GetForegroundWindow() == self.hwnd;
+            e.caret = Instant::now();
+        }
+        self.dirty = true;
+    }
+
+    unsafe fn ent_close(&mut self) {
+        let Some(e) = self.ent.as_mut() else { return };
+        if e.closing {
+            return;
+        }
+        e.closing = true;
+        let prev = e.prev;
+        TYPING.with(|t| t.set(false));
+        let ex = GetWindowLongW(self.hwnd, GWL_EXSTYLE) as u32;
+        SetWindowLongW(self.hwnd, GWL_EXSTYLE, (ex | WS_EX_NOACTIVATE.0) as i32);
+        if GetForegroundWindow() == self.hwnd && !prev.0.is_null() && IsWindow(prev).as_bool() {
+            let _ = SetForegroundWindow(prev);
+        }
+        self.drop.target = 0.0;
+        self.dirty = true;
+    }
+
+    unsafe fn ent_save(&mut self) {
+        let Some(e) = self.ent.as_ref() else { return };
+        let title = format!("{}{}", e.text, e.comp).trim().to_string();
+        if title.is_empty() {
+            self.face.slow_blink(300);
+            return;
+        }
+        let _ = self.cal_tx.send(gcal::Cmd::Add { cal: e.cal, title, day: e.day, start: e.min, end: -1 });
+        self.cal_sel = e.day;
+        self.face.happy(900);
+        self.ent_close();
+    }
+
+    unsafe fn ent_char(&mut self, c: u32) {
+        let Some(e) = self.ent.as_mut() else { return };
+        e.caret = Instant::now();
+        match c {
+            8 => {
+                e.text.pop();
+            }
+            c if c >= 32 && c != 127 => {
+                if let Some(ch) = char::from_u32(c) {
+                    e.text.push(ch);
+                }
+            }
+            _ => {} // Enter·Esc·Tab 은 ent_key 에서
+        }
+        self.dirty = true;
+    }
+
+    unsafe fn ent_key(&mut self, k: u32) {
+        match k {
+            0x0D => self.ent_save(),
+            0x1B => self.ent_close(),
+            // 위·아래: 하루씩, 쪽 위·아래: 한 시간씩
+            0x26 | 0x28 => {
+                if let Some(e) = self.ent.as_mut() {
+                    e.day += if k == 0x26 { -1 } else { 1 };
+                }
+            }
+            0x21 | 0x22 => {
+                if let Some(e) = self.ent.as_mut() {
+                    (e.day, e.min) = entry::pick_time(e.day, e.min, if k == 0x21 { 5 } else { 4 });
+                }
+            }
+            _ => {}
+        }
+        self.dirty = true;
+    }
+
+    /// 노치 아래로 흘러나온 일정 넣기 칸. 몸통과 칸 사이를 오목한 목으로 이어 두 물방울이 붙은 것처럼 보이게 한다.
+    unsafe fn draw_entry(&mut self, h: f32) {
+        let t = self.drop.pos;
+        if self.ent.as_ref().is_some_and(|e| e.closing) && t < 0.02 && self.drop.target == 0.0 {
+            self.ent = None;
+            return;
+        }
+        let Some(e) = self.ent.as_ref() else { return };
+        let g = &self.g;
+        let cx = WIN_W / 2.0;
+        let tt = t.clamp(0.0, 1.3);
+        // 칸: 몸통 아래에서 작게 맺혔다가 커지며 내려온다(스프링이라 끝에서 살짝 '뾱' 튕긴다)
+        let bw = ENT_W * (0.3 + 0.7 * tt.min(1.15));
+        let bh = ENT_H * tt;
+        let top = h + ENT_GAP * tt.min(1.0);
+        if bh < 2.0 {
+            return;
+        }
+        // 목: 몸통 바닥과 칸 위를 잇는 오목한 다리. 붙는 곳은 넓고 가운데는 잘록하다.
+        let edge = 74.0 * tt.min(1.0);
+        let waist = 30.0 * tt.min(1.0) + 6.0;
+        let (y0, y1) = (h - 6.0, top + 6.0);
+        let n = 14;
+        let mut pts: Vec<(f32, f32)> = Vec::with_capacity(2 * n + 2);
+        for k in 0..=n {
+            let u = k as f32 / n as f32;
+            let half = waist + (edge - waist) * (2.0 * u - 1.0).powi(2);
+            pts.push((cx - half, y0 + (y1 - y0) * u));
+        }
+        for k in (0..=n).rev() {
+            let u = k as f32 / n as f32;
+            let half = waist + (edge - waist) * (2.0 * u - 1.0).powi(2);
+            pts.push((cx + half, y0 + (y1 - y0) * u));
+        }
+        g.rrect(cx - bw / 2.0 - 1.0, top + 4.0, bw + 2.0, bh, 22.0_f32.min(bh / 2.0), (0.0, 0.0, 0.0), 0.35 * tt.min(1.0)); // 그림자
+        g.poly(&pts, BG, 1.0);
+        g.rrect(cx - bw / 2.0, top, bw, bh, 22.0_f32.min(bh / 2.0), BG, 1.0);
+        let a = ((t - 0.55) / 0.4).clamp(0.0, 1.0); // 칸이 거의 다 나온 뒤에 글자가 떠오른다
+        if a <= 0.0 || e.closing {
+            return;
+        }
+        let (l, r) = (cx - ENT_W / 2.0 + 18.0, cx + ENT_W / 2.0 - 18.0);
+        let (mx, my) = self.mouse;
+        let over = |b: [f32; 4]| mx >= b[0] && mx < b[2] && my >= b[1] && my < b[3];
+        let mut hits: Vec<([f32; 4], Hit)> = Vec::new();
+        // 1줄: 글자 칸 + 닫기
+        let fb = [l, top + 12.0, r - 34.0, top + 44.0];
+        g.rrect(fb[0], fb[1], fb[2] - fb[0], 32.0, 10.0, FG, a * if e.focused { 0.1 } else { 0.06 });
+        let shown = format!("{}{}", e.text, e.comp);
+        if shown.is_empty() {
+            let hint = if e.focused { "무슨 일정인가요?   Enter 저장 · Esc 닫기" } else { "여기를 눌러 일정을 적어 주세요" };
+            g.text(hint, &g.f_body, fb[0] + 12.0, fb[1] + 6.0, fb[2] - fb[0] - 24.0, FG, a * 0.45, Align::Left);
+        } else {
+            g.text(&shown, &g.f_body, fb[0] + 12.0, fb[1] + 6.0, fb[2] - fb[0] - 24.0, FG, a, Align::Left);
+        }
+        if !e.comp.is_empty() {
+            let tw = g.measure(&e.text, &g.f_body);
+            let cw = g.measure(&e.comp, &g.f_body);
+            g.rrect(fb[0] + 12.0 + tw, fb[1] + 25.0, cw, 1.5, 0.5, LIME, a); // 조합 중인 글자 밑줄
+        }
+        if e.focused && (e.caret.elapsed().as_millis() / 530) % 2 == 0 {
+            let cxp = fb[0] + 12.0 + if shown.is_empty() { 0.0 } else { g.measure(&shown, &g.f_body) + 1.0 };
+            g.rrect(cxp.min(fb[2] - 10.0), fb[1] + 8.0, 1.6, 17.0, 0.8, LIME, a);
+        }
+        hits.push((fb, Hit::EntField));
+        let xb = [r - 26.0, top + 16.0, r, top + 40.0];
+        g.ellipse(r - 13.0, top + 28.0, 12.0, 12.0, FG, a * if over(xb) { 0.18 } else { 0.07 });
+        ribbon(g, &[(r - 17.0, top + 24.0), (r - 9.0, top + 32.0)], |_| 1.5, FG, a * 0.8);
+        ribbon(g, &[(r - 9.0, top + 24.0), (r - 17.0, top + 32.0)], |_| 1.5, FG, a * 0.8);
+        hits.push((xb, Hit::EntClose));
+        // 2줄: 언제 · 어느 캘린더 · 저장
+        let y2 = top + 52.0;
+        g.text(&entry::when_text(e.day, e.min), &g.f_lyric, l + 2.0, y2, 260.0, LIME, a, Align::Left);
+        if let Some(c) = self.caln.cals.get(e.cal) {
+            let name = if c.name.is_empty() { c.id.clone() } else { c.name.clone() };
+            let nw = g.measure(&name, &g.f_tiny).min(150.0);
+            let cb = [r - 74.0 - nw - 34.0, y2 + 1.0, r - 74.0, y2 + 23.0];
+            g.rrect(cb[0], cb[1], cb[2] - cb[0], 22.0, 11.0, FG, a * if over(cb) { 0.16 } else { 0.07 });
+            g.ellipse(cb[0] + 12.0, cb[1] + 11.0, 4.0, 4.0, c.color, a);
+            g.text(&name, &g.f_tiny, cb[0] + 22.0, cb[1] + 4.0, nw + 4.0, FG, a * 0.85, Align::Left);
+            hits.push((cb, Hit::EntCal));
+        }
+        let sb = [r - 64.0, y2, r, y2 + 24.0];
+        g.rrect(sb[0], sb[1], 64.0, 24.0, 12.0, LIME, a * if over(sb) { 1.0 } else { 0.88 });
+        g.text("저장", &g.f_bar, sb[0], sb[1] + 3.0, 64.0, PUPIL, a, Align::Center);
+        hits.push((sb, Hit::EntSave));
+        // 3줄: 날 · 시각 고르기
+        let y3 = top + 82.0;
+        let mut x = l;
+        let (today, _) = gcal::today();
+        let chip = |hits: &mut Vec<([f32; 4], Hit)>, x: &mut f32, label: &str, on: bool, hit: Hit| {
+            let w = g.measure(label, &g.f_tiny) + 18.0;
+            let b = [*x, y3, *x + w, y3 + 22.0];
+            g.rrect(b[0], b[1], w, 22.0, 11.0, if on { LIME } else { FG }, a * if on { 0.24 } else if over(b) { 0.16 } else { 0.07 });
+            g.text(label, &g.f_tiny, b[0], b[1] + 4.0, w, if on { LIME } else { FG }, a * 0.9, Align::Center);
+            hits.push((b, hit));
+            *x += w + 5.0;
+        };
+        for (i, (label, d)) in entry::DAYS.iter().enumerate() {
+            chip(&mut hits, &mut x, label, e.day == today + d, Hit::EntDay(i));
+        }
+        x += 10.0;
+        for (i, (label, v)) in entry::TIMES.iter().enumerate() {
+            chip(&mut hits, &mut x, label, i < 4 && e.min == *v, Hit::EntTime(i));
+        }
+        let focused = e.focused;
+        self.hits.extend(hits);
+        if focused {
+            self.dirty = true; // 깜빡이는 글자 자리
+        }
+    }
+
     unsafe fn click(&mut self, px: f32, py: f32) {
         let (x, y) = (px / self.scale, py / self.scale);
         let Some(&(_, hit)) = self.hits.iter().find(|(r, _)| x >= r[0] && x < r[2] && y >= r[1] && y < r[3]) else { return };
@@ -2000,14 +2274,34 @@ impl App {
             }
             Hit::CalNav(d) => self.cal_month += d,
             Hit::CalDay(z) => self.cal_sel = z,
-            Hit::CalAdd => entry::open(self.cal_tx.clone(), &self.caln.cals, &self.caln.accounts, self.cal_sel, cat_icon()),
+            Hit::CalAdd => self.ent_open(),
+            Hit::EntField => self.ent_focus(),
+            Hit::EntDay(i) => {
+                if let Some(e) = self.ent.as_mut() {
+                    e.day = gcal::today().0 + entry::DAYS[i].1;
+                }
+            }
+            Hit::EntTime(i) => {
+                if let Some(e) = self.ent.as_mut() {
+                    (e.day, e.min) = entry::pick_time(e.day, e.min, i);
+                }
+            }
+            Hit::EntCal => {
+                let w: Vec<usize> = self.caln.cals.iter().enumerate().filter(|(_, c)| c.writable).map(|(i, _)| i).collect();
+                if let Some(e) = self.ent.as_mut() {
+                    let at = w.iter().position(|i| *i == e.cal).map_or(0, |p| (p + 1) % w.len().max(1));
+                    e.cal = w.get(at).copied().unwrap_or(e.cal);
+                }
+            }
+            Hit::EntSave => self.ent_save(),
+            Hit::EntClose => self.ent_close(),
             Hit::CalLogin => {
                 let _ = self.cal_tx.send(gcal::Cmd::Login);
                 self.cal_wait = Instant::now() + Duration::from_secs(300);
             }
             _ => {}
         }
-        if matches!(hit, Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalAdd | Hit::CalLogin) {
+        if matches!(hit, Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalAdd | Hit::CalLogin | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntSave | Hit::EntClose) {
             self.dirty = true;
             return;
         }
@@ -2061,7 +2355,7 @@ impl App {
             Hit::Line(t) => Cmd::Seek(t as i64),
             Hit::Shuffle => Cmd::Shuffle,
             Hit::Repeat => Cmd::Repeat,
-            Hit::Page(_) | Hit::Size | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalAdd | Hit::CalLogin | Hit::Queue | Hit::QItem(_) => return,
+            Hit::Page(_) | Hit::Size | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalAdd | Hit::CalLogin | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntSave | Hit::EntClose => return,
         };
         let _ = self.tx.send(cmd);
     }
@@ -2274,6 +2568,8 @@ unsafe fn run() -> Result<()> {
         bars: [0.0; 28],
         qs: Vec::new(),
         arr: [Spring::new(0.0, 320.0, 0.42), Spring::new(0.0, 320.0, 0.42)],
+        ent: None,
+        drop: Spring::new(0.0, 210.0, 0.5),
         wx: {
             let w = Arc::new(Mutex::new(weather::Weather::default()));
             weather::spawn(w.clone(), spot.0, spot.1);
@@ -2347,7 +2643,7 @@ unsafe fn run() -> Result<()> {
                 return Ok(());
             }
             // 설정창이 열려 있으면 Tab·Esc 같은 자판을 그 창이 먼저 받는다
-            if settings::hwnd().or(entry::hwnd()).is_some_and(|h| IsDialogMessageW(h, &msg).as_bool()) {
+            if settings::hwnd().is_some_and(|h| IsDialogMessageW(h, &msg).as_bool()) {
                 continue;
             }
             let _ = TranslateMessage(&msg);
@@ -2390,6 +2686,7 @@ unsafe fn run() -> Result<()> {
                     }
                 }
                 Ev::Leave if std::env::var("NOTCH_CAT_SHOT").is_ok() => {} // 시험 중엔 마우스가 없어도 펼친 채로
+                Ev::Leave if app.ent.as_ref().is_some_and(|e| !e.closing) => app.tracking = false, // 적는 동안은 마우스가 나가도 펼친 채로
                 Ev::Leave => {
                     app.tracking = false;
                     app.hover = false;
@@ -2402,6 +2699,31 @@ unsafe fn run() -> Result<()> {
                     app.tick();
                 }
                 Ev::Click(x, y) => app.click(x, y),
+                Ev::Char(c) => app.ent_char(c),
+                Ev::Key(k) => app.ent_key(k),
+                Ev::Text(t) => {
+                    if let Some(e) = app.ent.as_mut() {
+                        e.text.push_str(&t);
+                        e.caret = Instant::now();
+                    }
+                    app.dirty = true;
+                }
+                Ev::Comp(t) => {
+                    if let Some(e) = app.ent.as_mut() {
+                        e.comp = t;
+                        e.caret = Instant::now();
+                    }
+                    app.dirty = true;
+                }
+                Ev::Blur => {
+                    // 다른 창을 눌렀다: 적던 게 없으면 닫고, 있으면 남겨 두되 자판은 놓는다(칸을 누르면 다시 잡는다)
+                    if app.ent.as_ref().is_some_and(|e| e.text.is_empty() && e.comp.is_empty()) {
+                        app.ent_close();
+                    } else if let Some(e) = app.ent.as_mut() {
+                        e.focused = false;
+                        app.dirty = true;
+                    }
+                }
                 Ev::Tick => app.tick(),
                 Ev::Tray => {
                     if app.tray_menu() {
@@ -2417,6 +2739,7 @@ unsafe fn run() -> Result<()> {
             app.w.step(dt);
             app.h.step(dt);
             app.fade.step(dt);
+            app.drop.step(dt);
             app.tm.step(dt);
             app.ck.step(dt);
             app.pgf.step(dt);
