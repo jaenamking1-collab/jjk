@@ -90,6 +90,7 @@ pub struct Event {
     pub end_day: i64, // 끝 날(종일이면 마지막 날 포함)
     pub end: i32,
     pub color: (f32, f32, f32),
+    pub memo: String, // 설명(태그를 걷어 낸 글)
 }
 
 #[derive(Clone, Debug)]
@@ -133,6 +134,29 @@ fn hex_color(s: &str) -> (f32, f32, f32) {
     if s.len() == 7 { (h(1), h(3), h(5)) } else { (0.53, 0.6, 0.7) }
 }
 
+/// 구글 일정 설명(HTML 이 섞여 온다) → 보통 글. <br>·</p> 는 줄바꿈, 나머지 태그는 지운다.
+pub fn plain(s: &str) -> String {
+    let s = s.replace("<br>", "
+").replace("<br/>", "
+").replace("<br />", "
+").replace("</p>", "
+").replace("</li>", "
+");
+    let mut out = String::new();
+    let mut tag = false;
+    for c in s.chars() {
+        match c {
+            '<' => tag = true,
+            '>' if tag => tag = false,
+            _ if !tag => out.push(c),
+            _ => {}
+        }
+    }
+    let out = out.replace("&nbsp;", " ").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'").replace("&amp;", "&");
+    out.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join("
+")
+}
+
 /// 일정 목록 응답 → 일정들
 pub fn parse_events(body: &str, color: (f32, f32, f32)) -> Vec<Event> {
     let v: Value = serde_json::from_str(body).unwrap_or_default();
@@ -146,7 +170,7 @@ pub fn parse_events(body: &str, color: (f32, f32, f32)) -> Vec<Event> {
         if s0 < 0 {
             d1 -= 1; // 종일 일정의 끝 날짜는 '다음 날'로 온다
         }
-        out.push(Event { title: e["summary"].as_str().unwrap_or("(제목 없음)").to_string(), place: e["location"].as_str().unwrap_or("").to_string(), day: d0, start: s0, end_day: d1.max(d0), end: e1, color });
+        out.push(Event { title: e["summary"].as_str().unwrap_or("(제목 없음)").to_string(), place: e["location"].as_str().unwrap_or("").to_string(), day: d0, start: s0, end_day: d1.max(d0), end: e1, color, memo: plain(e["description"].as_str().unwrap_or("")) });
     }
     out
 }
@@ -405,14 +429,37 @@ pub fn spawn(out: Arc<Mutex<Cal>>) -> mpsc::Sender<Cmd> {
             let from = days(y, m, 1) - 35;
             let to = now + 70;
             let (mut cals, mut events) = (Vec::new(), Vec::new());
+            let mut failed = false; // 하나라도 못 받으면 지난번 것을 그대로 두고 1분 뒤 다시
             for (ai, (email, refresh)) in accts.iter().enumerate() {
-                let fresh = tokens[ai].as_ref().filter(|t| t.1.elapsed() < Duration::from_secs(3000)).map(|t| t.0.clone());
-                let Some(tok) = fresh.or_else(|| access(&c, &id, &secret, refresh)) else {
-                    note = format!("{email} 연결이 풀렸습니다. 다시 연결해 주세요");
+                // 열쇠(액세스 토큰)는 1시간이면 끝난다. 받은 시각은 새로 받을 때만 적는다
+                // (전엔 쓸 때마다 적어서 끝난 열쇠를 계속 썼다 → 1시간 뒤 일정 0개, 2026-11-13).
+                let mut got: Option<(String, Value)> = None;
+                let mut gone = false;
+                for attempt in 0..2 {
+                    let fresh = if attempt == 0 { tokens[ai].as_ref().filter(|t| t.1.elapsed() < Duration::from_secs(3000)).map(|t| t.0.clone()) } else { None };
+                    let tok = match fresh.or_else(|| access(&c, &id, &secret, refresh).inspect(|t| tokens[ai] = Some((t.clone(), Instant::now())))) {
+                        Some(t) => t,
+                        None => {
+                            gone = true;
+                            break;
+                        }
+                    };
+                    match send(&c, "GET", "https://www.googleapis.com/calendar/v3/users/me/calendarList?minAccessRole=reader", Some(&tok), None) {
+                        Ok((200, b)) => {
+                            got = serde_json::from_str(&b).ok().map(|v| (tok, v));
+                            break;
+                        }
+                        r => {
+                            crate::log(&format!("gcal: 캘린더 목록 실패 {}", r.map(|x| x.0.to_string()).unwrap_or_else(|e| e.to_string())));
+                            tokens[ai] = None; // 열쇠를 버리고 새로 받아 한 번 더
+                        }
+                    }
+                }
+                let Some((tok, list)) = got else {
+                    failed = true;
+                    note = if gone { format!("{email} 연결이 풀렸습니다. 다시 연결해 주세요") } else { "일정을 못 받았습니다. 곧 다시 받습니다".into() };
                     continue;
                 };
-                tokens[ai] = Some((tok.clone(), Instant::now()));
-                let list: Value = send(&c, "GET", "https://www.googleapis.com/calendar/v3/users/me/calendarList?minAccessRole=reader", Some(&tok), None).ok().and_then(|r| serde_json::from_str(&r.1).ok()).unwrap_or_default();
                 for k in list["items"].as_array().into_iter().flatten() {
                     if k["selected"].as_bool() != Some(true) && k["primary"].as_bool() != Some(true) {
                         continue; // 구글 캘린더에서 꺼 둔 캘린더는 안 본다
@@ -428,13 +475,18 @@ pub fn spawn(out: Arc<Mutex<Cal>>) -> mpsc::Sender<Cmd> {
                         "https://www.googleapis.com/calendar/v3/calendars/{}/events?singleEvents=true&orderBy=startTime&maxResults=250&timeZone=Asia%2FSeoul&timeMin={}&timeMax={}",
                         enc(&info.id), enc(&rfc3339(from, 0)), enc(&rfc3339(to, 0))
                     );
-                    if let Ok((200, b)) = send(&c, "GET", &u, Some(&tok), None) {
-                        events.extend(parse_events(&b, info.color));
+                    match send(&c, "GET", &u, Some(&tok), None) {
+                        Ok((200, b)) => events.extend(parse_events(&b, info.color)),
+                        r => {
+                            crate::log(&format!("gcal: 일정 받기 실패 {}", r.map(|x| x.0.to_string()).unwrap_or_else(|e| e.to_string())));
+                            failed = true;
+                            note = "일정을 못 받았습니다. 곧 다시 받습니다".into();
+                        }
                     }
                     cals.push(info);
                 }
             }
-            if (cals.len(), events.len()) != seen_counts {
+            if !failed && (cals.len(), events.len()) != seen_counts {
                 seen_counts = (cals.len(), events.len());
                 // 날짜만 남긴다(제목은 안 남김): 사용자가 본 달력과 노치가 받은 것을 맞춰 볼 수 있게
                 let mut ds: Vec<String> = events.iter().map(|e| { let (_, m, d) = ymd(e.day); format!("{m}/{d}") }).collect();
@@ -445,7 +497,7 @@ pub fn spawn(out: Arc<Mutex<Cal>>) -> mpsc::Sender<Cmd> {
                 let mut o = out.lock().unwrap();
                 o.ready = true;
                 o.accounts = accts.iter().map(|a| a.0.clone()).collect();
-                if !accts.is_empty() {
+                if !accts.is_empty() && !failed {
                     o.cals = cals;
                     o.events = events;
                     o.stamp = crate::hhmm();
@@ -454,7 +506,7 @@ pub fn spawn(out: Arc<Mutex<Cal>>) -> mpsc::Sender<Cmd> {
                 o.note = note;
                 o.ver += 1;
             }
-            cmd = if !later.is_empty() { Some(later.remove(0)) } else { match rx.recv_timeout(Duration::from_secs(300)) {
+            cmd = if !later.is_empty() { Some(later.remove(0)) } else { match rx.recv_timeout(Duration::from_secs(if failed { 60 } else { 300 })) {
                 Ok(c) => Some(c),
                 Err(mpsc::RecvTimeoutError::Timeout) => Some(Cmd::Refresh),
                 Err(_) => return,
@@ -467,6 +519,14 @@ pub fn spawn(out: Arc<Mutex<Cal>>) -> mpsc::Sender<Cmd> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn memo_plain() {
+        assert_eq!(plain("준비물:<br>노트북 &amp; 충전기<br><b>꼭</b>"), "준비물:
+노트북 & 충전기
+꼭");
+        assert_eq!(plain(""), "");
+    }
 
     #[test]
     fn dates() {
