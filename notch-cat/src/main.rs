@@ -320,6 +320,41 @@ fn q_layout(groups: &[usize], k: f32, cols: usize) -> (Vec<[f32; 4]>, Vec<[f32; 
     (panels, cells, (w, (bottom + 14.0).min(WIN_H - SHADOW - 4.0)))
 }
 
+/// 소리 막대: 실제 소리 크기를 따라 오르내린다(아래에서 위로, 끝은 둥글게). base 는 막대 바닥.
+unsafe fn sound_bars(g: &gfx::Gfx, bars: &[f32], x: f32, base: f32, w: f32, hmax: f32, a: f32) {
+    let step = w / bars.len() as f32;
+    for (i, b) in bars.iter().enumerate() {
+        let bh = 4.0 + hmax * b.clamp(0.0, 1.0);
+        g.rrect(x + i as f32 * step, base - bh, step * 0.62, bh, step * 0.31, mix(FG, LIME, 0.25 + 0.6 * b), a * (0.35 + 0.6 * b));
+    }
+}
+
+/// 가사 없이 소리만 나는 때인가: 첫 줄 전(전주) · 줄 사이가 길게 빈 곳(간주) · 마지막 줄 뒤(후주).
+fn instr_part(lines: &[(u64, String)], cur: Option<usize>, pos: u64) -> Option<&'static str> {
+    let first = lines.first()?.0;
+    match cur {
+        None => (pos + 300 < first && first > 3000).then_some("전주"),
+        Some(i) => {
+            let at = lines[i].0;
+            match lines.get(i + 1) {
+                // 다음 줄이 10초 넘게 남았고 지금 줄을 5초 넘게 띄웠으면, 다음 줄 1.5초 전까지
+                Some(nx) => (nx.0 - at > 10_000 && pos > at + 5_000 && nx.0 > pos + 1_500).then_some("간주"),
+                None => (pos > at + 6_000).then_some("후주"),
+            }
+        }
+    }
+}
+
+#[test]
+fn instr_parts() {
+    let l: Vec<(u64, String)> = [(12_000, "a"), (15_000, "b"), (40_000, "c")].iter().map(|x| (x.0, x.1.to_string())).collect();
+    assert_eq!(instr_part(&l, None, 5_000), Some("전주"));
+    assert_eq!(instr_part(&l, Some(0), 13_000), None);
+    assert_eq!(instr_part(&l, Some(1), 25_000), Some("간주"));
+    assert_eq!(instr_part(&l, Some(1), 39_000), None); // 다음 줄 바로 앞은 가사로 돌아온다
+    assert_eq!(instr_part(&l, Some(2), 50_000), Some("후주"));
+}
+
 fn mix(a: Rgb, b: Rgb, t: f32) -> Rgb {
     (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t, a.2 + (b.2 - a.2) * t)
 }
@@ -529,6 +564,7 @@ struct App {
     lyr_stamp: String,
     lyr_ver: u64,
     cur: Option<usize>,
+    instr: Option<&'static str>, // 가사 없이 소리만 나는 때(전주·간주·후주) — 가사 자리에 소리 막대
     text: String,
     prev_text: String,
     art: Option<ID2D1Bitmap>,
@@ -621,6 +657,9 @@ impl App {
         // 노치를 켜기 전부터 나오던 알송 곡은 위치를 몰라 줄을 짚지 않는다(틀린 줄을 짚느니 안 짚는다).
         let unknown = self.n.app == "ALSong" && self.n.dur_ms == 0;
         let cur = if self.n.has && !unknown { lrc::current(&self.lines, pos.max(0) as u64) } else { None };
+        self.instr = if unknown || !self.n.playing || self.lyr_st != St::Found || self.lines.is_empty() { None } else {
+            instr_part(&self.lines, cur, pos.max(0) as u64)
+        };
         if cur != self.cur {
             if let (Some(a), Some(b)) = (self.cur, cur) {
                 if b == a + 1 {
@@ -663,7 +702,7 @@ impl App {
                     ..Default::default() };
             }
         }
-        if self.hover && self.page == 0 && self.mode == 0 && self.cfg.ml == 1 && self.n.playing {
+        if self.hover && self.page == 0 && self.mode == 0 && (self.cfg.ml == 1 || self.instr.is_some()) && self.n.playing {
             let t = self.born.elapsed().as_secs_f32();
             let lvl = self.meter.peak().filter(|_| std::env::var("NOTCH_CAT_SHOT").is_err()).map_or(0.55 + 0.2 * (t * 2.1).sin(), |v| (v * 1.8).min(1.0).sqrt()); // 소리를 못 읽으면 잔잔히 흔들기만
             let n = self.bars.len() as f32;
@@ -1282,18 +1321,15 @@ impl App {
                 let rw = x + w - 40.0 - rx;
                 if wide {
                     // 소리 막대: 실제 소리 크기를 따라 오르내린다(아래에서 위로, 끝은 둥글게)
-                    let nb = self.bars.len();
-                    let step = (rw - 50.0) / nb as f32;
-                    for (i, b) in self.bars.iter().enumerate() {
-                        let bh = 4.0 + 74.0 * b.clamp(0.0, 1.0);
-                        let bx = rx + i as f32 * step;
-                        g.rrect(bx, 108.0 - bh, step * 0.62, bh, step * 0.31, mix(FG, LIME, 0.25 + 0.6 * b), a * (0.35 + 0.6 * b));
-                    }
+                    sound_bars(g, &self.bars, rx, 108.0, rw - 50.0, 74.0, a);
                 } else {
                     // 가사: 지난 줄 · 지금 줄(크게) · 다음 줄 두 개. 긴 줄은 줄을 바꾼다.
                     g.text("가사", &g.f_tiny, rx, 14.0, 60.0, FG, a * 0.45, Align::Left);
                     g.clip(rx, 30.0, rw, h - 62.0);
-                    if self.lyr_st == St::Found && !self.lines.is_empty() {
+                    if let Some(part) = self.instr {
+                        g.text(part, &g.f_tiny, rx, 44.0, rw, LIME, a * 0.7, Align::Center);
+                        sound_bars(g, &self.bars[..16], rx + rw * 0.15, 118.0, rw * 0.7, 52.0, a);
+                    } else if self.lyr_st == St::Found && !self.lines.is_empty() {
                         let c = self.cur.map(|i| i as i32).unwrap_or(-1);
                         let mut y = 66.0 + self.scroll.pos * 26.0;
                         if c > 0 {
@@ -1378,7 +1414,10 @@ impl App {
                 const LH: f32 = 22.0;
                 let (ly, lw) = (160.0, w - 36.0);
                 g.clip(x + 18.0, ly, lw, LH * 3.0);
-                if self.lyr_st == St::Found {
+                if let Some(part) = self.instr {
+                    g.text(part, &g.f_tiny, x + 18.0, ly + 2.0, lw, LIME, a * 0.7, Align::Center);
+                    sound_bars(g, &self.bars[..16], x + 18.0 + lw * 0.3, ly + LH * 3.0 - 2.0, lw * 0.4, LH * 2.0 - 6.0, a);
+                } else if self.lyr_st == St::Found {
                     let c = self.cur.map(|i| i as i32).unwrap_or(-1);
                     for i in (c - 2).max(0)..(c + 3).min(self.lines.len() as i32) {
                         let y = ly + LH + (i - c) as f32 * LH + self.scroll.pos * LH;
@@ -2220,6 +2259,7 @@ unsafe fn run() -> Result<()> {
         lyr_stamp: String::new(),
         lyr_ver: 0,
         cur: None,
+        instr: None,
         text: String::new(),
         prev_text: String::new(),
         art: None,

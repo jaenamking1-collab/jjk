@@ -109,7 +109,11 @@ pub fn list(title: &str) -> Option<(Vec<Row>, usize)> {
 fn md5_of(path: &str) -> Option<String> {
     use std::io::Read;
     let mut b = vec![];
-    std::fs::File::open(path).ok()?.take(2_000_000).read_to_end(&mut b).ok()?;
+    let mut f = std::fs::File::open(path).ok()?;
+    // 머리(ID3)만 먼저 읽어 크기를 알고, 필요한 만큼만 더 읽는다(구글 드라이브 파일이면 읽기가 느리다)
+    f.by_ref().take(10).read_to_end(&mut b).ok()?;
+    let head = if b.len() == 10 && &b[..3] == b"ID3" { 10 + (((b[6] as usize & 0x7f) << 21) | ((b[7] as usize & 0x7f) << 14) | ((b[8] as usize & 0x7f) << 7) | (b[9] as usize & 0x7f)) + 10 } else { 0 };
+    f.take((head + 163_840 + 8_192) as u64).read_to_end(&mut b).ok()?;
     let mut i = 0;
     if b.len() > 10 && &b[..3] == b"ID3" {
         let sz = ((b[6] as usize & 0x7f) << 21) | ((b[7] as usize & 0x7f) << 14) | ((b[8] as usize & 0x7f) << 7) | (b[9] as usize & 0x7f);
@@ -131,7 +135,7 @@ pub fn lyc(raw: &str) -> Option<String> {
     let (rows, at) = list(raw)?;
     let md5 = md5_of(&rows[at].uri)?;
     let f = std::env::temp_dir().join("ALSongLyric").join("cache").join(format!("{md5}.lyc"));
-    for _ in 0..16 {
+    for _ in 0..80 {
         if let Ok(b) = std::fs::read(&f) {
             let u: Vec<u16> = b.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
             let t = String::from_utf16_lossy(&u);
@@ -141,7 +145,7 @@ pub fn lyc(raw: &str) -> Option<String> {
             return if lines.is_empty() { None } else { Some(lines.join("
 ")) };
         }
-        std::thread::sleep(std::time::Duration::from_millis(500));
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
     None
 }
