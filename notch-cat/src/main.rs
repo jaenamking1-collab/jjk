@@ -110,7 +110,7 @@ const OPEN: (f32, f32) = (460.0, 246.0);
 const MUSIC: [(f32, f32); 3] = [OPEN, (540.0, 128.0), (590.0, 184.0)];
 const WX: [(f32, f32); 2] = [(600.0, 168.0), (600.0, 262.0)]; // 날씨 쪽: 작은 판 · 큰 판
 const CAL_BIG: (f32, f32) = (880.0, 580.0); // 달력을 눌러 크게 편 판
-const CALV: [(f32, f32); 3] = [(560.0, 186.0), (500.0, 322.0), (600.0, 282.0)]; // 달력 쪽: 한 주 줄 · 한 달 · 달력+목록
+const CALV: [(f32, f32); 3] = [(560.0, 280.0), (500.0, 322.0), (600.0, 282.0)]; // 달력 쪽: 한 주 줄 · 한 달 · 달력+목록
 const MUSIC_NAMES: [&str; 3] = ["기본 (가사 아래)", "와이드 (소리 막대)", "가사 옆"];
 const SHADOW: f32 = 20.0; // 펼쳤을 때 그림자가 번지는 폭
 
@@ -1884,18 +1884,45 @@ impl App {
                             day_cell(&mut hits, z, cx, 66.0, cw, true, false);
                             g.text(gcal::WEEK[gcal::weekday(z)], &g.f_tiny, cx - cw / 2.0, 91.0, cw, FG, a * 0.5, Align::Center);
                         }
-                        // 그날 일정 세 줄
+                        // 그날 일정(두 줄까지) + 그 주의 다른 날 일정
                         let evs = cal.on(self.cal_sel);
+                        let mut y = 114.0;
                         if evs.is_empty() {
-                            g.text(if self.cal_sel == today { "오늘은 일정이 없습니다" } else { "일정이 없는 날입니다" }, &g.f_body, l, 122.0, r - l, FG, a * 0.5, Align::Left);
+                            g.text(if self.cal_sel == today { "오늘은 일정이 없습니다" } else { "일정이 없는 날입니다" }, &g.f_body, l, y + 6.0, r - l, FG, a * 0.5, Align::Left);
+                            y += 26.0;
                         }
                         // 오늘이면 아직 안 끝난 일정부터
-                        let skip = if self.cal_sel == today && evs.len() > 3 { evs.iter().position(|e| e.start < 0 || e.end > now).unwrap_or(0).min(evs.len() - 3) } else { 0 };
-                        for (i, e) in evs.iter().skip(skip).take(3).enumerate() {
-                            row(e, l, 114.0 + i as f32 * 21.0, r - l - 70.0, false);
+                        let skip = if self.cal_sel == today && evs.len() > 2 { evs.iter().position(|e| e.start < 0 || e.end > now).unwrap_or(0).min(evs.len() - 2) } else { 0 };
+                        for e in evs.iter().skip(skip).take(2) {
+                            row(e, l, y, r - l - 70.0, false);
+                            y += 21.0;
                         }
-                        if evs.len() > 3 {
-                            g.text(&format!("모두 {}개", evs.len()), &g.f_tiny, r - 110.0, 160.0, 76.0, FG, a * 0.5, Align::Right);
+                        if evs.len() > 2 {
+                            g.text(&format!("이날 모두 {}개", evs.len()), &g.f_tiny, r - 130.0, y - 18.0, 110.0, FG, a * 0.5, Align::Right);
+                        }
+                        // 위 줄에 보이는 아흐레(고른 날 앞뒤 나흘) 중 다른 날들
+                        let wk0 = self.cal_sel - 4;
+                        let week: Vec<&gcal::Event> = (wk0..wk0 + 9).filter(|z| *z != self.cal_sel).flat_map(|z| cal.on(z).into_iter().filter(move |e| e.day == z || z == wk0)).collect();
+                        y += 6.0;
+                        g.rrect(l, y, r - l, 1.0, 0.5, FG, a * 0.1);
+                        y += 7.0;
+                        g.text("앞뒤 나흘", &g.f_tiny, l, y, 80.0, LIME, a * 0.8, Align::Left);
+                        y += 18.0;
+                        if week.is_empty() {
+                            g.text("다른 날 일정은 없습니다", &g.f_body, l, y, r - l, FG, a * 0.5, Align::Left);
+                        }
+                        let bottom = h - 12.0;
+                        let mut shown = 0;
+                        for e in week.iter() {
+                            if y + 21.0 > bottom {
+                                break;
+                            }
+                            row_at(e, l, y, r - l - 190.0, false, true);
+                            y += 21.0;
+                            shown += 1;
+                        }
+                        if week.len() > shown {
+                            g.text(&format!("외 {}개", week.len() - shown), &g.f_tiny, r - 170.0, h - 24.0, 76.0, FG, a * 0.5, Align::Right);
                         }
                     } else {
                         // 한 달(여섯 줄 고정). 달력+목록 모양은 왼쪽에 작게, 오른쪽에 고른 날 일정.
@@ -3193,6 +3220,9 @@ unsafe fn run() -> Result<()> {
         app.cal_big = std::env::var("NOTCH_CAT_CALBIG").is_ok();
         app.acct_menu = std::env::var("NOTCH_CAT_ACCT").is_ok(); // 시험용: '＋ 계정' 고르기 판
         app.naver_guide = std::env::var("NOTCH_CAT_NAVER").is_ok(); // 시험용: 네이버 연결 안내
+        if let Some(cv) = std::env::var("NOTCH_CAT_CV").ok().and_then(|v| v.parse::<usize>().ok()) {
+            app.cfg.cv = cv.min(2); // 시험용: 달력 모양
+        }
         if std::env::var("NOTCH_CAT_CALPOP").is_ok() {
             app.cal_pop = Some((gcal::today().0, 1)); // 시험용: 오늘 두 번째 일정 카드
         }
