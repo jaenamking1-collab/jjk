@@ -1900,13 +1900,13 @@ impl App {
                         if evs.len() > 2 {
                             g.text(&format!("이날 모두 {}개", evs.len()), &g.f_tiny, r - 130.0, y - 18.0, 110.0, FG, a * 0.5, Align::Right);
                         }
-                        // 위 줄에 보이는 아흐레(고른 날 앞뒤 나흘) 중 다른 날들
-                        let wk0 = self.cal_sel - 4;
-                        let week: Vec<&gcal::Event> = (wk0..wk0 + 9).filter(|z| *z != self.cal_sel).flat_map(|z| cal.on(z).into_iter().filter(move |e| e.day == z || z == wk0)).collect();
+                        // 이번 주(월요일부터 일요일까지) 중 다른 날들
+                        let wk0 = self.cal_sel - ((gcal::weekday(self.cal_sel) + 6) % 7) as i64;
+                        let week: Vec<&gcal::Event> = (wk0..wk0 + 7).filter(|z| *z != self.cal_sel).flat_map(|z| cal.on(z).into_iter().filter(move |e| e.day == z || z == wk0)).collect();
                         y += 6.0;
                         g.rrect(l, y, r - l, 1.0, 0.5, FG, a * 0.1);
                         y += 7.0;
-                        g.text("앞뒤 나흘", &g.f_tiny, l, y, 80.0, LIME, a * 0.8, Align::Left);
+                        g.text("이번 주", &g.f_tiny, l, y, 80.0, LIME, a * 0.8, Align::Left);
                         y += 18.0;
                         if week.is_empty() {
                             g.text("다른 날 일정은 없습니다", &g.f_body, l, y, r - l, FG, a * 0.5, Align::Left);
@@ -1966,7 +1966,7 @@ impl App {
                                 g.text(&format!("외 {}개", evs.len() - shown), &g.f_tiny, lx + 11.0, y, 120.0, FG, a * 0.5, Align::Left);
                                 y += 16.0;
                             }
-                            let wk0 = self.cal_sel - gcal::weekday(self.cal_sel) as i64;
+                            let wk0 = self.cal_sel - ((gcal::weekday(self.cal_sel) + 6) % 7) as i64; // 이번 주는 월요일부터
                             let week: Vec<&gcal::Event> = (wk0..wk0 + 7).filter(|z| *z != self.cal_sel).flat_map(|z| cal.on(z).into_iter().filter(move |e| e.day == z || z == wk0)).collect();
                             y += 8.0;
                             g.rrect(lx, y, rw, 1.0, 0.5, FG, a * 0.1);
