@@ -175,8 +175,9 @@ pub fn events(c: &HttpClient, id: &str, pw: &str, url: &str, from: i64, to: i64,
 }
 
 /// 일정 하나 넣기
-pub fn add(c: &HttpClient, id: &str, pw: &str, url: &str, title: &str, day: i64, start: i32, end: i32) -> std::result::Result<(), String> {
-    let uid = format!("{}@notch-cat", gcal::random(24).replace(['.', '~'], "x"));
+pub fn add(c: &HttpClient, id: &str, pw: &str, url: &str, title: &str, day: i64, start: i32, end: i32) -> std::result::Result<String, String> {
+    // 아이디는 영숫자만(‘@notch-cat’ 이 붙은 아이디는 네이버가 403 으로 거절했다, 2026-11-13)
+    let uid: String = format!("notchcat{}", gcal::random(40).chars().filter(|c| c.is_ascii_alphanumeric()).take(24).collect::<String>());
     let esc = title.replace('\\', "\\\\").replace(';', "\\;").replace(',', "\\,").replace('\n', "\\n");
     let (now_d, now_m) = gcal::today();
     let when = if start < 0 {
@@ -189,7 +190,7 @@ pub fn add(c: &HttpClient, id: &str, pw: &str, url: &str, title: &str, day: i64,
     let ics = format!("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//notch-cat//KO\r\nBEGIN:VEVENT\r\nUID:{uid}\r\nDTSTAMP:{}\r\n{when}\r\nSUMMARY:{esc}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n", zstamp(now_d, now_m));
     let u = format!("{}{}.ics", if url.ends_with('/') { url.to_string() } else { format!("{url}/") }, gcal::enc(&uid));
     match dav(c, "PUT", &u, id, pw, None, Some((&ics, "text/calendar")), Some(("If-None-Match", "*"))) {
-        Ok((200 | 201 | 204, _)) => Ok(()),
+        Ok((200 | 201 | 204, _)) => Ok(u),
         Ok((st, b)) => Err(format!("({st}) {}", b.chars().take(80).collect::<String>())),
         Err(e) => Err(e.to_string()),
     }
@@ -475,6 +476,22 @@ mod tests {
                     Ok(v) => println!("  일정 {}", v.len()),
                     Err(e) => println!("  실패 {e}"),
                 }
+            }
+        }
+    }
+
+    #[test]
+    #[ignore] // 이 PC 의 네이버 '내 캘린더'에 시험 일정을 하나 넣었다가 바로 지운다(여러 번 연달아 돌리면 네이버가 한동안 403 으로 막는다)
+    fn live_add_then_delete() {
+        let c = windows::Web::Http::Filters::HttpBaseProtocolFilter::new().and_then(|f| { f.SetAllowUI(false)?; HttpClient::Create(&f) }).unwrap();
+        let (now, _) = gcal::today();
+        for (k, pw) in gcal::load_accounts() {
+            let Some(id) = k.strip_prefix(TAG) else { continue };
+            let cal = calendars(&c, id, &pw).unwrap().into_iter().next().unwrap();
+            let r = add(&c, id, &pw, &cal.url, "노치 시험(곧 지움)", now + 1, 600, -1);
+            println!("넣기 {:?}", r);
+            if let Ok(u) = r {
+                println!("지우기 {:?}", dav(&c, "DELETE", &u, id, &pw, None, None, None).map(|x| x.0));
             }
         }
     }

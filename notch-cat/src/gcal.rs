@@ -429,8 +429,11 @@ pub fn spawn(out: Arc<Mutex<Cal>>) -> mpsc::Sender<Cmd> {
                     let naver = info.as_ref().and_then(|i| accts.get(i.account)).and_then(|a| a.0.strip_prefix(crate::naver::TAG).map(|n| (n.to_string(), a.1.clone())));
                     if let (Some(i), Some((nid, pw))) = (info.as_ref(), naver) {
                         match crate::naver::add(&c, &nid, &pw, &i.id, &title, day, start, end) {
-                            Ok(()) => crate::log("gcal: 네이버에 일정 넣음"),
-                            Err(e) => note = format!("일정을 못 넣었습니다{e}"),
+                            Ok(_) => crate::log("gcal: 네이버에 일정 넣음"),
+                            Err(e) => {
+                                crate::log(&format!("gcal: 네이버에 못 넣음 {e}"));
+                                note = format!("일정을 못 넣었습니다{e}");
+                            }
                         }
                     } else { match (info, tok) {
                         (Some(i), Some(t)) => {

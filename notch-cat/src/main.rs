@@ -673,6 +673,7 @@ struct App {
     acct_menu: bool, // '＋ 계정' 고르기 판이 열려 있다
     naver_guide: bool, // 네이버 연결 안내 판(연결되면 저절로 닫힘)
     naver_n: usize,    // 안내를 열 때 연결돼 있던 네이버 계정 수
+    hold: Option<Instant>, // 일정을 저장한 뒤 이때까지는 마우스가 나가도 달력을 펼친 채로(넣은 일정을 보게)
     cal_pop: Option<(i64, usize)>, // 큰 달력에서 눌러 연 일정(날, 그날 몇 번째)
     cal_sel: i64,      // 고른 날
     cal_wait: Instant, // 브라우저에서 로그인하는 중(이때까지)
@@ -2402,7 +2403,12 @@ impl App {
         }
         for &cal in &e.cals {
             let _ = self.cal_tx.send(gcal::Cmd::Add { cal, title: title.clone(), day: e.day, start: e.min, end: -1 });
+            // 받아 오기 전에도 바로 보이게 달력에 먼저 그린다(다음 받기 때 진짜 것으로 바뀐다)
+            let color = self.caln.cals.get(cal).map_or(LIME, |c| c.color);
+            let (end_day, end) = if e.min < 0 { (e.day, -1) } else { (e.day + (e.min + 60) as i64 / 1440, (e.min + 60) % 1440) };
+            self.caln.events.push(gcal::Event { title: title.clone(), place: String::new(), day: e.day, start: e.min, end_day, end, color, memo: String::new() });
         }
+        self.hold = Some(Instant::now() + Duration::from_secs(5));
         self.cal_sel = e.day;
         self.face.happy(900);
         self.ent_close();
@@ -3128,6 +3134,7 @@ unsafe fn run() -> Result<()> {
         acct_menu: false,
         naver_guide: false,
         naver_n: 0,
+        hold: None,
         cal_sel: gcal::today().0,
         cal_wait: Instant::now(),
         notes: {
@@ -3289,6 +3296,7 @@ unsafe fn run() -> Result<()> {
                 }
                 Ev::Leave if std::env::var("NOTCH_CAT_SHOT").is_ok() => {} // 시험 중엔 마우스가 없어도 펼친 채로
                 Ev::Leave if app.ent_up() => app.tracking = false, // 적는 동안은 마우스가 나가도 펼친 채로
+                Ev::Leave if app.hold.is_some() => app.tracking = false, // 막 저장했다: 넣은 일정이 보이게 잠깐 펼친 채로
                 Ev::Leave => app.leave(),
                 Ev::Click(x, y) => app.click(x, y),
                 Ev::Char(c) => app.ent_char(c),
@@ -3318,7 +3326,15 @@ unsafe fn run() -> Result<()> {
                         app.leave();
                     }
                 }
-                Ev::Tick => app.tick(),
+                Ev::Tick => {
+                    if app.hold.is_some_and(|h| Instant::now() >= h) {
+                        app.hold = None;
+                        if !app.tracking {
+                            app.leave(); // 마우스가 노치 밖에 있으면 이제 접는다
+                        }
+                    }
+                    app.tick()
+                }
                 Ev::Tray => {
                     if app.tray_menu() {
                         let _ = DestroyWindow(hwnd);
