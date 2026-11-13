@@ -155,7 +155,7 @@ impl Cfg {
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        Cfg { hide_fullscreen: v["hide_fullscreen"].as_bool().unwrap_or(true), autostart: v["autostart"].as_bool().unwrap_or(true), aside: v["aside"].as_bool().unwrap_or(false), tiny: v["tiny"].as_bool().unwrap_or(true), bar: v["bar"].as_bool().unwrap_or(false), two: v["two"].as_bool().unwrap_or(true), ml: (v["ml"].as_u64().unwrap_or(0) as usize).min(2), wbig: v["wbig"].as_bool().unwrap_or(true), cv: (v["cv"].as_u64().unwrap_or(0) as usize).min(2), lnk: v["lnk"].as_str().unwrap_or("").into(), place: (v["lat"].as_f64().unwrap_or(37.57), v["lon"].as_f64().unwrap_or(126.98)) }
+        Cfg { hide_fullscreen: v["hide_fullscreen"].as_bool().unwrap_or(true), autostart: v["autostart"].as_bool().unwrap_or(true), aside: v["aside"].as_bool().unwrap_or(false), tiny: v["tiny"].as_bool().unwrap_or(true), bar: v["bar"].as_bool().unwrap_or(false), two: v["two"].as_bool().unwrap_or(true), ml: (v["ml"].as_u64().unwrap_or(0) as usize).min(2), wbig: v["wbig"].as_bool().unwrap_or(true), cv: (v["cv"].as_u64().unwrap_or(2) as usize).min(2), lnk: v["lnk"].as_str().unwrap_or("").into(), place: (v["lat"].as_f64().unwrap_or(37.57), v["lon"].as_f64().unwrap_or(126.98)) }
     }
 
     fn save(&self) {
@@ -1582,19 +1582,28 @@ impl App {
                             hits.push(([cx - cw / 2.0, cy - rr - 2.0, cx + cw / 2.0, cy + rr + 8.0], Hit::CalDay(z)));
                         }
                     };
-                    // 일정 한 줄: 색 점 · 시각 · 제목 · 곳
-                    let row = |e: &gcal::Event, x0: f32, y: f32, rw: f32, tall: bool| {
-                        let time = if e.start < 0 { "종일".to_string() } else { format!("{:02}:{:02}", e.start / 60, e.start % 60) };
-                        let gone = e.day == today && e.start >= 0 && e.end <= now && e.end_day == today; // 지난 일정은 흐리게
+                    // 일정 한 줄: 색 점 · (날) 시각 · 제목 · 곳. 끝난 일정은 흐리게 하고 제목에 줄을 긋는다.
+                    let row_at = |e: &gcal::Event, x0: f32, y: f32, rw: f32, tall: bool, with_day: bool| {
+                        let mut time = if e.start < 0 { "종일".to_string() } else { format!("{:02}:{:02}", e.start / 60, e.start % 60) };
+                        if with_day {
+                            time = format!("{} {} {time}", gcal::ymd(e.day).2, gcal::WEEK[gcal::weekday(e.day)]);
+                        }
+                        let tw = if with_day { 86.0 } else { 47.0 };
+                        let gone = e.end_day < today || (e.end_day == today && e.start >= 0 && e.end <= now);
                         let k = if gone { 0.45 } else { 1.0 };
                         g.rrect(x0, y + 3.0, 3.0, if tall { 30.0 } else { 13.0 }, 1.5, e.color, a * k);
-                        g.text(&time, &g.f_time, x0 + 11.0, y, 44.0, FG, a * k * 0.9, Align::Left);
-                        g.text(&e.title, &g.f_body, x0 + 58.0, y - 0.5, rw - 58.0, FG, a * k, Align::Left);
+                        g.text(&time, &g.f_time, x0 + 11.0, y, tw, FG, a * k * 0.9, Align::Left);
+                        g.text(&e.title, &g.f_body, x0 + 11.0 + tw, y - 0.5, rw - 11.0 - tw, FG, a * k, Align::Left);
+                        if gone {
+                            let lw = g.measure(&e.title, &g.f_body).min(rw - 11.0 - tw);
+                            g.rrect(x0 + 11.0 + tw - 1.0, y + 9.5, lw + 2.0, 1.2, 0.6, FG, a * 0.7);
+                        }
                         if tall {
                             let sub = if e.start < 0 { e.place.clone() } else { format!("{:02}:{:02}{}", e.end / 60, e.end % 60, if e.place.is_empty() { String::new() } else { format!(" · {}", e.place) }) };
                             g.text(&sub, &g.f_tiny, x0 + 11.0, y + 19.0, rw - 11.0, FG, a * k * 0.55, Align::Left);
                         }
                     };
+                    let row = |e: &gcal::Event, x0: f32, y: f32, rw: f32, tall: bool| row_at(e, x0, y, rw, tall, false);
                     let mut hits = Vec::new();
                     if view == 0 {
                         // 한 주 줄: 고른 날을 가운데 두고 앞뒤 나흘
@@ -1636,15 +1645,51 @@ impl App {
                         if view == 2 {
                             let lx = l + gw + 22.0;
                             g.rrect(lx - 12.0, 50.0, 1.0, h - 70.0, 0.5, FG, a * 0.12);
+                            // 위: 고른 날 일정 · 아래: 그 주(일~토)의 나머지 날 일정
+                            let rw = r - lx - 8.0;
+                            let bottom = h - 28.0;
+                            let mut y = 50.0;
                             let evs = cal.on(self.cal_sel);
+                            g.text(if self.cal_sel == today { "오늘" } else { "고른 날" }, &g.f_tiny, lx, y, 80.0, LIME, a * 0.8, Align::Left);
+                            y += 18.0;
                             if evs.is_empty() {
-                                g.text("일정이 없는 날입니다", &g.f_body, lx, 56.0, r - lx, FG, a * 0.5, Align::Left);
+                                g.text("일정이 없습니다", &g.f_body, lx, y, rw, FG, a * 0.5, Align::Left);
+                                y += 22.0;
                             }
-                            for (i, e) in evs.iter().take(4).enumerate() {
-                                row(e, lx, 52.0 + i as f32 * 46.0, r - lx - 24.0, true);
+                            let mut shown = 0;
+                            for e in evs.iter() {
+                                if y + 21.0 > bottom - 40.0 {
+                                    break;
+                                }
+                                row_at(e, lx, y, rw, false, false);
+                                y += 21.0;
+                                shown += 1;
                             }
-                            if evs.len() > 4 {
-                                g.text(&format!("모두 {}개", evs.len()), &g.f_tiny, r - 130.0, h - 24.0, 96.0, FG, a * 0.5, Align::Right);
+                            if evs.len() > shown {
+                                g.text(&format!("외 {}개", evs.len() - shown), &g.f_tiny, lx + 11.0, y, 120.0, FG, a * 0.5, Align::Left);
+                                y += 16.0;
+                            }
+                            let wk0 = self.cal_sel - gcal::weekday(self.cal_sel) as i64;
+                            let week: Vec<&gcal::Event> = (wk0..wk0 + 7).filter(|z| *z != self.cal_sel).flat_map(|z| cal.on(z).into_iter().filter(move |e| e.day == z || z == wk0)).collect();
+                            y += 8.0;
+                            g.rrect(lx, y, rw, 1.0, 0.5, FG, a * 0.1);
+                            y += 8.0;
+                            g.text("이번 주", &g.f_tiny, lx, y, 80.0, LIME, a * 0.8, Align::Left);
+                            y += 18.0;
+                            if week.is_empty() {
+                                g.text("다른 날 일정은 없습니다", &g.f_body, lx, y, rw, FG, a * 0.5, Align::Left);
+                            }
+                            let mut shown = 0;
+                            for e in week.iter() {
+                                if y + 21.0 > bottom {
+                                    break;
+                                }
+                                row_at(e, lx, y, rw, false, true);
+                                y += 21.0;
+                                shown += 1;
+                            }
+                            if week.len() > shown {
+                                g.text(&format!("외 {}개", week.len() - shown), &g.f_tiny, r - 130.0, h - 24.0, 96.0, FG, a * 0.5, Align::Right);
                             }
                             g.text(&format!("달력 {}", cal.stamp), &g.f_tiny, l, h - 20.0, 120.0, if stale { WARN } else { FG }, a * if stale { 1.0 } else { 0.4 }, Align::Left);
                         }
