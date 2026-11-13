@@ -317,26 +317,49 @@ pub fn login(i: usize) {
     let title = format!("노치 {} 연결", NAMES[i.min(2)]);
     crate::log(&format!("ai: {} 연결 창", NAMES[i.min(2)]));
     std::thread::spawn(move || {
+        open_console(&title, cmd);
+    });
+}
+
+/// 콘솔 창을 띄우고 15초 안에 찾아 맨 앞으로 올린다. 찾았으면 true.
+pub fn open_console(title: &str, cmd: &str) -> bool {
+    {
         use std::os::windows::process::CommandExt;
-        let _ = std::process::Command::new("cmd").raw_arg(format!("/k \"title {title} & echo {title}: 브라우저가 열리면 계정을 고르고 허용을 눌러 주세요. 끝나면 이 창을 닫아도 됩니다. & timeout /t 2 >nul & {cmd}\"")).creation_flags(0x0000_0010).spawn();
-        // 노치는 앞으로 못 나서는 창이라 새 창이 뒤에 숨는다 → 제목으로 찾아 잠깐 맨 위로
+        // 로그인이 끝나면 5초 뒤 창이 저절로 닫힌다(/c)
+        let _ = std::process::Command::new("cmd").raw_arg(format!("/c \"title {title} & echo {title}: 브라우저가 열리면 계정을 고르고 허용을 눌러 주세요. 코드를 주면 여기에 붙여 넣으세요(마우스 오른쪽 단추). & timeout /t 2 >nul & {cmd} & echo. & echo 끝났습니다. 5초 뒤 닫힙니다. & timeout /t 5 >nul\"")).creation_flags(0x0000_0010).spawn();
+        // 노치는 앞으로 못 나서는 창이라 새 창이 뒤에 숨는다. 윈도우 터미널은 늦게 뜨므로 15초까지 제목으로 찾아 맨 앞으로.
         unsafe {
+            use windows::Win32::Foundation::{BOOL, HWND, LPARAM};
             use windows::Win32::UI::WindowsAndMessaging::*;
-            let t: Vec<u16> = title.encode_utf16().chain(Some(0)).collect();
-            for _ in 0..30 {
-                std::thread::sleep(Duration::from_millis(100));
-                if let Ok(h) = FindWindowW(None, windows::core::PCWSTR(t.as_ptr())) {
-                    if !h.0.is_null() {
-                        let _ = SetWindowPos(h, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
-                        std::thread::sleep(Duration::from_millis(300));
-                        let _ = SetWindowPos(h, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
-                        let _ = SetForegroundWindow(h);
-                        break;
-                    }
+            unsafe extern "system" fn find(h: HWND, lp: LPARAM) -> BOOL {
+                let want = &mut *(lp.0 as *mut (String, HWND));
+                let mut buf = [0u16; 256];
+                let n = GetWindowTextW(h, &mut buf);
+                if n > 0 && IsWindowVisible(h).as_bool() && String::from_utf16_lossy(&buf[..n as usize]).contains(&want.0) {
+                    want.1 = h;
+                    return BOOL(0);
+                }
+                BOOL(1)
+            }
+            for _ in 0..75 {
+                std::thread::sleep(Duration::from_millis(200));
+                let mut want = (title.to_string(), HWND::default());
+                let _ = EnumWindows(Some(find), LPARAM(&mut want as *mut _ as isize));
+                if !want.1 .0.is_null() {
+                    let h = want.1;
+                    let _ = ShowWindow(h, SW_RESTORE);
+                    let _ = SetWindowPos(h, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+                    let _ = SetForegroundWindow(h);
+                    std::thread::sleep(Duration::from_millis(1500));
+                    let _ = SetWindowPos(h, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+                    crate::log("ai: 연결 창을 앞으로 올림");
+                    return true;
                 }
             }
+            crate::log("ai: 연결 창을 못 찾음");
         }
-    });
+    }
+    false
 }
 
 #[cfg(test)]
@@ -354,5 +377,11 @@ mod tests {
         assert_eq!(x.iter().map(|b| (b.pct, b.reset)).collect::<Vec<_>>(), vec![(1.0, 100), (17.0, 200)]);
         let g = parse_gemini(&serde_json::json!({"buckets": [{"modelId": "gemini-2.5-pro", "remainingFraction": 0.9}, {"modelId": "gemini-2.5-pro-preview", "remainingFraction": 0.5}, {"modelId": "gemini-2.5-flash", "remainingFraction": 1.0}]}));
         assert_eq!(g.iter().map(|b| (b.label.as_str(), b.pct.round())).collect::<Vec<_>>(), vec![("프로", 50.0), ("플래시", 0.0)]);
+    }
+
+    #[test]
+    #[ignore] // 화면: 연결 창이 떠서 맨 앞으로 오는지(해 없는 명령, 7초 뒤 저절로 닫힘)
+    fn console_comes_to_front() {
+        assert!(open_console("노치 시험 연결", "echo 시험입니다"));
     }
 }
