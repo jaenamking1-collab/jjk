@@ -71,7 +71,7 @@ struct Ent {
     comp: String, // 조합 중인 한글
     day: i64,
     min: i32, // -1 종일
-    cal: usize,
+    cals: Vec<usize>, // 넣을 캘린더들(계정마다 하나까지, 여러 계정이면 골라서 같이)
     prev: HWND, // 칸을 열기 전 앞에 있던 창(닫으면 돌려준다)
     focused: bool,
     closing: bool,
@@ -604,6 +604,7 @@ enum Hit {
     EntDay(usize),
     EntTime(usize),
     EntCal,      // 일정 넣기: 넣을 캘린더 바꾸기
+    EntAcct(usize), // 일정 넣기: 이 계정에도 넣기 켜고 끄기(휠: 그 계정 안 캘린더 바꾸기)
     EntSeg(usize), // 일정 넣기: 날짜·시각 칸 하나
     EntSave,
     EntClose,
@@ -826,7 +827,9 @@ impl App {
                 let ev = |d: i64, s: i32, e: i32, title: &str, place: &str, c: Rgb| gcal::Event { title: title.into(), place: place.into(), day: t + d, start: s, end_day: t + d, end: e, color: c, memo: if place.is_empty() { String::new() } else { "준비물: 노트북, 지난 회의록
 끝나고 점심".into() } };
                 let (blue, green, red) = ((0.26, 0.52, 0.96), (0.2, 0.71, 0.47), (0.92, 0.3, 0.26));
-                self.caln = gcal::Cal { ready: true, accounts: vec!["demo@example.com".into()], stamp: hhmm(), seen: Some(Instant::now()), ver: self.caln.ver,
+                let ci = |ac: usize, id: &str, name: &str, color: Rgb| gcal::CalInfo { account: ac, id: id.into(), name: name.into(), color, writable: true };
+                self.caln = gcal::Cal { ready: true, accounts: vec!["demo@example.com".into(), "네이버 demo".into()],
+                    cals: vec![ci(0, "demo@example.com", "demo@example.com", blue), ci(0, "x", "가족", red), ci(1, "n1", "내 캘린더", green), ci(1, "n2", "배당알림", red)], stamp: hhmm(), seen: Some(Instant::now()), ver: self.caln.ver,
                     events: vec![ev(0, -1, 0, "분배금 지급일", "", green), ev(0, 600, 630, "주간 회의", "3층 회의실", blue), ev(0, 840, 900, "정보부 협의회", "교무실", blue), ev(0, 1110, 1200, "저녁 약속", "의정부역", red), ev(1, 540, 600, "전산실 점검", "", blue), ev(3, -1, 0, "은경 생일", "", red), ev(6, 780, 840, "치과", "", green), ev(-2, 600, 660, "지난 일정", "", blue), ev(12, 600, 660, "학부모 상담", "", blue)],
                     ..Default::default() };
             }
@@ -2269,6 +2272,42 @@ impl App {
     }
 
     /// 일정 넣기 칸을 연다: 노치가 잠깐 자판을 받게 하고, 칸이 물방울처럼 흘러나온다.
+    /// 쓸 수 있는 캘린더를 계정별로(계정 번호, 캘린더 번호들 — 기본 캘린더가 맨 앞)
+    fn acct_cals(&self) -> Vec<(usize, Vec<usize>)> {
+        let mut out: Vec<(usize, Vec<usize>)> = Vec::new();
+        for (i, c) in self.caln.cals.iter().enumerate().filter(|(_, c)| c.writable) {
+            match out.iter_mut().find(|o| o.0 == c.account) {
+                Some(o) => o.1.push(i),
+                None => out.push((c.account, vec![i])),
+            }
+        }
+        for o in out.iter_mut() {
+            // 구글은 아이디가 메일 주소인 캘린더가 기본
+            if let Some(p) = o.1.iter().position(|&i| self.caln.accounts.iter().any(|a| *a == self.caln.cals[i].id)) {
+                let d = o.1.remove(p);
+                o.1.insert(0, d);
+            }
+        }
+        out
+    }
+
+    /// 일정 칸의 계정 고르기: step 0 = 누름(켜고 끄기), ±1 = 휠(그 계정 안 다음/앞 캘린더)
+    fn ent_acct(&mut self, ai: usize, step: i32) {
+        let Some((_, list)) = self.acct_cals().into_iter().find(|o| o.0 == ai) else { return };
+        let Some(e) = self.ent.as_mut() else { return };
+        match e.cals.iter().position(|c| list.contains(c)) {
+            Some(p) if step == 0 => {
+                e.cals.remove(p);
+            }
+            Some(p) => {
+                let k = list.iter().position(|c| *c == e.cals[p]).unwrap_or(0) as i32;
+                e.cals[p] = list[(k + step).rem_euclid(list.len() as i32) as usize];
+            }
+            None => e.cals.push(list[0]),
+        }
+        self.dirty = true;
+    }
+
     unsafe fn ent_open(&mut self) {
         if self.ent.as_ref().is_some_and(|e| !e.closing) {
             return self.ent_focus();
@@ -2279,7 +2318,7 @@ impl App {
         // 처음 고르는 캘린더: 계정의 기본 캘린더(아이디가 메일 주소), 없으면 쓸 수 있는 첫 캘린더
         let cals = &self.caln.cals;
         let cal = cals.iter().position(|c| c.writable && self.caln.accounts.iter().any(|a| *a == c.id)).or_else(|| cals.iter().position(|c| c.writable)).unwrap_or(0);
-        self.ent = Some(Ent { text: String::new(), comp: String::new(), day, min, cal, prev: GetForegroundWindow(), focused: false, closing: false, caret: Instant::now(), seg: None, buf: String::new(), parked: false, cur: 0 });
+        self.ent = Some(Ent { text: String::new(), comp: String::new(), day, min, cals: vec![cal], prev: GetForegroundWindow(), focused: false, closing: false, caret: Instant::now(), seg: None, buf: String::new(), parked: false, cur: 0 });
         self.drop.target = 1.0;
         self.ent_focus();
     }
@@ -2357,7 +2396,13 @@ impl App {
             self.face.slow_blink(300);
             return;
         }
-        let _ = self.cal_tx.send(gcal::Cmd::Add { cal: e.cal, title, day: e.day, start: e.min, end: -1 });
+        if e.cals.is_empty() {
+            self.face.slow_blink(300); // 넣을 곳을 하나도 안 골랐다
+            return;
+        }
+        for &cal in &e.cals {
+            let _ = self.cal_tx.send(gcal::Cmd::Add { cal, title: title.clone(), day: e.day, start: e.min, end: -1 });
+        }
         self.cal_sel = e.day;
         self.face.happy(900);
         self.ent_close();
@@ -2620,7 +2665,8 @@ impl App {
                 }
             }
         }
-        if let Some(c) = self.caln.cals.get(e.cal) {
+        let multi = self.acct_cals().len() >= 2;
+        if let Some(c) = self.caln.cals.get(e.cals.first().copied().unwrap_or(usize::MAX)).filter(|_| !multi) {
             let name = if c.name.is_empty() { c.id.clone() } else { c.name.clone() };
             let nw = g.measure(&name, &g.f_tiny).min(150.0);
             let cb = [r - 74.0 - nw - 34.0, y2 + 1.0, r - 74.0, y2 + 23.0];
@@ -2628,6 +2674,32 @@ impl App {
             g.ellipse(cb[0] + 12.0, cb[1] + 11.0, 4.0, 4.0, c.color, a);
             g.text(&name, &g.f_tiny, cb[0] + 22.0, cb[1] + 4.0, nw + 4.0, FG, a * 0.85, Align::Left);
             hits.push((cb, Hit::EntCal));
+        }
+        if multi {
+            // 계정이 둘 이상: 넣을 곳을 고른다(눌러서 켜고 끄기, 둘 다 켜면 둘 다 들어간다, 휠로 그 계정 안 캘린더 바꾸기)
+            let mut chips = Vec::new();
+            for (ai, list) in self.acct_cals() {
+                let sel = e.cals.iter().copied().find(|c| list.contains(c));
+                let Some(c) = self.caln.cals.get(sel.unwrap_or(list[0])) else { continue };
+                let acct = self.caln.accounts.get(ai).map(|s| if s.starts_with("네이버 ") { "네이버".to_string() } else { "구글".to_string() }).unwrap_or_default();
+                // 기본 캘린더면 계정 이름만, 다른 캘린더로 바꿨으면 '네이버 · 배당알림'
+                let label = if sel.unwrap_or(list[0]) == list[0] { acct } else { format!("{acct} · {}", c.name.chars().take(6).collect::<String>()) };
+                let w = g.measure(&label, &g.f_tiny) + 30.0;
+                chips.push((ai, sel.is_some(), c.color, label, w));
+            }
+            let mut x = r - 74.0 - chips.iter().map(|c| c.4 + 5.0).sum::<f32>();
+            for (ai, on, color, label, w) in chips {
+                if x < l + 290.0 {
+                    x += w + 5.0;
+                    continue; // 자리가 모자라면 앞쪽 것을 뺀다
+                }
+                let b = [x, y2 + 1.0, x + w, y2 + 23.0];
+                g.rrect(b[0], b[1], w, 22.0, 11.0, if on { LIME } else { FG }, a * if on { 0.24 } else if over(b) { 0.16 } else { 0.07 });
+                g.ellipse(b[0] + 12.0, b[1] + 11.0, 4.0, 4.0, color, a * if on { 1.0 } else { 0.4 });
+                g.text(&label, &g.f_tiny, b[0] + 21.0, b[1] + 4.0, w - 24.0, if on { LIME } else { FG }, a * if on { 0.95 } else { 0.55 }, Align::Left);
+                hits.push((b, Hit::EntAcct(ai)));
+                x += w + 5.0;
+            }
         }
         let sb = [r - 64.0, y2, r, y2 + 24.0];
         g.rrect(sb[0], sb[1], 64.0, 24.0, 12.0, LIME, a * if over(sb) { 1.0 } else { 0.88 });
@@ -2650,7 +2722,7 @@ impl App {
         }
         x += 10.0;
         chip(&mut hits, &mut x, entry::TIMES[0].0, e.min < 0, Hit::EntTime(0)); // 시각 단추 대신 위 칸을 고친다
-        g.text("칸을 눌러 숫자 · 휠 · ↑↓ · 달력 날짜 누르기", &g.f_tiny, x + 6.0, y3 + 4.0, r - x - 6.0, FG, a * 0.4, Align::Left);
+        g.text(if multi { "넣을 곳: 눌러서 켜고 끄기 · 둘 다 켜면 둘 다 · 휠로 캘린더 바꾸기" } else { "칸을 눌러 숫자 · 휠 · ↑↓ · 달력 날짜 누르기" }, &g.f_tiny, x + 6.0, y3 + 4.0, r - x - 6.0, FG, a * 0.4, Align::Left);
         let focused = e.focused;
         self.hits.extend(hits);
         if focused {
@@ -2734,10 +2806,12 @@ impl App {
             Hit::EntCal => {
                 let w: Vec<usize> = self.caln.cals.iter().enumerate().filter(|(_, c)| c.writable).map(|(i, _)| i).collect();
                 if let Some(e) = self.ent.as_mut() {
-                    let at = w.iter().position(|i| *i == e.cal).map_or(0, |p| (p + 1) % w.len().max(1));
-                    e.cal = w.get(at).copied().unwrap_or(e.cal);
+                    let cur = e.cals.first().copied().unwrap_or(usize::MAX);
+                    let at = w.iter().position(|i| *i == cur).map_or(0, |p| (p + 1) % w.len().max(1));
+                    e.cals = w.get(at).copied().into_iter().collect();
                 }
             }
+            Hit::EntAcct(ai) => self.ent_acct(ai, 0),
             Hit::EntSave => self.ent_save(),
             Hit::EntClose => self.ent_close(),
             Hit::CalNaver => {
@@ -2770,7 +2844,7 @@ impl App {
             }
             _ => {}
         }
-        if matches!(hit, Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntSeg(_) | Hit::EntSave | Hit::EntClose) {
+        if matches!(hit, Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSave | Hit::EntClose) {
             self.dirty = true;
             return;
         }
@@ -2823,7 +2897,7 @@ impl App {
             Hit::Line(t) => Cmd::Seek(t as i64),
             Hit::Shuffle => Cmd::Shuffle,
             Hit::Repeat => Cmd::Repeat,
-            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntSeg(_) | Hit::EntSave | Hit::EntClose => return,
+            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSave | Hit::EntClose => return,
         };
         let _ = self.tx.send(cmd);
     }
@@ -3123,6 +3197,9 @@ unsafe fn run() -> Result<()> {
         if let Some(e) = app.ent.as_mut() {
             e.insert("치과 예약");
             e.seg = v.contains("seg").then_some(3);
+            if v.contains("both") {
+                e.cals = vec![0, 2]; // 두 계정 모두에 넣기
+            }
             if v.contains("mid") {
                 e.cur = 2; // 커서를 글 가운데로("치과|예약")
                 e.comp = "ㄱ".into();
@@ -3186,8 +3263,11 @@ unsafe fn run() -> Result<()> {
                 Ev::Wheel(d) => {
                     let (mx, my) = app.mouse;
                     let r = app.qrect;
-                    let seg = app.hits.iter().find(|(b, _)| mx >= b[0] && mx < b[2] && my >= b[1] && my < b[3]).and_then(|(_, h)| if let Hit::EntSeg(i) = h { Some(*i) } else { None });
-                    if let Some(i) = seg {
+                    let under = app.hits.iter().find(|(b, _)| mx >= b[0] && mx < b[2] && my >= b[1] && my < b[3]).map(|(_, h)| *h);
+                    let seg = under.and_then(|h| if let Hit::EntSeg(i) = h { Some(i) } else { None });
+                    if let Some(Hit::EntAcct(ai)) = under {
+                        app.ent_acct(ai, -d); // 넣을 곳 위에서 굴리면 그 계정 안 캘린더를 바꾼다
+                    } else if let Some(i) = seg {
                         // 날짜·시각 칸 위에서 굴리면 그 칸만 바꾼다(위로 굴리면 커진다)
                         if let Some(e) = app.ent.as_mut() {
                             (e.day, e.min) = entry::bump(e.day, e.min, i, -d);

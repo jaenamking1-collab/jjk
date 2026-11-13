@@ -148,6 +148,7 @@ pub fn events(c: &HttpClient, id: &str, pw: &str, url: &str, from: i64, to: i64,
         Ok((207, body)) => {
             let resps = elems(&body, "response");
             let mut datas: Vec<String> = elems(&body, "calendar-data").iter().map(|d| unxml(d)).filter(|d| d.contains("BEGIN:")).collect();
+            let first = datas.len();
             let hrefs: Vec<String> = resps.iter().filter_map(|r| elems(r, "href").into_iter().next()).map(unxml).filter(|h| !url.ends_with(h.as_str())).collect();
             if datas.is_empty() && !hrefs.is_empty() {
                 // 목록만 주고 내용은 안 주는 서버: 주소로 한 번에 다시 받는다
@@ -158,7 +159,7 @@ pub fn events(c: &HttpClient, id: &str, pw: &str, url: &str, from: i64, to: i64,
                 }
             }
             let ev: Vec<Event> = datas.iter().flat_map(|d| parse_ics(d, color, from, to)).collect();
-            let mut line = format!("naver: 일정 응답 {} 자료 {} 일정 {}", resps.len(), datas.len(), ev.len());
+            let mut line = format!("naver: 일정 응답 {} 자료 {}(처음 {first}) 일정 {}", resps.len(), datas.len(), ev.len());
             if ev.is_empty() {
                 // 정말 비었나, 받는 방법이 틀렸나: 캘린더 안 전체 개수와 응답 앞부분을 남긴다(제목은 안 나온다)
                 let all = dav(c, "PROPFIND", url, id, pw, Some("1"), Some((r#"<?xml version="1.0" encoding="utf-8"?><d:propfind xmlns:d="DAV:"><d:prop><d:getetag/></d:prop></d:propfind>"#, XML)), None)
@@ -459,5 +460,22 @@ mod tests {
         let r = calendars(&c, "nobody_test_x", "wrong");
         println!("{:?}", r.as_ref().err());
         assert!(r.err().unwrap().starts_with("네이버가 거절했습니다"));
+    }
+
+    #[test]
+    #[ignore] // 이 PC 에 연결된 네이버 계정으로 실제 받기(비밀번호는 찍지 않는다)
+    fn live_my_naver() {
+        let c = windows::Web::Http::Filters::HttpBaseProtocolFilter::new().and_then(|f| { f.SetAllowUI(false)?; HttpClient::Create(&f) }).unwrap();
+        let (now, _) = gcal::today();
+        for (k, pw) in gcal::load_accounts() {
+            let Some(id) = k.strip_prefix(TAG) else { continue };
+            for cal in calendars(&c, id, &pw).unwrap() {
+                println!("캘린더 {} 쓰기 {} {}", cal.name, cal.writable, cal.url.rsplit('/').nth(1).unwrap_or(""));
+                match events(&c, id, &pw, &cal.url, now - 45, now + 70, (0.0, 0.0, 0.0)) {
+                    Ok(v) => println!("  일정 {}", v.len()),
+                    Err(e) => println!("  실패 {e}"),
+                }
+            }
+        }
     }
 }

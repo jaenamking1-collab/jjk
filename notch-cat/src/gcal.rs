@@ -274,7 +274,7 @@ fn blob(b: &[u8]) -> windows::Win32::Security::Cryptography::CRYPT_INTEGER_BLOB 
 }
 
 /// 계정들: [{email, refresh}]
-fn load_accounts() -> Vec<(String, String)> {
+pub fn load_accounts() -> Vec<(String, String)> {
     use windows::Win32::Security::Cryptography::{CryptUnprotectData, CRYPT_INTEGER_BLOB};
     let Ok(raw) = std::fs::read(crate::data_dir().join("google.dat")) else { return Vec::new() };
     let mut out = CRYPT_INTEGER_BLOB::default();
