@@ -127,6 +127,7 @@ pub enum Cmd {
     Login,
     Refresh,
     Add { cal: usize, title: String, day: i64, start: i32, end: i32 }, // start -1 = 종일
+    Naver { id: String, pw: String }, // 네이버 캘린더 연결(아이디·애플리케이션 비밀번호)
 }
 
 fn hex_color(s: &str) -> (f32, f32, f32) {
@@ -238,7 +239,7 @@ fn b64url(s: &str) -> Vec<u8> {
     out
 }
 
-fn random(n: usize) -> String {
+pub fn random(n: usize) -> String {
     let mut buf = vec![0u8; n];
     unsafe {
         let _ = windows::Win32::Security::Cryptography::BCryptGenRandom(None, &mut buf, windows::Win32::Security::Cryptography::BCRYPT_USE_SYSTEM_PREFERRED_RNG);
@@ -373,7 +374,8 @@ fn access(c: &HttpClient, id: &str, secret: &str, refresh: &str) -> Option<Strin
 pub fn spawn(out: Arc<Mutex<Cal>>) -> mpsc::Sender<Cmd> {
     let (tx, rx) = mpsc::channel::<Cmd>();
     std::thread::spawn(move || {
-        let Ok(c) = HttpClient::new() else { return };
+        // 비밀번호가 틀려도 윈도우가 따로 로그인 창을 띄우지 않게
+        let Ok(c) = windows::Web::Http::Filters::HttpBaseProtocolFilter::new().and_then(|f| { f.SetAllowUI(false)?; HttpClient::Create(&f) }) else { return };
         let mut tokens: Vec<Option<(String, Instant)>> = Vec::new();
         let mut cmd: Option<Cmd> = Some(Cmd::Refresh);
         let mut seen_counts = (usize::MAX, 0);
@@ -399,16 +401,32 @@ pub fn spawn(out: Arc<Mutex<Cal>>) -> mpsc::Sender<Cmd> {
                     }
                     Err(e) => note = format!("연결 실패: {e}"),
                 },
+                Some(Cmd::Naver { id: nid, pw }) => match crate::naver::calendars(&c, &nid, &pw) {
+                    Ok(list) => {
+                        let key = format!("{}{nid}", crate::naver::TAG);
+                        accts.retain(|a| a.0 != key);
+                        accts.push((key, pw));
+                        save_accounts(&accts);
+                        crate::log(&format!("gcal: 네이버 연결, 캘린더 {}", list.len()));
+                    }
+                    Err(e) => note = format!("네이버 연결 실패: {e}"),
+                },
                 Some(Cmd::Add { cal, title, day, start, end }) => {
                     let info = out.lock().unwrap().cals.get(cal).cloned();
-                    let tok = info.as_ref().and_then(|i| accts.get(i.account)).and_then(|a| access(&c, &id, &secret, &a.1));
+                    let tok = info.as_ref().and_then(|i| accts.get(i.account)).filter(|a| !a.0.starts_with(crate::naver::TAG)).and_then(|a| access(&c, &id, &secret, &a.1));
                     let body = if start < 0 {
                         json!({"summary": title, "start": {"date": date_str(day)}, "end": {"date": date_str(day + 1)}})
                     } else {
                         let (ed, em) = if end > start { (day, end) } else { (day + (start + 60) as i64 / 1440, (start + 60) % 1440) };
                         json!({"summary": title, "start": {"dateTime": rfc3339(day, start), "timeZone": "Asia/Seoul"}, "end": {"dateTime": rfc3339(ed, em), "timeZone": "Asia/Seoul"}})
                     };
-                    match (info, tok) {
+                    let naver = info.as_ref().and_then(|i| accts.get(i.account)).and_then(|a| a.0.strip_prefix(crate::naver::TAG).map(|n| (n.to_string(), a.1.clone())));
+                    if let (Some(i), Some((nid, pw))) = (info.as_ref(), naver) {
+                        match crate::naver::add(&c, &nid, &pw, &i.id, &title, day, start, end) {
+                            Ok(()) => crate::log("gcal: 네이버에 일정 넣음"),
+                            Err(e) => note = format!("일정을 못 넣었습니다{e}"),
+                        }
+                    } else { match (info, tok) {
                         (Some(i), Some(t)) => {
                             let u = format!("https://www.googleapis.com/calendar/v3/calendars/{}/events", enc(&i.id));
                             match send(&c, "POST", &u, Some(&t), Some((&body.to_string(), "application/json"))) {
@@ -418,7 +436,7 @@ pub fn spawn(out: Arc<Mutex<Cal>>) -> mpsc::Sender<Cmd> {
                             }
                         }
                         _ => note = "일정을 넣을 캘린더에 연결되어 있지 않습니다".into(),
-                    }
+                    } }
                 }
                 _ => {}
             }
@@ -431,6 +449,30 @@ pub fn spawn(out: Arc<Mutex<Cal>>) -> mpsc::Sender<Cmd> {
             let (mut cals, mut events) = (Vec::new(), Vec::new());
             let mut failed = false; // 하나라도 못 받으면 지난번 것을 그대로 두고 1분 뒤 다시
             for (ai, (email, refresh)) in accts.iter().enumerate() {
+                if let Some(nid) = email.strip_prefix(crate::naver::TAG) {
+                    match crate::naver::calendars(&c, nid, refresh) {
+                        Ok(list) => {
+                            for k in list {
+                                let info = CalInfo { account: ai, id: k.url, name: k.name, color: hex_color(&k.color), writable: k.writable };
+                                match crate::naver::events(&c, nid, refresh, &info.id, from, to, info.color) {
+                                    Ok(v) => events.extend(v),
+                                    Err(e) => {
+                                        crate::log(&format!("gcal: 네이버 일정 받기 실패 {e}"));
+                                        failed = true;
+                                        note = "네이버 일정을 못 받았습니다. 곧 다시 받습니다".into();
+                                    }
+                                }
+                                cals.push(info);
+                            }
+                        }
+                        Err(e) => {
+                            crate::log(&format!("gcal: 네이버 캘린더 목록 실패 {e}"));
+                            failed = true;
+                            note = e;
+                        }
+                    }
+                    continue;
+                }
                 // 열쇠(액세스 토큰)는 1시간이면 끝난다. 받은 시각은 새로 받을 때만 적는다
                 // (전엔 쓸 때마다 적어서 끝난 열쇠를 계속 썼다 → 1시간 뒤 일정 0개, 2026-11-13).
                 let mut got: Option<(String, Value)> = None;
@@ -496,7 +538,7 @@ pub fn spawn(out: Arc<Mutex<Cal>>) -> mpsc::Sender<Cmd> {
             {
                 let mut o = out.lock().unwrap();
                 o.ready = true;
-                o.accounts = accts.iter().map(|a| a.0.clone()).collect();
+                o.accounts = accts.iter().map(|a| a.0.strip_prefix(crate::naver::TAG).map(|n| format!("네이버 {n}")).unwrap_or_else(|| a.0.clone())).collect();
                 if !accts.is_empty() && !failed {
                     o.cals = cals;
                     o.events = events;

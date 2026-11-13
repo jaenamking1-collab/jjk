@@ -8,6 +8,7 @@ mod gcal;
 mod gfx;
 mod lrc;
 mod lyrics;
+mod naver;
 mod media;
 mod meter;
 mod notif;
@@ -128,6 +129,7 @@ const EAR: f32 = 6.0; // 위쪽 모서리가 바깥으로 휘는 크기
 const TAIL_ROOM: f32 = 22.0; // 꼬리가 나올 옆 여백
 const LIME: Rgb = (0.639, 0.902, 0.208);
 const WARN: Rgb = (1.0, 0.416, 0.102);
+const NAVER: Rgb = (0.012, 0.78, 0.353); // 네이버 초록
 const SUN: Rgb = (1.0, 0.8, 0.28);
 
 const WM_TRAY: u32 = WM_APP + 1;
@@ -593,6 +595,8 @@ enum Hit {
     CalEv(i64, usize), // 큰 달력: 그날 j 번째 일정 내용 보기(usize::MAX = 닫기)
     CalAdd,      // 달력: 일정 넣기 창
     CalLogin,    // 달력: 구글 계정 연결
+    CalNaver,    // 달력: 네이버 캘린더 연결
+    CalAcct,     // 달력: '＋ 계정' 고르기 판 열고 닫기
     EntField,    // 일정 넣기: 글자 칸(자판을 다시 잡는다)
     EntDay(usize),
     EntTime(usize),
@@ -662,6 +666,7 @@ struct App {
     cal_tx: mpsc::Sender<gcal::Cmd>,
     cal_month: i32,    // 이번 달에서 몇 달 넘겼나
     cal_big: bool,     // 달력을 눌러 크게 편 판(칸마다 일정 제목)
+    acct_menu: bool, // '＋ 계정' 고르기 판이 열려 있다
     cal_pop: Option<(i64, usize)>, // 큰 달력에서 눌러 연 일정(날, 그날 몇 번째)
     cal_sel: i64,      // 고른 날
     cal_wait: Instant, // 브라우저에서 로그인하는 중(이때까지)
@@ -1608,17 +1613,22 @@ impl App {
                     } else if Instant::now() < self.cal_wait {
                         g.text("브라우저에서 계정을 고르고 '허용'을 눌러 주세요", &g.f_body, l, 60.0, w - 40.0, LIME, a, Align::Center);
                     } else {
-                        let b = [x + w / 2.0 - 96.0, 56.0, x + w / 2.0 + 96.0, 92.0];
-                        g.rrect(b[0], b[1], 192.0, 36.0, 18.0, LIME, a * if over(b) { 1.0 } else { 0.88 });
-                        g.text("구글 캘린더 연결", &g.f_lyric, b[0], b[1] + 7.0, 192.0, PUPIL, a, Align::Center);
+                        let b = [x + w / 2.0 - 196.0, 56.0, x + w / 2.0 - 6.0, 92.0];
+                        g.rrect(b[0], b[1], 190.0, 36.0, 18.0, LIME, a * if over(b) { 1.0 } else { 0.88 });
+                        g.text("구글 캘린더 연결", &g.f_lyric, b[0], b[1] + 7.0, 190.0, PUPIL, a, Align::Center);
+                        let nb = [x + w / 2.0 + 6.0, 56.0, x + w / 2.0 + 196.0, 92.0];
+                        g.rrect(nb[0], nb[1], 190.0, 36.0, 18.0, NAVER, a * if over(nb) { 1.0 } else { 0.88 });
+                        g.text("네이버 캘린더 연결", &g.f_lyric, nb[0], nb[1] + 7.0, 190.0, FG, a, Align::Center);
                         if live {
                             self.hits.push((b, Hit::CalLogin));
+                            self.hits.push((nb, Hit::CalNaver));
                         }
                     }
                     if !cal.note.is_empty() {
                         g.text(&cal.note, &g.f_tiny, l, 108.0, w - 40.0, WARN, a, Align::Center);
                     }
                 } else {
+                    let mut menu_at: Option<f32> = None; // '＋ 계정' 단추의 왼쪽 끝(눌러 연 고르기 판 자리)
                     let view = if self.cal_big { 1 } else { self.cfg.cv }; // 큰 판은 머리를 한 달 모양처럼(달 넘기기)
                     // 머리: 고른 날 · (달력 모양이면) 보고 있는 달과 넘기는 단추 · 일정 넣기
                     let (sy, sm, sd) = gcal::ymd(self.cal_sel);
@@ -1637,14 +1647,15 @@ impl App {
                     let right_free = if view == 0 { r - 200.0 } else { r - 250.0 };
                     if ab[2] < right_free {
                         let ov = over(ab);
-                        g.rrect(ab[0], ab[1], 66.0, 20.0, 10.0, FG, a * if ov { 0.2 } else { 0.09 });
+                        g.rrect(ab[0], ab[1], 66.0, 20.0, 10.0, FG, a * if ov || self.acct_menu { 0.2 } else { 0.09 });
                         g.text("＋ 계정", &g.f_tiny, ab[0], ab[1] + 3.0, 66.0, FG, a * 0.8, Align::Center);
-                        if ov {
+                        if ov && !self.acct_menu {
                             g.text(&format!("연결됨: {}", cal.accounts.join(", ")), &g.f_tiny, l, 40.0, r - l, LIME, a, Align::Left);
                         }
                         if live {
-                            self.hits.push((ab, Hit::CalLogin));
+                            self.hits.push((ab, Hit::CalAcct));
                         }
+                        menu_at = Some(ab[0]);
                     }
                     // 보고 있는 달
                     let (ty, tm, _) = gcal::ymd(today);
@@ -1912,6 +1923,21 @@ impl App {
                     self.hits.extend(hits);
                     if let Some(p) = pop_hit.filter(|_| live) {
                         self.hits.insert(0, p); // 카드가 칸 위에 있으니 먼저 잡는다
+                    }
+                    // '＋ 계정'을 누르면: 구글 / 네이버 고르기(달력 위에 덮는다)
+                    if let (Some(mx0), true) = (menu_at, self.acct_menu) {
+                        let (mw, rh) = (170.0, 30.0);
+                        g.rrect(mx0 - 1.0, 39.0, mw + 2.0, rh * 2.0 + 10.0, 12.0, FG, a * 0.25);
+                        g.rrect(mx0, 40.0, mw, rh * 2.0 + 8.0, 11.0, BG, a);
+                        for (k, (label, c, hit)) in [("구글 계정 연결", LIME, Hit::CalLogin), ("네이버 캘린더 연결", NAVER, Hit::CalNaver)].into_iter().enumerate() {
+                            let b = [mx0 + 4.0, 44.0 + k as f32 * rh, mx0 + mw - 4.0, 44.0 + k as f32 * rh + rh - 2.0];
+                            g.rrect(b[0], b[1], b[2] - b[0], b[3] - b[1], 8.0, c, a * if over(b) { 0.3 } else { 0.0 });
+                            g.ellipse(b[0] + 12.0, (b[1] + b[3]) / 2.0, 4.0, 4.0, c, a);
+                            g.text(label, &g.f_small, b[0] + 24.0, b[1] + 6.0, mw - 32.0, FG, a, Align::Left);
+                            if live {
+                                self.hits.insert(k, (b, hit));
+                            }
+                        }
                     }
                     if !cal.note.is_empty() {
                         g.text(&cal.note, &g.f_tiny, l, h - 18.0, w - 80.0, WARN, a, Align::Center);
@@ -2246,6 +2272,7 @@ impl App {
         self.cal_month = 0;
         self.cal_big = false;
         self.cal_pop = None;
+        self.acct_menu = false;
         self.mouse = (-1.0, -1.0);
         self.qtop = 0;
         self.tick();
@@ -2598,7 +2625,9 @@ impl App {
         if !matches!(hit, Hit::CalEv(..)) {
             self.cal_pop = None; // 일정 카드는 다른 곳을 누르면 닫힌다
         }
+        let menu = std::mem::take(&mut self.acct_menu);
         match hit {
+            Hit::CalAcct => self.acct_menu = !menu,
             Hit::CalEv(z, j) => self.cal_pop = (j != usize::MAX).then_some((z, j)),
             Hit::CalNav(0) => {
                 self.cal_month = 0;
@@ -2669,13 +2698,22 @@ impl App {
             }
             Hit::EntSave => self.ent_save(),
             Hit::EntClose => self.ent_close(),
+            Hit::CalNaver => {
+                // 윈도우 기본 '아이디·비밀번호' 창을 따로 띄운다(노치는 그대로 돈다)
+                let tx = self.cal_tx.clone();
+                std::thread::spawn(move || {
+                    if let Some((id, pw)) = naver::ask() {
+                        let _ = tx.send(gcal::Cmd::Naver { id, pw });
+                    }
+                });
+            }
             Hit::CalLogin => {
                 let _ = self.cal_tx.send(gcal::Cmd::Login);
                 self.cal_wait = Instant::now() + Duration::from_secs(300);
             }
             _ => {}
         }
-        if matches!(hit, Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntSeg(_) | Hit::EntSave | Hit::EntClose) {
+        if matches!(hit, Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntSeg(_) | Hit::EntSave | Hit::EntClose) {
             self.dirty = true;
             return;
         }
@@ -2728,7 +2766,7 @@ impl App {
             Hit::Line(t) => Cmd::Seek(t as i64),
             Hit::Shuffle => Cmd::Shuffle,
             Hit::Repeat => Cmd::Repeat,
-            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntSeg(_) | Hit::EntSave | Hit::EntClose => return,
+            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntSeg(_) | Hit::EntSave | Hit::EntClose => return,
         };
         let _ = self.tx.send(cmd);
     }
@@ -2956,6 +2994,7 @@ unsafe fn run() -> Result<()> {
         cal_month: 0,
         cal_big: false,
         cal_pop: None,
+        acct_menu: false,
         cal_sel: gcal::today().0,
         cal_wait: Instant::now(),
         notes: {
@@ -3011,6 +3050,7 @@ unsafe fn run() -> Result<()> {
         app.hover = true; // 시험용: 그 쪽을 펼친 채로 띄운다(NOTCH_CAT_SHOT 과 함께 쓰면 마우스 없이 찍힌다)
         app.page = n;
         app.cal_big = std::env::var("NOTCH_CAT_CALBIG").is_ok();
+        app.acct_menu = std::env::var("NOTCH_CAT_ACCT").is_ok(); // 시험용: '＋ 계정' 고르기 판
         if std::env::var("NOTCH_CAT_CALPOP").is_ok() {
             app.cal_pop = Some((gcal::today().0, 1)); // 시험용: 오늘 두 번째 일정 카드
         }
