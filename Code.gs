@@ -58,7 +58,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr', '_diagOcrText',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_probeTiger', '_probeTigerKind', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', '_addExtDepSheet', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp', '_syncDivRates', '_fillPastDivFromApp', 'setKrwCost', 'aptRefresh', '_molitKeyOnce', '_diagApt', '_aptHistory', '_aptGeoBackfill', '_exaoneKeyOnce', '_exaoneTest', '_exaoneNoticeTest', '_exaoneTigerTest', '_exaoneFallbackTest', '_tigerAiFill'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_probeTiger', '_probeTigerKind', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', '_addExtDepSheet', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp', '_syncDivRates', '_fillPastDivFromApp', 'setKrwCost', 'aptRefresh', '_molitKeyOnce', '_diagApt', '_aptHistory', '_aptGeoBackfill', '_exaoneKeyOnce', '_exaoneTest', '_exaoneNoticeTest', '_exaoneTigerTest', '_exaoneFallbackTest', '_tigerAiFill', '_deleteNoticeEvents'
 ];
 
 function runMaint(name, arg) {
@@ -4177,6 +4177,22 @@ function flushCalPending() {
     props.deleteProperty('CAL_PENDING');
     return true;
   } catch(e) { console.log('flushCalPending', e); return false; }
+}
+
+// 예전에 캘린더로 보낸 '📢 … 분배금 공지' 일정을 지운다(2026-11-13 사용자: "달력에 분배금 공지는 다 지워").
+// arg 'count' 면 세기만, 'delete' 면 지운다. 기본 캘린더 2024~2027 사이, 제목이 📢 로 시작하고 '분배금 공지'로 끝나는 것만.
+function _deleteNoticeEvents(arg) {
+  const cal = CalendarApp.getDefaultCalendar();
+  const evs = cal.getEvents(new Date(2024, 0, 1), new Date(2028, 0, 1)).filter(e => /^📢 .*분배금 공지$/.test(e.getTitle()));
+  const byMonth = {};
+  evs.forEach(e => { const k = Utilities.formatDate(e.getStartTime(), 'Asia/Seoul', 'yyyy-MM'); byMonth[k] = (byMonth[k] || 0) + 1; });
+  console.log('찾음 ' + evs.length + '개 ' + JSON.stringify(byMonth));
+  if (arg !== 'delete') return evs.length;
+  let n = 0;
+  evs.forEach(e => { try { e.deleteEvent(); n++; } catch (x) { console.log('지우기 실패 ' + x); } });
+  const left = cal.getEvents(new Date(2024, 0, 1), new Date(2028, 0, 1)).filter(e => /^📢 .*분배금 공지$/.test(e.getTitle())).length;
+  console.log('지움 ' + n + '개, 남은 것 ' + left + '개');
+  return n;
 }
 
 // ── 분배 알림 워치독 ──────────────────────────────────
