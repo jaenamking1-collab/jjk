@@ -2,6 +2,7 @@
 // 설계: docs/superpowers/specs/2026-11-10-notch-cat-design.md
 #![windows_subsystem = "windows"]
 
+mod ai;
 mod face;
 mod entry;
 mod gcal;
@@ -110,6 +111,7 @@ const OPEN: (f32, f32) = (460.0, 246.0);
 const MUSIC: [(f32, f32); 3] = [OPEN, (540.0, 128.0), (590.0, 184.0)];
 const WX: [(f32, f32); 2] = [(600.0, 168.0), (600.0, 262.0)]; // 날씨 쪽: 작은 판 · 큰 판
 const CAL_BIG: (f32, f32) = (880.0, 580.0); // 달력을 눌러 크게 편 판
+const AI_SZ: (f32, f32) = (560.0, 250.0); // AI 사용량 쪽
 const CALV: [(f32, f32); 3] = [(560.0, 280.0), (500.0, 322.0), (600.0, 282.0)]; // 달력 쪽: 한 주 줄 · 한 달 · 달력+목록
 const MUSIC_NAMES: [&str; 3] = ["기본 (가사 아래)", "와이드 (소리 막대)", "가사 옆"];
 const SHADOW: f32 = 20.0; // 펼쳤을 때 그림자가 번지는 폭
@@ -597,6 +599,7 @@ enum Hit {
     CalLogin,    // 달력: 구글 계정 연결
     CalNaver,    // 달력: 네이버 캘린더 연결
     CalAcct,     // 달력: '＋ 계정' 고르기 판 열고 닫기
+    AiLogin(usize), // AI 사용량: 그 서비스 로그인 창 띄우기
     NaverOpen,   // 네이버 안내: 보안설정 페이지 열기
     NaverInput,  // 네이버 안내: 아이디·비밀번호 창
     NaverClose,  // 네이버 안내 닫기
@@ -665,6 +668,9 @@ struct App {
     qs: Vec<Spring>,   // 시세 구역 버튼마다 마우스가 올라간 정도 0…1
     wx: Arc<Mutex<weather::Weather>>,
     wxn: weather::Weather, // 지금 보여 주는 날씨
+    ai: Arc<Mutex<ai::Usage>>,
+    ain: ai::Usage,                     // 지금 보여 주는 AI 사용량
+    ai_poke: Arc<Mutex<Option<Instant>>>, // 연결을 누른 시각(그 뒤 5분은 10초마다 받는다)
     cal: Arc<Mutex<gcal::Cal>>,
     caln: gcal::Cal, // 지금 보여 주는 달력
     cal_tx: mpsc::Sender<gcal::Cmd>,
@@ -816,6 +822,13 @@ impl App {
         }
         if self.ticks % 20 == 1 {
             self.wxn = self.wx.lock().unwrap().clone();
+            {
+                let u = self.ai.lock().unwrap();
+                if u.ver != self.ain.ver {
+                    self.ain = u.clone();
+                    self.dirty = true;
+                }
+            }
             let c = self.cal.lock().unwrap();
             if c.ver != self.caln.ver {
                 self.caln = c.clone();
@@ -975,7 +988,9 @@ impl App {
         } else if tiny {
             TINY
         } else if self.hover {
-            if self.page == 3 {
+            if self.page == 4 {
+                AI_SZ
+            } else if self.page == 3 {
                 if self.naver_guide && self.caln.accounts.iter().filter(|a| a.starts_with("네이버 ")).count() > self.naver_n {
                     self.naver_guide = false; // 연결됐다
                 }
@@ -1001,7 +1016,7 @@ impl App {
         if th > BAR_H + 10.0 {
             // 시세 쪽은 작은 판 높이를 '다 펼친 높이'로 삼는다(큰 판으로 자라는 동안 내용이 흐려지지 않게)
             self.open_h = if self.page == 1 && !noting { q_layout(&self.q.iter().map(|q| q.group).collect::<Vec<_>>(), 1.0, self.cfg.cols()).2 .1 } else { th };
-            self.mode = if noting { 2 } else if self.page == 3 { 5 } else if self.page == 2 { 4 } else if self.page == 1 { 3 } else if self.n.has { 0 } else { 1 };
+            self.mode = if noting { 2 } else if self.page == 4 { 6 } else if self.page == 3 { 5 } else if self.page == 2 { 4 } else if self.page == 1 { 3 } else if self.n.has { 0 } else { 1 };
             self.w.tune(250.0, 0.62);
             self.h.tune(190.0, 0.68);
         } else {
@@ -1013,7 +1028,8 @@ impl App {
         // 보이는 것이 달라졌을 때만 다시 그린다(쉴 때 CPU 를 안 쓴다)
         let open = self.h.target > BAR_H;
         let view = format!(
-            "{}|{}|{}|{}|{}|{}|{:?}|{}|{}|{}|{}",
+            "{}|{}|{}|{}|{}|{}|{}|{:?}|{}|{}|{}|{}",
+            self.ain.ver,
             self.wxn.stamp, local().wMinute, self.text, self.n.title, self.n.playing, self.art_ptr, self.cur, self.lyr_st as u8,
             if open { pos / 500 } else { 0 },
             if open { self.n.stamp.as_str() } else { "" },
@@ -1293,8 +1309,8 @@ impl App {
             // 쪽 표시(위 가운데 점). 넘기는 손잡이는 몸통 옆에 따로 그린다.
             if p > 0.5 && self.mode != 2 {
                 let pa = ((p - 0.5) * 2.0).clamp(0.0, 1.0);
-                for i in 0..4 {
-                    g.ellipse(x + w / 2.0 + (i as f32 - 1.5) * 12.0, 8.0, 2.5, 2.5, FG, pa * if i == self.page { 0.9 } else { 0.3 });
+                for i in 0..5 {
+                    g.ellipse(x + w / 2.0 + (i as f32 - 2.0) * 12.0, 8.0, 2.5, 2.5, FG, pa * if i == self.page { 0.9 } else { 0.3 });
                 }
             }
             // 쪽 넘김: 몸통 안쪽 양끝의 얇은 화살표. 평소엔 거의 안 보이고, 끝에 마우스를 대면 라임색으로 또렷해진다.
@@ -2014,6 +2030,62 @@ impl App {
                         g.text(&cal.note, &g.f_tiny, l, h - 18.0, w - 80.0, WARN, a, Align::Center);
                     }
                 }
+            } else if a > 0.0 && self.mode == 6 {
+                // ── AI 사용량 쪽: 클로드·GPT·제미나이의 5시간·주간 한도 ──
+                let (l, r) = (x + 20.0, x + w - 20.0);
+                let (mx, my) = self.mouse;
+                let live = p > 0.9;
+                let over = |b: [f32; 4]| live && mx >= b[0] && mx < b[2] && my >= b[1] && my < b[3];
+                g.text("AI 사용량", &g.f_title, l, 15.0, 200.0, FG, a, Align::Left);
+                let latest = self.ain.svcs.iter().filter_map(|s| s.seen.map(|t| (t, s.stamp.clone()))).max_by_key(|x| x.0);
+                let stale = latest.as_ref().map_or(true, |x| x.0.elapsed() > Duration::from_secs(900));
+                let stamp = latest.map_or("아직 못 받음".to_string(), |x| format!("마지막 {}", x.1));
+                g.text(&format!("5분마다 · {stamp}"), &g.f_tiny, r - 200.0, 22.0, 200.0, if stale { WARN } else { FG }, a * if stale { 1.0 } else { 0.45 }, Align::Right);
+                let colors = [(0.85, 0.47, 0.34), (0.45, 0.78, 0.62), (0.36, 0.56, 0.98)];
+                let mut hits = Vec::new();
+                for i in 0..3 {
+                    let y = 58.0 + i as f32 * 60.0;
+                    let svc = self.ain.svcs.get(i).cloned().unwrap_or(ai::Svc { name: ai::NAMES[i], ..Default::default() });
+                    g.ellipse(l + 6.0, y + 10.0, 5.0, 5.0, colors[i], a);
+                    g.text(svc.name, &g.f_body, l + 18.0, y, 100.0, FG, a, Align::Left);
+                    if !svc.plan.is_empty() {
+                        g.text(&svc.plan, &g.f_tiny, l + 18.0, y + 22.0, 100.0, FG, a * 0.45, Align::Left);
+                    }
+                    let bx = l + 120.0;
+                    if svc.login && !svc.bars.is_empty() {
+                        let n = svc.bars.len().min(2);
+                        let bw = (r - bx - 12.0 * (n as f32 - 1.0)) / n as f32;
+                        for (k, b) in svc.bars.iter().take(2).enumerate() {
+                            let x0 = bx + k as f32 * (bw + 12.0);
+                            let c = if b.pct >= 90.0 { WARN } else if b.pct >= 70.0 { SUN } else { colors[i] };
+                            g.text(&b.label, &g.f_tiny, x0, y - 1.0, bw, FG, a * 0.6, Align::Left);
+                            g.text(&format!("{:.0}%", b.pct), &g.f_small, x0, y - 3.0, bw, c, a, Align::Right);
+                            g.rrect(x0, y + 17.0, bw, 7.0, 3.5, FG, a * 0.1);
+                            g.rrect(x0, y + 17.0, (bw * b.pct.clamp(0.0, 100.0) / 100.0).max(3.0), 7.0, 3.5, c, a);
+                            if b.reset > 0 {
+                                let left = (b.reset - ai::now()).max(0);
+                                let txt = if left < 86400 { format!("{}시간 {}분 뒤 초기화", left / 3600, left % 3600 / 60) } else {
+                                    let z = (b.reset + 9 * 3600).div_euclid(86400);
+                                    let (_, mo, d) = gcal::ymd(z);
+                                    let hm = (b.reset + 9 * 3600).rem_euclid(86400);
+                                    format!("{mo}/{d} ({}) {}:{:02} 초기화", gcal::WEEK[gcal::weekday(z)], hm / 3600, hm % 3600 / 60)
+                                };
+                                g.text(&txt, &g.f_tiny, x0, y + 28.0, bw, FG, a * 0.45, Align::Left);
+                            }
+                        }
+                    } else {
+                        g.text(if svc.note.is_empty() { "확인하는 중…" } else { &svc.note }, &g.f_small, bx, y + 2.0, r - bx - 100.0, if svc.login { WARN } else { FG }, a * if svc.login { 1.0 } else { 0.6 }, Align::Left);
+                    }
+                    if !svc.login && !svc.note.is_empty() {
+                        let b = [r - 84.0, y - 2.0, r, y + 26.0];
+                        g.rrect(b[0], b[1], 84.0, 28.0, 14.0, LIME, a * if over(b) { 1.0 } else { 0.85 });
+                        g.text("연결", &g.f_small, b[0], b[1] + 5.0, 84.0, PUPIL, a, Align::Center);
+                        hits.push((b, Hit::AiLogin(i)));
+                    }
+                }
+                if live {
+                    self.hits.extend(hits);
+                }
             } else if a > 0.0 && self.mode == 4 {
                 // ── 날씨 쪽: 지금 있는 곳의 날씨(큰 판 / 작은 판) ──
                 let wx = &self.wxn;
@@ -2288,7 +2360,7 @@ impl App {
 
     /// 쪽 넘기기. 지금은 두 쪽이라 어느 쪽으로 넘겨도 서로 오간다.
     unsafe fn turn(&mut self, d: i32) {
-        const PAGES: i32 = 4;
+        const PAGES: i32 = 5;
         if !self.hover || self.paged.elapsed() < Duration::from_millis(250) {
             return;
         }
@@ -2854,6 +2926,10 @@ impl App {
                 self.cal_big = false;
                 self.tick();
             }
+            Hit::AiLogin(i) => {
+                ai::login(i);
+                *self.ai_poke.lock().unwrap() = Some(Instant::now());
+            }
             Hit::NaverClose => {
                 self.naver_guide = false;
                 self.tick();
@@ -2878,7 +2954,7 @@ impl App {
             }
             _ => {}
         }
-        if matches!(hit, Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSave | Hit::EntClose) {
+        if matches!(hit, Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::AiLogin(_) | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSave | Hit::EntClose) {
             self.dirty = true;
             return;
         }
@@ -2931,7 +3007,7 @@ impl App {
             Hit::Line(t) => Cmd::Seek(t as i64),
             Hit::Shuffle => Cmd::Shuffle,
             Hit::Repeat => Cmd::Repeat,
-            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSave | Hit::EntClose => return,
+            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::AiLogin(_) | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSave | Hit::EntClose => return,
         };
         let _ = self.tx.send(cmd);
     }
@@ -3153,6 +3229,9 @@ unsafe fn run() -> Result<()> {
             w
         },
         wxn: weather::Weather::default(),
+        ai: Arc::new(Mutex::new(ai::Usage::default())),
+        ain: ai::Usage::default(),
+        ai_poke: Arc::new(Mutex::new(None)),
         cal: cal.clone(),
         caln: gcal::Cal::default(),
         cal_tx: gcal::spawn(cal),
@@ -3214,6 +3293,7 @@ unsafe fn run() -> Result<()> {
     if std::env::var("NOTCH_CAT_SETTINGS").is_ok() {
         settings::open(app.quotes.clone(), cat_icon()); // 시험용: 켜자마자 설정창
     }
+    ai::spawn(app.ai.clone(), app.ai_poke.clone()); // AI 사용량(5분마다)
     if let Some(n) = std::env::var("NOTCH_CAT_PAGE").ok().and_then(|v| v.parse().ok()) {
         app.hover = true; // 시험용: 그 쪽을 펼친 채로 띄운다(NOTCH_CAT_SHOT 과 함께 쓰면 마우스 없이 찍힌다)
         app.page = n;
