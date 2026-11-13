@@ -1192,7 +1192,7 @@ impl App {
                         self.hits.push(([b0, by - 8.0, b0 + bw, by + 10.0], Hit::Bar(b0, bw)));
                     }
                 }
-                g.text(&mmss(pos), &g.f_tiny, b0, by + 7.0, 50.0, FG, a * 0.6, Align::Left);
+                g.text(&if n.app == "ALSong" && n.dur_ms == 0 { "–:––".into() } else { mmss(pos) }, &g.f_tiny, b0, by + 7.0, 50.0, FG, a * 0.6, Align::Left);
                 g.text(&if n.dur_ms > 0 { mmss(n.dur_ms) } else { "–:––".into() }, &g.f_tiny, b0 + bw - 50.0, by + 7.0, 50.0, FG, a * 0.6, Align::Right);
                 // 단추: (섞기) 이전 재생 다음 (반복)
                 let cy = if wide { 102.0 } else { 152.0 };
@@ -1330,7 +1330,7 @@ impl App {
                 // 진행 막대
                 let pos = n.pos();
                 let (b0, bw) = (x + 66.0, w - 132.0);
-                g.text(&mmss(pos), &g.f_time, x + 18.0, 87.0, 44.0, FG, a, Align::Left);
+                g.text(&if n.app == "ALSong" && n.dur_ms == 0 { "–:––".into() } else { mmss(pos) }, &g.f_time, x + 18.0, 87.0, 44.0, FG, a, Align::Left);
                 g.text(&if n.dur_ms > 0 { mmss(n.dur_ms) } else { "–:––".into() }, &g.f_time, x + w - 62.0, 87.0, 44.0, FG, a, Align::Right);
                 g.rrect(b0, 94.0, bw, 5.0, 2.5, FG, a * 0.22);
                 if n.dur_ms > 0 {

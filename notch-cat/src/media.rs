@@ -159,6 +159,14 @@ pub fn spawn(now: Arc<Mutex<Now>>, lyr: Arc<Mutex<Lyr>>) -> mpsc::Sender<Cmd> {
                     }
                     continue;
                 }
+                if crate::alsong::stopped() && sess.is_none() {
+                    key = "ALSong|".into(); // 멈춤 → 다음 재생은 처음부터
+                    let mut n = now.lock().unwrap();
+                    n.has = false;
+                    n.seen = Some(Instant::now());
+                    n.stamp = crate::hhmm();
+                    continue;
+                }
             }
             let Some(s) = sess else {
                 let mut n = now.lock().unwrap();

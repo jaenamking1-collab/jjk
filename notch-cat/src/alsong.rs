@@ -5,6 +5,14 @@ use windows::core::{s, w, PCSTR};
 use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
 use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, GetWindowTextW};
 
+/// 알송이 켜져 있지만 멈춘 상태(창 제목이 "알송"뿐)인가 — 다음에 틀면 처음부터라 위치를 안다.
+pub fn stopped() -> bool {
+    let Ok(h) = (unsafe { FindWindowW(w!("ALSong_Class"), None) }) else { return false };
+    let mut b = [0u16; 64];
+    let n = unsafe { GetWindowTextW(h, &mut b) } as usize;
+    matches!(String::from_utf16_lossy(&b[..n]).trim(), "알송" | "ALSong")
+}
+
 /// 창 제목 "제목 - 가수" → (제목, 가수). 알송이 없으면 None.
 pub fn now() -> Option<(String, String)> {
     let h = unsafe { FindWindowW(w!("ALSong_Class"), None) }.ok()?;
