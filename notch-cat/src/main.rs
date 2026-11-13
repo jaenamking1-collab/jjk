@@ -2542,7 +2542,7 @@ impl App {
             return;
         }
         for &cal in &e.cals {
-            let _ = self.cal_tx.send(gcal::Cmd::Add { cal, title: title.clone(), day: e.day, start: e.min, end: -1 });
+            let _ = self.cal_tx.send(gcal::Cmd::Add { cal, title: title.clone(), day: e.day, start: e.min, end: -1, school: false });
             // 받아 오기 전에도 바로 보이게 달력에 먼저 그린다(다음 받기 때 진짜 것으로 바뀐다)
             let color = self.caln.cals.get(cal).map_or(LIME, |c| c.color);
             let (end_day, end) = if e.min < 0 { (e.day, -1) } else { (e.day + (e.min + 60) as i64 / 1440, (e.min + 60) % 1440) };

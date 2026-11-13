@@ -175,7 +175,7 @@ pub fn events(c: &HttpClient, id: &str, pw: &str, url: &str, from: i64, to: i64,
 }
 
 /// 일정 하나 넣기
-pub fn add(c: &HttpClient, id: &str, pw: &str, url: &str, title: &str, day: i64, start: i32, end: i32) -> std::result::Result<String, String> {
+pub fn add(c: &HttpClient, id: &str, pw: &str, url: &str, title: &str, day: i64, start: i32, end: i32, school: bool) -> std::result::Result<String, String> {
     // 아이디는 영숫자만(‘@notch-cat’ 이 붙은 아이디는 네이버가 403 으로 거절했다, 2026-11-13)
     let uid: String = format!("notchcat{}", gcal::random(40).chars().filter(|c| c.is_ascii_alphanumeric()).take(24).collect::<String>());
     let esc = title.replace('\\', "\\\\").replace(';', "\\;").replace(',', "\\,").replace('\n', "\\n");
@@ -187,7 +187,7 @@ pub fn add(c: &HttpClient, id: &str, pw: &str, url: &str, title: &str, day: i64,
         let (ed, em) = if end > start { (day, end) } else { (day + (start + 60) as i64 / 1440, (start + 60) % 1440) };
         format!("DTSTART:{}\r\nDTEND:{}", zstamp(day, start), zstamp(ed, em))
     };
-    let ics = format!("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//notch-cat//KO\r\nBEGIN:VEVENT\r\nUID:{uid}\r\nDTSTAMP:{}\r\n{when}\r\nSUMMARY:{esc}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n", zstamp(now_d, now_m));
+    let ics = format!("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//notch-cat//KO\r\nBEGIN:VEVENT\r\nUID:{uid}\r\nDTSTAMP:{}\r\n{when}\r\nSUMMARY:{esc}\r\n{}END:VEVENT\r\nEND:VCALENDAR\r\n", zstamp(now_d, now_m), if school { "COLOR:orangered\r\nCATEGORIES:학교\r\n" } else { "" });
     let u = format!("{}{}.ics", if url.ends_with('/') { url.to_string() } else { format!("{url}/") }, gcal::enc(&uid));
     match dav(c, "PUT", &u, id, pw, None, Some((&ics, "text/calendar")), Some(("If-None-Match", "*"))) {
         Ok((200 | 201 | 204, _)) => Ok(u),
@@ -234,6 +234,23 @@ fn dur(v: &str) -> i32 {
 
 fn untext(s: &str) -> String {
     s.replace("\\n", "\n").replace("\\N", "\n").replace("\\,", ",").replace("\\;", ";").replace("\\\\", "\\")
+}
+
+/// 일정 COLOR(이름이나 #rrggbb) → 색. 모르는 이름이면 None(캘린더 색 그대로).
+fn css_color(v: &str) -> Option<(f32, f32, f32)> {
+    let v = v.trim().to_ascii_lowercase();
+    if v.starts_with('#') && v.len() >= 7 {
+        return Some(gcal::hex_color(&v[..7]));
+    }
+    Some(match v.as_str() {
+        "orangered" | "tomato" | "darkorange" | "orange" | "coral" => gcal::SCHOOL,
+        "red" | "crimson" => (0.84, 0.0, 0.0),
+        "green" | "seagreen" | "forestgreen" => (0.04, 0.5, 0.26),
+        "blue" | "royalblue" | "dodgerblue" => (0.25, 0.32, 0.71),
+        "purple" | "darkviolet" => (0.56, 0.14, 0.67),
+        "gold" | "yellow" => (0.96, 0.75, 0.15),
+        _ => return None,
+    })
 }
 
 const WD: [&str; 7] = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
@@ -380,7 +397,7 @@ pub fn parse_ics(ics: &str, color: (f32, f32, f32), from: i64, to: i64) -> Vec<E
             start: s0,
             end_day: d1.max(d0),
             end: e1,
-            color,
+            color: get("COLOR").and_then(css_color).unwrap_or(color),
             memo: get("DESCRIPTION").map(untext).unwrap_or_default(),
         };
         if let Some(r) = get("RECURRENCE-ID").and_then(dt) {
@@ -488,7 +505,7 @@ mod tests {
         for (k, pw) in gcal::load_accounts() {
             let Some(id) = k.strip_prefix(TAG) else { continue };
             let cal = calendars(&c, id, &pw).unwrap().into_iter().next().unwrap();
-            let r = add(&c, id, &pw, &cal.url, "노치 시험(곧 지움)", now + 1, 600, -1);
+            let r = add(&c, id, &pw, &cal.url, "노치 시험(곧 지움)", now + 1, 600, -1, false);
             println!("넣기 {:?}", r);
             if let Ok(u) = r {
                 println!("지우기 {:?}", dav(&c, "DELETE", &u, id, &pw, None, None, None).map(|x| x.0));

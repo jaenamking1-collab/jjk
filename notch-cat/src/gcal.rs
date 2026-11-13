@@ -126,11 +126,11 @@ impl Cal {
 pub enum Cmd {
     Login,
     Refresh,
-    Add { cal: usize, title: String, day: i64, start: i32, end: i32 }, // start -1 = 종일
+    Add { cal: usize, title: String, day: i64, start: i32, end: i32, school: bool }, // start -1 = 종일, school = 학교일정 색
     Naver { id: String, pw: String }, // 네이버 캘린더 연결(아이디·애플리케이션 비밀번호)
 }
 
-fn hex_color(s: &str) -> (f32, f32, f32) {
+pub fn hex_color(s: &str) -> (f32, f32, f32) {
     let h = |i: usize| u8::from_str_radix(s.get(i..i + 2).unwrap_or("88"), 16).unwrap_or(0x88) as f32 / 255.0;
     if s.len() == 7 { (h(1), h(3), h(5)) } else { (0.53, 0.6, 0.7) }
 }
@@ -166,6 +166,33 @@ pub fn plain(s: &str) -> String {
 ")
 }
 
+/// 학교일정 색: 구글 일정 색 6번(귤색). 네이버에는 같은 색을 COLOR 로 적는다.
+pub const SCHOOL_ID: &str = "6";
+pub const SCHOOL: (f32, f32, f32) = (0.957, 0.318, 0.118);
+
+/// 구글 일정 색 번호 → 색(구글 캘린더 기본 팔레트)
+pub fn event_color(id: &str) -> Option<(f32, f32, f32)> {
+    let hex = match id {
+        "1" => "#7986cb", "2" => "#33b679", "3" => "#8e24aa", "4" => "#e67c73", "5" => "#f6bf26", "6" => "#f4511e",
+        "7" => "#039be5", "8" => "#616161", "9" => "#3f51b5", "10" => "#0b8043", "11" => "#d50000", _ => return None,
+    };
+    Some(hex_color(hex))
+}
+
+/// 구글에 넣을 일정. start -1 이면 종일(day ~ last_day), 아니면 시각(끝이 없으면 1시간).
+pub fn google_body(title: &str, day: i64, start: i32, end: i32, last_day: i64, school: bool) -> Value {
+    let mut b = if start < 0 {
+        json!({"summary": title, "start": {"date": date_str(day)}, "end": {"date": date_str(last_day.max(day) + 1)}})
+    } else {
+        let (ed, em) = if end > start { (day, end) } else { (day + (start + 60) as i64 / 1440, (start + 60) % 1440) };
+        json!({"summary": title, "start": {"dateTime": rfc3339(day, start), "timeZone": "Asia/Seoul"}, "end": {"dateTime": rfc3339(ed, em), "timeZone": "Asia/Seoul"}})
+    };
+    if school {
+        b["colorId"] = json!(SCHOOL_ID);
+    }
+    b
+}
+
 /// 일정 목록 응답 → 일정들
 pub fn parse_events(body: &str, color: (f32, f32, f32)) -> Vec<Event> {
     let v: Value = serde_json::from_str(body).unwrap_or_default();
@@ -179,7 +206,7 @@ pub fn parse_events(body: &str, color: (f32, f32, f32)) -> Vec<Event> {
         if s0 < 0 {
             d1 -= 1; // 종일 일정의 끝 날짜는 '다음 날'로 온다
         }
-        out.push(Event { title: e["summary"].as_str().unwrap_or("(제목 없음)").to_string(), place: e["location"].as_str().unwrap_or("").to_string(), day: d0, start: s0, end_day: d1.max(d0), end: e1, color, memo: plain(e["description"].as_str().unwrap_or("")) });
+        out.push(Event { title: e["summary"].as_str().unwrap_or("(제목 없음)").to_string(), place: e["location"].as_str().unwrap_or("").to_string(), day: d0, start: s0, end_day: d1.max(d0), end: e1, color: e["colorId"].as_str().and_then(event_color).unwrap_or(color), memo: plain(e["description"].as_str().unwrap_or("")) });
     }
     out
 }
@@ -425,18 +452,13 @@ pub fn spawn(out: Arc<Mutex<Cal>>) -> mpsc::Sender<Cmd> {
                         note = format!("네이버 연결 실패: {e}");
                     }
                 },
-                Some(Cmd::Add { cal, title, day, start, end }) => {
+                Some(Cmd::Add { cal, title, day, start, end, school }) => {
                     let info = out.lock().unwrap().cals.get(cal).cloned();
                     let tok = info.as_ref().and_then(|i| accts.get(i.account)).filter(|a| !a.0.starts_with(crate::naver::TAG)).and_then(|a| access(&c, &id, &secret, &a.1));
-                    let body = if start < 0 {
-                        json!({"summary": title, "start": {"date": date_str(day)}, "end": {"date": date_str(day + 1)}})
-                    } else {
-                        let (ed, em) = if end > start { (day, end) } else { (day + (start + 60) as i64 / 1440, (start + 60) % 1440) };
-                        json!({"summary": title, "start": {"dateTime": rfc3339(day, start), "timeZone": "Asia/Seoul"}, "end": {"dateTime": rfc3339(ed, em), "timeZone": "Asia/Seoul"}})
-                    };
+                    let body = google_body(&title, day, start, end, day, school);
                     let naver = info.as_ref().and_then(|i| accts.get(i.account)).and_then(|a| a.0.strip_prefix(crate::naver::TAG).map(|n| (n.to_string(), a.1.clone())));
                     if let (Some(i), Some((nid, pw))) = (info.as_ref(), naver) {
-                        match crate::naver::add(&c, &nid, &pw, &i.id, &title, day, start, end) {
+                        match crate::naver::add(&c, &nid, &pw, &i.id, &title, day, start, end, school) {
                             Ok(_) => crate::log("gcal: 네이버에 일정 넣음"),
                             Err(e) => {
                                 crate::log(&format!("gcal: 네이버에 못 넣음 {e}"));
