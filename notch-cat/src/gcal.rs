@@ -656,3 +656,76 @@ mod tests {
         assert_eq!(hex_color("#ff0000"), (1.0, 0.0, 0.0));
     }
 }
+
+#[cfg(test)]
+mod live {
+    use super::*;
+
+    /// 설치본 exe 에 들어 있는 등록증(손 빌드엔 없다). 값은 메모리에서만 쓰고 출력하지 않는다.
+    fn installed_client() -> Option<(String, String)> {
+        let exe = std::path::PathBuf::from(std::env::var("LOCALAPPDATA").ok()?).join("NotchCat").join("NotchCat.exe");
+        let b = std::fs::read(exe).ok()?;
+        let text: String = b.iter().map(|&c| if c.is_ascii_graphic() { c as char } else { ' ' }).collect();
+        let tok = |pred: &dyn Fn(&str) -> bool| text.split(' ').flat_map(|w| w.split('"')).find(|w| pred(w)).map(str::to_string);
+        let id = tok(&|w| w.ends_with(".apps.googleusercontent.com") && w.len() > 40)?;
+        let id = id[id.find(|c: char| c.is_ascii_digit())?..].to_string();
+        let sec = tok(&|w| w.starts_with("GOCSPX-") && w.len() >= 30)?;
+        Some((id, sec[..35.min(sec.len())].to_string()))
+    }
+
+    #[test]
+    #[ignore]
+    fn live_add_school_2026() {
+        let list: &[(&str, (i32, u32, u32), (i32, u32, u32))] = &[
+            ("추수감사예배", (2026, 11, 18), (2026, 11, 18)),
+            ("수능 시험장 종사요원 사전연수", (2026, 11, 18), (2026, 11, 18)),
+            ("대학수학능력시험 · 재량휴업일", (2026, 11, 19), (2026, 11, 19)),
+            ("3학년 수행평가 마감", (2026, 11, 23), (2026, 11, 23)),
+            ("3학년 1차 정기고사", (2026, 11, 24), (2026, 11, 26)),
+            ("1·2학년 동교과 협의회", (2026, 12, 2), (2026, 12, 2)),
+            ("동아리 8차", (2026, 12, 11), (2026, 12, 11)),
+            ("1·2학년 수행평가 마감", (2026, 12, 14), (2026, 12, 14)),
+            ("1·2학년 2차 정기고사", (2026, 12, 15), (2026, 12, 17)),
+            ("성탄절", (2026, 12, 25), (2026, 12, 25)),
+            ("학교교육활동평가회 및 졸업·진급 사정회", (2026, 12, 30), (2026, 12, 30)),
+            ("동아리 9차 — 발표회", (2026, 12, 31), (2026, 12, 31)),
+            ("신정", (2027, 1, 1), (2027, 1, 1)),
+            ("학생 재량휴업일", (2027, 1, 4), (2027, 1, 4)),
+            ("신년하례식", (2027, 1, 4), (2027, 1, 4)),
+            ("졸업 감사 예배", (2027, 1, 6), (2027, 1, 6)),
+            ("졸업식 · 종업식 · 방학식", (2027, 1, 8), (2027, 1, 8)),
+            ("겨울방학 시작", (2027, 1, 9), (2027, 1, 9)),
+        ];
+        let (id, secret) = client().or_else(installed_client).expect("등록증 없음");
+        let (email, refresh) = load_accounts().into_iter().find(|a| !a.0.starts_with("naver:")).expect("구글 계정 없음");
+        let f = windows::Web::Http::Filters::HttpBaseProtocolFilter::new().unwrap();
+        f.SetAllowUI(false).unwrap();
+        let c = HttpClient::Create(&f).unwrap();
+        let tok = access(&c, &id, &secret, &refresh).expect("토큰 실패");
+        println!("계정 {email}");
+        let base = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
+        let range = format!("{base}?singleEvents=true&maxResults=2500&timeMin=2026-11-01T00:00:00%2B09:00&timeMax=2027-02-01T00:00:00%2B09:00");
+        let (st, body) = send(&c, "GET", &range, Some(&tok), None).unwrap();
+        assert_eq!(st, 200, "목록 실패");
+        let have = parse_events(&body, (0.0, 0.0, 0.0));
+        let (mut added, mut skipped) = (0, 0);
+        for (title, a, b) in list {
+            let (d0, d1) = (days(a.0, a.1, a.2), days(b.0, b.1, b.2));
+            if have.iter().any(|e| e.title == *title && e.day == d0) {
+                skipped += 1;
+                println!("있음 {title}");
+                continue;
+            }
+            let (st, _) = send(&c, "POST", base, Some(&tok), Some((&google_body(title, d0, -1, -1, d1, true).to_string(), "application/json"))).unwrap();
+            assert!(st == 200, "넣기 실패 {title} {st}");
+            added += 1;
+            println!("넣음 {title}");
+        }
+        // 넣은 뒤 다시 받아 귤색으로 다 있는지 센다
+        let (_, body) = send(&c, "GET", &range, Some(&tok), None).unwrap();
+        let now = parse_events(&body, (0.0, 0.0, 0.0));
+        let ok = list.iter().filter(|(t, a, b)| now.iter().any(|e| e.title == *t && e.day == days(a.0, a.1, a.2) && e.end_day == days(b.0, b.1, b.2) && e.color == SCHOOL)).count();
+        println!("새로 {added} · 이미 {skipped} · 귤색으로 확인 {ok}/{}", list.len());
+        assert_eq!(ok, list.len());
+    }
+}

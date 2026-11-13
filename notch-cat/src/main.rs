@@ -81,6 +81,7 @@ struct Ent {
     buf: String,        // 그 칸에 친 숫자
     parked: bool,       // 다른 창으로 가서 접어 둔 상태(적던 내용은 남는다)
     cur: usize,         // 글자 칸 커서(글자 수 기준)
+    school: bool,       // '학교일정' 단추: 켜면 귤색 학교 일정으로 넣는다
 }
 
 impl Ent {
@@ -611,6 +612,7 @@ enum Hit {
     EntCal,      // 일정 넣기: 넣을 캘린더 바꾸기
     EntAcct(usize), // 일정 넣기: 이 계정에도 넣기 켜고 끄기(휠: 그 계정 안 캘린더 바꾸기)
     EntSeg(usize), // 일정 넣기: 날짜·시각 칸 하나
+    EntSchool,     // 일정 넣기: 학교일정 켜고 끄기
     EntSave,
     EntClose,
     Shuffle,
@@ -2459,7 +2461,7 @@ impl App {
         // 처음 고르는 캘린더: 계정의 기본 캘린더(아이디가 메일 주소), 없으면 쓸 수 있는 첫 캘린더
         let cals = &self.caln.cals;
         let cal = cals.iter().position(|c| c.writable && self.caln.accounts.iter().any(|a| *a == c.id)).or_else(|| cals.iter().position(|c| c.writable)).unwrap_or(0);
-        self.ent = Some(Ent { text: String::new(), comp: String::new(), day, min, cals: vec![cal], prev: GetForegroundWindow(), focused: false, closing: false, caret: Instant::now(), seg: None, buf: String::new(), parked: false, cur: 0 });
+        self.ent = Some(Ent { text: String::new(), comp: String::new(), day, min, cals: vec![cal], prev: GetForegroundWindow(), focused: false, closing: false, caret: Instant::now(), seg: None, buf: String::new(), parked: false, cur: 0, school: false });
         self.drop.target = 1.0;
         self.ent_focus();
     }
@@ -2542,9 +2544,9 @@ impl App {
             return;
         }
         for &cal in &e.cals {
-            let _ = self.cal_tx.send(gcal::Cmd::Add { cal, title: title.clone(), day: e.day, start: e.min, end: -1, school: false });
+            let _ = self.cal_tx.send(gcal::Cmd::Add { cal, title: title.clone(), day: e.day, start: e.min, end: -1, school: e.school });
             // 받아 오기 전에도 바로 보이게 달력에 먼저 그린다(다음 받기 때 진짜 것으로 바뀐다)
-            let color = self.caln.cals.get(cal).map_or(LIME, |c| c.color);
+            let color = if e.school { gcal::SCHOOL } else { self.caln.cals.get(cal).map_or(LIME, |c| c.color) };
             let (end_day, end) = if e.min < 0 { (e.day, -1) } else { (e.day + (e.min + 60) as i64 / 1440, (e.min + 60) % 1440) };
             self.caln.events.push(gcal::Event { title: title.clone(), place: String::new(), day: e.day, start: e.min, end_day, end, color, memo: String::new() });
         }
@@ -2869,6 +2871,18 @@ impl App {
         }
         x += 10.0;
         chip(&mut hits, &mut x, entry::TIMES[0].0, e.min < 0, Hit::EntTime(0)); // 시각 단추 대신 위 칸을 고친다
+        {
+            // 학교일정: 켜면 귤색(구글 색 6 · 네이버 orangered)으로 들어간다. 기본은 꺼짐 = 보통 일정
+            let label = "학교일정";
+            let w = g.measure(label, &g.f_tiny) + 30.0;
+            let b = [x, y3, x + w, y3 + 22.0];
+            let on = e.school;
+            g.rrect(b[0], b[1], w, 22.0, 11.0, if on { gcal::SCHOOL } else { FG }, a * if on { 0.32 } else if over(b) { 0.16 } else { 0.07 });
+            g.ellipse(b[0] + 12.0, b[1] + 11.0, 4.0, 4.0, gcal::SCHOOL, a * if on { 1.0 } else { 0.5 });
+            g.text(label, &g.f_tiny, b[0] + 21.0, b[1] + 4.0, w - 24.0, if on { gcal::SCHOOL } else { FG }, a * if on { 1.0 } else { 0.7 }, Align::Left);
+            hits.push((b, Hit::EntSchool));
+            x += w + 5.0;
+        }
         g.text(if multi { "넣을 곳: 눌러서 켜고 끄기 · 둘 다 켜면 둘 다 · 휠로 캘린더 바꾸기" } else { "칸을 눌러 숫자 · 휠 · ↑↓ · 달력 날짜 누르기" }, &g.f_tiny, x + 6.0, y3 + 4.0, r - x - 6.0, FG, a * 0.4, Align::Left);
         let focused = e.focused;
         self.hits.extend(hits);
@@ -2950,6 +2964,11 @@ impl App {
                     }
                 }
             }
+            Hit::EntSchool => {
+                if let Some(e) = self.ent.as_mut() {
+                    e.school = !e.school;
+                }
+            }
             Hit::EntCal => {
                 let w: Vec<usize> = self.caln.cals.iter().enumerate().filter(|(_, c)| c.writable).map(|(i, _)| i).collect();
                 if let Some(e) = self.ent.as_mut() {
@@ -2997,7 +3016,7 @@ impl App {
             }
             _ => {}
         }
-        if matches!(hit, Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::AiLogin(_) | Hit::AiOpen(_) | Hit::AiGuideClose | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSave | Hit::EntClose) {
+        if matches!(hit, Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::AiLogin(_) | Hit::AiOpen(_) | Hit::AiGuideClose | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSchool | Hit::EntSave | Hit::EntClose) {
             self.dirty = true;
             return;
         }
@@ -3050,7 +3069,7 @@ impl App {
             Hit::Line(t) => Cmd::Seek(t as i64),
             Hit::Shuffle => Cmd::Shuffle,
             Hit::Repeat => Cmd::Repeat,
-            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::AiLogin(_) | Hit::AiOpen(_) | Hit::AiGuideClose | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSave | Hit::EntClose => return,
+            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::AiLogin(_) | Hit::AiOpen(_) | Hit::AiGuideClose | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSchool | Hit::EntSave | Hit::EntClose => return,
         };
         let _ = self.tx.send(cmd);
     }
@@ -3360,6 +3379,7 @@ unsafe fn run() -> Result<()> {
         if let Some(e) = app.ent.as_mut() {
             e.insert("치과 예약");
             e.seg = v.contains("seg").then_some(3);
+            e.school = v.contains("school"); // 시험용: 학교일정 켠 채로
             if v.contains("both") {
                 e.cals = vec![0, 2]; // 두 계정 모두에 넣기
             }
