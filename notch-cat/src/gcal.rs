@@ -276,7 +276,7 @@ fn save_accounts(list: &[(String, String)]) {
 }
 
 /// 브라우저에서 계정을 골라 허용하면 (메일, 갱신 열쇠)
-fn login(c: &HttpClient, id: &str, secret: &str) -> std::result::Result<(String, String), String> {
+fn login(c: &HttpClient, id: &str, secret: &str, rx: &mpsc::Receiver<Cmd>, later: &mut Vec<Cmd>) -> std::result::Result<(String, String), String> {
     let l = std::net::TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
     let port = l.local_addr().map_err(|e| e.to_string())?.port();
     let redirect = format!("http://127.0.0.1:{port}");
@@ -287,18 +287,28 @@ fn login(c: &HttpClient, id: &str, secret: &str) -> std::result::Result<(String,
     );
     // 시험용: 실행 파일 옆에 login_url.txt 가 있으면 브라우저를 열지 않고 주소를 거기에 적는다
     let hook = std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join("login_url.txt"))).filter(|f| f.exists());
-    match hook {
+    let open = || match &hook {
         Some(f) => {
             let _ = std::fs::write(f, &url);
         }
         None => unsafe {
-            windows::Win32::UI::Shell::ShellExecuteW(None, &HSTRING::from("open"), &HSTRING::from(url), None, None, windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL);
+            windows::Win32::UI::Shell::ShellExecuteW(None, &HSTRING::from("open"), &HSTRING::from(url.as_str()), None, None, windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL);
         },
-    }
-    // 5분 기다린다
+    };
+    open();
+    // 5분 기다린다. 그 사이 '계정 추가'를 또 누르면(창을 닫아 버렸을 때) 로그인 창을 다시 띄운다.
     l.set_nonblocking(true).map_err(|e| e.to_string())?;
-    let started = Instant::now();
+    let mut started = Instant::now();
     let mut sock = loop {
+        while let Ok(m) = rx.try_recv() {
+            if let Cmd::Login = m {
+                crate::log("gcal: 로그인 창 다시 띄움");
+                open();
+                started = Instant::now();
+            } else {
+                later.push(m);
+            }
+        }
         match l.accept() {
             Ok((s, _)) => break s,
             Err(_) if started.elapsed() < Duration::from_secs(300) => std::thread::sleep(Duration::from_millis(200)),
@@ -341,6 +351,7 @@ pub fn spawn(out: Arc<Mutex<Cal>>) -> mpsc::Sender<Cmd> {
         let mut tokens: Vec<Option<(String, Instant)>> = Vec::new();
         let mut cmd: Option<Cmd> = Some(Cmd::Refresh);
         let mut seen_counts = (usize::MAX, 0);
+        let mut later: Vec<Cmd> = Vec::new(); // 로그인을 기다리는 동안 들어온 다른 명령
         loop {
             let Some((id, secret)) = client() else {
                 let mut o = out.lock().unwrap();
@@ -353,7 +364,7 @@ pub fn spawn(out: Arc<Mutex<Cal>>) -> mpsc::Sender<Cmd> {
             let mut accts = load_accounts();
             let mut note = String::new();
             match cmd.take() {
-                Some(Cmd::Login) => match login(&c, &id, &secret) {
+                Some(Cmd::Login) => match login(&c, &id, &secret, &rx, &mut later) {
                     Ok((email, refresh)) => {
                         accts.retain(|a| a.0 != email);
                         accts.push((email.clone(), refresh));
@@ -438,11 +449,11 @@ pub fn spawn(out: Arc<Mutex<Cal>>) -> mpsc::Sender<Cmd> {
                 o.note = note;
                 o.ver += 1;
             }
-            cmd = match rx.recv_timeout(Duration::from_secs(300)) {
+            cmd = if !later.is_empty() { Some(later.remove(0)) } else { match rx.recv_timeout(Duration::from_secs(300)) {
                 Ok(c) => Some(c),
                 Err(mpsc::RecvTimeoutError::Timeout) => Some(Cmd::Refresh),
                 Err(_) => return,
-            };
+            } };
         }
     });
     tx
