@@ -381,11 +381,11 @@ pub fn parse_ics(ics: &str, color: (f32, f32, f32), from: i64, to: i64) -> Vec<E
 }
 
 /// 아이디·비밀번호 묻는 창(윈도우 기본 창). 취소하면 None.
-pub fn ask() -> Option<(String, String)> {
+pub fn ask(owner: isize) -> Option<(String, String)> {
     use windows::Win32::Security::Credentials::*;
     let msg: Vec<u16> = "네이버 아이디와 애플리케이션 비밀번호를 넣어 주세요.\n(네이버 → 내정보 → 보안설정 → 2단계 인증 → 애플리케이션 비밀번호. 2단계 인증을 안 쓰면 로그인 비밀번호)\0".encode_utf16().collect();
     let cap: Vec<u16> = "노치 고양이 - 네이버 캘린더 연결\0".encode_utf16().collect();
-    let info = CREDUI_INFOW { cbSize: std::mem::size_of::<CREDUI_INFOW>() as u32, pszMessageText: PCWSTR(msg.as_ptr()), pszCaptionText: PCWSTR(cap.as_ptr()), ..Default::default() };
+    let info = CREDUI_INFOW { cbSize: std::mem::size_of::<CREDUI_INFOW>() as u32, hwndParent: windows::Win32::Foundation::HWND(owner as _), pszMessageText: PCWSTR(msg.as_ptr()), pszCaptionText: PCWSTR(cap.as_ptr()), ..Default::default() };
     let (mut user, mut pass) = ([0u16; 514], [0u16; 257]);
     let target: Vec<u16> = "caldav.calendar.naver.com\0".encode_utf16().collect();
     let r = unsafe {
@@ -426,7 +426,7 @@ mod tests {
     #[test]
     #[ignore] // 화면: 입력 창이 뜨는지(밖에서 창을 닫으면 None)
     fn dialog_opens() {
-        assert_eq!(ask(), None);
+        assert_eq!(ask(0), None);
     }
 
     #[test]

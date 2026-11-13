@@ -2702,8 +2702,9 @@ impl App {
                 // 윈도우 기본 '아이디·비밀번호' 창을 따로 띄운다(노치는 그대로 돈다)
                 log("naver: 연결 단추");
                 let tx = self.cal_tx.clone();
+                let owner = self.hwnd.0 as isize; // 노치를 주인으로: 노치는 맨 위라 그 창도 다른 창 뒤로 숨지 않는다
                 std::thread::spawn(move || {
-                    if let Some((id, pw)) = naver::ask() {
+                    if let Some((id, pw)) = naver::ask(owner) {
                         let _ = tx.send(gcal::Cmd::Naver { id, pw });
                     }
                 });
