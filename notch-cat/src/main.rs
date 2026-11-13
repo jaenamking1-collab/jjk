@@ -54,7 +54,7 @@ const WIN_H: f32 = 620.0;
 // 일정 넣기 칸(노치 아래로 물방울처럼 나온다)
 const ENT_W: f32 = 560.0;
 const ENT_H: f32 = 112.0;
-const ENT_GAP: f32 = 12.0;
+const ENT_GAP: f32 = 18.0;
 
 struct Ent {
     text: String,
@@ -2168,8 +2168,8 @@ impl App {
             return;
         }
         // 목: 몸통 바닥과 칸 위를 잇는 오목한 다리. 붙는 곳은 넓고 가운데는 잘록하다.
-        let edge = 74.0 * tt.min(1.0);
-        let waist = 30.0 * tt.min(1.0) + 6.0;
+        let edge = 96.0 * tt.min(1.0);
+        let waist = 22.0 * tt.min(1.0) + 6.0;
         let (y0, y1) = (h - 6.0, top + 6.0);
         let n = 14;
         let mut pts: Vec<(f32, f32)> = Vec::with_capacity(2 * n + 2);
