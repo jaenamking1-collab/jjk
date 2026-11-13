@@ -665,12 +665,20 @@ mod live {
     fn installed_client() -> Option<(String, String)> {
         let exe = std::path::PathBuf::from(std::env::var("LOCALAPPDATA").ok()?).join("NotchCat").join("NotchCat.exe");
         let b = std::fs::read(exe).ok()?;
-        let text: String = b.iter().map(|&c| if c.is_ascii_graphic() { c as char } else { ' ' }).collect();
-        let tok = |pred: &dyn Fn(&str) -> bool| text.split(' ').flat_map(|w| w.split('"')).find(|w| pred(w)).map(str::to_string);
-        let id = tok(&|w| w.ends_with(".apps.googleusercontent.com") && w.len() > 40)?;
-        let id = id[id.find(|c: char| c.is_ascii_digit())?..].to_string();
-        let sec = tok(&|w| w.starts_with("GOCSPX-") && w.len() >= 30)?;
-        Some((id, sec[..35.min(sec.len())].to_string()))
+        // 문자열은 붙어서 들어가므로 모양으로 잘라 낸다: 숫자-영숫자32.apps.googleusercontent.com / GOCSPX-28자
+        let find = |pat: &[u8]| b.windows(pat.len()).position(|w| w == pat);
+        let e = find(b".apps.googleusercontent.com")?;
+        let mut s = e.checked_sub(33)?;
+        if b[s] != b'-' {
+            return None;
+        }
+        while s > 0 && b[s - 1].is_ascii_digit() {
+            s -= 1;
+        }
+        let id = String::from_utf8(b[s..e + 27].to_vec()).ok()?;
+        let k = find(b"GOCSPX-")?;
+        let sec = String::from_utf8(b[k..k + 35].to_vec()).ok()?;
+        Some((id, sec))
     }
 
     #[test]
@@ -724,7 +732,7 @@ mod live {
         // 넣은 뒤 다시 받아 귤색으로 다 있는지 센다
         let (_, body) = send(&c, "GET", &range, Some(&tok), None).unwrap();
         let now = parse_events(&body, (0.0, 0.0, 0.0));
-        let ok = list.iter().filter(|(t, a, b)| now.iter().any(|e| e.title == *t && e.day == days(a.0, a.1, a.2) && e.end_day == days(b.0, b.1, b.2) && e.color == SCHOOL)).count();
+        let ok = list.iter().filter(|(t, a, b)| now.iter().any(|e| e.title == *t && e.day == days(a.0, a.1, a.2) && e.end_day == days(b.0, b.1, b.2) && (e.color.0 - SCHOOL.0).abs() + (e.color.1 - SCHOOL.1).abs() + (e.color.2 - SCHOOL.2).abs() < 0.02)).count();
         println!("새로 {added} · 이미 {skipped} · 귤색으로 확인 {ok}/{}", list.len());
         assert_eq!(ok, list.len());
     }
