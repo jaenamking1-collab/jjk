@@ -599,7 +599,9 @@ enum Hit {
     CalLogin,    // 달력: 구글 계정 연결
     CalNaver,    // 달력: 네이버 캘린더 연결
     CalAcct,     // 달력: '＋ 계정' 고르기 판 열고 닫기
-    AiLogin(usize), // AI 사용량: 그 서비스 로그인 창 띄우기
+    AiLogin(usize), // AI 사용량: 그 서비스 연결 안내 열기
+    AiOpen(usize),  // 연결 안내: 로그인 창 띄우기
+    AiGuideClose,   // 연결 안내 닫기
     NaverOpen,   // 네이버 안내: 보안설정 페이지 열기
     NaverInput,  // 네이버 안내: 아이디·비밀번호 창
     NaverClose,  // 네이버 안내 닫기
@@ -671,6 +673,7 @@ struct App {
     ai: Arc<Mutex<ai::Usage>>,
     ain: ai::Usage,                     // 지금 보여 주는 AI 사용량
     ai_poke: Arc<Mutex<Option<Instant>>>, // 연결을 누른 시각(그 뒤 5분은 10초마다 받는다)
+    ai_guide: Option<usize>, // 연결 안내 판(그 서비스가 연결되면 저절로 닫힘)
     cal: Arc<Mutex<gcal::Cal>>,
     caln: gcal::Cal, // 지금 보여 주는 달력
     cal_tx: mpsc::Sender<gcal::Cmd>,
@@ -827,6 +830,9 @@ impl App {
                 if u.ver != self.ain.ver {
                     self.ain = u.clone();
                     self.dirty = true;
+                    if self.ai_guide.is_some_and(|i| self.ain.svcs.get(i).is_some_and(|s| s.login)) {
+                        self.ai_guide = None; // 연결됐다
+                    }
                 }
             }
             let c = self.cal.lock().unwrap();
@@ -2036,6 +2042,46 @@ impl App {
                 let (mx, my) = self.mouse;
                 let live = p > 0.9;
                 let over = |b: [f32; 4]| live && mx >= b[0] && mx < b[2] && my >= b[1] && my < b[3];
+                if let Some(gi) = self.ai_guide {
+                    // 연결 안내: 처음 하는 사람도 따라 할 수 있게 순서대로
+                    let name = ai::NAMES[gi.min(2)];
+                    let steps: [(&str, &str); 3] = match gi {
+                        0 => [
+                            ("'연결 창 열기'를 누릅니다", "검은 창과 브라우저가 열립니다(처음이면 클로드 코드를 먼저 설치해 1~2분 걸립니다)"),
+                            ("브라우저에서 클로드 계정으로 로그인하고 '승인'을 누릅니다", "Pro·Max 구독 계정이어야 사용량이 나옵니다"),
+                            ("브라우저에 코드가 나오면 복사해 검은 창에 붙여 넣고 Enter", "붙여넣기는 Ctrl+V 대신 마우스 오른쪽 단추. 끝나면 창이 저절로 닫힙니다"),
+                        ],
+                        1 => [
+                            ("'연결 창 열기'를 누릅니다", "처음이면 코덱스 프로그램을 먼저 설치해 1~2분 걸리고, 그다음 브라우저가 열립니다"),
+                            ("브라우저에서 ChatGPT 계정으로 로그인하고 '계속'을 누릅니다", "Plus·Pro 구독 계정이어야 사용량이 나옵니다"),
+                            ("브라우저에 '로그인 완료'가 나오면 끝입니다", "검은 창은 저절로 닫힙니다"),
+                        ],
+                        _ => [
+                            ("'연결 창 열기'를 누릅니다", "처음이면 제미나이 프로그램을 먼저 설치해 1~2분 걸립니다"),
+                            ("검은 창에서 'Login with Google'을 골라 Enter", "브라우저가 열리면 구글 계정을 고르고 '허용'을 누릅니다"),
+                            ("검은 창에 입력 칸이 나오면 /quit 를 치고 Enter", "그러면 창이 닫히고 노치가 사용량을 받습니다"),
+                        ],
+                    };
+                    g.text(&format!("{name} 연결"), &g.f_title, l, 15.0, 300.0, FG, a, Align::Left);
+                    for (k, (head, sub)) in steps.iter().enumerate() {
+                        let y = 54.0 + k as f32 * 42.0;
+                        g.ellipse(l + 9.0, y + 9.0, 9.0, 9.0, LIME, a * 0.9);
+                        g.text(&(k + 1).to_string(), &g.f_tiny, l, y + 2.0, 18.0, PUPIL, a, Align::Center);
+                        g.text(head, &g.f_body, l + 26.0, y - 1.0, r - l - 26.0, FG, a, Align::Left);
+                        g.text(sub, &g.f_tiny, l + 26.0, y + 19.0, r - l - 26.0, FG, a * 0.55, Align::Left);
+                    }
+                    g.text("연결되면 이 안내는 저절로 닫히고 사용량이 나옵니다. 로그인 정보는 이 PC 안에만 있습니다.", &g.f_tiny, l, 180.0, r - l, LIME, a * 0.8, Align::Left);
+                    let mut bx = l;
+                    for (label, wdt, c, hit) in [("연결 창 열기", 130.0, LIME, Hit::AiOpen(gi)), ("닫기", 64.0, FG, Hit::AiGuideClose)] {
+                        let b = [bx, 202.0, bx + wdt, 234.0];
+                        g.rrect(b[0], b[1], wdt, 32.0, 16.0, c, a * if over(b) { 0.45 } else { 0.22 });
+                        g.text(label, &g.f_small, b[0], b[1] + 7.0, wdt, FG, a, Align::Center);
+                        if live {
+                            self.hits.push((b, hit));
+                        }
+                        bx += wdt + 8.0;
+                    }
+                } else {
                 g.text("AI 사용량", &g.f_title, l, 15.0, 200.0, FG, a, Align::Left);
                 let latest = self.ain.svcs.iter().filter_map(|s| s.seen.map(|t| (t, s.stamp.clone()))).max_by_key(|x| x.0);
                 let stale = latest.as_ref().map_or(true, |x| x.0.elapsed() > Duration::from_secs(900));
@@ -2085,6 +2131,7 @@ impl App {
                 }
                 if live {
                     self.hits.extend(hits);
+                }
                 }
             } else if a > 0.0 && self.mode == 4 {
                 // ── 날씨 쪽: 지금 있는 곳의 날씨(큰 판 / 작은 판) ──
@@ -2447,8 +2494,8 @@ impl App {
     unsafe fn leave(&mut self) {
         self.tracking = false;
         self.hover = false;
-        if !self.naver_guide {
-            self.page = 0; // 네이버 안내 중이면 브라우저에 다녀와도 달력 쪽 그대로
+        if !self.naver_guide && self.ai_guide.is_none() {
+            self.page = 0; // 연결 안내 중이면 브라우저에 다녀와도 그 쪽 그대로
         }
         self.cal_month = 0;
         self.cal_big = false;
@@ -2926,7 +2973,9 @@ impl App {
                 self.cal_big = false;
                 self.tick();
             }
-            Hit::AiLogin(i) => {
+            Hit::AiLogin(i) => self.ai_guide = Some(i),
+            Hit::AiGuideClose => self.ai_guide = None,
+            Hit::AiOpen(i) => {
                 ai::login(i);
                 *self.ai_poke.lock().unwrap() = Some(Instant::now());
             }
@@ -2954,7 +3003,7 @@ impl App {
             }
             _ => {}
         }
-        if matches!(hit, Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::AiLogin(_) | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSave | Hit::EntClose) {
+        if matches!(hit, Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::AiLogin(_) | Hit::AiOpen(_) | Hit::AiGuideClose | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSave | Hit::EntClose) {
             self.dirty = true;
             return;
         }
@@ -3007,7 +3056,7 @@ impl App {
             Hit::Line(t) => Cmd::Seek(t as i64),
             Hit::Shuffle => Cmd::Shuffle,
             Hit::Repeat => Cmd::Repeat,
-            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::AiLogin(_) | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSave | Hit::EntClose => return,
+            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::AiLogin(_) | Hit::AiOpen(_) | Hit::AiGuideClose | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSave | Hit::EntClose => return,
         };
         let _ = self.tx.send(cmd);
     }
@@ -3232,6 +3281,7 @@ unsafe fn run() -> Result<()> {
         ai: Arc::new(Mutex::new(ai::Usage::default())),
         ain: ai::Usage::default(),
         ai_poke: Arc::new(Mutex::new(None)),
+        ai_guide: None,
         cal: cal.clone(),
         caln: gcal::Cal::default(),
         cal_tx: gcal::spawn(cal),
@@ -3300,6 +3350,7 @@ unsafe fn run() -> Result<()> {
         app.cal_big = std::env::var("NOTCH_CAT_CALBIG").is_ok();
         app.acct_menu = std::env::var("NOTCH_CAT_ACCT").is_ok(); // 시험용: '＋ 계정' 고르기 판
         app.naver_guide = std::env::var("NOTCH_CAT_NAVER").is_ok(); // 시험용: 네이버 연결 안내
+        app.ai_guide = std::env::var("NOTCH_CAT_AIGUIDE").ok().and_then(|v| v.parse().ok()); // 시험용: AI 연결 안내
         if let Some(cv) = std::env::var("NOTCH_CAT_CV").ok().and_then(|v| v.parse::<usize>().ok()) {
             app.cfg.cv = cv.min(2); // 시험용: 달력 모양
         }

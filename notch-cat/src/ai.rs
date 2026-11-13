@@ -308,12 +308,26 @@ pub fn spawn(out: Arc<Mutex<Usage>>, poke: Arc<Mutex<Option<Instant>>>) {
 }
 
 /// 공식 프로그램의 로그인을 콘솔 창으로 띄운다(브라우저에서 허용만 누르면 된다). 창은 맨 앞으로.
+trait Quiet {
+    fn creation_flags_quiet(&mut self) -> &mut Self;
+}
+impl Quiet for std::process::Command {
+    fn creation_flags_quiet(&mut self) -> &mut Self {
+        use std::os::windows::process::CommandExt;
+        self.creation_flags(0x0800_0000).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()) // 창 없이
+    }
+}
+
 pub fn login(i: usize) {
     let cmd = match i {
-        0 => "claude auth login",
+        0 => "where claude >nul 2>nul || npm i -g @anthropic-ai/claude-code & claude auth login",
         1 => "where codex >nul 2>nul || npm i -g @openai/codex & codex login",
         _ => "where gemini >nul 2>nul || npm i -g @google/gemini-cli & gemini",
     };
+    // 다른 사람 PC 엔 Node.js(npm)가 없을 수 있다 → 설치 페이지를 열고 안내만 한다
+    let has = |x: &str| std::process::Command::new("cmd").args(["/c", "where", x]).creation_flags_quiet().status().is_ok_and(|s| s.success());
+    let need_node = !has(["claude", "codex", "gemini"][i.min(2)]) && !has("npm"); // 프로그램도 없고 설치할 npm 도 없다
+    let cmd = if need_node { "echo Node.js 가 없어 설치 페이지를 엽니다. LTS 를 설치한 뒤 노치에서 다시 연결을 눌러 주세요. & start https://nodejs.org/ko & timeout /t 10 >nul" } else { cmd };
     let title = format!("노치 {} 연결", NAMES[i.min(2)]);
     crate::log(&format!("ai: {} 연결 창", NAMES[i.min(2)]));
     std::thread::spawn(move || {
