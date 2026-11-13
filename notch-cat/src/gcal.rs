@@ -227,6 +227,8 @@ fn random(n: usize) -> String {
 
 pub fn client() -> Option<(String, String)> {
     if let (Some(id), Some(sec)) = (option_env!("NOTCH_GOOGLE_ID"), option_env!("NOTCH_GOOGLE_SECRET")) {
+        // 비밀값을 붙여 넣을 때 끝에 줄바꿈이 따라 들어가면 구글이 '그런 앱 없음(invalid_client)'으로 거절한다
+        let (id, sec) = (id.trim(), sec.trim());
         if !id.is_empty() {
             return Some((id.into(), sec.into()));
         }
