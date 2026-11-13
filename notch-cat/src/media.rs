@@ -109,7 +109,7 @@ pub fn spawn(now: Arc<Mutex<Now>>, lyr: Arc<Mutex<Lyr>>) -> mpsc::Sender<Cmd> {
                 }
             }
             let sess = pick(mgr.as_ref().unwrap());
-            if let (Ok(c), Some(s)) = (&cmd, &sess) {
+            if let (Ok(c), Some(s), false) = (&cmd, &sess, key.starts_with("ALSong|")) {
                 let r = match c {
                     Cmd::Toggle => s.TryTogglePlayPauseAsync().and_then(|a| a.get()),
                     Cmd::Next => s.TrySkipNextAsync().and_then(|a| a.get()),
@@ -131,6 +131,34 @@ pub fn spawn(now: Arc<Mutex<Now>>, lyr: Arc<Mutex<Lyr>>) -> mpsc::Sender<Cmd> {
                     crate::log(&format!("WARN 재생 명령 실패: {e}"));
                 }
                 std::thread::sleep(Duration::from_millis(120)); // 재생기가 상태를 바꿀 틈
+            }
+            // 알송은 '지금 재생'에 안 나온다. 다른 재생기가 안 틀 때만 창 제목으로 대신 보인다.
+            if !sess.as_ref().map_or(false, playing) {
+                if let Some((title, artist)) = crate::alsong::now() {
+                    let k = format!("ALSong|{artist}|{title}");
+                    if k != key {
+                        // 알송 곡이 바뀌는 걸 직접 봤을 때만 위치를 안다(처음 본 곡은 길이를 비워 막대를 안 그린다).
+                        let seen_start = key.starts_with("ALSong|");
+                        let dur = if seen_start { crate::alsong::list(&title).map_or(0, |(r, i)| r[i].secs * 1000) } else { 0 };
+                        key = k.clone();
+                        since = 0;
+                        let mut n = now.lock().unwrap();
+                        *n = Now { has: true, title: title.clone(), artist: artist.clone(), playing: true, pos_ms: 0, pos_at: Some(Instant::now()), dur_ms: dur, app: "ALSong".into(), ..Default::default() };
+                        crate::log(&format!("알송: '{title}' / '{artist}' 길이 {}초", dur / 1000));
+                    }
+                    since += 1;
+                    {
+                        let mut n = now.lock().unwrap();
+                        n.seen = Some(Instant::now());
+                        n.stamp = crate::hhmm();
+                    }
+                    if lyr_key != key && since >= 2 {
+                        lyr_key = key.clone();
+                        let dur = now.lock().unwrap().dur_ms;
+                        lyrics::fetch(lyr.clone(), key.clone(), title, artist, dur);
+                    }
+                    continue;
+                }
             }
             let Some(s) = sess else {
                 let mut n = now.lock().unwrap();

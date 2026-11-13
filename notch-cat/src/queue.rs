@@ -223,6 +223,27 @@ pub fn spawn(now: Arc<Mutex<Now>>, q: Arc<Mutex<Queue>>) {
                 }
                 continue;
             }
+            if app == "ALSong" {
+                // 알송 자체 목록에서 지금 곡 다음부터(끝이면 처음부터 이어서)
+                let mut g = q.lock().unwrap();
+                match crate::alsong::list(&title) {
+                    Some((rows, at)) => {
+                        let n = rows.len();
+                        g.local = (1..n).map(|d| &rows[(at + d) % n]).map(|r| Item { title: r.title.clone(), sub: r.artist.clone(), key: r.uri.clone(), thumb: None }).collect();
+                        g.local_dir = "알송 재생목록".into();
+                        crate::log(&format!("다음 곡: '{title}' → 알송 목록 {}곡 중 {}번째, 다음 {}곡", n, at + 1, g.local.len()));
+                    }
+                    None => {
+                        g.local.clear();
+                        g.local_dir.clear();
+                        crate::log(&format!("다음 곡: '{title}' 알송 목록에서 못 찾음"));
+                    }
+                }
+                g.exe = r"C:\Program Files (x86)\ESTsoft\ALSong\ALSong.exe".into();
+                g.local_stamp = crate::hhmm();
+                g.ver += 1;
+                continue;
+            }
             let tok = app_token(&app);
             let ps = procs();
             let mine = |p: &Proc| tok.len() >= 3 && !p.name.is_empty() && (tok.contains(&p.name) || p.name.contains(&tok));
