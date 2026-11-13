@@ -187,7 +187,7 @@ pub fn add(c: &HttpClient, id: &str, pw: &str, url: &str, title: &str, day: i64,
         let (ed, em) = if end > start { (day, end) } else { (day + (start + 60) as i64 / 1440, (start + 60) % 1440) };
         format!("DTSTART:{}\r\nDTEND:{}", zstamp(day, start), zstamp(ed, em))
     };
-    let ics = format!("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//notch-cat//KO\r\nBEGIN:VEVENT\r\nUID:{uid}\r\nDTSTAMP:{}\r\n{when}\r\nSUMMARY:{esc}\r\n{}END:VEVENT\r\nEND:VCALENDAR\r\n", zstamp(now_d, now_m), if school { "COLOR:orangered\r\nCATEGORIES:학교\r\n" } else { "" });
+    let ics = format!("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//notch-cat//KO\r\nBEGIN:VEVENT\r\nUID:{uid}\r\nDTSTAMP:{}\r\n{when}\r\nSUMMARY:{esc}\r\n{}END:VEVENT\r\nEND:VCALENDAR\r\n", zstamp(now_d, now_m), if school { "COLOR:purple\r\nCATEGORIES:학교\r\n" } else { "" });
     let u = format!("{}{}.ics", if url.ends_with('/') { url.to_string() } else { format!("{url}/") }, gcal::enc(&uid));
     match dav(c, "PUT", &u, id, pw, None, Some((&ics, "text/calendar")), Some(("If-None-Match", "*"))) {
         Ok((200 | 201 | 204, _)) => Ok(u),
@@ -243,11 +243,11 @@ fn css_color(v: &str) -> Option<(f32, f32, f32)> {
         return Some(gcal::hex_color(&v[..7]));
     }
     Some(match v.as_str() {
-        "orangered" | "tomato" | "darkorange" | "orange" | "coral" => gcal::SCHOOL,
+        "orangered" | "tomato" | "darkorange" | "orange" | "coral" => (0.96, 0.32, 0.12),
         "red" | "crimson" => (0.84, 0.0, 0.0),
         "green" | "seagreen" | "forestgreen" => (0.04, 0.5, 0.26),
         "blue" | "royalblue" | "dodgerblue" => (0.25, 0.32, 0.71),
-        "purple" | "darkviolet" => (0.56, 0.14, 0.67),
+        "purple" | "darkviolet" => gcal::SCHOOL,
         "gold" | "yellow" => (0.96, 0.75, 0.15),
         _ => return None,
     })

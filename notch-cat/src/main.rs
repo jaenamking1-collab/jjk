@@ -81,7 +81,7 @@ struct Ent {
     buf: String,        // 그 칸에 친 숫자
     parked: bool,       // 다른 창으로 가서 접어 둔 상태(적던 내용은 남는다)
     cur: usize,         // 글자 칸 커서(글자 수 기준)
-    school: bool,       // '학교일정' 단추: 켜면 귤색 학교 일정으로 넣는다
+    school: bool,       // '학교일정' 단추: 켜면 보라색 학교 일정으로 넣는다
 }
 
 impl Ent {
@@ -2872,7 +2872,7 @@ impl App {
         x += 10.0;
         chip(&mut hits, &mut x, entry::TIMES[0].0, e.min < 0, Hit::EntTime(0)); // 시각 단추 대신 위 칸을 고친다
         {
-            // 학교일정: 켜면 귤색(구글 색 6 · 네이버 orangered)으로 들어간다. 기본은 꺼짐 = 보통 일정
+            // 학교일정: 켜면 보라(구글 색 3 포도색 · 네이버 purple)로 들어간다. 기본은 꺼짐 = 보통 일정
             let label = "학교일정";
             let w = g.measure(label, &g.f_tiny) + 30.0;
             let b = [x, y3, x + w, y3 + 22.0];

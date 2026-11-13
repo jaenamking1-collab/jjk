@@ -166,9 +166,10 @@ pub fn plain(s: &str) -> String {
 ")
 }
 
-/// 학교일정 색: 구글 일정 색 6번(귤색). 네이버에는 같은 색을 COLOR 로 적는다.
-pub const SCHOOL_ID: &str = "6";
-pub const SCHOOL: (f32, f32, f32) = (0.957, 0.318, 0.118);
+/// 학교일정 색: 구글 일정 색 3번(포도색·보라). 네이버에는 COLOR:purple 로 적는다.
+/// 처음엔 귤색(6)이었는데 개인 기본 캘린더(진분홍 #ff2968)와 작은 막대에서 구별이 안 됐다(2026-11-13).
+pub const SCHOOL_ID: &str = "3";
+pub const SCHOOL: (f32, f32, f32) = (0.557, 0.141, 0.667);
 
 /// 구글 일정 색 번호 → 색(구글 캘린더 기본 팔레트)
 pub fn event_color(id: &str) -> Option<(f32, f32, f32)> {
@@ -214,7 +215,7 @@ pub fn parse_events(body: &str, color: (f32, f32, f32)) -> Vec<Event> {
 // ── 통신 ──
 
 fn send(c: &HttpClient, method: &str, url: &str, bearer: Option<&str>, body: Option<(&str, &str)>) -> Result<(u16, String)> {
-    let m = if method == "POST" { HttpMethod::Post()? } else { HttpMethod::Get()? };
+    let m = match method { "POST" => HttpMethod::Post()?, "PATCH" => HttpMethod::Patch()?, _ => HttpMethod::Get()? };
     let msg = HttpRequestMessage::Create(&m, &Uri::CreateUri(&HSTRING::from(url))?)?;
     if let Some(t) = bearer {
         msg.Headers()?.TryAppendWithoutValidation(&HSTRING::from("Authorization"), &HSTRING::from(format!("Bearer {t}")))?;
@@ -722,6 +723,17 @@ mod live {
             if have.iter().any(|e| e.title == *title && e.day == d0) {
                 skipped += 1;
                 println!("있음 {title}");
+                // 학교일정 색이 바뀌었으면(귤색 → 보라) 그 일정 색만 고친다
+                let v: Value = serde_json::from_str(&body).unwrap_or_default();
+                for it in v["items"].as_array().into_iter().flatten() {
+                    let d = it["start"]["date"].as_str().and_then(parse_when).map(|w| w.0);
+                    if it["summary"].as_str() == Some(*title) && d == Some(d0) && it["colorId"].as_str() != Some(SCHOOL_ID) {
+                        let url = format!("{base}/{}", it["id"].as_str().unwrap());
+                        let (st, _) = send(&c, "PATCH", &url, Some(&tok), Some((&json!({"colorId": SCHOOL_ID}).to_string(), "application/json"))).unwrap();
+                        assert_eq!(st, 200, "색 고치기 실패 {title}");
+                        println!("   색 고침");
+                    }
+                }
                 continue;
             }
             let (st, _) = send(&c, "POST", base, Some(&tok), Some((&google_body(title, d0, -1, -1, d1, true).to_string(), "application/json"))).unwrap();
@@ -729,11 +741,11 @@ mod live {
             added += 1;
             println!("넣음 {title}");
         }
-        // 넣은 뒤 다시 받아 귤색으로 다 있는지 센다
+        // 넣은 뒤 다시 받아 학교색으로 다 있는지 센다
         let (_, body) = send(&c, "GET", &range, Some(&tok), None).unwrap();
         let now = parse_events(&body, (0.0, 0.0, 0.0));
         let ok = list.iter().filter(|(t, a, b)| now.iter().any(|e| e.title == *t && e.day == days(a.0, a.1, a.2) && e.end_day == days(b.0, b.1, b.2) && (e.color.0 - SCHOOL.0).abs() + (e.color.1 - SCHOOL.1).abs() + (e.color.2 - SCHOOL.2).abs() < 0.02)).count();
-        println!("새로 {added} · 이미 {skipped} · 귤색으로 확인 {ok}/{}", list.len());
+        println!("새로 {added} · 이미 {skipped} · 학교색으로 확인 {ok}/{}", list.len());
         assert_eq!(ok, list.len());
     }
 }
