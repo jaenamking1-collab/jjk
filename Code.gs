@@ -1747,7 +1747,7 @@ function _noticeVsData() {
     props.setProperty(key, JSON.stringify(st));
   });
   console.log(' | 공지↔데이터 대조: 어긋남 ' + gaps.length + (gaps.length ? ' — ' + gaps.join(', ') : '') + ' · 알림 ' + lines.length);
-  if (lines.length) _notifyCal(lines);
+  if (lines.length) _notifyKakao(lines); // 캘린더 대신 텔레그램(카톡) 쪽으로(2026-11-13)
   return { gaps: gaps.length, sent: lines.length };
 }
 
@@ -3800,10 +3800,9 @@ function checkAndLogAlerts() {
   // 카톡·캘린더는 서로 독립 — 카톡이 씹혀도 구글 캘린더 알림이 백업으로 뜨도록 각각 try로 감싼다.
   let accepted = true;
   if (kakaoMsgs.length) {
-    let okKakao = false, okCal = false;
+    let okKakao = false;
     try { _notifyKakao(kakaoMsgs); okKakao = true; } catch(e) { console.log('_notifyKakao 오류', e); }
-    try { _notifyCal(kakaoMsgs);   okCal   = true; } catch(e) { console.log('_notifyCal 오류', e); }
-    accepted = okKakao || okCal;
+    accepted = okKakao; // 캘린더 백업은 2026-11-13 끔(텔레그램으로 온다)
     if (!accepted) console.log('알림 두 채널 모두 실패 — 메타를 갱신하지 않고 다음 실행에서 재시도');
   }
 
@@ -4138,7 +4137,11 @@ function flushKakaoPending() {
 // 야간 대기 규칙은 카톡과 동일(_kakaoWithinWindow 재사용) — 밤 공지는 아침 8시 flushCalPending이 발송.
 // CalendarApp은 스크립트 소유 구글 계정 안에서 도므로 카톡처럼 토큰·네트워크로 실패할 일이 거의 없다.
 // 첫 실행 시 구글이 캘린더 접근 권한을 한 번 물어본다(허용 필요). 설치는 맨 아래 '수동 실행' 참고.
+// ⛔ 2026-11-13 사용자 결정: 분배금 공지는 이제 텔레그램(_notifyKakao 가 먼저 텔레그램으로 보냄)으로 오므로
+// 캘린더 일정으로는 더 만들지 않는다. 남은 대기열만 비운다(워치독이 '적체'로 보지 않게).
 function _notifyCal(lines) {
+  PropertiesService.getScriptProperties().deleteProperty('CAL_PENDING');
+  return;
   if (!lines || !lines.length) return;
   const props = PropertiesService.getScriptProperties();
   let queue = [];
@@ -6935,7 +6938,6 @@ const TRIGGER_PLAN = [
   ['markInputCells',         () => ScriptApp.newTrigger('markInputCells').timeBased().atHour(8).nearMinute(30).everyDays(1).create()],   // 시트 스크립트(07시대) 뒤
   ['sendMaturityAlerts',     () => ScriptApp.newTrigger('sendMaturityAlerts').timeBased().atHour(8).everyDays(1).create()],
   ['flushKakaoPending',      () => ScriptApp.newTrigger('flushKakaoPending').timeBased().atHour(8).nearMinute(10).everyDays(1).create()],
-  ['flushCalPending',        () => ScriptApp.newTrigger('flushCalPending').timeBased().atHour(8).nearMinute(10).everyDays(1).create()],
   ['distWatchdog',           () => ScriptApp.newTrigger('distWatchdog').timeBased().atHour(8).nearMinute(30).everyDays(1).create()],
   ['snapshotPortfolio',      () => SNAPSHOT_TIMES.forEach(([h, m]) => ScriptApp.newTrigger('snapshotPortfolio').timeBased().atHour(h).nearMinute(m).everyDays(1).create())],
   ['snapshotPrices',         () => ScriptApp.newTrigger('snapshotPrices').timeBased().atHour(16).everyDays(1).create()],
