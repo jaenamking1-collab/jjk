@@ -98,7 +98,7 @@ Claude 앱은 긴 링크를 화면에 `앞부분…뒷부분` 으로 **줄여 �
 | `.claude/rules/screens.md` | `portfolio.html`·`m.html`·`calc.js` | PC↔모바일 동시·통화·회색·계좌 그래프·외부입금·숨김 |
 | `.claude/rules/public-page.md` | `dist_notice.html`·분배 파서 | 앱 먼저·실데이터로 이번 달+지난달 표·smoke 통과 |
 | `.claude/rules/widget.md` | `tools/ticker*`·`ticker.html` | PC 위젯↔폰 짝·공지 받는 순서·시험 방법 |
-| `watchdog/CLAUDE.md` · `mods/jjk-guard/CLAUDE.md` · `desktop-cat/CLAUDE.md` | 그 폴더 | 각 별도 프로젝트 |
+| `watchdog/CLAUDE.md` · `mods/jjk-guard/CLAUDE.md` · `desktop-cat/CLAUDE.md` · `notch-cat/CLAUDE.md` | 그 폴더 | 각 별도 프로젝트 |
 
 ## What this is
 
