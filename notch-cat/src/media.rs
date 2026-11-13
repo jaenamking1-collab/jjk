@@ -36,6 +36,7 @@ pub struct Now {
     pub art: Option<Arc<Vec<u8>>>,
     pub seen: Option<Instant>, // 마지막으로 읽기에 성공한 때(생존 표시)
     pub stamp: String,
+    pub app: String, // 재생기(SourceAppUserModelId) — 다음 곡 목록을 찾을 때 쓴다
 }
 
 impl Now {
@@ -181,6 +182,7 @@ pub fn spawn(now: Arc<Mutex<Now>>, lyr: Arc<Mutex<Lyr>>) -> mpsc::Sender<Cmd> {
                 }
                 n.seen = Some(Instant::now());
                 n.stamp = crate::hhmm();
+                n.app = s.SourceAppUserModelId().map(|h| h.to_string()).unwrap_or_default();
             }
             // 길이를 알아야 맞는 가사를 고르기 쉽다. 곡이 바뀐 직후엔 길이가 늦게 오므로 조금 기다린다.
             if !title.is_empty() && lyr_key != key && (dur > 0 || since >= 4) {

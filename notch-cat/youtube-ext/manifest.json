@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "노치 고양이 - 유튜브 다음 곡",
+  "version": "1.0",
+  "description": "유튜브·유튜브 뮤직의 다음 곡 목록을 노치 고양이에 보냅니다. 내 PC(127.0.0.1) 밖으로는 아무것도 보내지 않습니다.",
+  "host_permissions": ["http://127.0.0.1:47811/*"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    { "matches": ["https://www.youtube.com/*", "https://music.youtube.com/*"], "js": ["content.js"], "run_at": "document_idle" }
+  ]
+}

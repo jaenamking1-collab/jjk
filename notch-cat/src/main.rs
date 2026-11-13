@@ -11,12 +11,14 @@ mod lyrics;
 mod media;
 mod meter;
 mod notif;
+mod queue;
 mod quotes;
 mod settings;
 mod spring;
 mod weather;
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{mpsc, Arc, Mutex};
@@ -44,7 +46,8 @@ use spring::Spring;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // 창(=그릴 수 있는 최대 넓이), 논리 단위
-const WIN_W: f32 = 640.0;
+const WIN_W: f32 = 920.0; // 음악 화면 + 다음 곡 목록까지 들어가게
+const QW: f32 = 290.0; // 다음 곡 목록 칸 너비
 const WIN_H: f32 = 620.0;
 // 노치 크기
 const IDLE: (f32, f32) = (150.0, 28.0);
@@ -385,6 +388,17 @@ fn quad(p0: (f32, f32), c: (f32, f32), p1: (f32, f32), n: usize) -> Vec<(f32, f3
 }
 
 /// 점들을 따라가는 띠. 굵기는 wf(0…1)로 정하고 양끝은 둥글다. 한 덩어리라 반투명해도 겹친 자국이 없다.
+/// 목록 단추: 둥근 바탕 + 점 셋·줄 셋. 펼쳐 두면 라임.
+unsafe fn queue_btn(g: &Gfx, cx: f32, cy: f32, r: f32, on: bool, a: f32) {
+    let c = if on { LIME } else { FG };
+    g.ellipse(cx, cy, r, r, c, a * if on { 0.22 } else { 0.12 });
+    for i in -1..=1 {
+        let y = cy + i as f32 * 5.0;
+        g.ellipse(cx - 6.0, y, 1.4, 1.4, c, a);
+        g.rrect(cx - 3.0, y - 0.9, 10.0, 1.8, 0.9, c, a);
+    }
+}
+
 unsafe fn ribbon(g: &Gfx, p: &[(f32, f32)], wf: impl Fn(f32) -> f32, c: Rgb, a: f32) {
     if a <= 0.01 || p.len() < 2 {
         return;
@@ -439,6 +453,8 @@ enum Hit {
     CalLogin,    // 달력: 구글 계정 연결
     Shuffle,
     Repeat,
+    Queue,        // 다음 곡 목록 열고 닫기
+    QItem(usize), // 다음 곡 목록의 한 줄(qrows 번호)
 }
 
 struct App {
@@ -522,6 +538,13 @@ struct App {
     view: String,
     dirty: bool,
     first_frame: bool,
+    queue: Arc<Mutex<queue::Queue>>,
+    qn: queue::Queue,     // 지금 보여 주는 다음 곡 목록
+    qopen: bool,          // 목록을 펼쳐 두었나
+    qtop: usize,          // 목록을 휠로 몇 줄 내렸나
+    qrect: [f32; 4],      // 목록 칸 자리(휠이 여기 있으면 목록만 넘긴다)
+    qrows: Vec<(bool, String)>, // 그린 줄: (유튜브인가, 열쇠)
+    qbmp: HashMap<usize, ID2D1Bitmap>, // 썸네일(바이트 주소별)
 }
 
 impl App {
@@ -539,10 +562,43 @@ impl App {
         if std::env::var("NOTCH_CAT_SHOT").is_ok() {
             // 시험용: 곡이 흐르는 척(재생기가 없는 PC에서 음악 화면을 찍어 보려고)
             let t = self.born.elapsed().as_millis() as i64;
-            self.n = media::Now { has: true, title: "GOOD DAY".into(), artist: "Forrest Frank · CHILD OF GOD".into(), playing: true, pos_ms: 11_000 + t, pos_at: None, dur_ms: 171_000, shuffle: Some(false), repeat: Some(2), seen: Some(Instant::now()), stamp: hhmm(), art: None };
+            self.n = media::Now { has: true, title: "GOOD DAY".into(), artist: "Forrest Frank · CHILD OF GOD".into(), playing: true, pos_ms: 11_000 + t, pos_at: None, dur_ms: 171_000, shuffle: Some(false), repeat: Some(2), seen: Some(Instant::now()), stamp: hhmm(), art: None, app: "test".into() };
             if self.lines.is_empty() {
                 self.lines = [(0, "they say)"), (8_000, "The sun is shinin' down on me, birds are singing praise"), (60_000, "I'm 'bout to have a good day (good day) in every single way"), (70_000, "Tell me what you need"), (80_000, "끝")].iter().map(|(t, l)| (*t, l.to_string())).collect();
                 self.lyr_st = St::Found;
+            }
+        }
+        {
+            // 다음 곡 목록: 바뀌었을 때만 옮기고 썸네일을 그림으로 만든다
+            let q = self.queue.lock().unwrap();
+            if q.ver != self.qn.ver || (std::env::var("NOTCH_CAT_SHOT").is_ok() && self.qn.local.is_empty()) {
+                self.qn = q.clone();
+                drop(q);
+                if std::env::var("NOTCH_CAT_SHOT").is_ok() && std::env::var("NOTCH_CAT_QUEUE").is_ok() {
+                    // 시험용 목록(재생기·유튜브가 없는 PC에서 그림을 찍어 보려고)
+                    let it = |t: &str, c: &str| queue::Item { title: t.into(), sub: c.into(), key: t.into(), thumb: None };
+                    self.qn.yt = vec![it("honeybee", "Olivia Rodrigo"), it("maggots for brains", "Olivia Rodrigo"), it("u + me = <3", "Olivia Rodrigo")];
+                    self.qn.yt_kind = "재생목록".into();
+                    self.qn.yt_seen = Some(Instant::now());
+                    self.qn.yt_stamp = hhmm();
+                    self.qn.local = (1..=9).map(|i| it(&format!("내 노래 {i}"), "가수")).collect();
+                    self.qn.local_dir = "Music".into();
+                    self.qn.local_stamp = hhmm();
+                }
+                for it in self.qn.yt.iter().chain(self.qn.local.iter()) {
+                    if let Some(b) = &it.thumb {
+                        let k = Arc::as_ptr(b) as usize;
+                        if !self.qbmp.contains_key(&k) {
+                            if let Ok(bm) = self.g.bitmap(b) {
+                                self.qbmp.insert(k, bm);
+                            }
+                        }
+                    }
+                }
+                if self.qbmp.len() > 400 {
+                    self.qbmp.clear();
+                }
+                self.dirty = true;
             }
         }
         {
@@ -747,7 +803,7 @@ impl App {
             } else if self.page == 1 {
                 q_layout(&self.q.iter().map(|q| q.group).collect::<Vec<_>>(), self.big as u8 as f32, self.cfg.cols()).2
             } else if self.n.has {
-                MUSIC[self.cfg.ml]
+                (MUSIC[self.cfg.ml].0 + if self.qopen { QW } else { 0.0 }, MUSIC[self.cfg.ml].1)
             } else {
                 (QUIET.0, QUIET.1 + if self.wxn.seen.is_some() { 34.0 } else { 0.0 }) // 날씨 한 줄
             }
@@ -1077,7 +1133,26 @@ impl App {
                     g.ellipse(x + w / 2.0 + (i as f32 - 1.5) * 12.0, 8.0, 2.5, 2.5, FG, pa * if i == self.page { 0.9 } else { 0.3 });
                 }
             }
-            if a > 0.0 && ((self.mode == 0 && n.has) || self.mode == 4 || (self.mode == 5 && !self.caln.accounts.is_empty())) {
+            // 다음 곡 목록이 펼쳐지는 만큼 오른쪽을 떼어 둔다(음악 화면은 제 너비 그대로)
+            let qw = if self.mode == 0 && n.has && self.page == 0 { (w - MUSIC[self.cfg.ml].0).clamp(0.0, QW) } else { 0.0 };
+            let w = w - qw;
+            if a > 0.0 && self.mode == 0 && n.has {
+                // 모양 바꾸기 단추(오른쪽 아래): 글자가 들어간 알약 모양이라 눈에 띈다
+                let (mx, my) = self.mouse;
+                let (bw, bh) = (64.0, 24.0);
+                let (bx, by) = (x + w - bw - 12.0, h - bh - 10.0);
+                let on = p > 0.9 && mx >= bx && mx < bx + bw && my >= by && my < by + bh;
+                g.rrect(bx, by, bw, bh, bh / 2.0, LIME, a * if on { 0.32 } else { 0.16 });
+                for d in [-1.0f32, 1.0] {
+                    // 바깥을 가리키는 두 화살표(⤢)
+                    let (cx, cy) = (bx + 15.0 + d * 3.5, by + bh / 2.0 - d * 3.5);
+                    ribbon(g, &[(cx - d * 3.5, cy), (cx, cy), (cx, cy + d * 3.5)], |_| 1.6, LIME, a);
+                }
+                g.text("모양", &g.f_bar, bx + 26.0, by + 4.0, bw - 30.0, LIME, a, Align::Left);
+                if p > 0.9 {
+                    self.hits.push(([bx, by, bx + bw, by + bh], Hit::Layout));
+                }
+            } else if a > 0.0 && (self.mode == 4 || (self.mode == 5 && !self.caln.accounts.is_empty())) {
                 // 모양 바꾸기 단추(오른쪽 아래). 다른 단추보다 먼저 넣어 겹쳐도 이게 눌린다.
                 let (mx, my) = self.mouse;
                 let (bx, by) = (x + w - 26.0, h - 26.0);
@@ -1121,7 +1196,7 @@ impl App {
                 // 단추: (섞기) 이전 재생 다음 (반복)
                 let cy = if wide { 102.0 } else { 152.0 };
                 let mid = b0 + bw / 2.0;
-                let gap = if wide { 40.0 } else { 52.0 };
+                let gap: f32 = if wide { 40.0 } else { 52.0 };
                 let mut row: Vec<(f32, Hit)> = vec![(-1.0, Hit::Prev), (0.0, Hit::Toggle), (1.0, Hit::Next)];
                 if n.shuffle.is_some() {
                     row.insert(0, (-2.0, Hit::Shuffle));
@@ -1129,9 +1204,29 @@ impl App {
                 if n.repeat.is_some() {
                     row.push((2.0, Hit::Repeat));
                 }
+                if wide {
+                    // 와이드는 단추 줄이 좁다 → 목록 단추만 앨범 그림 아래 빈자리에
+                    queue_btn(g, x + 18.0 + 34.0, cy, 15.0, self.qopen, a);
+                    if live {
+                        self.hits.push(([x + 37.0, cy - 15.0, x + 67.0, cy + 15.0], Hit::Queue));
+                    }
+                } else {
+                    row.insert(0, (row[0].0 - 1.0, Hit::Queue));
+                }
+                // 단추가 늘면 간격을 줄여 왼쪽 묶음 안에 넣는다
+                let gap = gap.min((bw - 24.0) / (row.len() as f32 - 1.0));
+                let (k0, k1) = (row[0].0, row[row.len() - 1].0);
+                let mid = mid - (k0 + k1) / 2.0 * gap;
                 for (k, hit) in row {
                     let cx = mid + k * gap;
                     let rr = if matches!(hit, Hit::Toggle) { 19.0 } else { 15.0 };
+                    if matches!(hit, Hit::Queue) {
+                        queue_btn(g, cx, cy, rr, self.qopen, a);
+                        if live {
+                            self.hits.push(([cx - rr, cy - rr, cx + rr, cy + rr], hit));
+                        }
+                        continue;
+                    }
                     let r = [cx - rr, cy - rr, cx + rr, cy + rr];
                     let over = live && mx >= r[0] && mx < r[2] && my >= r[1] && my < r[3];
                     if matches!(hit, Hit::Toggle) || over {
@@ -1185,7 +1280,7 @@ impl App {
                 if wide {
                     // 소리 막대: 실제 소리 크기를 따라 오르내린다(아래에서 위로, 끝은 둥글게)
                     let nb = self.bars.len();
-                    let step = rw / nb as f32;
+                    let step = (rw - 50.0) / nb as f32;
                     for (i, b) in self.bars.iter().enumerate() {
                         let bh = 4.0 + 74.0 * b.clamp(0.0, 1.0);
                         let bx = rx + i as f32 * step;
@@ -1242,6 +1337,11 @@ impl App {
                     if live {
                         self.hits.push(([b0, 84.0, b0 + bw, 108.0], Hit::Bar(b0, bw)));
                     }
+                }
+                // 목록 단추(왼쪽 끝)
+                queue_btn(g, x + 40.0, 132.0, 20.0, self.qopen, a);
+                if live {
+                    self.hits.push(([x + 20.0, 112.0, x + 60.0, 152.0], Hit::Queue));
                 }
                 // 버튼 세 개(가운데). 마우스를 올리면 동그란 바탕이 켜진다.
                 for (i, hit) in [Hit::Prev, Hit::Toggle, Hit::Next].into_iter().enumerate() {
@@ -1302,8 +1402,15 @@ impl App {
                 // 생존 표시: 마지막으로 받은 시각. 10분 넘게 못 받으면 경고색.
                 let stale = n.seen.map(|t| t.elapsed() > Duration::from_secs(600)).unwrap_or(true) || self.lyr_st == St::Error;
                 let alive = format!("음악 {} · 가사 {}", n.stamp, if self.lyr_stamp.is_empty() { "–" } else { &self.lyr_stamp });
-                g.text(&alive, &g.f_tiny, x + 18.0, 227.0, w - 62.0, if stale { WARN } else { FG }, a * if stale { 1.0 } else { 0.4 }, Align::Right);
-            } else if a > 0.0 && self.mode == 2 {
+                g.text(&alive, &g.f_tiny, x + 18.0, 227.0, w - 104.0, if stale { WARN } else { FG }, a * if stale { 1.0 } else { 0.4 }, Align::Right);
+            }
+            if qw > 40.0 && a > 0.0 {
+                self.draw_queue(x + w, qw, h, a * ((qw - 40.0) / (QW - 40.0)).clamp(0.0, 1.0), p > 0.9);
+            } else {
+                self.qrect = [0.0; 4];
+            }
+            let g = &self.g;
+            if a > 0.0 && self.mode == 2 {
                 // 알림: 앱 그림 · 앱 이름 · 제목(· 내용)
                 let nt = &self.note;
                 match &self.note_icon {
@@ -1641,6 +1748,7 @@ impl App {
             }
             g.unclip();
         }
+        let g = &self.g;
         g.present()?;
         if let Ok(dir) = std::env::var("NOTCH_CAT_SHOT") {
             let _ = g.snapshot(&PathBuf::from(dir).join("shot.raw"));
@@ -1658,6 +1766,107 @@ impl App {
         let dx = if self.cfg.aside { (460.0 * self.scale) as i32 } else { 0 };
         let x = self.mon.left + ((self.mon.right - self.mon.left) - wpx) / 2 + dx;
         let _ = SetWindowPos(self.hwnd, None, x, self.mon.top, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+
+    /// 다음 곡 목록 칸(음악 화면 오른쪽). 다섯 줄이 보이고 더 있으면 휠로 넘긴다.
+    /// 유튜브와 내 음악이 둘 다 있으면 둘 다 보인다(지금 소리 나는 쪽이 위).
+    unsafe fn draw_queue(&mut self, x0: f32, qw: f32, h: f32, a: f32, live: bool) {
+        let g = &self.g;
+        let q = &self.qn;
+        let (mx, my) = self.mouse;
+        let (px, pw) = (x0 + 6.0, qw - 22.0);
+        self.qrect = [x0, 0.0, x0 + qw, h];
+        g.rrect(x0 - 2.0, 18.0, 1.0, h - 36.0, 0.5, FG, a * 0.14); // 가운데 칸막이
+        g.text("다음 곡", &g.f_sub, px, 10.0, pw, FG, a, Align::Left);
+        // 줄 목록: (머리인가, 유튜브인가, 항목)
+        enum Row<'a> { Head(String, &'a str), Item(bool, &'a queue::Item) }
+        let mut rows: Vec<Row> = vec![];
+        let yt_first = queue::is_browser(&self.n.app);
+        let yt = q.yt_live() && !q.yt.is_empty();
+        let lo = !q.local.is_empty();
+        let both = yt && lo;
+        let mut order = vec![];
+        if yt_first { order.extend([true, false]) } else { order.extend([false, true]) }
+        for is_yt in order {
+            if is_yt && yt {
+                if both { rows.push(Row::Head(format!("유튜브 · {}", q.yt_kind), &q.yt_stamp)); }
+                rows.extend(q.yt.iter().map(|it| Row::Item(true, it)));
+            } else if !is_yt && lo {
+                if both { rows.push(Row::Head(format!("내 음악 · {}", q.local_dir), &q.local_stamp)); }
+                rows.extend(q.local.iter().map(|it| Row::Item(false, it)));
+            }
+        }
+        // 머리 오른쪽: 어디서 왔나 + 마지막으로 받은 시각(생존 표시)
+        let src = if both { String::new() } else if yt { format!("유튜브 {} · {}", q.yt_kind, q.yt_stamp) } else if lo { format!("{} · {}", q.local_dir, q.local_stamp) } else { String::new() };
+        g.text(&src, &g.f_tiny, px + 60.0, 14.0, pw - 60.0, FG, a * 0.4, Align::Right);
+        let top = 34.0;
+        let rh = ((h - top - 10.0) / 5.0).min(44.0);
+        if rows.is_empty() {
+            let (m1, m2) = if self.n.app.is_empty() || !queue::is_browser(&self.n.app) {
+                ("곡 파일이 있는 폴더를 못 찾았습니다", "음악·다운로드·바탕화면 폴더에서 찾습니다")
+            } else {
+                ("유튜브 목록이 아직 안 왔습니다", "크롬에 '노치 고양이 유튜브' 확장을 켜면 나옵니다")
+            };
+            g.text(m1, &g.f_bar, px, top + rh, pw, FG, a * 0.6, Align::Left);
+            g.text(m2, &g.f_tiny, px, top + rh + 20.0, pw, FG, a * 0.4, Align::Left);
+            self.qrows.clear();
+            return;
+        }
+        let vis = 5usize;
+        let max_top = rows.len().saturating_sub(vis);
+        if self.qtop > max_top {
+            self.qtop = max_top;
+        }
+        self.qrows.clear();
+        g.clip(x0, top - 2.0, qw, h - top - 4.0);
+        let mut y = top;
+        for row in rows.iter().skip(self.qtop).take(vis + 1) {
+            match row {
+                Row::Head(t, stamp) => {
+                    g.text(t, &g.f_tiny, px, y + rh - 16.0, pw - 40.0, LIME, a * 0.8, Align::Left);
+                    g.text(stamp, &g.f_tiny, px, y + rh - 16.0, pw, FG, a * 0.4, Align::Right);
+                }
+                Row::Item(is_yt, it) => {
+                    let over = live && mx >= x0 && mx < x0 + qw && my >= y && my < y + rh && my < h - 6.0;
+                    if over {
+                        g.rrect(px - 4.0, y + 1.0, pw + 8.0, rh - 2.0, 8.0, FG, a * 0.1);
+                    }
+                    let thumb = rh >= 28.0;
+                    let ts = rh - 8.0;
+                    let tx = if thumb { px + ts + 10.0 } else { px };
+                    if thumb {
+                        match it.thumb.as_ref().and_then(|b| self.qbmp.get(&(Arc::as_ptr(b) as usize))) {
+                            Some(bm) => g.art(bm, px, y + 4.0, ts, 6.0, a),
+                            None => {
+                                g.rrect(px, y + 4.0, ts, ts, 6.0, if *is_yt { WARN } else { LIME }, a * 0.18);
+                                g.text(if *is_yt { "▶" } else { "♪" }, &g.f_bar, px, y + 4.0 + ts / 2.0 - 8.0, ts, FG, a * 0.7, Align::Center);
+                            }
+                        }
+                    }
+                    let two = rh >= 34.0 && !it.sub.is_empty();
+                    let ty = if two { y + rh / 2.0 - 17.0 } else { y + rh / 2.0 - 9.0 };
+                    g.text(&it.title, &g.f_bar, tx, ty, px + pw - tx, FG, a, Align::Left);
+                    if two {
+                        g.text(&it.sub, &g.f_tiny, tx, ty + 18.0, px + pw - tx, FG, a * 0.55, Align::Left);
+                    }
+                    if live && y < h - 10.0 {
+                        let i = self.qrows.len();
+                        self.qrows.push((*is_yt, it.key.clone()));
+                        self.hits.push(([x0, y.max(top), x0 + qw, (y + rh).min(h - 6.0)], Hit::QItem(i)));
+                    }
+                }
+            }
+            y += rh;
+        }
+        g.unclip();
+        // 더 있으면 오른쪽에 얇은 위치 막대
+        if rows.len() > vis {
+            let track = h - top - 14.0;
+            let bh = (track * vis as f32 / rows.len() as f32).max(14.0);
+            let by = top + (track - bh) * self.qtop as f32 / max_top.max(1) as f32;
+            g.rrect(x0 + qw - 9.0, top, 3.0, track, 1.5, FG, a * 0.08);
+            g.rrect(x0 + qw - 9.0, by, 3.0, bh, 1.5, FG, a * 0.45);
+        }
     }
 
     /// 쪽 넘기기. 지금은 두 쪽이라 어느 쪽으로 넘겨도 서로 오간다.
@@ -1710,6 +1919,24 @@ impl App {
             self.pgf.target = 1.0;
             return self.tick();
         }
+        if let Hit::Queue = hit {
+            self.qopen = !self.qopen;
+            self.qtop = 0;
+            return self.tick();
+        }
+        if let Hit::QItem(i) = hit {
+            if let Some((yt, k)) = self.qrows.get(i).cloned() {
+                if yt {
+                    let mut q = self.queue.lock().unwrap();
+                    let tab = q.yt_tab;
+                    q.yt_cmd = Some((tab, k.split('\n').next().unwrap_or("").to_string()));
+                } else {
+                    queue::play_local(&k, &self.qn.exe);
+                }
+                self.face.happy(500);
+            }
+            return;
+        }
         if let Hit::Size = hit {
             self.big = !self.big;
             self.bg.target = self.big as u8 as f32;
@@ -1723,7 +1950,7 @@ impl App {
             Hit::Line(t) => Cmd::Seek(t as i64),
             Hit::Shuffle => Cmd::Shuffle,
             Hit::Repeat => Cmd::Repeat,
-            Hit::Page(_) | Hit::Size | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalAdd | Hit::CalLogin => return,
+            Hit::Page(_) | Hit::Size | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalAdd | Hit::CalLogin | Hit::Queue | Hit::QItem(_) => return,
         };
         let _ = self.tx.send(cmd);
     }
@@ -1878,6 +2105,10 @@ unsafe fn run() -> Result<()> {
     let now = Arc::new(Mutex::new(Now::default()));
     let lyr = Arc::new(Mutex::new(Lyr::default()));
     let tx = media::spawn(now.clone(), lyr.clone());
+    let queue = Arc::new(Mutex::new(queue::Queue::default()));
+    queue::spawn(now.clone(), queue.clone());
+    queue::serve(queue.clone());
+    queue::write_ext();
     let mut cfg = Cfg::load();
     cfg.apply_autostart();
     cfg.ensure_shortcut();
@@ -1975,6 +2206,13 @@ unsafe fn run() -> Result<()> {
         view: String::new(),
         dirty: true,
         first_frame: true,
+        queue,
+        qn: queue::Queue::default(),
+        qopen: std::env::var("NOTCH_CAT_QUEUE").is_ok(),
+        qtop: 0,
+        qrect: [0.0; 4],
+        qrows: vec![],
+        qbmp: HashMap::new(),
     };
     app.place();
     app.draw()?; // 빈(투명) 첫 장을 낸 뒤에 창을 보인다
@@ -2026,7 +2264,18 @@ unsafe fn run() -> Result<()> {
                         app.tick();
                     }
                 }
-                Ev::Wheel(d) => app.turn(d),
+                Ev::Wheel(d) => {
+                    let (mx, my) = app.mouse;
+                    let r = app.qrect;
+                    if app.qopen && mx >= r[0] && mx < r[2] && my >= r[1] && my < r[3] {
+                        // 목록 위에서 굴리면 목록만 넘긴다(쪽은 그대로)
+                        app.qtop = (app.qtop as i32 + d * 2).max(0) as usize;
+                        app.dirty = true;
+                        app.tick();
+                    } else {
+                        app.turn(d)
+                    }
+                }
                 Ev::Leave if std::env::var("NOTCH_CAT_SHOT").is_ok() => {} // 시험 중엔 마우스가 없어도 펼친 채로
                 Ev::Leave => {
                     app.tracking = false;
@@ -2036,6 +2285,7 @@ unsafe fn run() -> Result<()> {
                     app.big = false; // 시세도 작은 판부터
                     app.bg.target = 0.0;
                     app.mouse = (-1.0, -1.0);
+                    app.qtop = 0;
                     app.tick();
                 }
                 Ev::Click(x, y) => app.click(x, y),
