@@ -399,7 +399,10 @@ pub fn spawn(out: Arc<Mutex<Cal>>) -> mpsc::Sender<Cmd> {
                         save_accounts(&accts);
                         crate::log(&format!("gcal: 계정 연결 {}", accts.len()));
                     }
-                    Err(e) => note = format!("연결 실패: {e}"),
+                    Err(e) => {
+                        crate::log(&format!("gcal: 구글 연결 실패 {e}"));
+                        note = format!("연결 실패: {e}");
+                    }
                 },
                 Some(Cmd::Naver { id: nid, pw }) => match crate::naver::calendars(&c, &nid, &pw) {
                     Ok(list) => {
@@ -409,7 +412,10 @@ pub fn spawn(out: Arc<Mutex<Cal>>) -> mpsc::Sender<Cmd> {
                         save_accounts(&accts);
                         crate::log(&format!("gcal: 네이버 연결, 캘린더 {}", list.len()));
                     }
-                    Err(e) => note = format!("네이버 연결 실패: {e}"),
+                    Err(e) => {
+                        crate::log(&format!("gcal: 네이버 연결 실패 {e}"));
+                        note = format!("네이버 연결 실패: {e}");
+                    }
                 },
                 Some(Cmd::Add { cal, title, day, start, end }) => {
                     let info = out.lock().unwrap().cals.get(cal).cloned();

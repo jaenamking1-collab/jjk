@@ -2700,6 +2700,7 @@ impl App {
             Hit::EntClose => self.ent_close(),
             Hit::CalNaver => {
                 // 윈도우 기본 '아이디·비밀번호' 창을 따로 띄운다(노치는 그대로 돈다)
+                log("naver: 연결 단추");
                 let tx = self.cal_tx.clone();
                 std::thread::spawn(move || {
                     if let Some((id, pw)) = naver::ask() {

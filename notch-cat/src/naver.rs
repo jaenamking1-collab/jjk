@@ -394,6 +394,7 @@ pub fn ask() -> Option<(String, String)> {
     let s = |b: &[u16]| String::from_utf16_lossy(&b[..b.iter().position(|&c| c == 0).unwrap_or(b.len())]).trim().to_string();
     let (u, p) = (s(&user), s(&pass));
     pass.fill(0);
+    crate::log(&format!("naver: 입력 창 결과 {} (아이디 {}자, 비밀번호 {}자)", r.0, u.chars().count(), p.chars().count()));
     (r.0 == 0 && !u.is_empty() && !p.is_empty()).then(|| (u.trim_end_matches("@naver.com").to_string(), p))
 }
 
@@ -420,5 +421,20 @@ mod tests {
         assert_eq!(expand("FREQ=MONTHLY;BYDAY=2TU;COUNT=3", d(11, 10), from, to, &[]), vec![d(11, 10), d(12, 8)]);
         assert_eq!(expand("FREQ=YEARLY", gcal::days(2020, 11, 20), from, to, &[]), vec![d(11, 20)]);
         assert_eq!(dur("PT1H30M"), 90);
+    }
+
+    #[test]
+    #[ignore] // 화면: 입력 창이 뜨는지(밖에서 창을 닫으면 None)
+    fn dialog_opens() {
+        assert_eq!(ask(), None);
+    }
+
+    #[test]
+    #[ignore] // 네트워크: 틀린 비밀번호면 '맞지 않습니다'가 나와야 한다(통로 자체는 열림)
+    fn live_wrong_password() {
+        let c = windows::Web::Http::Filters::HttpBaseProtocolFilter::new().and_then(|f| { f.SetAllowUI(false)?; HttpClient::Create(&f) }).unwrap();
+        let r = calendars(&c, "nobody_test_x", "wrong");
+        println!("{:?}", r.as_ref().err());
+        assert_eq!(r.err().as_deref(), Some("네이버 아이디나 비밀번호가 맞지 않습니다"));
     }
 }
