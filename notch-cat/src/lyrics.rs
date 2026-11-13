@@ -106,7 +106,11 @@ pub fn fetch(lyr: Arc<Mutex<Lyr>>, key: String, title: String, artist: String, d
     std::thread::spawn(move || {
         let name: String = key.chars().map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' { c } else { '_' }).take(120).collect();
         let path = crate::data_dir().join("lyrics").join(format!("{name}.lrc"));
-        let (text, st) = match std::fs::read_to_string(&path) {
+        // 알송 곡은 알송이 그 파일에 맞춰 받은 가사가 제일 정확하다(LRCLIB 은 다른 판본일 수 있다).
+        let als = key.strip_prefix("ALSong|").and_then(crate::alsong::lyc);
+        let (text, st) = if let Some(t) = als {
+            (Some(t), St::Found)
+        } else { match std::fs::read_to_string(&path) {
             Ok(t) => (Some(t), St::Found),
             Err(_) => match download(&title, &artist, dur_ms) {
                 Ok(Some(t)) => {
@@ -120,7 +124,7 @@ pub fn fetch(lyr: Arc<Mutex<Lyr>>, key: String, title: String, artist: String, d
                     (None, St::Error)
                 }
             },
-        };
+        } };
         let mut l = lyr.lock().unwrap();
         if l.key != key {
             return; // 그 사이 곡이 바뀌었다

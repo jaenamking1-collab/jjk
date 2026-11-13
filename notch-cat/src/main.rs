@@ -618,7 +618,9 @@ impl App {
             self.art = self.n.art.as_ref().and_then(|b| self.g.bitmap(b).ok());
         }
         let pos = self.n.pos();
-        let cur = if self.n.has { lrc::current(&self.lines, pos.max(0) as u64) } else { None };
+        // 노치를 켜기 전부터 나오던 알송 곡은 위치를 몰라 줄을 짚지 않는다(틀린 줄을 짚느니 안 짚는다).
+        let unknown = self.n.app == "ALSong" && self.n.dur_ms == 0;
+        let cur = if self.n.has && !unknown { lrc::current(&self.lines, pos.max(0) as u64) } else { None };
         if cur != self.cur {
             if let (Some(a), Some(b)) = (self.cur, cur) {
                 if b == a + 1 {
@@ -1931,6 +1933,12 @@ impl App {
                     let mut q = self.queue.lock().unwrap();
                     let tab = q.yt_tab;
                     q.yt_cmd = Some((tab, k.split('\n').next().unwrap_or("").to_string()));
+                } else if self.n.app == "ALSong" {
+                    // 알송은 '이 곡 틀어'를 못 받는다. 목록이 알송 순서 그대로라 그 곡까지 '다음'을 보낸다.
+                    let at = self.qn.local.iter().position(|x| x.key == k).unwrap_or(0);
+                    for _ in 0..=at.min(30) {
+                        let _ = self.tx.send(media::Cmd::Next);
+                    }
                 } else {
                     queue::play_local(&k, &self.qn.exe);
                 }

@@ -109,7 +109,25 @@ pub fn spawn(now: Arc<Mutex<Now>>, lyr: Arc<Mutex<Lyr>>) -> mpsc::Sender<Cmd> {
                 }
             }
             let sess = pick(mgr.as_ref().unwrap());
-            if let (Ok(c), Some(s), false) = (&cmd, &sess, key.starts_with("ALSong|")) {
+            if let (Ok(c), true) = (&cmd, key.starts_with("ALSong|")) {
+                let code = match c { Cmd::Toggle => 14, Cmd::Next => 11, Cmd::Prev => 12, _ => 0 };
+                if code > 0 && !crate::alsong::cmd(code) {
+                    crate::log("WARN 알송 명령 실패");
+                }
+                std::thread::sleep(Duration::from_millis(150));
+                if code == 12 {
+                    // '이전'은 곡 중간이면 같은 곡을 처음부터 다시 튼다(제목이 그대로) → 위치를 0 으로 안다.
+                    std::thread::sleep(Duration::from_millis(450));
+                    if let Some(raw) = crate::alsong::raw().filter(|r| format!("ALSong|{r}") == key) {
+                        let dur = crate::alsong::list(&raw).map_or(0, |(r, i)| r[i].secs * 1000);
+                        let mut n = now.lock().unwrap();
+                        n.pos_ms = 0;
+                        n.pos_at = Some(Instant::now());
+                        n.dur_ms = dur;
+                        crate::log(&format!("알송: 같은 곡 처음부터 (길이 {}초)", dur / 1000));
+                    }
+                }
+            } else if let (Ok(c), Some(s)) = (&cmd, &sess) {
                 let r = match c {
                     Cmd::Toggle => s.TryTogglePlayPauseAsync().and_then(|a| a.get()),
                     Cmd::Next => s.TrySkipNextAsync().and_then(|a| a.get()),
@@ -134,12 +152,13 @@ pub fn spawn(now: Arc<Mutex<Now>>, lyr: Arc<Mutex<Lyr>>) -> mpsc::Sender<Cmd> {
             }
             // 알송은 '지금 재생'에 안 나온다. 다른 재생기가 안 틀 때만 창 제목으로 대신 보인다.
             if !sess.as_ref().map_or(false, playing) {
-                if let Some((title, artist)) = crate::alsong::now() {
-                    let k = format!("ALSong|{artist}|{title}");
+                if let Some(raw) = crate::alsong::raw() {
+                    let k = format!("ALSong|{raw}");
                     if k != key {
+                        let (title, artist) = crate::alsong::now().unwrap_or_default();
                         // 알송 곡이 바뀌는 걸 직접 봤을 때만 위치를 안다(처음 본 곡은 길이를 비워 막대를 안 그린다).
                         let seen_start = key.starts_with("ALSong|");
-                        let dur = if seen_start { crate::alsong::list(&title).map_or(0, |(r, i)| r[i].secs * 1000) } else { 0 };
+                        let dur = if seen_start { crate::alsong::list(&raw).map_or(0, |(r, i)| r[i].secs * 1000) } else { 0 };
                         key = k.clone();
                         since = 0;
                         let mut n = now.lock().unwrap();
@@ -154,8 +173,8 @@ pub fn spawn(now: Arc<Mutex<Now>>, lyr: Arc<Mutex<Lyr>>) -> mpsc::Sender<Cmd> {
                     }
                     if lyr_key != key && since >= 2 {
                         lyr_key = key.clone();
-                        let dur = now.lock().unwrap().dur_ms;
-                        lyrics::fetch(lyr.clone(), key.clone(), title, artist, dur);
+                        let (t, ar, d) = { let n = now.lock().unwrap(); (n.title.clone(), n.artist.clone(), n.dur_ms) };
+                        lyrics::fetch(lyr.clone(), key.clone(), t, ar, d);
                     }
                     continue;
                 }
