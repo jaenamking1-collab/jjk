@@ -568,7 +568,6 @@ enum Hit {
     Bar(f32, f32), // x 시작, 너비
     Line(u64),
     Page(i32), // 쪽 넘기기(-1 왼쪽, +1 오른쪽)
-    Size,      // 시세 쪽: 작은 판 ↔ 큰 판
     Layout,    // 음악 화면 모양 바꾸기
     CalNav(i32), // 달력: 달 넘기기(0 = 오늘로)
     CalDay(i64), // 달력: 날 고르기
@@ -961,7 +960,7 @@ impl App {
         // 펼칠 때는 끝에서 살짝 출렁이며 모이고(가로·세로 박자가 달라 물결처럼), 접힐 때는 차분하게
         if th > BAR_H + 10.0 {
             // 시세 쪽은 작은 판 높이를 '다 펼친 높이'로 삼는다(큰 판으로 자라는 동안 내용이 흐려지지 않게)
-            self.open_h = if self.page == 1 && !noting { q_layout(&self.q.iter().map(|q| q.group).collect::<Vec<_>>(), 0.0, self.cfg.cols()).2 .1 } else { th };
+            self.open_h = if self.page == 1 && !noting { q_layout(&self.q.iter().map(|q| q.group).collect::<Vec<_>>(), 1.0, self.cfg.cols()).2 .1 } else { th };
             self.mode = if noting { 2 } else if self.page == 3 { 5 } else if self.page == 2 { 4 } else if self.page == 1 { 3 } else if self.n.has { 0 } else { 1 };
             self.w.tune(250.0, 0.62);
             self.h.tune(190.0, 0.68);
@@ -1931,9 +1930,6 @@ impl App {
                     }
                     first += n;
                 }
-                if live {
-                    self.hits.push(([x, 0.0, x + w, h], Hit::Size));
-                }
                 // 생존 표시: 마지막으로 받은 시각. 10분 넘게 못 받으면 경고색.
                 let stale = self.q_seen.map_or(true, |t| t.elapsed() > Duration::from_secs(600));
                 g.text(&format!("시세 {}", self.q_stamp), &g.f_tiny, x + 20.0, 20.0, w - 40.0, if stale { WARN } else { FG }, a * if stale { 1.0 } else { 0.4 }, Align::Right);
@@ -2119,8 +2115,6 @@ impl App {
         self.hover = false;
         self.page = 0;
         self.cal_month = 0;
-        self.big = false; // 시세도 작은 판부터
-        self.bg.target = 0.0;
         self.mouse = (-1.0, -1.0);
         self.qtop = 0;
         self.tick();
@@ -2545,11 +2539,6 @@ impl App {
             }
             return;
         }
-        if let Hit::Size = hit {
-            self.big = !self.big;
-            self.bg.target = self.big as u8 as f32;
-            return self.tick();
-        }
         let cmd = match hit {
             Hit::Prev => Cmd::Prev,
             Hit::Toggle => Cmd::Toggle,
@@ -2558,7 +2547,7 @@ impl App {
             Hit::Line(t) => Cmd::Seek(t as i64),
             Hit::Shuffle => Cmd::Shuffle,
             Hit::Repeat => Cmd::Repeat,
-            Hit::Page(_) | Hit::Size | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalAdd | Hit::CalLogin | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntSeg(_) | Hit::EntSave | Hit::EntClose => return,
+            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalAdd | Hit::CalLogin | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntSeg(_) | Hit::EntSave | Hit::EntClose => return,
         };
         let _ = self.tx.send(cmd);
     }
@@ -2765,8 +2754,8 @@ unsafe fn run() -> Result<()> {
         page: 0,
         paged: Instant::now(),
         pgf: Spring::new(1.0, 260.0, 1.0),
-        big: false,
-        bg: Spring::new(0.0, 190.0, 0.68),
+        big: true, // 시세는 늘 값까지 나오는 큰 판(사용자 요청 2026-11-13, 눌러서 줄이기 없앰)
+        bg: Spring::new(1.0, 190.0, 0.68),
         meter: meter::Meter::default(),
         bars: [0.0; 28],
         qs: Vec::new(),
@@ -2834,6 +2823,10 @@ unsafe fn run() -> Result<()> {
     log("window ok");
     if std::env::var("NOTCH_CAT_SETTINGS").is_ok() {
         settings::open(app.quotes.clone(), cat_icon()); // 시험용: 켜자마자 설정창
+    }
+    if let Some(n) = std::env::var("NOTCH_CAT_PAGE").ok().and_then(|v| v.parse().ok()) {
+        app.hover = true; // 시험용: 그 쪽을 펼친 채로 띄운다(NOTCH_CAT_SHOT 과 함께 쓰면 마우스 없이 찍힌다)
+        app.page = n;
     }
     if let Ok(v) = std::env::var("NOTCH_CAT_ENTRY") {
         // 시험용: 달력 쪽에 일정 칸을 연 채로 띄운다. "seg" 면 시 칸을 고른 채로, "note" 면 알림도 하나 띄운다.
