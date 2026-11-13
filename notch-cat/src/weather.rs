@@ -179,14 +179,15 @@ fn url(lat: f64, lon: f64) -> String {
     format!("https://api.met.no/weatherapi/locationforecast/2.0/complete?lat={lat:.3}&lon={lon:.3}")
 }
 
-/// 윈도우 위치 서비스(와이파이로 수백 m 안쪽). 꺼져 있으면 None.
-fn here() -> Option<(f64, f64)> {
+/// 윈도우 위치 서비스(와이파이로 수백 m 안쪽). 꺼져 있으면 None. 세 번째 값은 오차(m).
+fn here() -> Option<(f64, f64, f64)> {
     use windows::Devices::Geolocation::{GeolocationAccessStatus, Geolocator};
     if Geolocator::RequestAccessAsync().ok()?.get().ok()? != GeolocationAccessStatus::Allowed {
         return None;
     }
-    let p = Geolocator::new().ok()?.GetGeopositionAsync().ok()?.get().ok()?.Coordinate().ok()?.Point().ok()?.Position().ok()?;
-    Some((p.Latitude, p.Longitude))
+    let c = Geolocator::new().ok()?.GetGeopositionAsync().ok()?.get().ok()?.Coordinate().ok()?;
+    let p = c.Point().ok()?.Position().ok()?;
+    Some((p.Latitude, p.Longitude, c.Accuracy().unwrap_or(0.0)))
 }
 
 pub fn spawn(out: Arc<Mutex<Weather>>, lat: f64, lon: f64) {
@@ -199,12 +200,20 @@ pub fn spawn(out: Arc<Mutex<Weather>>, lat: f64, lon: f64) {
         loop {
             // 위치는 30분마다 다시 본다(노트북을 들고 옮기면 따라간다)
             if spot.as_ref().map_or(true, |s| s.1.elapsed() > Duration::from_secs(1800)) {
+                // 와이파이 없는 데스크톱은 인터넷 주소로 짐작해 몇 km 틀린다(집 PC: 의정부 호원동인데 서울 방학동, 2026-11-13).
+                // 오차가 1.5km 넘고 settings.json 에 동네를 적어 두었으면 그쪽을 쓴다.
+                let set = (lat - 37.57).abs() + (lon - 126.98).abs() > 0.001;
                 let p = here();
-                if p.is_none() && !warned {
-                    crate::log("weather: 윈도우 위치를 못 받아 설정 위치를 씀");
+                let use_win = p.filter(|w| !(set && w.2 > 1500.0));
+                if !warned {
+                    crate::log(&match (p, use_win) {
+                        (Some(w), Some(_)) => format!("weather: 윈도우 위치 씀(오차 {:.0}m)", w.2),
+                        (Some(w), None) => format!("weather: 윈도우 위치 오차 {:.0}m 라 설정 위치를 씀", w.2),
+                        _ => "weather: 윈도우 위치를 못 받아 설정 위치를 씀".to_string(),
+                    });
                     warned = true;
                 }
-                spot = Some((p.unwrap_or((lat, lon)), Instant::now()));
+                spot = Some((use_win.map(|w| (w.0, w.1)).unwrap_or((lat, lon)), Instant::now()));
             }
             let (la, lo) = spot.as_ref().unwrap().0;
             let got = crate::quotes::get(&c, &url(la, lo)).ok().and_then(|b| parse(&b));
@@ -281,7 +290,7 @@ mod live {
     fn weather_fetch_prints() {
         let here = super::here();
         println!("위치: {here:?}");
-        let (la, lo) = here.unwrap_or((37.74, 127.05));
+        let (la, lo) = here.map(|w| (w.0, w.1)).unwrap_or((37.74, 127.05));
         let c = super::client().unwrap();
         let w = crate::quotes::get(&c, &super::url(la, lo)).ok().and_then(|b| super::parse(&b)).unwrap();
         println!("{} {:.1}° 체감 {:.1}° 습도 {:.0}% {} {:.1}m/s 자외선 {:.1} 강수 {:.1}mm 기압 {:.0} 최고 {:.1} 최저 {:.1}", super::NAMES[w.kind], w.temp, w.feels, w.humid, super::wind_name(w.wind_dir), w.wind, w.uv, w.rain, w.pressure, w.hi, w.lo);
