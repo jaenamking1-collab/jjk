@@ -13,6 +13,9 @@ use windows::Storage::Streams::DataReader;
 
 use crate::lyrics::{self, Lyr};
 
+/// 알송이 곡을 바꾼 뒤 창 제목에 나오기까지의 늦음(ms). 가사가 늦으면 키우고 이르면 줄인다.
+const ALSONG_LAG: i64 = 250;
+
 pub enum Cmd {
     Toggle,
     Next,
@@ -91,7 +94,8 @@ pub fn spawn(now: Arc<Mutex<Now>>, lyr: Arc<Mutex<Lyr>>) -> mpsc::Sender<Cmd> {
         let mut since = 0u32; // 곡이 바뀐 뒤 읽은 횟수
         let mut warned = false;
         loop {
-            let cmd = rx.recv_timeout(Duration::from_millis(500));
+            // 알송은 창 제목으로 곡 바뀜을 알아채므로 자주 본다(가사가 늦지 않게). 창 제목 읽기는 가볍다.
+            let cmd = rx.recv_timeout(Duration::from_millis(if key.starts_with("ALSong|") { 100 } else { 500 }));
             if let Err(mpsc::RecvTimeoutError::Disconnected) = cmd {
                 return;
             }
@@ -121,7 +125,7 @@ pub fn spawn(now: Arc<Mutex<Now>>, lyr: Arc<Mutex<Lyr>>) -> mpsc::Sender<Cmd> {
                     if let Some(raw) = crate::alsong::raw().filter(|r| format!("ALSong|{r}") == key) {
                         let dur = crate::alsong::list(&raw).map_or(0, |(r, i)| r[i].secs * 1000);
                         let mut n = now.lock().unwrap();
-                        n.pos_ms = 0;
+                        n.pos_ms = ALSONG_LAG;
                         n.pos_at = Some(Instant::now());
                         n.dur_ms = dur;
                         crate::log(&format!("알송: 같은 곡 처음부터 (길이 {}초)", dur / 1000));
@@ -162,7 +166,7 @@ pub fn spawn(now: Arc<Mutex<Now>>, lyr: Arc<Mutex<Lyr>>) -> mpsc::Sender<Cmd> {
                         key = k.clone();
                         since = 0;
                         let mut n = now.lock().unwrap();
-                        *n = Now { has: true, title: title.clone(), artist: artist.clone(), playing: true, pos_ms: 0, pos_at: Some(Instant::now()), dur_ms: dur, app: "ALSong".into(), ..Default::default() };
+                        *n = Now { has: true, title: title.clone(), artist: artist.clone(), playing: true, pos_ms: if dur > 0 { ALSONG_LAG } else { 0 }, pos_at: Some(Instant::now()), dur_ms: dur, app: "ALSong".into(), ..Default::default() };
                         crate::log(&format!("알송: '{title}' / '{artist}' 길이 {}초", dur / 1000));
                     }
                     since += 1;
@@ -171,7 +175,7 @@ pub fn spawn(now: Arc<Mutex<Now>>, lyr: Arc<Mutex<Lyr>>) -> mpsc::Sender<Cmd> {
                         n.seen = Some(Instant::now());
                         n.stamp = crate::hhmm();
                     }
-                    if lyr_key != key && since >= 2 {
+                    if lyr_key != key {
                         lyr_key = key.clone();
                         let (t, ar, d) = { let n = now.lock().unwrap(); (n.title.clone(), n.artist.clone(), n.dur_ms) };
                         lyrics::fetch(lyr.clone(), key.clone(), t, ar, d);

@@ -1480,6 +1480,21 @@ impl App {
                     if live {
                         self.hits.push(([l, 12.0, l + hw + 16.0, 40.0], Hit::CalNav(0))); // 날짜를 누르면 오늘로
                     }
+                    // 계정 추가: 집·학교 계정을 같이 볼 수 있게. 마우스를 올리면 연결된 계정이 보인다.
+                    let ax = l + hw + 22.0;
+                    let ab = [ax, 16.0, ax + 66.0, 36.0];
+                    let right_free = if view == 0 { r - 200.0 } else { r - 250.0 };
+                    if ab[2] < right_free {
+                        let ov = over(ab);
+                        g.rrect(ab[0], ab[1], 66.0, 20.0, 10.0, FG, a * if ov { 0.2 } else { 0.09 });
+                        g.text("＋ 계정", &g.f_tiny, ab[0], ab[1] + 3.0, 66.0, FG, a * 0.8, Align::Center);
+                        if ov {
+                            g.text(&format!("연결됨: {}", cal.accounts.join(", ")), &g.f_tiny, l, 40.0, r - l, LIME, a, Align::Left);
+                        }
+                        if live {
+                            self.hits.push((ab, Hit::CalLogin));
+                        }
+                    }
                     // 보고 있는 달
                     let (ty, tm, _) = gcal::ymd(today);
                     let mi = ty * 12 + tm as i32 - 1 + self.cal_month;
