@@ -754,11 +754,11 @@ impl App {
         self.typing = self.keyed.elapsed() < quiet && self.keyed > self.moved && std::env::var("NOTCH_CAT_SLEEP").is_err();
         let typing = self.typing;
         self.ck.target = if typing && self.text.is_empty() { 100.0 } else { 0.0 };
-        // 꽉 찬 창에서 일할 때도 고양이는 보인다. 마우스가 탭 쪽으로 올라와 노치에서 10cm쯤(380) 안에 들어오면
+        // 꽉 찬 창에서 일할 때도 고양이는 보인다. 마우스가 탭 쪽으로 올라와 노치에서 5cm쯤(190) 안에 들어오면
         // 탭을 가리지 않게 아주 작게 줄고, 멀어지면(420) 돌아온다. 작은 노치에 마우스를 올리면 펼쳐진다.
         let far = ((mx - WIN_W / 2.0).powi(2) + my * my).sqrt();
         // 알림이 떠 있을 때도 같다: 마우스가 다가오면 알림을 접고 비켜 준다(화면 캡처 알림 등이 탭을 가리지 않게)
-        let near = far < if self.shy { 420.0 } else { 380.0 };
+        let near = far < if self.shy { 230.0 } else { 190.0 };
         if near && !self.hover && Instant::now() < self.note_until {
             self.note_until = Instant::now();
             self.note_shy = true; // 마우스가 멀어질 때까지 작게 있는다
