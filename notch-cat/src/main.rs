@@ -229,6 +229,27 @@ fn push(e: Ev) {
     EVENTS.with(|v| v.borrow_mut().push(e));
 }
 
+/// 노치 바로 아래(마우스 자리)의 창에 '마우스가 나갔다'를 알린다.
+/// 크롬은 탭 위에 잠깐 머물면 미리보기 카드를 띄우는데, 마우스가 노치로 넘어와도 나간 줄 몰라 카드가 노치 밑에 남는다.
+unsafe fn release_below(me: HWND) {
+    let mut pt = POINT::default();
+    let _ = GetCursorPos(&mut pt);
+    let mut h = GetWindow(me, GW_HWNDNEXT).unwrap_or_default();
+    for _ in 0..200 {
+        if h.0.is_null() {
+            return;
+        }
+        let mut r = RECT::default();
+        if IsWindowVisible(h).as_bool() && GetWindowRect(h, &mut r).is_ok() && pt.x >= r.left && pt.x < r.right && pt.y >= r.top && pt.y < r.bottom
+            && GetWindowLongW(h, GWL_EXSTYLE) as u32 & WS_EX_TRANSPARENT.0 == 0
+        {
+            let _ = PostMessageW(h, 0x02A3 /* WM_MOUSELEAVE */, WPARAM(0), LPARAM(0));
+            return;
+        }
+        h = GetWindow(h, GW_HWNDNEXT).unwrap_or_default();
+    }
+}
+
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     match msg {
         WM_MOUSEMOVE => push(Ev::Move((lp.0 & 0xFFFF) as i16 as f32, ((lp.0 >> 16) & 0xFFFF) as i16 as f32)),
@@ -2360,6 +2381,7 @@ unsafe fn run() -> Result<()> {
                         app.tracking = true;
                         let mut t = TRACKMOUSEEVENT { cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32, dwFlags: TME_LEAVE, hwndTrack: hwnd, dwHoverTime: 0 };
                         let _ = TrackMouseEvent(&mut t);
+                        release_below(hwnd); // 노치로 들어오기 직전에 있던 창(크롬 탭 미리보기 등)을 닫게 한다
                     }
                     // 꼬리·그림자 여백 위에서는 펼치지 않는다
                     let px0 = (WIN_W - app.w.pos) / 2.0;
