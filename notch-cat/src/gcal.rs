@@ -434,7 +434,10 @@ pub fn spawn(out: Arc<Mutex<Cal>>) -> mpsc::Sender<Cmd> {
             }
             if (cals.len(), events.len()) != seen_counts {
                 seen_counts = (cals.len(), events.len());
-                crate::log(&format!("gcal: 계정 {} 캘린더 {} 일정 {}", accts.len(), cals.len(), events.len()));
+                // 날짜만 남긴다(제목은 안 남김): 사용자가 본 달력과 노치가 받은 것을 맞춰 볼 수 있게
+                let mut ds: Vec<String> = events.iter().map(|e| { let (_, m, d) = ymd(e.day); format!("{m}/{d}") }).collect();
+                ds.dedup();
+                crate::log(&format!("gcal: 계정 {} 캘린더 {} 일정 {} ({})", accts.len(), cals.len(), events.len(), ds.join(" ")));
             }
             {
                 let mut o = out.lock().unwrap();
