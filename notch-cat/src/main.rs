@@ -51,7 +51,7 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 // 창(=그릴 수 있는 최대 넓이), 논리 단위
 const WIN_W: f32 = 920.0; // 음악 화면 + 다음 곡 목록까지 들어가게
 const QW: f32 = 290.0; // 다음 곡 목록 칸 너비
-const WIN_H: f32 = 620.0;
+const WIN_H: f32 = 800.0; // 큰 달력 + 일정 칸 + 알림 물방울까지
 // 일정 넣기 칸(노치 아래로 물방울처럼 나온다)
 const ENT_W: f32 = 560.0;
 const ENT_H: f32 = 112.0;
@@ -78,6 +78,24 @@ struct Ent {
     seg: Option<usize>, // 고른 날짜·시각 칸(0 월 1 일 2 오전오후 3 시 4 분). None 이면 글자 칸
     buf: String,        // 그 칸에 친 숫자
     parked: bool,       // 다른 창으로 가서 접어 둔 상태(적던 내용은 남는다)
+    cur: usize,         // 글자 칸 커서(글자 수 기준)
+}
+
+impl Ent {
+    /// 커서의 바이트 자리
+    fn at(&self) -> usize {
+        self.text.char_indices().nth(self.cur).map_or(self.text.len(), |(i, _)| i)
+    }
+    fn insert(&mut self, t: &str) {
+        let i = self.at();
+        self.text.insert_str(i, t);
+        self.cur += t.chars().count();
+    }
+    /// 화면에 보일 글: 커서 자리에 조합 중인 한글을 끼운다
+    fn shown(&self) -> String {
+        let i = self.at();
+        format!("{}{}{}", &self.text[..i], self.comp, &self.text[i..])
+    }
 }
 // 노치 크기
 const IDLE: (f32, f32) = (150.0, 28.0);
@@ -90,6 +108,7 @@ const OPEN: (f32, f32) = (460.0, 246.0);
 // 음악 화면 모양: 0 기본(가사 아래) · 1 와이드(소리 막대) · 2 가사 옆
 const MUSIC: [(f32, f32); 3] = [OPEN, (540.0, 128.0), (590.0, 184.0)];
 const WX: [(f32, f32); 2] = [(600.0, 168.0), (600.0, 262.0)]; // 날씨 쪽: 작은 판 · 큰 판
+const CAL_BIG: (f32, f32) = (880.0, 580.0); // 달력을 눌러 크게 편 판
 const CALV: [(f32, f32); 3] = [(560.0, 186.0), (500.0, 322.0), (600.0, 282.0)]; // 달력 쪽: 한 주 줄 · 한 달 · 달력+목록
 const MUSIC_NAMES: [&str; 3] = ["기본 (가사 아래)", "와이드 (소리 막대)", "가사 옆"];
 const SHADOW: f32 = 20.0; // 펼쳤을 때 그림자가 번지는 폭
@@ -641,6 +660,7 @@ struct App {
     caln: gcal::Cal, // 지금 보여 주는 달력
     cal_tx: mpsc::Sender<gcal::Cmd>,
     cal_month: i32,    // 이번 달에서 몇 달 넘겼나
+    cal_big: bool,     // 달력을 눌러 크게 편 판(칸마다 일정 제목)
     cal_sel: i64,      // 고른 날
     cal_wait: Instant, // 브라우저에서 로그인하는 중(이때까지)
     notes: Arc<Mutex<notif::Note>>,
@@ -939,7 +959,7 @@ impl App {
             TINY
         } else if self.hover {
             if self.page == 3 {
-                if self.caln.accounts.is_empty() { (440.0, 140.0) } else { CALV[self.cfg.cv] }
+                if self.caln.accounts.is_empty() { (440.0, 140.0) } else if self.cal_big { CAL_BIG } else { CALV[self.cfg.cv] }
             } else if self.page == 2 {
                 WX[self.cfg.wbig as usize]
             } else if self.page == 1 {
@@ -1293,7 +1313,7 @@ impl App {
                     let (cx, cy) = (bx + 15.0 + d * 3.5, by + bh / 2.0 - d * 3.5);
                     ribbon(g, &[(cx - d * 3.5, cy), (cx, cy), (cx, cy + d * 3.5)], |_| 1.6, LIME, a);
                 }
-                g.text("모양", &g.f_bar, bx + 26.0, by + 4.0, bw - 30.0, LIME, a, Align::Left);
+                g.text(if self.mode == 5 && self.cal_big { "작게" } else { "모양" }, &g.f_bar, bx + 26.0, by + 4.0, bw - 30.0, LIME, a, Align::Left);
                 if p > 0.9 {
                     self.hits.push(([bx, by, bx + bw, by + bh], Hit::Layout));
                 }
@@ -1596,7 +1616,7 @@ impl App {
                         g.text(&cal.note, &g.f_tiny, l, 108.0, w - 40.0, WARN, a, Align::Center);
                     }
                 } else {
-                    let view = self.cfg.cv;
+                    let view = if self.cal_big { 1 } else { self.cfg.cv }; // 큰 판은 머리를 한 달 모양처럼(달 넘기기)
                     // 머리: 고른 날 · (달력 모양이면) 보고 있는 달과 넘기는 단추 · 일정 넣기
                     let (sy, sm, sd) = gcal::ymd(self.cal_sel);
                     let head = format!("{sm}월 {sd}일 ({})", gcal::WEEK[gcal::weekday(self.cal_sel)]);
@@ -1694,7 +1714,55 @@ impl App {
                     };
                     let row = |e: &gcal::Event, x0: f32, y: f32, rw: f32, tall: bool| row_at(e, x0, y, rw, tall, false);
                     let mut hits = Vec::new();
-                    if view == 0 {
+                    if self.cal_big {
+                        // 큰 판: 한 달 여섯 줄, 칸마다 숫자 아래 일정 제목(넘치면 '+n')
+                        let cw = (r - l) / 7.0;
+                        for (i, name) in gcal::WEEK.iter().enumerate() {
+                            let c = if i == 0 { mix(FG, UP, 0.6) } else if i == 6 { mix(FG, DOWN, 0.6) } else { FG };
+                            g.text(name, &g.f_tiny, l + cw * i as f32, 46.0, cw, c, a * 0.6, Align::Center);
+                        }
+                        let (y0, bottom) = (64.0, h - 44.0);
+                        let rh = (bottom - y0) / 6.0;
+                        let first = gcal::days(vy, vm, 1);
+                        let start = first - gcal::weekday(first) as i64;
+                        for i in 0..42 {
+                            let z = start + i as i64;
+                            let (cx0, cy0) = (l + cw * (i % 7) as f32, y0 + rh * (i / 7) as f32);
+                            let cell = [cx0 + 1.5, cy0 + 1.5, cx0 + cw - 1.5, cy0 + rh - 1.5];
+                            let other = gcal::ymd(z).1 != vm;
+                            let k = if other { 0.35 } else { 1.0 };
+                            let sel = z == self.cal_sel;
+                            g.rrect(cell[0], cell[1], cell[2] - cell[0], cell[3] - cell[1], 8.0, if sel { LIME } else { FG }, a * if sel { 0.14 } else if over(cell) { 0.09 } else { 0.04 });
+                            let wd = gcal::weekday(z);
+                            let (_, _, d) = gcal::ymd(z);
+                            let nc = if z == today { PUPIL } else if wd == 0 { mix(FG, UP, 0.6) } else if wd == 6 { mix(FG, DOWN, 0.6) } else { FG };
+                            if z == today {
+                                g.ellipse(cell[0] + 14.0, cell[1] + 12.0, 10.0, 10.0, LIME, a);
+                            }
+                            g.text(&d.to_string(), &g.f_small, cell[0] + 2.0, cell[1] + 4.0, 24.0, nc, a * if z == today { 1.0 } else { k }, Align::Center);
+                            let evs = cal.on(z);
+                            let lh = 14.5;
+                            let fit = (((cell[3] - cell[1]) - 24.0) / lh).floor().max(0.0) as usize;
+                            let more = evs.len() > fit;
+                            let take = if more { fit.saturating_sub(1) } else { evs.len() };
+                            for (j, e) in evs.iter().take(take).enumerate() {
+                                let ey = cell[1] + 22.0 + j as f32 * lh;
+                                let gone = e.end_day < today || (e.end_day == today && e.start >= 0 && e.end <= now);
+                                let ek = k * if gone { 0.5 } else { 1.0 };
+                                g.rrect(cell[0] + 4.0, ey + 1.0, cell[2] - cell[0] - 8.0, lh - 2.0, 3.0, e.color, a * 0.22 * ek);
+                                g.rrect(cell[0] + 4.0, ey + 1.0, 2.5, lh - 2.0, 1.2, e.color, a * ek);
+                                let t = if e.start >= 0 && e.day == z { format!("{}:{:02} {}", e.start / 60, e.start % 60, e.title) } else { e.title.clone() };
+                                g.text(&t, &g.f_tiny, cell[0] + 9.0, ey + 0.5, cell[2] - cell[0] - 13.0, FG, a * ek, Align::Left);
+                            }
+                            if more {
+                                g.text(&format!("+{}", evs.len() - take), &g.f_tiny, cell[0] + 9.0, cell[1] + 22.0 + take as f32 * lh, 40.0, FG, a * 0.55 * k, Align::Left);
+                            }
+                            if live {
+                                hits.push((cell, Hit::CalDay(z)));
+                            }
+                        }
+                        g.text(&format!("달력 {}", cal.stamp), &g.f_tiny, l, h - 20.0, 120.0, if stale { WARN } else { FG }, a * if stale { 1.0 } else { 0.4 }, Align::Left);
+                    } else if view == 0 {
                         // 한 주 줄: 고른 날을 가운데 두고 앞뒤 나흘
                         let cw = (r - l) / 9.0;
                         for i in 0..9 {
@@ -2084,7 +2152,7 @@ impl App {
         // 처음 고르는 캘린더: 계정의 기본 캘린더(아이디가 메일 주소), 없으면 쓸 수 있는 첫 캘린더
         let cals = &self.caln.cals;
         let cal = cals.iter().position(|c| c.writable && self.caln.accounts.iter().any(|a| *a == c.id)).or_else(|| cals.iter().position(|c| c.writable)).unwrap_or(0);
-        self.ent = Some(Ent { text: String::new(), comp: String::new(), day, min, cal, prev: GetForegroundWindow(), focused: false, closing: false, caret: Instant::now(), seg: None, buf: String::new(), parked: false });
+        self.ent = Some(Ent { text: String::new(), comp: String::new(), day, min, cal, prev: GetForegroundWindow(), focused: false, closing: false, caret: Instant::now(), seg: None, buf: String::new(), parked: false, cur: 0 });
         self.drop.target = 1.0;
         self.ent_focus();
     }
@@ -2115,6 +2183,7 @@ impl App {
         self.hover = false;
         self.page = 0;
         self.cal_month = 0;
+        self.cal_big = false;
         self.mouse = (-1.0, -1.0);
         self.qtop = 0;
         self.tick();
@@ -2152,7 +2221,7 @@ impl App {
 
     unsafe fn ent_save(&mut self) {
         let Some(e) = self.ent.as_ref() else { return };
-        let title = format!("{}{}", e.text, e.comp).trim().to_string();
+        let title = e.shown().trim().to_string();
         if title.is_empty() {
             self.face.slow_blink(300);
             return;
@@ -2193,12 +2262,14 @@ impl App {
             }
         }
         match c {
-            8 => {
-                e.text.pop();
+            8 if e.cur > 0 => {
+                e.cur -= 1;
+                let i = e.at();
+                e.text.remove(i);
             }
             c if c >= 32 && c != 127 => {
                 if let Some(ch) = char::from_u32(c) {
-                    e.text.push(ch);
+                    e.insert(&ch.to_string());
                 }
             }
             _ => {} // Enter·Esc·Tab 은 ent_key 에서
@@ -2227,6 +2298,30 @@ impl App {
                     0x0D => self.ent_save(),
                     _ => {}
                 }
+                self.dirty = true;
+                return;
+            }
+        }
+        // 글자 칸: Home·End·←→ 커서, Delete 뒤 글자 지우기(한글 조합 중엔 IME 가 먼저 받는다)
+        if let Some(e) = self.ent.as_mut().filter(|e| e.comp.is_empty()) {
+            let n = e.text.chars().count();
+            let moved = match k {
+                0x24 => Some(0),
+                0x23 => Some(n),
+                0x25 => Some(e.cur.saturating_sub(1)),
+                0x27 => Some((e.cur + 1).min(n)),
+                0x2E => {
+                    if e.cur < n {
+                        let i = e.at();
+                        e.text.remove(i);
+                    }
+                    Some(e.cur)
+                }
+                _ => None,
+            };
+            if let Some(c) = moved {
+                e.cur = c;
+                e.caret = Instant::now();
                 self.dirty = true;
                 return;
             }
@@ -2334,7 +2429,8 @@ impl App {
         // 1줄: 글자 칸 + 닫기
         let fb = [l, top + 12.0, r - 34.0, top + 44.0];
         g.rrect(fb[0], fb[1], fb[2] - fb[0], 32.0, 10.0, FG, a * if e.focused && e.seg.is_none() { 0.1 } else { 0.06 });
-        let shown = format!("{}{}", e.text, e.comp);
+        let shown = e.shown();
+        let pre = &e.text[..e.at()]; // 커서 앞 글
         if shown.is_empty() {
             let hint = if e.focused { "무슨 일정인가요?   Enter 저장 · Esc 닫기" } else { "여기를 눌러 일정을 적어 주세요" };
             g.text(hint, &g.f_body, fb[0] + 12.0, fb[1] + 6.0, fb[2] - fb[0] - 24.0, FG, a * 0.45, Align::Left);
@@ -2342,12 +2438,12 @@ impl App {
             g.text(&shown, &g.f_body, fb[0] + 12.0, fb[1] + 6.0, fb[2] - fb[0] - 24.0, FG, a, Align::Left);
         }
         if !e.comp.is_empty() {
-            let tw = g.measure(&e.text, &g.f_body);
+            let tw = g.measure(pre, &g.f_body);
             let cw = g.measure(&e.comp, &g.f_body);
             g.rrect(fb[0] + 12.0 + tw, fb[1] + 25.0, cw, 1.5, 0.5, LIME, a); // 조합 중인 글자 밑줄
         }
         if e.focused && e.seg.is_none() && (e.caret.elapsed().as_millis() / 530) % 2 == 0 {
-            let cxp = fb[0] + 12.0 + if shown.is_empty() { 0.0 } else { g.measure(&shown, &g.f_body) + 1.0 };
+            let cxp = fb[0] + 12.0 + if pre.is_empty() && e.comp.is_empty() { 0.0 } else { g.measure(&format!("{pre}{}", e.comp), &g.f_body) + 1.0 };
             g.rrect(cxp.min(fb[2] - 10.0), fb[1] + 8.0, 1.6, 17.0, 0.8, LIME, a);
         }
         hits.push((fb, Hit::EntField));
@@ -2445,6 +2541,11 @@ impl App {
             Hit::CalNav(d) => self.cal_month += d,
             Hit::CalDay(z) => {
                 self.cal_sel = z;
+                // 작은 달력에서 날을 누르면 크게 펴서 칸마다 일정 제목을 보여 준다(그 날이 든 달로)
+                let (zy, zm, _) = gcal::ymd(z);
+                let (ty, tm, _) = gcal::ymd(gcal::today().0);
+                self.cal_month = (zy * 12 + zm as i32) - (ty * 12 + tm as i32);
+                self.cal_big = true;
                 // 일정 칸이 나와 있으면 누른 날이 그 칸의 날짜가 된다
                 if let Some(e) = self.ent.as_mut().filter(|e| !e.closing && !e.parked) {
                     e.day = z;
@@ -2452,9 +2553,19 @@ impl App {
             }
             Hit::CalAdd => self.ent_open(),
             Hit::EntField => {
+                let g = &self.g;
+                let l = WIN_W / 2.0 - ENT_W / 2.0 + 18.0 + 12.0; // 글자가 시작하는 곳(draw_entry 와 같다)
                 if let Some(e) = self.ent.as_mut() {
                     e.seg = None;
                     e.buf.clear();
+                    // 누른 자리에 가장 가까운 글자 사이로 커서를 옮긴다
+                    let n = e.text.chars().count();
+                    e.cur = (0..=n)
+                        .min_by(|&p, &q| {
+                            let at = |c: usize| (g.measure(&e.text.chars().take(c).collect::<String>(), &g.f_body) - (x - l)).abs();
+                            at(p).total_cmp(&at(q))
+                        })
+                        .unwrap_or(n);
                 }
                 self.ent_focus();
             }
@@ -2503,6 +2614,10 @@ impl App {
             return;
         }
         if let Hit::Layout = hit {
+            if self.page == 3 && self.cal_big {
+                self.cal_big = false; // 큰 달력 → 원래 모양으로
+                return self.tick();
+            }
             if self.page == 3 {
                 self.cfg.cv = (self.cfg.cv + 1) % CALV.len();
             } else if self.page == 2 {
@@ -2773,6 +2888,7 @@ unsafe fn run() -> Result<()> {
         caln: gcal::Cal::default(),
         cal_tx: gcal::spawn(cal),
         cal_month: 0,
+        cal_big: false,
         cal_sel: gcal::today().0,
         cal_wait: Instant::now(),
         notes: {
@@ -2827,6 +2943,7 @@ unsafe fn run() -> Result<()> {
     if let Some(n) = std::env::var("NOTCH_CAT_PAGE").ok().and_then(|v| v.parse().ok()) {
         app.hover = true; // 시험용: 그 쪽을 펼친 채로 띄운다(NOTCH_CAT_SHOT 과 함께 쓰면 마우스 없이 찍힌다)
         app.page = n;
+        app.cal_big = std::env::var("NOTCH_CAT_CALBIG").is_ok();
     }
     if let Ok(v) = std::env::var("NOTCH_CAT_ENTRY") {
         // 시험용: 달력 쪽에 일정 칸을 연 채로 띄운다. "seg" 면 시 칸을 고른 채로, "note" 면 알림도 하나 띄운다.
@@ -2834,8 +2951,12 @@ unsafe fn run() -> Result<()> {
         app.page = 3;
         app.ent_open();
         if let Some(e) = app.ent.as_mut() {
-            e.text = "치과 예약".into();
+            e.insert("치과 예약");
             e.seg = v.contains("seg").then_some(3);
+            if v.contains("mid") {
+                e.cur = 2; // 커서를 글 가운데로("치과|예약")
+                e.comp = "ㄱ".into();
+            }
         }
         if v.contains("note") {
             let mut n = app.notes.lock().unwrap();
@@ -2925,7 +3046,7 @@ unsafe fn run() -> Result<()> {
                 Ev::Text(t) => {
                     if let Some(e) = app.ent.as_mut() {
                         e.seg = None; // 한글을 치면 제목 칸으로
-                        e.text.push_str(&t);
+                        e.insert(&t);
                         e.caret = Instant::now();
                     }
                     app.dirty = true;
