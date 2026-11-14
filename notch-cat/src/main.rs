@@ -19,6 +19,7 @@ mod queue;
 mod alsong;
 mod wmp;
 mod quotes;
+mod send;
 mod settings;
 mod shelf;
 mod spring;
@@ -27,7 +28,7 @@ mod weather;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -684,6 +685,8 @@ enum Hit {
     ClipClear,        // 최근 모두 지우기
     ShelfItem(usize), // 선반: 두 번 누르면 열기, 끌면 복사해 내리기
     ShelfDel(usize),  // 선반에서 빼기(원본은 그대로)
+    ShelfSend(usize), // 휴대폰으로 보내기(QR)
+    SendClose,        // 보내기 창구 닫기
     Shuffle,
     Repeat,
     Queue,        // 다음 곡 목록 열고 닫기
@@ -748,6 +751,7 @@ struct App {
     pull: Option<(Hit, f32, f32)>, // 눌러서 끌기 시작할 수 있는 칸(선반·클립보드 그림)
     pulled: Instant,             // 마지막으로 끌어 내린 때(뒤따르는 '누름'을 무시)
     last_click: Option<(usize, Instant)>, // 선반 두 번 누름
+    send: Arc<Mutex<Option<send::Send>>>, // 휴대폰으로 보내는 창구(열려 있으면)
     nb: Spring,        // 적는 동안 온 알림이 칸 아래로 볼록 나온 정도 0…1
     pgf: Spring,       // 쪽이 바뀔 때 내용이 다시 떠오르는 정도 0…1
     big: bool,         // 시세 쪽: 값까지 나오는 큰 판
@@ -2914,8 +2918,50 @@ impl App {
             g.rrect(zone[0], zone[1], zone[2] - zone[0], zone[3] - zone[1], 16.0, LIME, a * (0.10 + 0.08 * pulse));
             g.text("여기에 놓으세요", &g.f_lyric, zone[0], (zone[1] + zone[3]) / 2.0 - 10.0, zone[2] - zone[0], LIME, a, Align::Center);
             self.dirty = true;
-        } else if paths.is_empty() {
+        } else if paths.is_empty() && self.send.lock().unwrap().is_none() {
             g.para("파일이나 폴더를 노치 위로 끌어 오세요.\n원본은 그대로 두고, 어디 있는지만 기억합니다.", &g.f_body, l, 90.0, r - l, FG, a * 0.4);
+        }
+        // 휴대폰으로 보내는 중: QR 판
+        {
+            let mut st = self.send.lock().unwrap();
+            if st.as_ref().is_some_and(|s| s.left().is_zero()) {
+                *st = None; // 5분이 지나 닫혔다
+            }
+            if let Some(sd) = st.as_ref().filter(|_| !self.drag_in) {
+                let q = &sd.qr;
+                let n = q.len().max(1) as f32;
+                let side = 168.0;
+                let m = side / (n + 8.0); // 둘레 흰 테두리 4칸
+                let (qx, qy) = (l, 46.0);
+                g.rrect(qx, qy, side, side, 10.0, (1.0, 1.0, 1.0), a);
+                for (yy, row) in q.iter().enumerate() {
+                    for (xx, on) in row.iter().enumerate() {
+                        if *on {
+                            g.rrect(qx + (xx as f32 + 4.0) * m, qy + (yy as f32 + 4.0) * m, m + 0.3, m + 0.3, 0.0, (0.0, 0.0, 0.0), a);
+                        }
+                    }
+                }
+                let tx = qx + side + 24.0;
+                let left = sd.left().as_secs();
+                g.text("휴대폰 카메라로 QR 을 찍으세요", &g.f_lyric, tx, 52.0, r - tx, FG, a, Align::Left);
+                g.text(&sd.name, &g.f_body, tx, 82.0, r - tx, LIME, a, Align::Left);
+                g.text(&format!("같은 와이파이에서만 받을 수 있습니다 · {}:{:02} 뒤 닫힘", left / 60, left % 60), &g.f_bar, tx, 108.0, r - tx, FG, a * 0.7, Align::Left);
+                g.text("처음 한 번은 윈도우가 '허용'을 물을 수 있습니다", &g.f_tiny, tx, 130.0, r - tx, FG, a * 0.45, Align::Left);
+                g.text(&sd.url, &g.f_tiny, tx, 146.0, r - tx, FG, a * 0.45, Align::Left);
+                if sd.served > 0 {
+                    g.text(&format!("받아 갔습니다 ✓ ({}번)", sd.served), &g.f_bar, tx, 170.0, r - tx, LIME, a, Align::Left);
+                }
+                let cb = [r - 70.0, 182.0, r, 206.0];
+                g.rrect(cb[0], cb[1], 70.0, 24.0, 12.0, FG, a * if over(cb) { 0.18 } else { 0.08 });
+                g.text("닫기", &g.f_bar, cb[0], cb[1] + 4.0, 70.0, FG, a * 0.9, Align::Center);
+                hits.push((cb, Hit::SendClose));
+                drop(st);
+                self.dirty = true; // 남은 시간이 흐른다
+                if live {
+                    self.hits.extend(hits);
+                }
+                return;
+            }
         }
         let (tile, gap) = (88.0, 10.0);
         let cols = ((r - l + gap) / (tile + gap)).floor().max(1.0) as usize;
@@ -2959,6 +3005,14 @@ impl App {
                 g.ellipse(tx + tile - 12.0, ty + 12.0, 9.0, 9.0, BG, a * 0.85);
                 g.text("✕", &g.f_bar, cb[0], cb[1] + 2.0, 20.0, if over(cb) { LIME } else { FG }, a, Align::Center);
                 hits.push((cb, Hit::ShelfDel(k)));
+                // 파일이면 왼쪽 위에 '휴대폰으로' 단추
+                if Path::new(pth).is_file() {
+                    let pb = [tx + 2.0, ty + 2.0, tx + 24.0, ty + 22.0];
+                    g.rrect(pb[0], pb[1], 22.0, 20.0, 7.0, BG, a * 0.85);
+                    g.rrect(pb[0] + 7.0, pb[1] + 3.0, 8.0, 14.0, 2.0, if over(pb) { LIME } else { FG }, a * 0.9); // 휴대폰 모양
+                    g.rrect(pb[0] + 8.5, pb[1] + 4.5, 5.0, 9.5, 1.0, BG, a);
+                    hits.push((pb, Hit::ShelfSend(k)));
+                }
             }
             hits.push((b, Hit::ShelfItem(k)));
         }
@@ -3402,6 +3456,25 @@ impl App {
                 }
                 return self.tick();
             }
+            Hit::ShelfSend(k) => {
+                if let Some(pth) = self.shelf.items.get(k).cloned() {
+                    match send::start(Path::new(&pth), true, self.send.clone()) {
+                        Ok(()) => {
+                            log("send: 창구 열림");
+                            self.face.happy(500);
+                        }
+                        Err(e) => {
+                            log(&format!("send: 못 엶 {e}"));
+                            self.face.slow_blink(300);
+                        }
+                    }
+                }
+                return self.tick();
+            }
+            Hit::SendClose => {
+                *self.send.lock().unwrap() = None;
+                return self.tick();
+            }
             Hit::ShelfDel(k) => {
                 if k < self.shelf.items.len() {
                     let gone = self.shelf.items.remove(k);
@@ -3590,7 +3663,7 @@ impl App {
             Hit::Line(t) => Cmd::Seek(t as i64),
             Hit::Shuffle => Cmd::Shuffle,
             Hit::Repeat => Cmd::Repeat,
-            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::AiLogin(_) | Hit::AiOpen(_) | Hit::AiGuideClose | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSchool | Hit::EntSave | Hit::EntClose | Hit::SetOpen(_) | Hit::SetClose | Hit::SetChip(_) | Hit::SetOpt(_) | Hit::ClipItem(..) | Hit::ClipPin(_) | Hit::ClipUnpin(_) | Hit::ClipClear | Hit::ShelfItem(_) | Hit::ShelfDel(_) => return,
+            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::AiLogin(_) | Hit::AiOpen(_) | Hit::AiGuideClose | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSchool | Hit::EntSave | Hit::EntClose | Hit::SetOpen(_) | Hit::SetClose | Hit::SetChip(_) | Hit::SetOpt(_) | Hit::ClipItem(..) | Hit::ClipPin(_) | Hit::ClipUnpin(_) | Hit::ClipClear | Hit::ShelfItem(_) | Hit::ShelfDel(_) | Hit::ShelfSend(_) | Hit::SendClose => return,
         };
         let _ = self.tx.send(cmd);
     }
@@ -3826,6 +3899,7 @@ unsafe fn run() -> Result<()> {
         pull: None,
         pulled: Instant::now(),
         last_click: None,
+        send: Arc::new(Mutex::new(None)),
         nb: Spring::new(0.0, 210.0, 0.5),
         wx: {
             let w = Arc::new(Mutex::new(weather::Weather::default()));
@@ -3926,6 +4000,9 @@ unsafe fn run() -> Result<()> {
         if let Ok(v) = std::env::var("NOTCH_CAT_SHELF") {
             // 시험용: 선반에 보기 파일들(저장하지 않는다). ';' 로 나눈 경로
             app.shelf.items = v.split(';').filter(|p| !p.is_empty()).map(str::to_string).collect();
+        }
+        if let Ok(f) = std::env::var("NOTCH_CAT_SENDDEMO") {
+            let _ = send::start(Path::new(&f), false, app.send.clone()); // 시험용: 이 PC 안에서만 여는 보내기 창구
         }
         if std::env::var("NOTCH_CAT_DRAGIN").is_ok() {
             app.drag_in = true; // 시험용: 파일을 끌고 온 모습

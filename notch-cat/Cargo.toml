@@ -9,6 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 serde_json = "1"
+qrcodegen = "1.8"
 windows-core = "0.58"
 
 [dependencies.windows]
