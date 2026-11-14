@@ -277,6 +277,31 @@ enum Ev {
     Text(String),   // 일정 넣기: 한글 조합이 끝난 글자
     Comp(String),   // 일정 넣기: 조합 중인 한글(밑줄로 보인다)
     Blur,           // 일정 넣기: 다른 창을 눌러 자판을 잃었다
+    Tab(i32),       // 노치 위에서 Tab(+1 다음 쪽) · Shift+Tab(-1 앞 쪽)
+}
+
+/// 노치가 펼쳐져 있고 마우스가 그 위에 있다(일정 칸에 적는 중은 아니다) — 이때만 Tab 을 노치가 가져간다
+static TAB_OK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Tab 을 노치가 가져갈지: 가져가면 넘길 방향(+1 다음 · -1 앞)
+fn tab_dir(vk: u32, ok: bool, shift: bool) -> Option<i32> {
+    (vk == 0x09 && ok).then_some(if shift { -1 } else { 1 })
+}
+
+/// 자판 엿듣기: 노치 위에 마우스가 있을 때만 Tab 을 받아 쪽을 넘기고, 그 밖에선 그대로 흘려보낸다
+unsafe extern "system" fn kb_hook(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_SHIFT};
+    if code >= 0 {
+        let k = &*(lp.0 as *const KBDLLHOOKSTRUCT);
+        let ok = TAB_OK.load(std::sync::atomic::Ordering::Relaxed);
+        if let Some(d) = tab_dir(k.vkCode, ok, GetKeyState(VK_SHIFT.0 as i32) < 0) {
+            if wp.0 as u32 == WM_KEYDOWN || wp.0 as u32 == WM_SYSKEYDOWN {
+                push(Ev::Tab(d));
+            }
+            return LRESULT(1); // 눌림·뗌 모두 삼킨다(아래 창에 Tab 이 가지 않게)
+        }
+    }
+    CallNextHookEx(None, code, wp, lp)
 }
 
 thread_local! {
@@ -3397,6 +3422,7 @@ unsafe fn run() -> Result<()> {
         }
     }
 
+    let _kb = SetWindowsHookExW(WH_KEYBOARD_LL, Some(kb_hook), HINSTANCE(GetModuleHandleW(None).unwrap_or_default().0), 0);
     let mut last = Instant::now();
     let mut was_anim = false;
     let mut msg = MSG::default();
@@ -3478,6 +3504,7 @@ unsafe fn run() -> Result<()> {
                 Ev::Click(x, y) => app.click(x, y),
                 Ev::Char(c) => app.ent_char(c),
                 Ev::Key(k) => app.ent_key(k),
+                Ev::Tab(d) => app.turn(d),
                 Ev::Text(t) => {
                     if let Some(e) = app.ent.as_mut() {
                         e.seg = None; // 한글을 치면 제목 칸으로
@@ -3519,6 +3546,7 @@ unsafe fn run() -> Result<()> {
                 }
             }
         }
+        TAB_OK.store(app.hover && !TYPING.with(|t| t.get()), std::sync::atomic::Ordering::Relaxed);
         let anim = app.animating();
         if anim || app.dirty {
             let dt = if was_anim { last.elapsed().as_secs_f32() } else { 1.0 / 60.0 };
@@ -3565,5 +3593,18 @@ fn main() {
     if let Err(e) = unsafe { run() } {
         log(&format!("ERR {e:?}"));
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tab_tests {
+    use super::tab_dir;
+
+    #[test]
+    fn tab_only_over_notch() {
+        assert_eq!(tab_dir(0x09, true, false), Some(1)); // Tab → 다음 쪽
+        assert_eq!(tab_dir(0x09, true, true), Some(-1)); // Shift+Tab → 앞 쪽
+        assert_eq!(tab_dir(0x09, false, false), None); // 노치 밖·적는 중: 그대로 흘려보냄
+        assert_eq!(tab_dir(0x41, true, false), None); // 다른 키는 안 건드림
     }
 }
