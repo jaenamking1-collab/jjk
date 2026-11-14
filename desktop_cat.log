@@ -1,0 +1,19 @@
+2026-11-14 02:56:51 test mode=ground action=sit x=321 y=720 plats={'ground': 1, 'window': 2, 'icon': 1}
+2026-11-14 02:56:53 test mode=ground action=zoneout x=321 y=720 plats={'ground': 1, 'window': 2, 'icon': 1, 'edge': 101}
+2026-11-14 02:56:56 test mode=ground action=zoneout x=321 y=720 plats={'ground': 1, 'window': 2, 'icon': 1, 'edge': 101}
+2026-11-14 02:56:58 test mode=ground action=zoneout x=321 y=720 plats={'ground': 1, 'window': 2, 'icon': 1, 'edge': 101}
+2026-11-14 02:57:00 test mode=ground action=walk x=372 y=720 plats={'ground': 1, 'window': 2, 'icon': 1, 'edge': 103}
+2026-11-14 02:57:02 test mode=ground action=walk x=456 y=720 plats={'ground': 1, 'window': 2, 'icon': 1, 'edge': 106}
+2026-11-14 02:57:04 test mode=ground action=walk x=540 y=720 plats={'ground': 1, 'window': 2, 'icon': 1, 'edge': 102}
+2026-11-14 02:57:06 test mode=ground action=walk x=623 y=720 plats={'ground': 1, 'window': 2, 'icon': 1, 'edge': 99}
+2026-11-14 02:57:08 test mode=ground action=walk x=707 y=720 plats={'ground': 1, 'window': 2, 'icon': 1, 'edge': 95}
+2026-11-14 02:57:10 test mode=ground action=walk x=791 y=720 plats={'ground': 1, 'window': 2, 'icon': 1, 'edge': 88}
+2026-11-14 02:57:12 test mode=ground action=walk x=875 y=720 plats={'ground': 1, 'window': 2, 'icon': 1, 'edge': 84}
+2026-11-14 02:57:14 test mode=ground action=walk x=959 y=720 plats={'ground': 1, 'window': 2, 'icon': 1, 'edge': 85}
+2026-11-14 02:57:16 test mode=ground action=lookaround x=987 y=720 plats={'ground': 1, 'window': 2, 'icon': 1, 'edge': 87}
+2026-11-14 02:57:18 test mode=ground action=run x=660 y=720 plats={'ground': 1, 'window': 2, 'icon': 1, 'edge': 84}
+2026-11-14 02:57:20 test mode=ground action=watch x=649 y=720 plats={'ground': 1, 'window': 2, 'icon': 1, 'edge': 99}
+2026-11-14 02:57:22 test mode=ground action=trot x=786 y=720 plats={'ground': 1, 'window': 2, 'icon': 1, 'edge': 88}
+2026-11-14 02:57:24 test mode=air action=air x=840 y=371 plats={'ground': 1, 'window': 2, 'icon': 1, 'edge': 127}
+2026-11-14 02:57:25 test mode=ground action=sit x=482 y=720 plats={'ground': 1, 'window': 2, 'icon': 1}
+2026-11-14 02:57:27 test mode=ground action=walk x=481 y=720 plats={'ground': 1, 'window': 2, 'icon': 1, 'edge': 106}
