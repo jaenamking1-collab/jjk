@@ -18,6 +18,8 @@ mod menu;
 mod meter;
 mod notif;
 mod queue;
+mod rec;
+mod trim;
 mod alsong;
 mod wmp;
 mod quotes;
@@ -289,6 +291,8 @@ enum Ev {
     Snap,           // 스크린샷 찍기(PrintScreen · 카메라 물방울)
     Snapped,        // 영역을 다 골랐다(또는 취소)
     EdToast,        // 편집 창이 알림을 부탁했다
+    RecSaving,      // 녹화를 멈췄다(저장 중)
+    RecDone,        // 녹화 저장 끝(또는 취소)
     Tick,
     Tray,
     Wheel(i32), // 휠: -1 왼쪽 쪽, +1 오른쪽 쪽
@@ -389,6 +393,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         0x031D /* WM_CLIPBOARDUPDATE */ => push(Ev::Clip),
         capture::WM_SNAPPED => push(Ev::Snapped),
         editor::WM_EDTOAST => push(Ev::EdToast),
+        rec::WM_RECSAVING => push(Ev::RecSaving),
+        rec::WM_RECDONE => push(Ev::RecDone),
         WM_MOUSEACTIVATE if !TYPING.with(|t| t.get()) => return LRESULT(MA_NOACTIVATE as isize),
         WM_CHAR if TYPING.with(|t| t.get()) => {
             push(Ev::Char(wp.0 as u32));
@@ -771,6 +777,7 @@ enum Hit {
     ClipClear,        // 최근 모두 지우기
     ShelfItem(usize), // 선반: 두 번 누르면 열기, 끌면 복사해 내리기
     Snap,             // 카메라 물방울: 스크린샷
+    Rec,              // 빨간 원: 화면 녹화
     ClipCopyOpen,     // 펼친 그림 다시 복사
     ClipEdit,         // 펼친 그림 편집
     ClipFold,         // 펼친 그림 접기
@@ -3191,16 +3198,30 @@ impl App {
         let g = &self.g;
         let edge = WIN_W / 2.0 - w / 2.0;
         let (sz, ftop) = (44.0, (h / 2.0 - 22.0).max(4.0));
+        let bw = sz * 2.0 - 4.0; // 빨간 원(녹화) + 카메라(스크린샷)
         let e = self.cam.pos.clamp(0.0, 1.3);
-        let b = goo(g, edge, -1.0, 0.0, h, sz, sz, ftop, e, 100.0, 100.0);
-        self.cam_rect = [edge - SET_GAP - sz - 30.0, 0.0, edge, ftop + sz + 20.0];
+        let b = goo(g, edge, -1.0, 0.0, h, bw, sz, ftop, e, 100.0, 100.0);
+        self.cam_rect = [edge - SET_GAP - bw - 30.0, 0.0, edge, ftop + sz + 20.0];
         let a = ((self.cam.pos - 0.6) / 0.35).clamp(0.0, 1.0);
         if a <= 0.0 || b[2] < 10.0 {
             return;
         }
-        let (cx, cy) = (b[0] + b[2] / 2.0, b[1] + b[3] / 2.0);
         let (mx, my) = self.mouse;
-        let hit = [b[0], b[1], b[0] + b[2], b[1] + b[3]];
+        let half = b[2] / 2.0;
+        // 왼쪽 절반: 빨간 원(화면 녹화)
+        let rh = [b[0], b[1], b[0] + half, b[1] + b[3]];
+        let ron = mx >= rh[0] && mx < rh[2] && my >= rh[1] && my < rh[3];
+        let (rx, ry) = (b[0] + half / 2.0 + 2.0, b[1] + b[3] / 2.0);
+        g.ellipse(rx, ry, 9.5, 9.5, (0.94, 0.27, 0.27), a * if ron { 1.0 } else { 0.85 });
+        if ron {
+            g.ellipse(rx, ry, 12.5, 12.5, (0.94, 0.27, 0.27), a * 0.25);
+        }
+        if p > 0.9 {
+            self.hits.push((rh, Hit::Rec));
+        }
+        // 오른쪽 절반: 카메라(스크린샷)
+        let (cx, cy) = (b[0] + half + half / 2.0 - 2.0, b[1] + b[3] / 2.0);
+        let hit = [b[0] + half, b[1], b[0] + b[2], b[1] + b[3]];
         let on = mx >= hit[0] && mx < hit[2] && my >= hit[1] && my < hit[3];
         let c = if on { LIME } else { FG };
         // 카메라: 몸통 + 위 혹 + 렌즈
@@ -3211,6 +3232,14 @@ impl App {
         if p > 0.9 {
             self.hits.push((hit, Hit::Snap));
         }
+    }
+
+    /// 화면 녹화: 노치를 숨기고 녹화 틀을 띄운다
+    unsafe fn rec_start(&mut self) {
+        self.leave();
+        log("rec: 틀 열기");
+        let _ = ShowWindow(self.hwnd, SW_HIDE);
+        rec::open(self.hwnd);
     }
 
     /// 스크린샷: 노치를 숨기고 화면을 얼려 영역을 고르게 한다
@@ -3716,6 +3745,10 @@ impl App {
                 self.snap();
                 return;
             }
+            Hit::Rec => {
+                self.rec_start();
+                return;
+            }
             Hit::ClipFold => {
                 self.clip_open = None;
                 return self.tick();
@@ -3993,7 +4026,7 @@ impl App {
             Hit::Line(t) => Cmd::Seek(t as i64),
             Hit::Shuffle => Cmd::Shuffle,
             Hit::Repeat => Cmd::Repeat,
-            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::AiLogin(_) | Hit::AiOpen(_) | Hit::AiGuideClose | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSchool | Hit::EntSave | Hit::EntClose | Hit::SetOpen(_) | Hit::SetClose | Hit::SetChip(_) | Hit::SetOpt(_) | Hit::ClipItem(..) | Hit::ClipPin(_) | Hit::ClipUnpin(_) | Hit::ClipClear | Hit::ShelfItem(_) | Hit::ShelfDel(_) | Hit::ShelfSend(_) | Hit::SendClose | Hit::Snap | Hit::ClipCopyOpen | Hit::ClipEdit | Hit::ClipFold => return,
+            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::AiLogin(_) | Hit::AiOpen(_) | Hit::AiGuideClose | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSchool | Hit::EntSave | Hit::EntClose | Hit::SetOpen(_) | Hit::SetClose | Hit::SetChip(_) | Hit::SetOpt(_) | Hit::ClipItem(..) | Hit::ClipPin(_) | Hit::ClipUnpin(_) | Hit::ClipClear | Hit::ShelfItem(_) | Hit::ShelfDel(_) | Hit::ShelfSend(_) | Hit::SendClose | Hit::Snap | Hit::Rec | Hit::ClipCopyOpen | Hit::ClipEdit | Hit::ClipFold => return,
         };
         let _ = self.tx.send(cmd);
     }
@@ -4396,6 +4429,9 @@ unsafe fn run() -> Result<()> {
                 }
             }
         }
+        if std::env::var("NOTCH_CAT_RECUI").is_ok() {
+            app.rec_start(); // 시험용: 녹화 틀을 바로 띄운다
+        }
         if std::env::var("NOTCH_CAT_CLIPOPEN").is_ok() && !app.clip.recent.is_empty() {
             app.clip_open = Some((false, 0)); // 시험용: 맨 앞 그림을 펼친 채로
         }
@@ -4606,6 +4642,30 @@ unsafe fn run() -> Result<()> {
                         let _ = editor::open(hwnd, px, w, h);
                         app.toast("스크린샷을 찍었습니다", "클립보드에 넣었고 편집 창을 열었습니다", None, 4);
                         log(&format!("snap: {w}×{h}"));
+                    }
+                    app.tick();
+                }
+                Ev::RecSaving => {
+                    let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+                    app.toast("녹화 저장 중", "잠시만 기다려 주세요", None, 60);
+                    app.tick();
+                }
+                Ev::RecDone => {
+                    let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+                    let r = rec::DONE.lock().unwrap().take();
+                    match r {
+                        Some(Ok(path)) => {
+                            let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+                            log(&format!("rec: 저장 {name}"));
+                            app.shelf.add(&[path.display().to_string()]); // 파일 선반에도 올려 바로 끌어 쓰게
+                            app.shelf.save();
+                            app.toast("녹화를 저장했습니다", &format!("동영상 › NotchCat › {name}"), None, 6);
+                        }
+                        Some(Err(e)) => {
+                            log(&format!("rec: 실패 {e}"));
+                            app.toast("녹화를 저장하지 못했습니다", &e, None, 8);
+                        }
+                        None => {}
                     }
                     app.tick();
                 }

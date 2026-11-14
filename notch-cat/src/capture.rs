@@ -30,11 +30,16 @@ static ST: Mutex<Option<St>> = Mutex::new(None);
 
 /// 화면의 한 부분을 BGRA 로 읽는다(가상 화면 좌표)
 pub unsafe fn grab(x: i32, y: i32, w: i32, h: i32) -> Vec<u8> {
+    grab_with(x, y, w, h, true)
+}
+
+/// layered = false 면 빠르게(녹화용 — 투명 창까지 엄밀히 받지 않는다)
+pub unsafe fn grab_with(x: i32, y: i32, w: i32, h: i32, layered: bool) -> Vec<u8> {
     let scr = GetDC(None);
     let mem = CreateCompatibleDC(scr);
     let bmp = CreateCompatibleBitmap(scr, w, h);
     let old = SelectObject(mem, bmp);
-    let _ = BitBlt(mem, 0, 0, w, h, scr, x, y, SRCCOPY | CAPTUREBLT);
+    let _ = BitBlt(mem, 0, 0, w, h, scr, x, y, if layered { SRCCOPY | CAPTUREBLT } else { SRCCOPY });
     let mut bi = BITMAPINFO { bmiHeader: BITMAPINFOHEADER { biSize: 40, biWidth: w, biHeight: -h, biPlanes: 1, biBitCount: 32, ..Default::default() }, ..Default::default() };
     let mut px = vec![0u8; (w * h * 4) as usize];
     GetDIBits(mem, bmp, 0, h as u32, Some(px.as_mut_ptr() as _), &mut bi, DIB_RGB_COLORS);
