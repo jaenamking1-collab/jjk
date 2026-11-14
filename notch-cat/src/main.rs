@@ -11,6 +11,7 @@ mod lrc;
 mod lyrics;
 mod naver;
 mod media;
+mod menu;
 mod meter;
 mod notif;
 mod queue;
@@ -51,13 +52,16 @@ use spring::Spring;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // 창(=그릴 수 있는 최대 넓이), 논리 단위
-const WIN_W: f32 = 920.0; // 음악 화면 + 다음 곡 목록까지 들어가게
+const WIN_W: f32 = 1560.0; // 음악 화면 + 다음 곡 목록, 큰 달력 옆에 설정 물방울까지 들어가게
 const QW: f32 = 290.0; // 다음 곡 목록 칸 너비
 const WIN_H: f32 = 800.0; // 큰 달력 + 일정 칸 + 알림 물방울까지
 // 일정 넣기 칸(노치 아래로 물방울처럼 나온다)
 const ENT_W: f32 = 560.0;
 const ENT_H: f32 = 112.0;
 const ENT_GAP: f32 = 18.0;
+const SET_W: f32 = 300.0; // 노치 옆으로 흘러나오는 설정 물방울 너비
+const SET_GAP: f32 = 18.0;
+const SET_COMMON: usize = usize::MAX; // 공통 설정(맨 위 점 옆 ⚙)
 const NOTE_H: f32 = 54.0; // 적는 동안 칸 아래로 나오는 알림 물방울 높이
 
 /// 날짜·시각 칸에서 옆 칸으로(d = +1 오른쪽, -1 왼쪽). 종일이면 월·일만 있다. 끝이면 None.
@@ -191,6 +195,7 @@ struct Cfg {
     wbig: bool,  // 날씨 쪽을 큰 판으로
     cv: usize,   // 달력 쪽 모양(CALV 번호)
     place: (f64, f64), // 날씨를 볼 곳(위도, 경도). settings.json 의 lat·lon, 없으면 서울
+    pages: menu::Order, // 쪽 차례·켜짐(설정 물방울의 메뉴 정리)
 }
 
 impl Cfg {
@@ -208,11 +213,11 @@ impl Cfg {
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        Cfg { hide_fullscreen: v["hide_fullscreen"].as_bool().unwrap_or(true), autostart: v["autostart"].as_bool().unwrap_or(true), aside: v["aside"].as_bool().unwrap_or(false), tiny: v["tiny"].as_bool().unwrap_or(true), bar: v["bar"].as_bool().unwrap_or(false), two: v["two"].as_bool().unwrap_or(true), ml: (v["ml"].as_u64().unwrap_or(0) as usize).min(2), wbig: v["wbig"].as_bool().unwrap_or(true), cv: 2, lnk: v["lnk"].as_str().unwrap_or("").into(), place: (v["lat"].as_f64().unwrap_or(37.57), v["lon"].as_f64().unwrap_or(126.98)) }
+        Cfg { hide_fullscreen: v["hide_fullscreen"].as_bool().unwrap_or(true), autostart: v["autostart"].as_bool().unwrap_or(true), aside: v["aside"].as_bool().unwrap_or(false), tiny: v["tiny"].as_bool().unwrap_or(true), bar: v["bar"].as_bool().unwrap_or(false), two: v["two"].as_bool().unwrap_or(true), ml: (v["ml"].as_u64().unwrap_or(0) as usize).min(2), wbig: v["wbig"].as_bool().unwrap_or(true), cv: 2, lnk: v["lnk"].as_str().unwrap_or("").into(), place: (v["lat"].as_f64().unwrap_or(37.57), v["lon"].as_f64().unwrap_or(126.98)), pages: menu::parse(&v["pages"]) }
     }
 
     fn save(&self) {
-        let v = serde_json::json!({ "hide_fullscreen": self.hide_fullscreen, "autostart": self.autostart, "aside": self.aside, "tiny": self.tiny, "bar": self.bar, "two": self.two, "ml": self.ml, "wbig": self.wbig, "cv": self.cv, "lnk": self.lnk, "lat": self.place.0, "lon": self.place.1 });
+        let v = serde_json::json!({ "hide_fullscreen": self.hide_fullscreen, "autostart": self.autostart, "aside": self.aside, "tiny": self.tiny, "bar": self.bar, "two": self.two, "ml": self.ml, "wbig": self.wbig, "cv": self.cv, "lnk": self.lnk, "lat": self.place.0, "lon": self.place.1, "pages": menu::save(&self.pages) });
         let _ = std::fs::write(data_dir().join("settings.json"), v.to_string());
     }
 
@@ -269,6 +274,7 @@ enum Ev {
     Move(f32, f32),
     Leave,
     Click(f32, f32),
+    Down(f32, f32), // 왼쪽 단추 누름(끌기 시작)
     Tick,
     Tray,
     Wheel(i32), // 휠: -1 왼쪽 쪽, +1 오른쪽 쪽
@@ -356,6 +362,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         // 휠을 위로(또는 왼쪽으로) 굴리면 왼쪽 쪽, 아래로(또는 오른쪽으로) 굴리면 오른쪽 쪽
         WM_MOUSEWHEEL => push(Ev::Wheel(if ((wp.0 >> 16) as i16) > 0 { -1 } else { 1 })),
         WM_MOUSEHWHEEL => push(Ev::Wheel(if ((wp.0 >> 16) as i16) > 0 { 1 } else { -1 })),
+        WM_LBUTTONDOWN => push(Ev::Down((lp.0 & 0xFFFF) as i16 as f32, ((lp.0 >> 16) & 0xFFFF) as i16 as f32)),
         WM_LBUTTONUP => push(Ev::Click((lp.0 & 0xFFFF) as i16 as f32, ((lp.0 >> 16) & 0xFFFF) as i16 as f32)),
         WM_TIMER => push(Ev::Tick),
         WM_MOUSEACTIVATE if !TYPING.with(|t| t.get()) => return LRESULT(MA_NOACTIVATE as isize),
@@ -571,6 +578,24 @@ unsafe fn queue_btn(g: &Gfx, cx: f32, cy: f32, r: f32, on: bool, a: f32) {
     }
 }
 
+/// 작은 톱니(공통 설정 단추)
+unsafe fn gear(g: &Gfx, x: f32, y: f32, c: Rgb, a: f32) {
+    for k in 0..8 {
+        let ang = k as f32 * std::f32::consts::PI / 4.0;
+        g.ellipse(x + ang.cos() * 4.6, y + ang.sin() * 4.6, 1.6, 1.6, c, a);
+    }
+    g.ellipse(x, y, 4.2, 4.2, c, a);
+    g.ellipse(x, y, 1.8, 1.8, BG, 1.0);
+}
+
+/// 끌어 놓은 곳에서 가장 가까운 칩(차례 번호)
+fn nearest_chip(chips: &[[f32; 4]], x: f32, y: f32) -> Option<usize> {
+    chips.iter().enumerate().min_by(|a, b| {
+        let d = |r: &[f32; 4]| ((r[0] + r[2]) / 2.0 - x).powi(2) + ((r[1] + r[3]) / 2.0 - y).powi(2) * 4.0;
+        d(a.1).total_cmp(&d(b.1))
+    }).map(|(k, _)| k)
+}
+
 unsafe fn ribbon(g: &Gfx, p: &[(f32, f32)], wf: impl Fn(f32) -> f32, c: Rgb, a: f32) {
     if a <= 0.01 || p.len() < 2 {
         return;
@@ -640,6 +665,10 @@ enum Hit {
     EntSchool,     // 일정 넣기: 학교일정 켜고 끄기
     EntSave,
     EntClose,
+    SetOpen(usize), // 설정 물방울 열기(SET_COMMON = 공통)
+    SetClose,
+    SetChip(usize), // 메뉴 정리: 차례 k 번째 쪽(누르면 켜고 끄기, 끌면 순서)
+    SetOpt(u32),    // 켜고 끄는 설정(오른쪽 클릭 메뉴와 같은 번호)
     Shuffle,
     Repeat,
     Queue,        // 다음 곡 목록 열고 닫기
@@ -688,6 +717,11 @@ struct App {
     arr: [Spring; 2],  // 좌우 손잡이에 마우스가 올라간 정도 0…1(살짝 튕긴다)
     ent: Option<Ent>,  // 노치에서 튀어나온 일정 넣기 칸
     drop: Spring,      // 그 칸이 물방울처럼 나오는 정도 0…1
+    set: Option<usize>, // 열린 설정 물방울(쪽 번호, SET_COMMON = 공통)
+    sd: Spring,        // 설정 물방울이 나온 정도 0…1
+    set_rect: [f32; 4], // 지난 장면의 설정 물방울 자리(창 영역에 넣는다)
+    chips: Vec<[f32; 4]>, // 메뉴 정리 칩 자리(차례대로)
+    drag: Option<(usize, f32, f32)>, // 끌고 있는 칩(차례, 누른 곳 x, y)
     nb: Spring,        // 적는 동안 온 알림이 칸 아래로 볼록 나온 정도 0…1
     pgf: Spring,       // 쪽이 바뀔 때 내용이 다시 떠오르는 정도 0…1
     big: bool,         // 시세 쪽: 값까지 나오는 큰 판
@@ -752,7 +786,7 @@ struct App {
 
 impl App {
     fn animating(&self) -> bool {
-        !(self.w.settled() && self.h.settled() && self.fade.settled() && self.scroll.settled() && self.tm.settled() && self.ck.settled() && self.pgf.settled() && self.arr[0].settled() && self.arr[1].settled() && self.drop.settled() && self.nb.settled() && self.bg.settled() && self.qs.iter().all(Spring::settled) && self.face.settled())
+        !(self.w.settled() && self.h.settled() && self.fade.settled() && self.scroll.settled() && self.tm.settled() && self.ck.settled() && self.pgf.settled() && self.arr[0].settled() && self.arr[1].settled() && self.drop.settled() && self.sd.settled() && self.nb.settled() && self.bg.settled() && self.qs.iter().all(Spring::settled) && self.face.settled())
     }
 
     /// 0.05초마다: 음악·가사 상태를 읽어 목표 크기와 보일 글자를 정한다.
@@ -1095,6 +1129,12 @@ impl App {
         };
         let rx = (WIN_W - rw) / 2.0;
         let rgn = if h < 0.5 { [0; 4] } else { [((rx - m) * s).floor() as i32, 0, ((rx + rw + m) * s).ceil() as i32, ((rh + m) * s).ceil() as i32] };
+        let rgn = if h >= 0.5 && (self.set.is_some() || self.sd.pos > 0.02) && self.set_rect[2] > self.set_rect[0] {
+            let r = self.set_rect;
+            [rgn[0].min(((r[0] - m) * s).floor() as i32), 0, rgn[2].max(((r[2] + m) * s).ceil() as i32), rgn[3].max(((r[3] + m) * s).ceil() as i32)]
+        } else {
+            rgn
+        };
         if rgn != self.rgn {
             self.rgn = rgn;
             SetWindowRgn(self.hwnd, CreateRectRgn(rgn[0], rgn[1], rgn[2], rgn[3]), false);
@@ -1342,8 +1382,19 @@ impl App {
             // 쪽 표시(위 가운데 점). 넘기는 손잡이는 몸통 옆에 따로 그린다.
             if p > 0.5 && self.mode != 2 {
                 let pa = ((p - 0.5) * 2.0).clamp(0.0, 1.0);
-                for i in 0..5 {
-                    g.ellipse(x + w / 2.0 + (i as f32 - 2.0) * 12.0, 8.0, 2.5, 2.5, FG, pa * if i == self.page { 0.9 } else { 0.3 });
+                let en = menu::enabled(&self.cfg.pages);
+                let half = (en.len() as f32 - 1.0) / 2.0;
+                for (k, pg) in en.iter().enumerate() {
+                    g.ellipse(x + w / 2.0 + (k as f32 - half) * 12.0, 8.0, 2.5, 2.5, FG, pa * if *pg == self.page { 0.9 } else { 0.3 });
+                }
+                // 공통 설정 톱니: 점들 오른쪽
+                let gx = x + w / 2.0 + (half + 1.0) * 12.0 + 6.0;
+                let gb = [gx - 9.0, 0.0, gx + 9.0, 17.0];
+                let (mx, my) = self.mouse;
+                let on = self.set == Some(SET_COMMON) || (mx >= gb[0] && mx < gb[2] && my >= gb[1] && my < gb[3]);
+                gear(g, gx, 8.0, if on { LIME } else { FG }, pa * if on { 1.0 } else { 0.45 });
+                if p > 0.9 {
+                    self.hits.push((gb, Hit::SetOpen(SET_COMMON)));
                 }
             }
             // 쪽 넘김: 몸통 안쪽 양끝의 얇은 화살표. 평소엔 거의 안 보이고, 끝에 마우스를 대면 라임색으로 또렷해진다.
@@ -2305,6 +2356,9 @@ impl App {
         if self.ent.is_some() && h >= 0.5 {
             self.draw_entry(h);
         }
+        if h >= 0.5 && (self.set.is_some() || self.sd.pos > 0.02) {
+            self.draw_set(h);
+        }
         let g = &self.g;
         g.present()?;
         if let Ok(dir) = std::env::var("NOTCH_CAT_SHOT") {
@@ -2428,12 +2482,11 @@ impl App {
 
     /// 쪽 넘기기. 지금은 두 쪽이라 어느 쪽으로 넘겨도 서로 오간다.
     unsafe fn turn(&mut self, d: i32) {
-        const PAGES: i32 = 5;
         if !self.hover || self.paged.elapsed() < Duration::from_millis(250) {
             return;
         }
         self.paged = Instant::now();
-        self.page = (self.page as i32 + d).rem_euclid(PAGES) as usize;
+        self.page = menu::step(&self.cfg.pages, self.page, d); // 꺼 둔 쪽은 건너뛴다
         self.pgf.pos = 0.0;
         self.pgf.target = 1.0;
         self.tick();
@@ -2516,8 +2569,11 @@ impl App {
         self.tracking = false;
         self.hover = false;
         if !self.naver_guide && self.ai_guide.is_none() {
-            self.page = 0; // 연결 안내 중이면 브라우저에 다녀와도 그 쪽 그대로
+            self.page = menu::first(&self.cfg.pages); // 연결 안내 중이면 브라우저에 다녀와도 그 쪽 그대로
         }
+        self.set = None;
+        self.sd.target = 0.0;
+        self.drag = None;
         self.cal_month = 0;
         self.cal_big = false;
         self.cfg.cv = 2; // 달력 쪽은 늘 '달력+목록'이 첫 화면('모양'을 누르면 한 주 줄 → 한 달 → 다시 이것)
@@ -2694,6 +2750,138 @@ impl App {
             _ => {}
         }
         self.dirty = true;
+    }
+
+    /// 노치 옆(오른쪽, 자리가 모자라면 왼쪽)으로 흘러나오는 설정 물방울. 일정 칸처럼 오목한 목으로 몸통과 이어진다.
+    unsafe fn draw_set(&mut self, h: f32) {
+        let t = self.sd.pos;
+        if self.set.is_none() && t < 0.02 && self.sd.target == 0.0 {
+            self.set_rect = [0.0; 4];
+            return;
+        }
+        let g = &self.g;
+        let tt = t.clamp(0.0, 1.3);
+        let w = self.w.pos;
+        // 오른쪽에 자리가 있나(비켜 놓기면 창이 오른쪽으로 가 있다)
+        let half_mon = (self.mon.right - self.mon.left) as f32 / self.scale / 2.0;
+        let dx = if self.cfg.aside { 460.0 } else { 0.0 };
+        let dir = if half_mon - dx - w / 2.0 > SET_GAP + SET_W + 8.0 { 1.0 } else { -1.0 };
+        let edge_x = WIN_W / 2.0 + dir * w / 2.0;
+        let near = edge_x + dir * SET_GAP * tt.min(1.0);
+        // 내용 높이: 칩 줄 수에 맞춘다
+        let names: Vec<(usize, bool, f32)> = self.cfg.pages.iter().map(|(i, on)| (*i, *on, g.measure(menu::NAMES[*i], &g.f_bar) + 24.0)).collect();
+        let inner = SET_W - 32.0;
+        let mut rows = 1;
+        let mut cx = 0.0;
+        for n in &names {
+            if cx + n.2 > inner && cx > 0.0 {
+                rows += 1;
+                cx = 0.0;
+            }
+            cx += n.2 + 6.0;
+        }
+        let opts: [(u32, &str, bool); 4] = [
+            (1, "전체 화면일 때 숨기기", self.cfg.hide_fullscreen),
+            (2, "윈도우 시작할 때 자동 실행", self.cfg.autostart),
+            (4, "오른쪽으로 비켜 놓기", self.cfg.aside),
+            (6, "꽉 찬 창에선 마우스가 오면 작게", self.cfg.tiny),
+        ];
+        let sh = 64.0 + rows as f32 * 30.0 + 14.0 + opts.len() as f32 * 28.0 + 40.0;
+        let bw = SET_W * (0.3 + 0.7 * tt.min(1.15));
+        let bh = sh * tt;
+        let top = 2.0;
+        let bx = if dir > 0.0 { near } else { near - bw };
+        let full_x = if dir > 0.0 { near } else { near - SET_W };
+        self.set_rect = [full_x.min(bx) - 2.0, 0.0, (full_x + SET_W).max(bx + bw) + 2.0, top + sh.max(bh) + 6.0];
+        if bh < 2.0 {
+            return;
+        }
+        // 목: 몸통 옆과 물방울 옆을 잇는 오목한 다리(붙는 곳은 넓고 가운데는 잘록)
+        let ny = (h.min(bh) / 2.0).max(18.0);
+        let edge = (h.min(bh) * 0.38).min(80.0) * tt.min(1.0);
+        let waist = 16.0 * tt.min(1.0) + 5.0;
+        let (x0, x1) = (edge_x - dir * 6.0, near + dir * 6.0);
+        let n = 14;
+        let mut pts: Vec<(f32, f32)> = Vec::with_capacity(2 * n + 2);
+        for k in 0..=n {
+            let u = k as f32 / n as f32;
+            pts.push((x0 + (x1 - x0) * u, ny - (waist + (edge - waist) * (2.0 * u - 1.0).powi(2))));
+        }
+        for k in (0..=n).rev() {
+            let u = k as f32 / n as f32;
+            pts.push((x0 + (x1 - x0) * u, ny + (waist + (edge - waist) * (2.0 * u - 1.0).powi(2))));
+        }
+        let rr = 22.0_f32.min(bh / 2.0);
+        g.rrect(bx - 1.0, top + 4.0, bw + 2.0, bh, rr, (0.0, 0.0, 0.0), 0.35 * tt.min(1.0)); // 그림자
+        g.poly(&pts, BG, 1.0);
+        g.rrect(bx, top, bw, bh, rr, BG, 1.0);
+        let a = ((t - 0.55) / 0.4).clamp(0.0, 1.0);
+        if a <= 0.0 || self.set.is_none() {
+            return;
+        }
+        let (l, r) = (full_x + 16.0, full_x + SET_W - 16.0);
+        let (mx, my) = self.mouse;
+        let over = |b: [f32; 4]| mx >= b[0] && mx < b[2] && my >= b[1] && my < b[3];
+        let mut hits: Vec<([f32; 4], Hit)> = Vec::new();
+        g.text("설정", &g.f_sub, l, top + 12.0, 200.0, FG, a, Align::Left);
+        let xb = [r - 24.0, top + 10.0, r, top + 34.0];
+        g.ellipse(r - 12.0, top + 22.0, 11.0, 11.0, FG, a * if over(xb) { 0.18 } else { 0.07 });
+        ribbon(g, &[(r - 16.0, top + 18.0), (r - 8.0, top + 26.0)], |_| 1.5, FG, a * 0.8);
+        ribbon(g, &[(r - 8.0, top + 18.0), (r - 16.0, top + 26.0)], |_| 1.5, FG, a * 0.8);
+        hits.push((xb, Hit::SetClose));
+        // 메뉴 정리
+        g.text("메뉴 · 누르면 켜고 끄기 · 끌어서 순서", &g.f_tiny, l, top + 42.0, inner, FG, a * 0.5, Align::Left);
+        let mut chips = Vec::new();
+        let (mut cx, mut cy) = (l, top + 60.0);
+        for (k, (_, on, cw)) in names.iter().enumerate() {
+            if cx + cw > r && cx > l {
+                cx = l;
+                cy += 30.0;
+            }
+            chips.push([cx, cy, cx + cw, cy + 24.0]);
+            cx += cw + 6.0;
+            let _ = k;
+            let _ = on;
+        }
+        let dragging = self.drag.filter(|(_, sx, sy)| (mx - sx).abs() + (my - sy).abs() > 6.0).map(|d| d.0);
+        let target = dragging.and_then(|_| nearest_chip(&chips, mx, my));
+        for (k, b) in chips.iter().enumerate() {
+            let (i, on, cw) = names[k];
+            if dragging == Some(k) {
+                g.rrect(b[0], b[1], cw, 24.0, 12.0, FG, a * 0.05); // 빈 자리
+            } else {
+                let hl = target == Some(k);
+                g.rrect(b[0], b[1], cw, 24.0, 12.0, if on { LIME } else { FG }, a * if hl { 0.4 } else if on { 0.24 } else if over(*b) { 0.14 } else { 0.06 });
+                g.text(menu::NAMES[i], &g.f_bar, b[0], b[1] + 4.0, cw, if on { LIME } else { FG }, a * if on { 1.0 } else { 0.4 }, Align::Center);
+            }
+            hits.push((*b, Hit::SetChip(k)));
+        }
+        if let Some(k) = dragging {
+            let (i, on, cw) = names[k];
+            g.rrect(mx - cw / 2.0, my - 12.0, cw, 24.0, 12.0, if on { LIME } else { FG }, a * 0.5); // 끌려오는 칩
+            g.text(menu::NAMES[i], &g.f_bar, mx - cw / 2.0, my - 8.0, cw, if on { PUPIL } else { FG }, a, Align::Center);
+        }
+        self.chips = chips;
+        // 켜고 끄는 설정
+        let mut y = cy + 38.0;
+        g.rrect(l, y - 8.0, inner, 1.0, 0.5, FG, a * 0.12);
+        for (id, label, on) in opts {
+            let b = [l - 4.0, y - 3.0, r + 4.0, y + 23.0];
+            if over(b) {
+                g.rrect(b[0], b[1], b[2] - b[0], 26.0, 8.0, FG, a * 0.06);
+            }
+            g.text(label, &g.f_body, l, y + 2.0, inner - 44.0, FG, a * 0.9, Align::Left);
+            let sx = r - 34.0;
+            g.rrect(sx, y + 3.0, 34.0, 18.0, 9.0, if on { LIME } else { FG }, a * if on { 0.9 } else { 0.18 });
+            g.ellipse(if on { sx + 25.0 } else { sx + 9.0 }, y + 12.0, 6.5, 6.5, if on { PUPIL } else { FG }, a * if on { 1.0 } else { 0.7 });
+            hits.push((b, Hit::SetOpt(id)));
+            y += 28.0;
+        }
+        let fb = [l, y + 4.0, l + 92.0, y + 28.0];
+        g.rrect(fb[0], fb[1], 92.0, 24.0, 12.0, LIME, a * if over(fb) { 0.3 } else { 0.18 });
+        g.text("얼굴 바꾸기", &g.f_bar, fb[0], fb[1] + 4.0, 92.0, LIME, a, Align::Center);
+        hits.push((fb, Hit::SetOpt(5)));
+        self.hits.extend(hits);
     }
 
     /// 노치 아래로 흘러나온 일정 넣기 칸. 몸통과 칸 사이를 오목한 목으로 이어 두 물방울이 붙은 것처럼 보이게 한다.
@@ -2923,6 +3111,34 @@ impl App {
         if let Hit::Page(d) = hit {
             return self.turn(d);
         }
+        match hit {
+            Hit::SetOpen(k) => {
+                self.set = if self.set == Some(k) { None } else { Some(k) };
+                self.sd.target = if self.set.is_some() { 1.0 } else { 0.0 };
+                return self.tick();
+            }
+            Hit::SetClose => {
+                self.set = None;
+                self.sd.target = 0.0;
+                return self.tick();
+            }
+            Hit::SetChip(k) => {
+                if menu::toggle(&mut self.cfg.pages, k) {
+                    if !menu::enabled(&self.cfg.pages).contains(&self.page) {
+                        self.page = menu::step(&self.cfg.pages, self.page, 1); // 지금 쪽을 껐으면 다음 켜진 쪽으로
+                    }
+                    self.cfg.save();
+                } else {
+                    self.face.slow_blink(300); // 마지막 하나는 못 끈다
+                }
+                return self.tick();
+            }
+            Hit::SetOpt(id) => {
+                self.menu_cmd(id);
+                return self.tick();
+            }
+            _ => {}
+        }
         if !matches!(hit, Hit::CalEv(..)) {
             self.cal_pop = None; // 일정 카드는 다른 곳을 누르면 닫힌다
         }
@@ -3095,7 +3311,7 @@ impl App {
             Hit::Line(t) => Cmd::Seek(t as i64),
             Hit::Shuffle => Cmd::Shuffle,
             Hit::Repeat => Cmd::Repeat,
-            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::AiLogin(_) | Hit::AiOpen(_) | Hit::AiGuideClose | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSchool | Hit::EntSave | Hit::EntClose => return,
+            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::AiLogin(_) | Hit::AiOpen(_) | Hit::AiGuideClose | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSchool | Hit::EntSave | Hit::EntClose | Hit::SetOpen(_) | Hit::SetClose | Hit::SetChip(_) | Hit::SetOpt(_) => return,
         };
         let _ = self.tx.send(cmd);
     }
@@ -3127,6 +3343,11 @@ impl App {
         let _ = SetForegroundWindow(self.hwnd);
         let id = TrackPopupMenu(m, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, self.hwnd, None).0;
         let _ = DestroyMenu(m);
+        self.menu_cmd(id as u32)
+    }
+
+    /// 설정 하나 실행(오른쪽 클릭 메뉴·설정 물방울 공통). true 면 끝내기.
+    unsafe fn menu_cmd(&mut self, id: u32) -> bool {
         match id {
             1 => self.cfg.hide_fullscreen = !self.cfg.hide_fullscreen,
             2 => {
@@ -3310,6 +3531,11 @@ unsafe fn run() -> Result<()> {
         arr: [Spring::new(0.0, 320.0, 0.42), Spring::new(0.0, 320.0, 0.42)],
         ent: None,
         drop: Spring::new(0.0, 210.0, 0.5),
+        set: None,
+        sd: Spring::new(0.0, 210.0, 0.5),
+        set_rect: [0.0; 4],
+        chips: Vec::new(),
+        drag: None,
         nb: Spring::new(0.0, 210.0, 0.5),
         wx: {
             let w = Arc::new(Mutex::new(weather::Weather::default()));
@@ -3373,6 +3599,7 @@ unsafe fn run() -> Result<()> {
         qrows: vec![],
         qbmp: HashMap::new(),
     };
+    app.page = menu::first(&app.cfg.pages);
     app.place();
     app.draw()?; // 빈(투명) 첫 장을 낸 뒤에 창을 보인다
     let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
@@ -3389,6 +3616,10 @@ unsafe fn run() -> Result<()> {
         app.cal_big = std::env::var("NOTCH_CAT_CALBIG").is_ok();
         app.acct_menu = std::env::var("NOTCH_CAT_ACCT").is_ok(); // 시험용: '＋ 계정' 고르기 판
         app.naver_guide = std::env::var("NOTCH_CAT_NAVER").is_ok(); // 시험용: 네이버 연결 안내
+        if std::env::var("NOTCH_CAT_SET").is_ok() {
+            app.set = Some(SET_COMMON); // 시험용: 공통 설정 물방울을 연 채로
+            app.sd.target = 1.0;
+        }
         app.ai_guide = std::env::var("NOTCH_CAT_AIGUIDE").ok().and_then(|v| v.parse().ok()); // 시험용: AI 연결 안내
         if let Some(cv) = std::env::var("NOTCH_CAT_CV").ok().and_then(|v| v.parse::<usize>().ok()) {
             app.cfg.cv = cv.min(2); // 시험용: 달력 모양
@@ -3501,7 +3732,24 @@ unsafe fn run() -> Result<()> {
                 Ev::Leave if app.ent_up() => app.tracking = false, // 적는 동안은 마우스가 나가도 펼친 채로
                 Ev::Leave if app.saved_hold.is_some() => app.tracking = false, // 막 저장했다: 넣은 일정이 보이게 잠깐 펼친 채로
                 Ev::Leave => app.leave(),
-                Ev::Click(x, y) => app.click(x, y),
+                Ev::Down(x, y) => {
+                    let (lx, ly) = (x / app.scale, y / app.scale);
+                    app.drag = app.hits.iter().find(|(b, _)| lx >= b[0] && lx < b[2] && ly >= b[1] && ly < b[3]).and_then(|(_, h)| if let Hit::SetChip(k) = h { Some((*k, lx, ly)) } else { None });
+                }
+                Ev::Click(x, y) => {
+                    let (lx, ly) = (x / app.scale, y / app.scale);
+                    match app.drag.take() {
+                        Some((k, sx, sy)) if (lx - sx).abs() + (ly - sy).abs() > 6.0 => {
+                            // 끌어서 놓았다: 가장 가까운 칩 자리로 옮긴다
+                            if let Some(to) = nearest_chip(&app.chips, lx, ly) {
+                                menu::move_to(&mut app.cfg.pages, k, to);
+                                app.cfg.save();
+                            }
+                            app.dirty = true;
+                        }
+                        _ => app.click(x, y),
+                    }
+                }
                 Ev::Char(c) => app.ent_char(c),
                 Ev::Key(k) => app.ent_key(k),
                 Ev::Tab(d) => app.turn(d),
@@ -3555,6 +3803,7 @@ unsafe fn run() -> Result<()> {
             app.h.step(dt);
             app.fade.step(dt);
             app.drop.step(dt);
+            app.sd.step(dt);
             app.nb.step(dt);
             app.tm.step(dt);
             app.ck.step(dt);
