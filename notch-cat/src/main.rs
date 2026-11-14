@@ -208,7 +208,7 @@ impl Cfg {
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        Cfg { hide_fullscreen: v["hide_fullscreen"].as_bool().unwrap_or(true), autostart: v["autostart"].as_bool().unwrap_or(true), aside: v["aside"].as_bool().unwrap_or(false), tiny: v["tiny"].as_bool().unwrap_or(true), bar: v["bar"].as_bool().unwrap_or(false), two: v["two"].as_bool().unwrap_or(true), ml: (v["ml"].as_u64().unwrap_or(0) as usize).min(2), wbig: v["wbig"].as_bool().unwrap_or(true), cv: (v["cv"].as_u64().unwrap_or(2) as usize).min(2), lnk: v["lnk"].as_str().unwrap_or("").into(), place: (v["lat"].as_f64().unwrap_or(37.57), v["lon"].as_f64().unwrap_or(126.98)) }
+        Cfg { hide_fullscreen: v["hide_fullscreen"].as_bool().unwrap_or(true), autostart: v["autostart"].as_bool().unwrap_or(true), aside: v["aside"].as_bool().unwrap_or(false), tiny: v["tiny"].as_bool().unwrap_or(true), bar: v["bar"].as_bool().unwrap_or(false), two: v["two"].as_bool().unwrap_or(true), ml: (v["ml"].as_u64().unwrap_or(0) as usize).min(2), wbig: v["wbig"].as_bool().unwrap_or(true), cv: 2, lnk: v["lnk"].as_str().unwrap_or("").into(), place: (v["lat"].as_f64().unwrap_or(37.57), v["lon"].as_f64().unwrap_or(126.98)) }
     }
 
     fn save(&self) {
@@ -2495,6 +2495,7 @@ impl App {
         }
         self.cal_month = 0;
         self.cal_big = false;
+        self.cfg.cv = 2; // 달력 쪽은 늘 '달력+목록'이 첫 화면('모양'을 누르면 한 주 줄 → 한 달 → 다시 이것)
         self.cal_pop = None;
         self.acct_menu = false;
         self.mouse = (-1.0, -1.0);
