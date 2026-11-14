@@ -17,12 +17,14 @@ use windows::Win32::UI::Shell::SHCreateMemStream;
 pub const MAX: usize = 10;
 const CF_DIB: u32 = 8;
 const CF_UNICODETEXT: u32 = 13;
+const CF_HDROP: u32 = 15;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Item {
     pub id: u64,              // 받아 적은 때(밀리초) — 그림 파일 이름
     pub text: Option<String>, // 글자면 글자
     pub img: Option<(u32, u32)>, // 그림이면 크기
+    pub files: bool,          // 탐색기에서 복사한 파일들(text 에 경로가 줄마다)
     pub key: u64,             // 같은 것인지 가리는 값(글자 또는 PNG 바이트)
     pub at: String,           // 받아 적은 시각 "13:25"
 }
@@ -54,7 +56,7 @@ pub fn key_of(b: &[u8]) -> u64 {
 }
 
 fn item_json(i: &Item) -> Value {
-    json!({"id": i.id, "text": i.text, "w": i.img.map(|v| v.0), "h": i.img.map(|v| v.1), "key": i.key.to_string(), "at": i.at})
+    json!({"id": i.id, "files": i.files, "text": i.text, "w": i.img.map(|v| v.0), "h": i.img.map(|v| v.1), "key": i.key.to_string(), "at": i.at})
 }
 
 fn item_from(v: &Value) -> Option<Item> {
@@ -66,7 +68,7 @@ fn item_from(v: &Value) -> Option<Item> {
     if text.is_none() && img.is_none() {
         return None;
     }
-    Some(Item { id: v["id"].as_u64()?, text, img, key: v["key"].as_str()?.parse().ok()?, at: v["at"].as_str().unwrap_or("").into() })
+    Some(Item { id: v["id"].as_u64()?, files: v["files"].as_bool().unwrap_or(false), text, img, key: v["key"].as_str()?.parse().ok()?, at: v["at"].as_str().unwrap_or("").into() })
 }
 
 impl Clip {
@@ -110,6 +112,19 @@ impl Clip {
     /// 고정 k 번째를 뺀다(없어진 항목을 돌려준다 — 그림 파일을 지우라고)
     pub fn unpin(&mut self, k: usize) -> Option<Item> {
         (k < self.pinned.len()).then(|| self.pinned.remove(k))
+    }
+}
+
+/// 항목 종류 이름: 그림 · 파일 · 링크 · 글자
+pub fn kind(i: &Item) -> &'static str {
+    if i.img.is_some() {
+        "그림"
+    } else if i.files {
+        "파일"
+    } else if i.text.as_deref().is_some_and(|t| { let t = t.trim(); (t.starts_with("http://") || t.starts_with("https://") || t.starts_with("www.")) && !t.contains(char::is_whitespace) }) {
+        "링크"
+    } else {
+        "글자"
     }
 }
 
@@ -170,6 +185,23 @@ pub unsafe fn capture(hwnd: HWND, id: u64, at: String) -> Option<(Item, Option<(
                 }
             }
         }
+        if IsClipboardFormatAvailable(CF_HDROP).is_ok() {
+            let h = GetClipboardData(CF_HDROP).ok()?;
+            let hd = windows::Win32::UI::Shell::HDROP(h.0);
+            let n = windows::Win32::UI::Shell::DragQueryFileW(hd, u32::MAX, None);
+            let mut paths = Vec::new();
+            for k in 0..n {
+                let len = windows::Win32::UI::Shell::DragQueryFileW(hd, k, None) as usize;
+                let mut buf = vec![0u16; len + 1];
+                windows::Win32::UI::Shell::DragQueryFileW(hd, k, Some(&mut buf));
+                paths.push(String::from_utf16_lossy(&buf[..len]));
+            }
+            if paths.is_empty() {
+                return None;
+            }
+            let t = paths.join("\n");
+            return Some((Item { id, key: key_of(t.as_bytes()), text: Some(t), img: None, files: true, at }, None));
+        }
         if IsClipboardFormatAvailable(CF_UNICODETEXT).is_ok() {
             let b = GetClipboardData(CF_UNICODETEXT).ok().and_then(|h| global_bytes(h))?;
             let u: Vec<u16> = b.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).take_while(|c| *c != 0).collect();
@@ -178,12 +210,12 @@ pub unsafe fn capture(hwnd: HWND, id: u64, at: String) -> Option<(Item, Option<(
                 return None;
             }
             let t: String = t.chars().take(20_000).collect(); // 아주 긴 글은 앞부분만
-            return Some((Item { id, key: key_of(t.as_bytes()), text: Some(t), img: None, at }, None));
+            return Some((Item { id, key: key_of(t.as_bytes()), text: Some(t), img: None, files: false, at }, None));
         }
         if IsClipboardFormatAvailable(CF_DIB).is_ok() {
             let dib = GetClipboardData(CF_DIB).ok().and_then(|h| global_bytes(h))?;
             let (png, thumb, w, h) = dib_to_png(&dib).ok()?;
-            return Some((Item { id, key: key_of(&png), text: None, img: Some((w, h)), at }, Some((png, thumb))));
+            return Some((Item { id, key: key_of(&png), text: None, img: Some((w, h)), files: false, at }, Some((png, thumb))));
         }
         None
     })();
@@ -296,7 +328,18 @@ unsafe fn put(format: u32, bytes: &[u8]) -> bool {
 
 /// 항목을 클립보드에 다시 넣는다(붙여 넣기는 Ctrl+V)
 pub unsafe fn restore(hwnd: HWND, it: &Item) -> bool {
-    let data: Vec<(u32, Vec<u8>)> = if let Some(t) = &it.text {
+    let data: Vec<(u32, Vec<u8>)> = if let Some(t) = it.text.as_ref().filter(|_| it.files) {
+        // 파일 목록(DROPFILES) + '복사'로 붙여 넣기
+        let mut b: Vec<u8> = Vec::new();
+        for v in [20u32, 0, 0, 0, 1] {
+            b.extend_from_slice(&v.to_le_bytes());
+        }
+        for p in t.lines() {
+            b.extend(p.encode_utf16().chain([0]).flat_map(|c| c.to_le_bytes()));
+        }
+        b.extend_from_slice(&[0, 0]);
+        vec![(CF_HDROP, b), (fmt("Preferred DropEffect"), 1u32.to_le_bytes().to_vec())]
+    } else if let Some(t) = &it.text {
         let w: Vec<u8> = t.encode_utf16().chain([0]).flat_map(|c| c.to_le_bytes()).collect();
         vec![(CF_UNICODETEXT, w)]
     } else {
@@ -313,6 +356,77 @@ pub unsafe fn restore(hwnd: HWND, it: &Item) -> bool {
     ok
 }
 
+/// BGRA(위에서 아래로) → 클립보드용 DIB
+pub fn bgra_to_dib(px: &[u8], w: u32, h: u32) -> Vec<u8> {
+    let mut dib = Vec::with_capacity(40 + px.len());
+    for v in [40u32, w, h] {
+        dib.extend_from_slice(&v.to_le_bytes());
+    }
+    dib.extend_from_slice(&1u16.to_le_bytes());
+    dib.extend_from_slice(&32u16.to_le_bytes());
+    for v in [0u32, px.len() as u32, 0, 0, 0, 0] {
+        dib.extend_from_slice(&v.to_le_bytes());
+    }
+    for row in px.chunks_exact(w as usize * 4).rev() {
+        dib.extend_from_slice(row);
+    }
+    dib
+}
+
+/// BGRA → PNG
+pub fn bgra_to_png(px: &[u8], w: u32, h: u32) -> Option<Vec<u8>> {
+    unsafe {
+        let f = wic().ok()?;
+        let b = f.CreateBitmapFromMemory(w, h, &GUID_WICPixelFormat32bppBGRA, w * 4, px).ok()?;
+        encode_png(&f, &b.cast().ok()?, w, h).ok()
+    }
+}
+
+/// PNG → BGRA(위에서 아래로), 너비, 높이
+pub fn png_to_bgra(png: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
+    unsafe {
+        let f = wic().ok()?;
+        let st = f.CreateStream().ok()?;
+        st.InitializeFromMemory(png).ok()?;
+        let frame = f.CreateDecoderFromStream(&st, std::ptr::null(), WICDecodeMetadataCacheOnLoad).ok()?.GetFrame(0).ok()?;
+        let (mut w, mut h) = (0u32, 0u32);
+        frame.GetSize(&mut w, &mut h).ok()?;
+        let conv = f.CreateFormatConverter().ok()?;
+        conv.Initialize(&frame, &GUID_WICPixelFormat32bppBGRA, WICBitmapDitherTypeNone, None, 0.0, WICBitmapPaletteTypeMedianCut).ok()?;
+        let mut px = vec![0u8; (w * h * 4) as usize];
+        conv.CopyPixels(std::ptr::null(), w * 4, &mut px).ok()?;
+        Some((px, w, h))
+    }
+}
+
+/// 그림을 클립보드에(DIB + PNG). 노치가 받아 적어 클립보드 쪽 새 항목이 된다.
+pub unsafe fn put_image(hwnd: HWND, px: &[u8], w: u32, h: u32) -> bool {
+    let dib = bgra_to_dib(px, w, h);
+    let png = bgra_to_png(px, w, h);
+    if !open(hwnd) {
+        return false;
+    }
+    let _ = EmptyClipboard();
+    let mut ok = put(CF_DIB, &dib);
+    if let Some(p) = png {
+        ok &= put(fmt("PNG"), &p);
+    }
+    let _ = CloseClipboard();
+    ok
+}
+
+/// 글자를 클립보드에
+pub unsafe fn put_text(hwnd: HWND, t: &str) -> bool {
+    let w: Vec<u8> = t.encode_utf16().chain([0]).flat_map(|c| c.to_le_bytes()).collect();
+    if !open(hwnd) {
+        return false;
+    }
+    let _ = EmptyClipboard();
+    let ok = put(CF_UNICODETEXT, &w);
+    let _ = CloseClipboard();
+    ok
+}
+
 /// 복사가 바뀔 때마다 창에 WM_CLIPBOARDUPDATE 가 오게 한다
 pub unsafe fn listen(hwnd: HWND) {
     let _ = AddClipboardFormatListener(hwnd);
@@ -323,7 +437,7 @@ mod tests {
     use super::*;
 
     fn t(id: u64, s: &str) -> Item {
-        Item { id, text: Some(s.into()), img: None, key: key_of(s.as_bytes()), at: String::new() }
+        Item { id, text: Some(s.into()), img: None, files: false, key: key_of(s.as_bytes()), at: String::new() }
     }
 
     #[test]
@@ -365,7 +479,11 @@ mod tests {
     fn index_round_trip() {
         let mut c = Clip::default();
         c.add(t(1, "가나다"));
-        c.add(Item { id: 2, text: None, img: Some((1920, 1080)), key: 77, at: "13:25".into() });
+        c.add(Item { id: 2, text: None, img: Some((1920, 1080)), files: false, key: 77, at: "13:25".into() });
+        c.add(Item { id: 3, text: Some("C:\\a.hwp\nC:\\b.jpg".into()), img: None, files: true, key: 78, at: "13:26".into() });
+        assert_eq!(kind(&c.recent[0]), "파일");
+        assert_eq!(kind(&t(9, "https://naver.com")), "링크");
+        assert_eq!(kind(&t(9, "안녕 https://naver.com")), "글자");
         c.pin(1);
         let v = json!({"recent": c.recent.iter().map(item_json).collect::<Vec<_>>(), "pinned": c.pinned.iter().map(item_json).collect::<Vec<_>>()});
         let back: Vec<Item> = v["recent"].as_array().unwrap().iter().filter_map(item_from).collect();

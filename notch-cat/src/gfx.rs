@@ -276,6 +276,13 @@ impl Gfx {
         rt.CreateBitmapFromWicBitmap(&conv, None)
     }
 
+    /// 그림을 사각형에 그대로(비율은 부르는 쪽이 맞춘다)
+    pub unsafe fn image(&self, bmp: &ID2D1Bitmap, x: f32, y: f32, w: f32, h: f32, a: f32) {
+        if let Ok(rt) = self.dc.cast::<ID2D1RenderTarget>() {
+            rt.DrawBitmap(bmp, Some(&D2D_RECT_F { left: x, top: y, right: x + w, bottom: y + h }), a.clamp(0.0, 1.0), D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, None);
+        }
+    }
+
     /// 그림을 정사각형으로 가운데만 잘라 둥근 모서리로.
     pub unsafe fn art(&self, bmp: &ID2D1Bitmap, x: f32, y: f32, size: f32, r: f32, a: f32) {
         if a <= 0.01 {
