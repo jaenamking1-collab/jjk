@@ -588,6 +588,69 @@ unsafe fn queue_btn(g: &Gfx, cx: f32, cy: f32, r: f32, on: bool, a: f32) {
     }
 }
 
+/// 끈적한 물방울(설정·알림): 몸통 옆 변(edge_x, 그 변의 세로 범위 b0…b1) 가운데에서 '뽈록' 솟아
+/// dir 쪽(+1 오른쪽, -1 왼쪽)으로 펼쳐진다. e 는 나온 정도(0…1, 넘으면 출렁), sx·sy 는 가로·세로 배율(100 = 그대로).
+/// 다 나왔을 때 자리는 너비 fw · 높이 fh · 위 ftop. 지금 물방울 자리 [x, y, w, h] 를 돌려준다.
+unsafe fn goo(g: &Gfx, edge_x: f32, dir: f32, b0: f32, b1: f32, fw: f32, fh: f32, ftop: f32, e: f32, sx: f32, sy: f32) -> [f32; 4] {
+    let e = e.max(0.0);
+    let ew = e.min(1.3); // 옆으로는 먼저
+    let eh = e.min(1.3).powf(1.6); // 세로는 조금 늦게 — 혹이 솟은 뒤 펼쳐진다
+    let (kx, ky) = (sx / 100.0, sy / 100.0);
+    let bw = (26.0 + (fw - 26.0) * ew) * kx;
+    let bh = (34.0 + (fh - 34.0) * eh) * ky;
+    let cy0 = ((b0 + b1) / 2.0).max(18.0);
+    let cy = cy0 + (ftop + fh / 2.0 - cy0) * e.min(1.0);
+    // 출렁일 때 물방울이 몸통에서 멀어졌다 다가오며 목이 늘었다 풀린다
+    let near = edge_x + dir * (SET_GAP * e.min(1.0) + (sx - 100.0) * 0.6);
+    let bx = if dir > 0.0 { near } else { near - bw };
+    let top = cy - bh / 2.0;
+    if bh < 2.0 || bw < 2.0 {
+        return [bx, top, 0.0, 0.0];
+    }
+    // 목: 몸통 변과 물방울 변이 겹치는 높이의 가운데에 오목한 다리. 늘어나면 가늘어진다.
+    let (o0, o1) = (b0.max(top), b1.min(top + bh));
+    let ny = if o1 > o0 { (o0 + o1) / 2.0 } else { cy0 };
+    let span = if o1 > o0 { o1 - o0 } else { 40.0 };
+    let k = e.min(1.0);
+    let edge = (span * 0.42).min(80.0).max(14.0) * k;
+    let waist = (16.0 - (sx - 100.0) * 0.4).clamp(5.0, 22.0) * k + 4.0;
+    let (x0, x1) = (edge_x - dir * 6.0, near + dir * 6.0);
+    let n = 14;
+    let mut pts: Vec<(f32, f32)> = Vec::with_capacity(2 * n + 2);
+    for i in 0..=n {
+        let u = i as f32 / n as f32;
+        pts.push((x0 + (x1 - x0) * u, ny - (waist + (edge - waist) * (2.0 * u - 1.0).powi(2))));
+    }
+    for i in (0..=n).rev() {
+        let u = i as f32 / n as f32;
+        pts.push((x0 + (x1 - x0) * u, ny + (waist + (edge - waist) * (2.0 * u - 1.0).powi(2))));
+    }
+    let rr = 22.0_f32.min(bh / 2.0).min(bw / 2.0);
+    g.rrect(bx - 1.0, top + 4.0, bw + 2.0, bh, rr, (0.0, 0.0, 0.0), 0.35 * k); // 그림자
+    g.poly(&pts, BG, 1.0);
+    g.rrect(bx, top, bw, bh, rr, BG, 1.0);
+    [bx, top, bw, bh]
+}
+
+/// 물방울을 출렁이게: 다 나오는 순간 가로는 늘이고 세로는 줄인다(덜 감쇠한 스프링이 엇갈려 2~3번 출렁)
+fn goo_kick(open: &Spring, kicked: &mut bool, sx: &mut Spring, sy: &mut Spring) {
+    if open.target == 0.0 {
+        *kicked = false;
+    } else if !*kicked && open.pos > 0.85 {
+        *kicked = true;
+        sx.vel += 170.0;
+        sy.vel -= 130.0;
+    }
+}
+
+/// 오른쪽 알림 물방울 내용
+struct Toast {
+    title: String,
+    body: String,
+    progress: Option<f32>, // 0…1 진행 막대(없으면 body 글)
+    until: Instant,
+}
+
 /// 설정 물방울의 한 줄
 enum SetRow {
     Toggle(u32, &'static str, bool),                  // 켜고 끄기(menu_cmd 번호)
@@ -746,6 +809,16 @@ struct App {
     drop: Spring,      // 그 칸이 물방울처럼 나오는 정도 0…1
     set: Option<usize>, // 열린 설정 물방울(쪽 번호, SET_COMMON = 공통)
     sd: Spring,        // 설정 물방울이 나온 정도 0…1
+    ssx: Spring,       // 〃 가로 배율(%) — 덜 감쇠해 출렁인다
+    ssy: Spring,       // 〃 세로 배율(%)
+    set_kick: bool,    // 이번에 열 때 출렁을 이미 줬나
+    set_bub: [f32; 4], // 지금 설정 물방울 자리(알림 물방울이 그 옆에 붙는다)
+    toast: Option<Toast>, // 오른쪽 알림 물방울(진행·완료)
+    tb: Spring,        // 알림 물방울이 나온 정도
+    tsx: Spring,
+    tsy: Spring,
+    toast_kick: bool,
+    toast_rect: [f32; 4],
     set_rect: [f32; 4], // 지난 장면의 설정 물방울 자리(창 영역에 넣는다)
     chips: Vec<[f32; 4]>, // 메뉴 정리 칩 자리(차례대로)
     drag: Option<(usize, f32, f32)>, // 끌고 있는 칩(차례, 누른 곳 x, y)
@@ -825,12 +898,16 @@ struct App {
 
 impl App {
     fn animating(&self) -> bool {
-        !(self.w.settled() && self.h.settled() && self.fade.settled() && self.scroll.settled() && self.tm.settled() && self.ck.settled() && self.pgf.settled() && self.arr[0].settled() && self.arr[1].settled() && self.drop.settled() && self.sd.settled() && self.nb.settled() && self.bg.settled() && self.qs.iter().all(Spring::settled) && self.face.settled())
+        !(self.w.settled() && self.h.settled() && self.fade.settled() && self.scroll.settled() && self.tm.settled() && self.ck.settled() && self.pgf.settled() && self.arr[0].settled() && self.arr[1].settled() && self.drop.settled() && self.sd.settled() && self.ssx.settled() && self.ssy.settled() && self.tb.settled() && self.tsx.settled() && self.tsy.settled() && self.nb.settled() && self.bg.settled() && self.qs.iter().all(Spring::settled) && self.face.settled())
     }
 
     /// 0.05초마다: 음악·가사 상태를 읽어 목표 크기와 보일 글자를 정한다.
     unsafe fn tick(&mut self) {
         self.ticks += 1;
+        if self.set.is_none() && self.ticks == 30 && std::env::var("NOTCH_CAT_SETLATE").is_ok() {
+            self.set = Some(SET_COMMON); // 시험용: 펼쳐진 뒤 1.5초쯤에 설정 물방울을 연다(솟아오르는 모습을 찍으려고)
+            self.sd.target = 1.0;
+        }
         self.n = self.now.lock().unwrap().clone();
         if std::env::var("NOTCH_CAT_NOMEDIA").is_ok() {
             self.n.has = false; // 시험용: 음악이 없는 척(시계·날씨 쪽을 본다)
@@ -1172,12 +1249,12 @@ impl App {
         };
         let rx = (WIN_W - rw) / 2.0;
         let rgn = if h < 0.5 { [0; 4] } else { [((rx - m) * s).floor() as i32, 0, ((rx + rw + m) * s).ceil() as i32, ((rh + m) * s).ceil() as i32] };
-        let rgn = if h >= 0.5 && (self.set.is_some() || self.sd.pos > 0.02) && self.set_rect[2] > self.set_rect[0] {
-            let r = self.set_rect;
-            [rgn[0].min(((r[0] - m) * s).floor() as i32), 0, rgn[2].max(((r[2] + m) * s).ceil() as i32), rgn[3].max(((r[3] + m) * s).ceil() as i32)]
-        } else {
-            rgn
-        };
+        let mut rgn = rgn;
+        for (on, r) in [(self.set.is_some() || self.sd.pos > 0.02, self.set_rect), (self.toast.is_some() || self.tb.pos > 0.02, self.toast_rect)] {
+            if h >= 0.5 && on && r[2] > r[0] {
+                rgn = [rgn[0].min(((r[0] - m) * s).floor() as i32), 0, rgn[2].max(((r[2] + m) * s).ceil() as i32), rgn[3].max(((r[3] + m) * s).ceil() as i32)];
+            }
+        }
         if rgn != self.rgn {
             self.rgn = rgn;
             SetWindowRgn(self.hwnd, CreateRectRgn(rgn[0], rgn[1], rgn[2], rgn[3]), false);
@@ -2407,6 +2484,11 @@ impl App {
         }
         if h >= 0.5 && (self.set.is_some() || self.sd.pos > 0.02) {
             self.draw_set(h);
+        } else {
+            self.set_bub = [0.0; 4];
+        }
+        if h >= 0.5 && (self.toast.is_some() || self.tb.pos > 0.02) {
+            self.draw_toast(h);
         }
         let g = &self.g;
         g.present()?;
@@ -3036,6 +3118,69 @@ impl App {
         }
     }
 
+    /// 알림 물방울을 띄운다(진행·완료·메시지). progress 가 있으면 막대. secs 뒤 저절로 들어간다.
+    fn toast(&mut self, title: &str, body: &str, progress: Option<f32>, secs: u64) {
+        let fresh = self.toast.is_none();
+        self.toast = Some(Toast { title: title.into(), body: body.into(), progress, until: Instant::now() + Duration::from_secs(secs) });
+        self.tb.target = 1.0;
+        if fresh {
+            self.toast_kick = false;
+        }
+        self.dirty = true;
+    }
+
+    /// 오른쪽 알림 물방울. 설정 물방울이 열려 있으면 그 오른쪽에 붙는다.
+    unsafe fn draw_toast(&mut self, h: f32) {
+        const TW: f32 = 250.0;
+        const TH: f32 = 62.0;
+        if self.toast.as_ref().is_some_and(|t| Instant::now() >= t.until) {
+            self.tb.target = 0.0;
+        }
+        if self.tb.target == 0.0 && self.tb.pos < 0.02 {
+            self.toast = None;
+            self.toast_rect = [0.0; 4];
+            return;
+        }
+        if self.tb.target == 0.0 { self.tb.tune(420.0, 0.9) } else { self.tb.tune(230.0, 0.55) }
+        goo_kick(&self.tb, &mut self.toast_kick, &mut self.tsx, &mut self.tsy);
+        let w = self.w.pos;
+        let half_mon = (self.mon.right - self.mon.left) as f32 / self.scale / 2.0;
+        let dx = if self.cfg.aside { 460.0 } else { 0.0 };
+        let sb = self.set_bub;
+        let on_set = sb[2] > 2.0;
+        let used = if on_set { sb[0] + sb[2] - WIN_W / 2.0 } else { w / 2.0 };
+        let dir = if half_mon - dx - used > SET_GAP + TW + 8.0 { 1.0 } else { -1.0 };
+        let (edge_x, b0, b1) = if on_set {
+            (if dir > 0.0 { sb[0] + sb[2] } else { sb[0] }, sb[1], sb[1] + sb[3].min(120.0))
+        } else {
+            (WIN_W / 2.0 + dir * w / 2.0, 0.0, h)
+        };
+        let g = &self.g;
+        let t = self.tb.pos.clamp(0.0, 1.3);
+        let ftop = ((b0 + b1) / 2.0 - TH / 2.0).max(2.0);
+        let b = goo(g, edge_x, dir, b0, b1, TW, TH, ftop, t, self.tsx.pos, self.tsy.pos);
+        let fx = if dir > 0.0 { edge_x + SET_GAP } else { edge_x - SET_GAP - TW };
+        self.toast_rect = [fx.min(b[0]) - 40.0, 0.0, (fx + TW).max(b[0] + b[2]) + 40.0, (ftop + TH).max(b[1] + b[3]) + 24.0];
+        let a = ((self.tb.pos - 0.55) / 0.4).clamp(0.0, 1.0);
+        let Some(tt) = self.toast.as_ref() else { return };
+        if a <= 0.0 || self.tb.target == 0.0 {
+            return;
+        }
+        g.clip(b[0] + 2.0, b[1] + 2.0, (b[2] - 4.0).max(0.0), (b[3] - 4.0).max(0.0));
+        let (l, r) = (fx + 16.0, fx + TW - 16.0);
+        g.ellipse(l + 5.0, ftop + 20.0, 4.5, 4.5, LIME, a);
+        g.text(&tt.title, &g.f_bar, l + 16.0, ftop + 11.0, r - l - 16.0, FG, a, Align::Left);
+        match tt.progress {
+            Some(p) => {
+                g.rrect(l, ftop + 40.0, r - l, 5.0, 2.5, FG, a * 0.15);
+                g.rrect(l, ftop + 40.0, (r - l) * p.clamp(0.0, 1.0), 5.0, 2.5, LIME, a);
+                self.dirty = true;
+            }
+            None => g.text(&tt.body, &g.f_tiny, l + 16.0, ftop + 34.0, r - l - 16.0, FG, a * 0.6, Align::Left),
+        }
+        g.unclip();
+    }
+
     /// 노치 옆(오른쪽, 자리가 모자라면 왼쪽)으로 흘러나오는 설정 물방울. 일정 칸처럼 오목한 목으로 몸통과 이어진다.
     unsafe fn draw_set(&mut self, h: f32) {
         let t = self.sd.pos;
@@ -3051,7 +3196,6 @@ impl App {
         let dx = if self.cfg.aside { 460.0 } else { 0.0 };
         let dir = if half_mon - dx - w / 2.0 > SET_GAP + SET_W + 8.0 { 1.0 } else { -1.0 };
         let edge_x = WIN_W / 2.0 + dir * w / 2.0;
-        let near = edge_x + dir * SET_GAP * tt.min(1.0);
         // 내용 높이: 칩 줄 수에 맞춘다
         let names: Vec<(usize, bool, f32)> = self.cfg.pages.iter().map(|(i, on)| (*i, *on, g.measure(menu::NAMES[*i], &g.f_bar) + 24.0)).collect();
         let inner = SET_W - 32.0;
@@ -3083,38 +3227,22 @@ impl App {
         let row_h = |r: &SetRow| match r { SetRow::Toggle(..) => 28.0, SetRow::Choice(..) => 52.0, SetRow::Button(..) => 32.0 };
         let off = if prow.is_empty() { 0.0 } else { prow.iter().map(row_h).sum::<f32>() + 30.0 };
         let sh = 64.0 + off + rows as f32 * 30.0 + 14.0 + opts.len() as f32 * 28.0 + 40.0;
-        let bw = SET_W * (0.3 + 0.7 * tt.min(1.15));
-        let bh = sh * tt;
         let top = 2.0;
-        let bx = if dir > 0.0 { near } else { near - bw };
-        let full_x = if dir > 0.0 { near } else { near - SET_W };
-        self.set_rect = [full_x.min(bx) - 2.0, 0.0, (full_x + SET_W).max(bx + bw) + 2.0, top + sh.max(bh) + 6.0];
-        if bh < 2.0 {
+        let full_x = if dir > 0.0 { edge_x + dir * SET_GAP } else { edge_x - SET_GAP - SET_W };
+        // 열 때는 천천히 출렁, 닫을 때는 빠르게 쏙
+        if self.sd.target == 0.0 { self.sd.tune(420.0, 0.9) } else { self.sd.tune(210.0, 0.55) }
+        goo_kick(&self.sd, &mut self.set_kick, &mut self.ssx, &mut self.ssy);
+        let b = goo(g, edge_x, dir, 0.0, h, SET_W, sh, top, tt, self.ssx.pos, self.ssy.pos);
+        self.set_rect = [full_x.min(b[0]) - 40.0, 0.0, (full_x + SET_W).max(b[0] + b[2]) + 40.0, (top + sh).max(b[1] + b[3]) + 24.0];
+        self.set_bub = b;
+        if b[3] < 2.0 {
             return;
         }
-        // 목: 몸통 옆과 물방울 옆을 잇는 오목한 다리(붙는 곳은 넓고 가운데는 잘록)
-        let ny = (h.min(bh) / 2.0).max(18.0);
-        let edge = (h.min(bh) * 0.38).min(80.0) * tt.min(1.0);
-        let waist = 16.0 * tt.min(1.0) + 5.0;
-        let (x0, x1) = (edge_x - dir * 6.0, near + dir * 6.0);
-        let n = 14;
-        let mut pts: Vec<(f32, f32)> = Vec::with_capacity(2 * n + 2);
-        for k in 0..=n {
-            let u = k as f32 / n as f32;
-            pts.push((x0 + (x1 - x0) * u, ny - (waist + (edge - waist) * (2.0 * u - 1.0).powi(2))));
-        }
-        for k in (0..=n).rev() {
-            let u = k as f32 / n as f32;
-            pts.push((x0 + (x1 - x0) * u, ny + (waist + (edge - waist) * (2.0 * u - 1.0).powi(2))));
-        }
-        let rr = 22.0_f32.min(bh / 2.0);
-        g.rrect(bx - 1.0, top + 4.0, bw + 2.0, bh, rr, (0.0, 0.0, 0.0), 0.35 * tt.min(1.0)); // 그림자
-        g.poly(&pts, BG, 1.0);
-        g.rrect(bx, top, bw, bh, rr, BG, 1.0);
         let a = ((t - 0.55) / 0.4).clamp(0.0, 1.0);
         if a <= 0.0 || self.set.is_none() {
             return;
         }
+        g.clip(b[0] + 2.0, b[1] + 2.0, (b[2] - 4.0).max(0.0), (b[3] - 4.0).max(0.0)); // 출렁여 좁아져도 안 내용이 밖으로 삐져나오지 않게
         let (l, r) = (full_x + 16.0, full_x + SET_W - 16.0);
         let (mx, my) = self.mouse;
         let over = |b: [f32; 4]| mx >= b[0] && mx < b[2] && my >= b[1] && my < b[3];
@@ -3220,6 +3348,7 @@ impl App {
         g.rrect(fb[0], fb[1], 92.0, 24.0, 12.0, LIME, a * if over(fb) { 0.3 } else { 0.18 });
         g.text("얼굴 바꾸기", &g.f_bar, fb[0], fb[1] + 4.0, 92.0, LIME, a, Align::Center);
         hits.push((fb, Hit::SetOpt(5)));
+        g.unclip();
         self.hits.extend(hits);
     }
 
@@ -3967,6 +4096,16 @@ unsafe fn run() -> Result<()> {
         drop: Spring::new(0.0, 210.0, 0.5),
         set: None,
         sd: Spring::new(0.0, 210.0, 0.5),
+        ssx: Spring::new(100.0, 320.0, 0.24),
+        ssy: Spring::new(100.0, 280.0, 0.24),
+        set_kick: false,
+        set_bub: [0.0; 4],
+        toast: None,
+        tb: Spring::new(0.0, 230.0, 0.55),
+        tsx: Spring::new(100.0, 340.0, 0.24),
+        tsy: Spring::new(100.0, 300.0, 0.24),
+        toast_kick: false,
+        toast_rect: [0.0; 4],
         set_rect: [0.0; 4],
         chips: Vec::new(),
         drag: None,
@@ -4088,6 +4227,12 @@ unsafe fn run() -> Result<()> {
         }
         if std::env::var("NOTCH_CAT_DRAGIN").is_ok() {
             app.drag_in = true; // 시험용: 파일을 끌고 온 모습
+        }
+        if let Ok(v) = std::env::var("NOTCH_CAT_TOAST") {
+            app.toast("녹화 저장 중", "", v.parse::<f32>().ok(), 600); // 시험용: 알림 물방울(값을 주면 진행 막대)
+            if v.is_empty() || v.parse::<f32>().is_err() {
+                app.toast("녹화를 저장했습니다", "동영상 › NotchCat › 녹화 2026-11-14 1402.mp4", None, 600);
+            }
         }
         if std::env::var("NOTCH_CAT_SET").is_ok() {
             app.set = Some(SET_COMMON); // 시험용: 공통 설정 물방울을 연 채로
@@ -4371,6 +4516,11 @@ unsafe fn run() -> Result<()> {
             app.fade.step(dt);
             app.drop.step(dt);
             app.sd.step(dt);
+            app.ssx.step(dt);
+            app.ssy.step(dt);
+            app.tb.step(dt);
+            app.tsx.step(dt);
+            app.tsy.step(dt);
             app.nb.step(dt);
             app.tm.step(dt);
             app.ck.step(dt);
