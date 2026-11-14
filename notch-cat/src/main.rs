@@ -326,6 +326,16 @@ unsafe extern "system" fn kb_hook(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT 
             }
             return LRESULT(1);
         }
+        if k.vkCode == 0x1B {
+            // 스크린샷 고르기 창은 PrintScreen 으로 뜨면 앞창이 못 돼(키를 노치가 삼켜 입력 권한이 없다) Esc 가 뒤 창으로 간다 → 여기서 넘겨 준다
+            let snap = FindWindowW(w!("NotchCatSnap"), None).unwrap_or_default();
+            if !snap.0.is_null() {
+                if wp.0 as u32 == WM_KEYDOWN || wp.0 as u32 == WM_SYSKEYDOWN {
+                    let _ = PostMessageW(snap, WM_KEYDOWN, WPARAM(0x1B), LPARAM(0));
+                }
+                return LRESULT(1);
+            }
+        }
         let ok = TAB_OK.load(std::sync::atomic::Ordering::Relaxed);
         if let Some(d) = tab_dir(k.vkCode, ok, GetKeyState(VK_SHIFT.0 as i32) < 0) {
             if wp.0 as u32 == WM_KEYDOWN || wp.0 as u32 == WM_SYSKEYDOWN {
