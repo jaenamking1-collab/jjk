@@ -728,6 +728,11 @@ unsafe extern "system" fn proc(hw: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
     r.unwrap_or_else(|| DefWindowProcW(hw, msg, wp, lp))
 }
 
+/// 편집 창이 떠 있나(노치가 접히지 않게)
+pub fn is_open() -> bool {
+    ED.with(|e| e.borrow().is_some())
+}
+
 /// 편집 창을 연다(BGRA 그림). 이미 열려 있으면 그 창을 닫고 새로.
 pub unsafe fn open(notch: HWND, px: Vec<u8>, w: u32, h: u32) -> windows::core::Result<HWND> {
     let old = ED.with(|e| e.borrow().as_ref().map(|e| e.hwnd));

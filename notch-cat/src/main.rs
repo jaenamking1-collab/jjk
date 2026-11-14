@@ -844,6 +844,7 @@ struct App {
     showing_lyric: bool,
     mouse: (f32, f32), // 논리 좌표. 밖이면 음수
     tracking: bool,
+    ed_hold: bool, // 편집 창이 떠 있어 마우스가 나가도 펼친 채로 두는 중
     hidden: bool,
     maxed: bool, // 앞 창이 화면을 꽉 채웠다(일하는 중)
     shy: bool,   // 〃 + 마우스가 가까이 왔다 → 작게 줄어든다
@@ -3405,21 +3406,22 @@ impl App {
         let w = self.w.pos;
         let g = &self.g;
         let edge = WIN_W / 2.0 - w / 2.0;
-        let (sz, ftop) = (44.0, (h / 2.0 - 22.0).max(4.0));
-        let bw = sz * 2.0 - 4.0; // 빨간 원(녹화) + 카메라(스크린샷)
+        let sz = 44.0;
+        let bh = sz * 2.0 - 4.0; // 위 빨간 원(녹화) + 아래 카메라(스크린샷)
+        let ftop = (h / 2.0 - bh / 2.0).max(4.0);
         let e = self.cam.pos.clamp(0.0, 1.3);
-        let b = goo(g, edge, -1.0, 0.0, h, bw, sz, ftop, e, 100.0, 100.0);
-        self.cam_rect = [edge - SET_GAP - bw - 30.0, 0.0, edge, ftop + sz + 20.0];
+        let b = goo(g, edge, -1.0, 0.0, h, sz, bh, ftop, e, 100.0, 100.0);
+        self.cam_rect = [edge - SET_GAP - sz - 30.0, 0.0, edge, ftop + bh + 20.0];
         let a = ((self.cam.pos - 0.6) / 0.35).clamp(0.0, 1.0);
         if a <= 0.0 || b[2] < 10.0 {
             return;
         }
         let (mx, my) = self.mouse;
-        let half = b[2] / 2.0;
-        // 왼쪽 절반: 빨간 원(화면 녹화)
-        let rh = [b[0], b[1], b[0] + half, b[1] + b[3]];
+        let half = b[3] / 2.0;
+        // 위 절반: 빨간 원(화면 녹화)
+        let rh = [b[0], b[1], b[0] + b[2], b[1] + half];
         let ron = mx >= rh[0] && mx < rh[2] && my >= rh[1] && my < rh[3];
-        let (rx, ry) = (b[0] + half / 2.0 + 2.0, b[1] + b[3] / 2.0);
+        let (rx, ry) = (b[0] + b[2] / 2.0, b[1] + half / 2.0 + 2.0);
         g.ellipse(rx, ry, 9.5, 9.5, (0.94, 0.27, 0.27), a * if ron { 1.0 } else { 0.85 });
         if ron {
             g.ellipse(rx, ry, 12.5, 12.5, (0.94, 0.27, 0.27), a * 0.25);
@@ -3427,9 +3429,9 @@ impl App {
         if p > 0.9 {
             self.hits.push((rh, Hit::Rec));
         }
-        // 오른쪽 절반: 카메라(스크린샷)
-        let (cx, cy) = (b[0] + half + half / 2.0 - 2.0, b[1] + b[3] / 2.0);
-        let hit = [b[0] + half, b[1], b[0] + b[2], b[1] + b[3]];
+        // 아래 절반: 카메라(스크린샷)
+        let (cx, cy) = (b[0] + b[2] / 2.0, b[1] + half + half / 2.0 - 2.0);
+        let hit = [b[0], b[1] + half, b[0] + b[2], b[1] + b[3]];
         let on = mx >= hit[0] && mx < hit[2] && my >= hit[1] && my < hit[3];
         let c = if on { LIME } else { FG };
         // 카메라: 몸통 + 위 혹 + 렌즈
@@ -4493,6 +4495,7 @@ unsafe fn run() -> Result<()> {
         showing_lyric: false,
         mouse: (-1.0, -1.0),
         tracking: false,
+        ed_hold: false,
         hidden: false,
         maxed: false,
         shy: false,
@@ -4685,7 +4688,9 @@ unsafe fn run() -> Result<()> {
             if let Ok(png) = std::fs::read(&v) {
                 if let Some((px, w, h)) = clip::png_to_bgra(&png) {
                     let _ = editor::open(hwnd, px, w, h);
-                    editor::demo(Path::new(&(v.clone() + ".out.png")));
+                    if std::env::var("NOTCH_CAT_EDITKEEP").is_err() {
+                        editor::demo(Path::new(&(v.clone() + ".out.png"))); // EDITKEEP: 편집 창만 띄워 둔다(노치가 접히지 않는지 시험)
+                    }
                 }
             }
         }
@@ -4848,6 +4853,11 @@ unsafe fn run() -> Result<()> {
                 Ev::Leave if std::env::var("NOTCH_CAT_SHOT").is_ok() => {} // 시험 중엔 마우스가 없어도 펼친 채로
                 Ev::Leave if app.ent_up() => app.tracking = false, // 적는 동안은 마우스가 나가도 펼친 채로
                 Ev::Leave if app.saved_hold.is_some() => app.tracking = false, // 막 저장했다: 넣은 일정이 보이게 잠깐 펼친 채로
+                Ev::Leave if editor::is_open() => {
+                    // 편집 창이 노치 위를 덮어도 접지 않는다(창을 닫으면 그때 마우스가 밖이면 접는다)
+                    app.tracking = false;
+                    app.ed_hold = true;
+                }
                 Ev::Leave if app.drag_in => {} // 파일을 끌고 있는 동안은 접지 않는다
                 Ev::Leave => app.leave(),
                 Ev::DragIn => {
@@ -5025,6 +5035,12 @@ unsafe fn run() -> Result<()> {
                 Ev::Tick => {
                     if let Some(p) = app.trim_job.clone() {
                         app.toast("영상 자르는 중", "", Some(p.load(std::sync::atomic::Ordering::Relaxed) as f32 / 1000.0), 60);
+                    }
+                    if app.ed_hold && !editor::is_open() {
+                        app.ed_hold = false;
+                        if !app.tracking {
+                            app.leave();
+                        }
                     }
                     if app.saved_hold.is_some_and(|h| Instant::now() >= h) {
                         app.saved_hold = None;
