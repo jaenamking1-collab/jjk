@@ -747,8 +747,21 @@ pub unsafe fn open(notch: HWND, px: Vec<u8>, w: u32, h: u32) -> windows::core::R
     let _ = SystemParametersInfoW(SPI_GETWORKAREA, 0, Some(&mut work as *mut _ as _), SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0));
     let (sw, sh) = (work.right - work.left, work.bottom - work.top);
     let ww = ((w as i32 + 60).max(900)).min(sw * 9 / 10);
-    let wh = ((h as i32 + 160).max(420)).min(sh * 9 / 10);
-    let hw = CreateWindowExW(WINDOW_EX_STYLE(0), class, w!("노치 고양이 · 스크린샷 편집"), WS_OVERLAPPEDWINDOW | WS_VISIBLE, work.left + (sw - ww) / 2, work.top + (sh - wh) / 2, ww, wh, None, None, inst, None)?;
+    // 노치가 펼쳐져 있으면(맨 위에 떠 있어 창을 가린다) 그 아래에서 연다
+    let mut top = work.top;
+    if IsWindowVisible(notch).as_bool() {
+        let (mut wr, mut rb) = (RECT::default(), RECT::default());
+        use windows::Win32::Graphics::Gdi::{CreateRectRgn, DeleteObject, GetRgnBox, GetWindowRgn, GDI_REGION_TYPE};
+        let rgn = CreateRectRgn(0, 0, 0, 0);
+        if GetWindowRect(notch, &mut wr).is_ok() && GetWindowRgn(notch, rgn) != GDI_REGION_TYPE(0) && GetRgnBox(rgn, &mut rb) != GDI_REGION_TYPE(0) && rb.bottom > rb.top {
+            top = top.max(wr.top + rb.bottom + 10);
+        }
+        let _ = DeleteObject(rgn);
+    }
+    let room = work.bottom - top;
+    let wh = ((h as i32 + 160).max(420)).min(sh * 9 / 10).min(room - 10);
+    let y = if top > work.top { top } else { work.top + (sh - wh) / 2 };
+    let hw = CreateWindowExW(WINDOW_EX_STYLE(0), class, w!("노치 고양이 · 스크린샷 편집"), WS_OVERLAPPEDWINDOW | WS_VISIBLE, work.left + (sw - ww) / 2, y, ww, wh, None, None, inst, None)?;
     let s = GetDpiForWindow(hw) as f32 / 96.0;
     let d2: ID2D1Factory = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None)?;
     let dw: IDWriteFactory = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)?;
