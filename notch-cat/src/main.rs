@@ -20,6 +20,7 @@ mod alsong;
 mod wmp;
 mod quotes;
 mod settings;
+mod shelf;
 mod spring;
 mod weather;
 
@@ -61,6 +62,7 @@ const ENT_W: f32 = 560.0;
 const ENT_H: f32 = 112.0;
 const ENT_GAP: f32 = 18.0;
 const CLIP_SZ: (f32, f32) = (780.0, 250.0); // 클립보드 쪽
+const SHELF_SZ: (f32, f32) = (780.0, 250.0); // 파일 선반 쪽
 const SET_W: f32 = 300.0; // 노치 옆으로 흘러나오는 설정 물방울 너비
 const SET_GAP: f32 = 18.0;
 const SET_COMMON: usize = usize::MAX; // 공통 설정(맨 위 점 옆 ⚙)
@@ -278,6 +280,9 @@ enum Ev {
     Click(f32, f32),
     Down(f32, f32), // 왼쪽 단추 누름(끌기 시작)
     Clip,           // 클립보드가 바뀌었다(무언가 복사됨)
+    DragIn,         // 파일을 노치 위로 끌고 왔다
+    DragOut,        // 〃 놓지 않고 나갔다
+    Dropped(Vec<String>), // 〃 놓았다(경로들)
     Tick,
     Tray,
     Wheel(i32), // 휠: -1 왼쪽 쪽, +1 오른쪽 쪽
@@ -677,6 +682,8 @@ enum Hit {
     ClipPin(usize),   // 최근 → 고정
     ClipUnpin(usize), // 고정에서 빼기
     ClipClear,        // 최근 모두 지우기
+    ShelfItem(usize), // 선반: 두 번 누르면 열기, 끌면 복사해 내리기
+    ShelfDel(usize),  // 선반에서 빼기(원본은 그대로)
     Shuffle,
     Repeat,
     Queue,        // 다음 곡 목록 열고 닫기
@@ -734,6 +741,13 @@ struct App {
     clip_bmp: HashMap<u64, ID2D1Bitmap>, // 그림 미리보기(항목 id 별)
     clip_last: String, // 마지막으로 받아 적은 시각(살아 있다는 표시)
     clip_flash: Option<Instant>, // 눌러서 다시 복사한 때(잠깐 '복사했습니다')
+    shelf: shelf::Shelf,         // 파일 선반(경로만)
+    shelf_bmp: HashMap<String, ID2D1Bitmap>, // 미리보기(경로별)
+    drag_in: bool,               // 파일을 끌고 노치 위에 있다
+    gulp: Option<Instant>,       // 방금 받아먹었다(새 칸이 쏙 들어오는 효과)
+    pull: Option<(Hit, f32, f32)>, // 눌러서 끌기 시작할 수 있는 칸(선반·클립보드 그림)
+    pulled: Instant,             // 마지막으로 끌어 내린 때(뒤따르는 '누름'을 무시)
+    last_click: Option<(usize, Instant)>, // 선반 두 번 누름
     nb: Spring,        // 적는 동안 온 알림이 칸 아래로 볼록 나온 정도 0…1
     pgf: Spring,       // 쪽이 바뀔 때 내용이 다시 떠오르는 정도 0…1
     big: bool,         // 시세 쪽: 값까지 나오는 큰 판
@@ -1067,7 +1081,9 @@ impl App {
         } else if tiny {
             TINY
         } else if self.hover {
-            if self.page == 5 {
+            if self.page == 6 {
+                SHELF_SZ
+            } else if self.page == 5 {
                 CLIP_SZ
             } else if self.page == 4 {
                 AI_SZ
@@ -1097,7 +1113,7 @@ impl App {
         if th > BAR_H + 10.0 {
             // 시세 쪽은 작은 판 높이를 '다 펼친 높이'로 삼는다(큰 판으로 자라는 동안 내용이 흐려지지 않게)
             self.open_h = if self.page == 1 && !noting { q_layout(&self.q.iter().map(|q| q.group).collect::<Vec<_>>(), 1.0, self.cfg.cols()).2 .1 } else { th };
-            self.mode = if noting { 2 } else if self.page == 5 { 7 } else if self.page == 4 { 6 } else if self.page == 3 { 5 } else if self.page == 2 { 4 } else if self.page == 1 { 3 } else if self.n.has { 0 } else { 1 };
+            self.mode = if noting { 2 } else if self.page == 6 { 8 } else if self.page == 5 { 7 } else if self.page == 4 { 6 } else if self.page == 3 { 5 } else if self.page == 2 { 4 } else if self.page == 1 { 3 } else if self.n.has { 0 } else { 1 };
             self.w.tune(250.0, 0.62);
             self.h.tune(190.0, 0.68);
         } else {
@@ -2373,6 +2389,9 @@ impl App {
         if h >= 0.5 && self.mode == 7 {
             self.draw_clip(h);
         }
+        if h >= 0.5 && self.mode == 8 {
+            self.draw_shelf(h);
+        }
         if h >= 0.5 && (self.set.is_some() || self.sd.pos > 0.02) {
             self.draw_set(h);
         }
@@ -2863,6 +2882,97 @@ impl App {
         }
     }
 
+    /// 파일 선반 쪽: 끌어다 놓은 파일·폴더(경로만). 두 번 누르면 열고, 끌어 내리면 복사된다.
+    unsafe fn draw_shelf(&mut self, h: f32) {
+        let w = self.w.pos;
+        let x = (WIN_W - w) / 2.0;
+        let p = ((h - BAR_H) / (self.open_h - BAR_H)).clamp(0.0, 1.0);
+        let a = ((p - 0.35) / 0.65).clamp(0.0, 1.0) * self.pgf.pos.clamp(0.0, 1.0);
+        if a <= 0.0 {
+            return;
+        }
+        let paths = self.shelf.items.clone();
+        for pth in &paths {
+            if !self.shelf_bmp.contains_key(pth) {
+                if let Some(b) = shelf::thumb(pth).and_then(|hb| self.g.bitmap_hbitmap(hb).ok()) {
+                    self.shelf_bmp.insert(pth.clone(), b);
+                }
+            }
+        }
+        let g = &self.g;
+        let (mx, my) = self.mouse;
+        let live = p > 0.9;
+        let over = |b: [f32; 4]| live && mx >= b[0] && mx < b[2] && my >= b[1] && my < b[3];
+        let (l, r) = (x + 24.0, x + w - 24.0);
+        let mut hits: Vec<([f32; 4], Hit)> = Vec::new();
+        g.text(&format!("파일 선반  {}/{}", paths.len(), shelf::MAX), &g.f_sub, l, 22.0, 300.0, FG, a, Align::Left);
+        g.text("끌어다 놓으면 잠시 보관 · 끌어 내리면 복사 · 두 번 누르면 열기", &g.f_tiny, l, 26.0, r - l, FG, a * 0.4, Align::Right);
+        // 받는 칸: 파일을 끌고 오면 라임색으로 빛난다
+        let zone = [l - 6.0, 46.0, r + 6.0, 46.0 + 2.0 * 92.0 + 4.0];
+        if self.drag_in {
+            let pulse = 0.5 + 0.5 * (self.born.elapsed().as_secs_f32() * 6.0).sin();
+            g.rrect(zone[0], zone[1], zone[2] - zone[0], zone[3] - zone[1], 16.0, LIME, a * (0.10 + 0.08 * pulse));
+            g.text("여기에 놓으세요", &g.f_lyric, zone[0], (zone[1] + zone[3]) / 2.0 - 10.0, zone[2] - zone[0], LIME, a, Align::Center);
+            self.dirty = true;
+        } else if paths.is_empty() {
+            g.para("파일이나 폴더를 노치 위로 끌어 오세요.\n원본은 그대로 두고, 어디 있는지만 기억합니다.", &g.f_body, l, 90.0, r - l, FG, a * 0.4);
+        }
+        let (tile, gap) = (88.0, 10.0);
+        let cols = ((r - l + gap) / (tile + gap)).floor().max(1.0) as usize;
+        let gulp = self.gulp.map(|t| t.elapsed().as_secs_f32()).filter(|s| *s < 0.6);
+        let mut hover_name: Option<String> = None;
+        for (k, pth) in paths.iter().enumerate() {
+            if self.drag_in {
+                break;
+            }
+            let (c, rr) = (k % cols, k / cols);
+            if rr >= 2 {
+                break; // 두 줄까지(12개)
+            }
+            let (tx, ty) = (l + c as f32 * (tile + gap), 50.0 + rr as f32 * (tile + 4.0));
+            let b = [tx, ty, tx + tile, ty + tile];
+            let alive = shelf::exists(pth);
+            let on = over(b);
+            // 방금 받아먹은 칸은 작게 맺혔다가 쏙 커진다
+            let pop = match gulp { Some(s) if k == 0 => { let u = (s / 0.6).min(1.0); 1.0 + 0.25 * (u * std::f32::consts::PI).sin() * (1.0 - u) - 0.6 * (1.0 - u).powi(3) } _ => 1.0 };
+            if on {
+                g.rrect(tx, ty, tile, tile, 12.0, LIME, a * 0.14);
+            }
+            let ic = 48.0 * pop;
+            let (ix, iy) = (tx + (tile - ic) / 2.0, ty + 8.0 + (48.0 - ic) / 2.0);
+            match self.shelf_bmp.get(pth) {
+                Some(bmp) => g.art(bmp, ix, iy, ic, 6.0, a * if alive { 1.0 } else { 0.3 }),
+                None => g.rrect(ix, iy, ic, ic, 8.0, FG, a * 0.12),
+            }
+            let nm = shelf::name(pth);
+            g.clip(tx + 2.0, ty + 60.0, tile - 4.0, 26.0);
+            g.para(&nm, &g.f_tiny, tx + 4.0, ty + 60.0, tile - 8.0, FG, a * if alive { 0.85 } else { 0.35 });
+            g.unclip();
+            if !alive {
+                g.text("없음", &g.f_tiny, tx, ty + 24.0, tile, WARN, a, Align::Center);
+            }
+            if on {
+                hover_name = Some(if alive { pth.clone() } else { format!("원본이 없습니다 · {pth}") });
+            }
+            let cb = [tx + tile - 22.0, ty + 2.0, tx + tile - 2.0, ty + 22.0];
+            if on || over(cb) {
+                g.ellipse(tx + tile - 12.0, ty + 12.0, 9.0, 9.0, BG, a * 0.85);
+                g.text("✕", &g.f_bar, cb[0], cb[1] + 2.0, 20.0, if over(cb) { LIME } else { FG }, a, Align::Center);
+                hits.push((cb, Hit::ShelfDel(k)));
+            }
+            hits.push((b, Hit::ShelfItem(k)));
+        }
+        if gulp.is_some() {
+            self.dirty = true;
+        }
+        if let Some(t) = hover_name {
+            g.text(&t, &g.f_tiny, l, zone[3] + 4.0, r - l, FG, a * 0.6, Align::Left);
+        }
+        if live {
+            self.hits.extend(hits);
+        }
+    }
+
     /// 노치 옆(오른쪽, 자리가 모자라면 왼쪽)으로 흘러나오는 설정 물방울. 일정 칸처럼 오목한 목으로 몸통과 이어진다.
     unsafe fn draw_set(&mut self, h: f32) {
         let t = self.sd.pos;
@@ -3275,6 +3385,31 @@ impl App {
                 }
                 return self.tick();
             }
+            Hit::ShelfItem(k) => {
+                // 두 번 누르면 기본 프로그램으로 연다
+                let twice = self.last_click.is_some_and(|(j, t)| j == k && t.elapsed() < Duration::from_millis(450));
+                self.last_click = Some((k, Instant::now()));
+                if twice {
+                    if let Some(pth) = self.shelf.items.get(k).cloned() {
+                        if shelf::exists(&pth) {
+                            shelf::open(&pth);
+                            self.face.happy(500);
+                        } else {
+                            self.face.slow_blink(300);
+                        }
+                    }
+                    self.last_click = None;
+                }
+                return self.tick();
+            }
+            Hit::ShelfDel(k) => {
+                if k < self.shelf.items.len() {
+                    let gone = self.shelf.items.remove(k);
+                    self.shelf_bmp.remove(&gone);
+                    self.shelf.save();
+                }
+                return self.tick();
+            }
             Hit::ClipClear => {
                 let gone = std::mem::take(&mut self.clip.recent);
                 clip::forget(&gone);
@@ -3455,7 +3590,7 @@ impl App {
             Hit::Line(t) => Cmd::Seek(t as i64),
             Hit::Shuffle => Cmd::Shuffle,
             Hit::Repeat => Cmd::Repeat,
-            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::AiLogin(_) | Hit::AiOpen(_) | Hit::AiGuideClose | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSchool | Hit::EntSave | Hit::EntClose | Hit::SetOpen(_) | Hit::SetClose | Hit::SetChip(_) | Hit::SetOpt(_) | Hit::ClipItem(..) | Hit::ClipPin(_) | Hit::ClipUnpin(_) | Hit::ClipClear => return,
+            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::AiLogin(_) | Hit::AiOpen(_) | Hit::AiGuideClose | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSchool | Hit::EntSave | Hit::EntClose | Hit::SetOpen(_) | Hit::SetClose | Hit::SetChip(_) | Hit::SetOpt(_) | Hit::ClipItem(..) | Hit::ClipPin(_) | Hit::ClipUnpin(_) | Hit::ClipClear | Hit::ShelfItem(_) | Hit::ShelfDel(_) => return,
         };
         let _ = self.tx.send(cmd);
     }
@@ -3684,6 +3819,13 @@ unsafe fn run() -> Result<()> {
         clip_bmp: HashMap::new(),
         clip_last: String::new(),
         clip_flash: None,
+        shelf: shelf::Shelf::load(),
+        shelf_bmp: HashMap::new(),
+        drag_in: false,
+        gulp: None,
+        pull: None,
+        pulled: Instant::now(),
+        last_click: None,
         nb: Spring::new(0.0, 210.0, 0.5),
         wx: {
             let w = Arc::new(Mutex::new(weather::Weather::default()));
@@ -3749,6 +3891,13 @@ unsafe fn run() -> Result<()> {
     };
     app.page = menu::first(&app.cfg.pages);
     clip::listen(hwnd); // 복사할 때마다 알려 달라
+    shelf::listen(hwnd); // 파일을 끌어다 놓을 수 있게
+    if let Some(k) = std::env::var("NOTCH_CAT_RESTORE").ok().and_then(|v| v.parse::<usize>().ok()) {
+        // 시험용: 최근 k 번째를 클립보드에 다시 넣는다(누른 것처럼)
+        if let Some(it) = app.clip.recent.get(k).cloned() {
+            log(&format!("clip restore {}", clip::restore(hwnd, &it)));
+        }
+    }
     app.place();
     app.draw()?; // 빈(투명) 첫 장을 낸 뒤에 창을 보인다
     let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
@@ -3773,6 +3922,13 @@ unsafe fn run() -> Result<()> {
                 if pin { app.clip.pinned.push(it) } else { app.clip.recent.push(it) }
             }
             app.clip_last = hhmm();
+        }
+        if let Ok(v) = std::env::var("NOTCH_CAT_SHELF") {
+            // 시험용: 선반에 보기 파일들(저장하지 않는다). ';' 로 나눈 경로
+            app.shelf.items = v.split(';').filter(|p| !p.is_empty()).map(str::to_string).collect();
+        }
+        if std::env::var("NOTCH_CAT_DRAGIN").is_ok() {
+            app.drag_in = true; // 시험용: 파일을 끌고 온 모습
         }
         if std::env::var("NOTCH_CAT_SET").is_ok() {
             app.set = Some(SET_COMMON); // 시험용: 공통 설정 물방울을 연 채로
@@ -3835,6 +3991,34 @@ unsafe fn run() -> Result<()> {
                 Ev::Move(mx, my) => {
                     app.mouse = (mx / app.scale, my / app.scale);
                     app.dirty = true;
+                    if let Some((h, sx, sy)) = app.pull {
+                        let held = windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(0x01) < 0;
+                        if !held {
+                            app.pull = None;
+                        } else if (app.mouse.0 - sx).abs() + (app.mouse.1 - sy).abs() > 8.0 {
+                            // 끌기 시작: 놓는 곳으로 복사만 된다(이동 금지)
+                            app.pull = None;
+                            let path = match h {
+                                Hit::ShelfItem(k) => app.shelf.items.get(k).map(PathBuf::from),
+                                Hit::ClipItem(pin, k) => (if pin { &app.clip.pinned } else { &app.clip.recent }).get(k).cloned().and_then(|it| {
+                                    // 클립보드 그림은 이름 붙인 PNG 로 내린다
+                                    let d = std::env::temp_dir().join("notch-cat");
+                                    let _ = std::fs::create_dir_all(&d);
+                                    let f = d.join(format!("클립보드 그림 {}.png", it.at.replace(':', "")));
+                                    std::fs::copy(clip::png_path(it.id), &f).ok().map(|_| f)
+                                }),
+                                _ => None,
+                            };
+                            if let Some(path) = path {
+                                let ok = shelf::drag_out(hwnd, &path);
+                                log(&format!("shelf: 끌어 내림 {ok}"));
+                                app.pulled = Instant::now();
+                                app.tracking = false;
+                                app.leave();
+                            }
+                            continue;
+                        }
+                    }
                     if !app.tracking {
                         app.tracking = true;
                         let mut t = TRACKMOUSEEVENT { cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32, dwFlags: TME_LEAVE, hwndTrack: hwnd, dwHoverTime: 0 };
@@ -3889,7 +4073,39 @@ unsafe fn run() -> Result<()> {
                 Ev::Leave if std::env::var("NOTCH_CAT_SHOT").is_ok() => {} // 시험 중엔 마우스가 없어도 펼친 채로
                 Ev::Leave if app.ent_up() => app.tracking = false, // 적는 동안은 마우스가 나가도 펼친 채로
                 Ev::Leave if app.saved_hold.is_some() => app.tracking = false, // 막 저장했다: 넣은 일정이 보이게 잠깐 펼친 채로
+                Ev::Leave if app.drag_in => {} // 파일을 끌고 있는 동안은 접지 않는다
                 Ev::Leave => app.leave(),
+                Ev::DragIn => {
+                    // 파일을 끌고 왔다: 펼쳐서 선반을 보여 주고 받는 칸을 빛낸다
+                    app.drag_in = true;
+                    app.hover = true;
+                    if app.page != 6 {
+                        app.page = 6;
+                        app.pgf.pos = 0.0;
+                        app.pgf.target = 1.0;
+                    }
+                    app.face.touch();
+                    app.tick();
+                }
+                Ev::DragOut => {
+                    app.drag_in = false;
+                    app.tracking = false;
+                    app.leave();
+                }
+                Ev::Dropped(paths) => {
+                    app.drag_in = false;
+                    app.shelf.add(&paths);
+                    app.shelf.save();
+                    app.gulp = Some(Instant::now());
+                    app.face.happy(900);
+                    // 물방울이 받아먹으며 출렁: 몸통을 살짝 눌렀다 놓는다
+                    app.w.pos += 18.0;
+                    app.h.pos -= 12.0;
+                    app.tracking = false;
+                    app.saved_hold = Some(Instant::now() + Duration::from_millis(1500)); // 마우스가 그대로 나가면 1.5초 뒤 접힌다
+                    log(&format!("shelf: {}개 받음, 선반 {}", paths.len(), app.shelf.items.len()));
+                    app.tick();
+                }
                 Ev::Clip => {
                     // 무언가 복사됐다: 받아 적고(비밀번호 표시가 있으면 건너뜀) 그림은 파일로
                     let id = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
@@ -3914,9 +4130,20 @@ unsafe fn run() -> Result<()> {
                 }
                 Ev::Down(x, y) => {
                     let (lx, ly) = (x / app.scale, y / app.scale);
-                    app.drag = app.hits.iter().find(|(b, _)| lx >= b[0] && lx < b[2] && ly >= b[1] && ly < b[3]).and_then(|(_, h)| if let Hit::SetChip(k) = h { Some((*k, lx, ly)) } else { None });
+                    let under = app.hits.iter().find(|(b, _)| lx >= b[0] && lx < b[2] && ly >= b[1] && ly < b[3]).map(|(_, h)| *h);
+                    app.drag = under.and_then(|h| if let Hit::SetChip(k) = h { Some((k, lx, ly)) } else { None });
+                    // 선반 칸·클립보드 그림은 눌러서 끌면 밖으로 내린다
+                    app.pull = under.filter(|h| match h {
+                        Hit::ShelfItem(k) => app.shelf.items.get(*k).is_some_and(|p| shelf::exists(p)),
+                        Hit::ClipItem(pin, k) => (if *pin { &app.clip.pinned } else { &app.clip.recent }).get(*k).is_some_and(|i| i.img.is_some()),
+                        _ => false,
+                    }).map(|h| (h, lx, ly));
+                }
+                Ev::Click(_, _) if app.pulled.elapsed() < Duration::from_millis(400) => {
+                    app.pull = None; // 끌어 내리고 난 뒤 따라온 뗌
                 }
                 Ev::Click(x, y) => {
+                    app.pull = None;
                     let (lx, ly) = (x / app.scale, y / app.scale);
                     match app.drag.take() {
                         Some((k, sx, sy)) if (lx - sx).abs() + (ly - sy).abs() > 6.0 => {
@@ -3974,6 +4201,7 @@ unsafe fn run() -> Result<()> {
                 }
             }
         }
+        shelf::ON.store(menu::enabled(&app.cfg.pages).contains(&6), std::sync::atomic::Ordering::Relaxed);
         TAB_OK.store(app.hover && !TYPING.with(|t| t.get()), std::sync::atomic::Ordering::Relaxed);
         let anim = app.animating();
         if anim || app.dirty {

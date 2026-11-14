@@ -266,6 +266,16 @@ impl Gfx {
         rt.CreateBitmapFromWicBitmap(&conv, None)
     }
 
+    /// 윈도우 그림(HBITMAP, 탐색기 미리보기·아이콘) → 그릴 수 있는 그림. 받은 HBITMAP 은 지운다.
+    pub unsafe fn bitmap_hbitmap(&self, hb: windows::Win32::Graphics::Gdi::HBITMAP) -> Result<ID2D1Bitmap> {
+        let wb = self.wic.CreateBitmapFromHBITMAP(hb, None, WICBitmapUsePremultipliedAlpha);
+        let _ = windows::Win32::Graphics::Gdi::DeleteObject(hb);
+        let conv = self.wic.CreateFormatConverter()?;
+        conv.Initialize(&wb?, &GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, None, 0.0, WICBitmapPaletteTypeMedianCut)?;
+        let rt: ID2D1RenderTarget = self.dc.cast()?;
+        rt.CreateBitmapFromWicBitmap(&conv, None)
+    }
+
     /// 그림을 정사각형으로 가운데만 잘라 둥근 모서리로.
     pub unsafe fn art(&self, bmp: &ID2D1Bitmap, x: f32, y: f32, size: f32, r: f32, a: f32) {
         if a <= 0.01 {
