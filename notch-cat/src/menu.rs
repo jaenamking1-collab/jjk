@@ -4,7 +4,7 @@
 use serde_json::{json, Value};
 
 /// 쪽 이름(번호 순)
-pub const NAMES: [&str; 5] = ["음악", "시세", "날씨", "달력", "AI"];
+pub const NAMES: [&str; 6] = ["음악", "시세", "날씨", "달력", "AI", "클립보드"];
 pub const N: usize = NAMES.len();
 
 /// (쪽 번호, 켜짐) 을 넘기는 차례대로
@@ -84,7 +84,7 @@ mod tests {
     #[test]
     fn parse_fills_new_pages() {
         let o = parse(&json!([[3, true], [0, false], [9, true], [3, false]]));
-        assert_eq!(o, vec![(3, true), (0, false), (1, true), (2, true), (4, true)]);
+        assert_eq!(o, vec![(3, true), (0, false), (1, true), (2, true), (4, true), (5, true)]);
         assert_eq!(parse(&Value::Null), (0..N).map(|i| (i, true)).collect::<Vec<_>>());
         assert_eq!(parse(&save(&o)), o);
     }

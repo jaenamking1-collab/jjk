@@ -3,6 +3,7 @@
 #![windows_subsystem = "windows"]
 
 mod ai;
+mod clip;
 mod face;
 mod entry;
 mod gcal;
@@ -59,6 +60,7 @@ const WIN_H: f32 = 800.0; // 큰 달력 + 일정 칸 + 알림 물방울까지
 const ENT_W: f32 = 560.0;
 const ENT_H: f32 = 112.0;
 const ENT_GAP: f32 = 18.0;
+const CLIP_SZ: (f32, f32) = (780.0, 250.0); // 클립보드 쪽
 const SET_W: f32 = 300.0; // 노치 옆으로 흘러나오는 설정 물방울 너비
 const SET_GAP: f32 = 18.0;
 const SET_COMMON: usize = usize::MAX; // 공통 설정(맨 위 점 옆 ⚙)
@@ -275,6 +277,7 @@ enum Ev {
     Leave,
     Click(f32, f32),
     Down(f32, f32), // 왼쪽 단추 누름(끌기 시작)
+    Clip,           // 클립보드가 바뀌었다(무언가 복사됨)
     Tick,
     Tray,
     Wheel(i32), // 휠: -1 왼쪽 쪽, +1 오른쪽 쪽
@@ -365,6 +368,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         WM_LBUTTONDOWN => push(Ev::Down((lp.0 & 0xFFFF) as i16 as f32, ((lp.0 >> 16) & 0xFFFF) as i16 as f32)),
         WM_LBUTTONUP => push(Ev::Click((lp.0 & 0xFFFF) as i16 as f32, ((lp.0 >> 16) & 0xFFFF) as i16 as f32)),
         WM_TIMER => push(Ev::Tick),
+        0x031D /* WM_CLIPBOARDUPDATE */ => push(Ev::Clip),
         WM_MOUSEACTIVATE if !TYPING.with(|t| t.get()) => return LRESULT(MA_NOACTIVATE as isize),
         WM_CHAR if TYPING.with(|t| t.get()) => {
             push(Ev::Char(wp.0 as u32));
@@ -669,6 +673,10 @@ enum Hit {
     SetClose,
     SetChip(usize), // 메뉴 정리: 차례 k 번째 쪽(누르면 켜고 끄기, 끌면 순서)
     SetOpt(u32),    // 켜고 끄는 설정(오른쪽 클릭 메뉴와 같은 번호)
+    ClipItem(bool, usize), // 클립보드: (고정인가, 몇 번째) 눌러 다시 복사
+    ClipPin(usize),   // 최근 → 고정
+    ClipUnpin(usize), // 고정에서 빼기
+    ClipClear,        // 최근 모두 지우기
     Shuffle,
     Repeat,
     Queue,        // 다음 곡 목록 열고 닫기
@@ -722,6 +730,10 @@ struct App {
     set_rect: [f32; 4], // 지난 장면의 설정 물방울 자리(창 영역에 넣는다)
     chips: Vec<[f32; 4]>, // 메뉴 정리 칩 자리(차례대로)
     drag: Option<(usize, f32, f32)>, // 끌고 있는 칩(차례, 누른 곳 x, y)
+    clip: clip::Clip,  // 클립보드 쪽: 최근 10 · 고정 10
+    clip_bmp: HashMap<u64, ID2D1Bitmap>, // 그림 미리보기(항목 id 별)
+    clip_last: String, // 마지막으로 받아 적은 시각(살아 있다는 표시)
+    clip_flash: Option<Instant>, // 눌러서 다시 복사한 때(잠깐 '복사했습니다')
     nb: Spring,        // 적는 동안 온 알림이 칸 아래로 볼록 나온 정도 0…1
     pgf: Spring,       // 쪽이 바뀔 때 내용이 다시 떠오르는 정도 0…1
     big: bool,         // 시세 쪽: 값까지 나오는 큰 판
@@ -1055,7 +1067,9 @@ impl App {
         } else if tiny {
             TINY
         } else if self.hover {
-            if self.page == 4 {
+            if self.page == 5 {
+                CLIP_SZ
+            } else if self.page == 4 {
                 AI_SZ
             } else if self.page == 3 {
                 if self.naver_guide && self.caln.accounts.iter().filter(|a| a.starts_with("네이버 ")).count() > self.naver_n {
@@ -1083,7 +1097,7 @@ impl App {
         if th > BAR_H + 10.0 {
             // 시세 쪽은 작은 판 높이를 '다 펼친 높이'로 삼는다(큰 판으로 자라는 동안 내용이 흐려지지 않게)
             self.open_h = if self.page == 1 && !noting { q_layout(&self.q.iter().map(|q| q.group).collect::<Vec<_>>(), 1.0, self.cfg.cols()).2 .1 } else { th };
-            self.mode = if noting { 2 } else if self.page == 4 { 6 } else if self.page == 3 { 5 } else if self.page == 2 { 4 } else if self.page == 1 { 3 } else if self.n.has { 0 } else { 1 };
+            self.mode = if noting { 2 } else if self.page == 5 { 7 } else if self.page == 4 { 6 } else if self.page == 3 { 5 } else if self.page == 2 { 4 } else if self.page == 1 { 3 } else if self.n.has { 0 } else { 1 };
             self.w.tune(250.0, 0.62);
             self.h.tune(190.0, 0.68);
         } else {
@@ -2356,6 +2370,9 @@ impl App {
         if self.ent.is_some() && h >= 0.5 {
             self.draw_entry(h);
         }
+        if h >= 0.5 && self.mode == 7 {
+            self.draw_clip(h);
+        }
         if h >= 0.5 && (self.set.is_some() || self.sd.pos > 0.02) {
             self.draw_set(h);
         }
@@ -2752,6 +2769,100 @@ impl App {
         self.dirty = true;
     }
 
+    /// 클립보드 쪽: 왼쪽 최근(자동 10개), 오른쪽 고정(☆ 로 옮긴 것 10개). 둘 다 미리보기 칸.
+    unsafe fn draw_clip(&mut self, h: f32) {
+        let w = self.w.pos;
+        let x = (WIN_W - w) / 2.0;
+        let p = ((h - BAR_H) / (self.open_h - BAR_H)).clamp(0.0, 1.0);
+        let a = ((p - 0.35) / 0.65).clamp(0.0, 1.0) * self.pgf.pos.clamp(0.0, 1.0);
+        if a <= 0.0 {
+            return;
+        }
+        // 그림 미리보기를 읽어 둔다(한 번만)
+        let ids: Vec<u64> = self.clip.recent.iter().chain(&self.clip.pinned).filter(|i| i.img.is_some()).map(|i| i.id).collect();
+        for id in ids {
+            if !self.clip_bmp.contains_key(&id) {
+                if let Some(b) = std::fs::read(clip::thumb_path(id)).ok().and_then(|b| self.g.bitmap(&b).ok()) {
+                    self.clip_bmp.insert(id, b);
+                }
+            }
+        }
+        let g = &self.g;
+        let (mx, my) = self.mouse;
+        let live = p > 0.9;
+        let over = |b: [f32; 4]| live && mx >= b[0] && mx < b[2] && my >= b[1] && my < b[3];
+        let (tile, gap, cols) = (64.0, 8.0, 5usize);
+        let col_w = cols as f32 * tile + (cols - 1) as f32 * gap;
+        let lx = x + 24.0;
+        let rx = x + w - 24.0 - col_w;
+        let mut hits: Vec<([f32; 4], Hit)> = Vec::new();
+        let mut hover_text: Option<String> = None;
+        g.rrect((lx + col_w + rx) / 2.0, 30.0, 1.0, 170.0, 0.5, FG, a * 0.12); // 가운데 칸막이
+        for (pinned, x0) in [(false, lx), (true, rx)] {
+            let list = if pinned { &self.clip.pinned } else { &self.clip.recent };
+            let head = if pinned { format!("고정  {}/{}", list.len(), clip::MAX) } else { format!("최근  {}/{}", list.len(), clip::MAX) };
+            g.text(&head, &g.f_sub, x0, 22.0, 200.0, if pinned { LIME } else { FG }, a, Align::Left);
+            if !pinned && !list.is_empty() {
+                let cb = [x0 + col_w - 70.0, 22.0, x0 + col_w, 42.0];
+                g.text("모두 지우기", &g.f_tiny, cb[0], cb[1] + 4.0, 70.0, FG, a * if over(cb) { 0.9 } else { 0.4 }, Align::Right);
+                hits.push((cb, Hit::ClipClear));
+            }
+            if list.is_empty() {
+                let msg = if pinned { "최근 칸의 ☆ 를 누르면\n여기에 고정됩니다" } else { "글자나 그림을 복사하면\n여기에 모입니다" };
+                g.para(msg, &g.f_body, x0, 90.0, col_w, FG, a * 0.4);
+            }
+            for (k, it) in list.iter().enumerate().take(clip::MAX) {
+                let (c, r) = (k % cols, k / cols);
+                let (tx, ty) = (x0 + c as f32 * (tile + gap), 50.0 + r as f32 * (tile + gap));
+                let b = [tx, ty, tx + tile, ty + tile];
+                let on = over(b);
+                if let Some(bmp) = self.clip_bmp.get(&it.id) {
+                    g.art(bmp, tx, ty, tile, 10.0, a);
+                } else {
+                    g.rrect(tx, ty, tile, tile, 10.0, FG, a * 0.08);
+                    if let Some(t) = &it.text {
+                        g.clip(tx + 6.0, ty + 5.0, tile - 12.0, tile - 10.0);
+                        g.para(&t.chars().take(60).collect::<String>(), &g.f_tiny, tx + 6.0, ty + 5.0, tile - 12.0, FG, a * 0.85);
+                        g.unclip();
+                    } else {
+                        g.text("그림", &g.f_tiny, tx, ty + 26.0, tile, FG, a * 0.4, Align::Center);
+                    }
+                }
+                if on {
+                    g.rrect(tx, ty, tile, tile, 10.0, LIME, a * 0.18);
+                    hover_text = Some(match (&it.text, it.img) {
+                        (Some(t), _) => t.split_whitespace().collect::<Vec<_>>().join(" "),
+                        (_, Some((iw, ih))) => format!("그림 {iw}×{ih}"),
+                        _ => String::new(),
+                    } + &format!("  · {}", it.at));
+                }
+                // 모서리 단추: 최근은 ☆(고정), 고정은 ✕(빼기). 마우스를 올렸을 때만.
+                let cb = [tx + tile - 22.0, ty + 2.0, tx + tile - 2.0, ty + 22.0];
+                if on || over(cb) {
+                    g.ellipse(tx + tile - 12.0, ty + 12.0, 9.0, 9.0, BG, a * 0.85);
+                    g.text(if pinned { "✕" } else { "☆" }, &g.f_bar, cb[0], cb[1] + 2.0, 20.0, if over(cb) { LIME } else { FG }, a, Align::Center);
+                    hits.push((cb, if pinned { Hit::ClipUnpin(k) } else { Hit::ClipPin(k) }));
+                }
+                hits.push((b, Hit::ClipItem(pinned, k)));
+            }
+        }
+        // 아래 줄: 마우스를 올린 항목 내용, 방금 복사했으면 알림, 아니면 살아 있다는 표시
+        let fy = 50.0 + 2.0 * (tile + gap) + 6.0;
+        let flash = self.clip_flash.is_some_and(|t| t.elapsed() < Duration::from_millis(2000));
+        if flash {
+            g.text("복사했습니다 · Ctrl+V 로 붙여 넣으세요", &g.f_bar, lx, fy, w - 48.0, LIME, a, Align::Left);
+            self.dirty = true;
+        } else if let Some(t) = hover_text {
+            g.text(&t, &g.f_bar, lx, fy, w - 48.0, FG, a * 0.8, Align::Left);
+        } else {
+            let last = if self.clip_last.is_empty() { "켜진 뒤 아직 복사 없음".to_string() } else { format!("마지막 복사 {}", self.clip_last) };
+            g.text(&format!("클립보드 · {last} · 누르면 다시 복사"), &g.f_tiny, lx, fy + 2.0, w - 48.0, FG, a * 0.4, Align::Left);
+        }
+        if live {
+            self.hits.extend(hits);
+        }
+    }
+
     /// 노치 옆(오른쪽, 자리가 모자라면 왼쪽)으로 흘러나오는 설정 물방울. 일정 칸처럼 오목한 목으로 몸통과 이어진다.
     unsafe fn draw_set(&mut self, h: f32) {
         let t = self.sd.pos;
@@ -3137,6 +3248,39 @@ impl App {
                 self.menu_cmd(id);
                 return self.tick();
             }
+            Hit::ClipItem(pinned, k) => {
+                let it = if pinned { self.clip.pinned.get(k) } else { self.clip.recent.get(k) }.cloned();
+                if let Some(it) = it {
+                    if clip::restore(self.hwnd, &it) {
+                        self.clip_flash = Some(Instant::now());
+                        self.face.happy(500);
+                    } else {
+                        self.face.slow_blink(300);
+                    }
+                }
+                return self.tick();
+            }
+            Hit::ClipPin(k) => {
+                if self.clip.pin(k) {
+                    self.clip.save();
+                } else {
+                    self.face.slow_blink(300); // 고정이 꽉 찼다(10개)
+                }
+                return self.tick();
+            }
+            Hit::ClipUnpin(k) => {
+                if let Some(it) = self.clip.unpin(k) {
+                    clip::forget(&[it]);
+                    self.clip.save();
+                }
+                return self.tick();
+            }
+            Hit::ClipClear => {
+                let gone = std::mem::take(&mut self.clip.recent);
+                clip::forget(&gone);
+                self.clip.save();
+                return self.tick();
+            }
             _ => {}
         }
         if !matches!(hit, Hit::CalEv(..)) {
@@ -3311,7 +3455,7 @@ impl App {
             Hit::Line(t) => Cmd::Seek(t as i64),
             Hit::Shuffle => Cmd::Shuffle,
             Hit::Repeat => Cmd::Repeat,
-            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::AiLogin(_) | Hit::AiOpen(_) | Hit::AiGuideClose | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSchool | Hit::EntSave | Hit::EntClose | Hit::SetOpen(_) | Hit::SetClose | Hit::SetChip(_) | Hit::SetOpt(_) => return,
+            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::AiLogin(_) | Hit::AiOpen(_) | Hit::AiGuideClose | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSchool | Hit::EntSave | Hit::EntClose | Hit::SetOpen(_) | Hit::SetClose | Hit::SetChip(_) | Hit::SetOpt(_) | Hit::ClipItem(..) | Hit::ClipPin(_) | Hit::ClipUnpin(_) | Hit::ClipClear => return,
         };
         let _ = self.tx.send(cmd);
     }
@@ -3536,6 +3680,10 @@ unsafe fn run() -> Result<()> {
         set_rect: [0.0; 4],
         chips: Vec::new(),
         drag: None,
+        clip: clip::Clip::load(),
+        clip_bmp: HashMap::new(),
+        clip_last: String::new(),
+        clip_flash: None,
         nb: Spring::new(0.0, 210.0, 0.5),
         wx: {
             let w = Arc::new(Mutex::new(weather::Weather::default()));
@@ -3600,6 +3748,7 @@ unsafe fn run() -> Result<()> {
         qbmp: HashMap::new(),
     };
     app.page = menu::first(&app.cfg.pages);
+    clip::listen(hwnd); // 복사할 때마다 알려 달라
     app.place();
     app.draw()?; // 빈(투명) 첫 장을 낸 뒤에 창을 보인다
     let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
@@ -3616,6 +3765,15 @@ unsafe fn run() -> Result<()> {
         app.cal_big = std::env::var("NOTCH_CAT_CALBIG").is_ok();
         app.acct_menu = std::env::var("NOTCH_CAT_ACCT").is_ok(); // 시험용: '＋ 계정' 고르기 판
         app.naver_guide = std::env::var("NOTCH_CAT_NAVER").is_ok(); // 시험용: 네이버 연결 안내
+        if std::env::var("NOTCH_CAT_CLIP").is_ok() {
+            // 시험용: 클립보드 쪽에 보기 글(저장하지 않는다)
+            let t = |i: u64, s: &str, pin: bool| (clip::Item { id: i, text: Some(s.into()), img: None, key: i, at: "13:2".to_string() + &i.to_string() }, pin);
+            let demo = [t(1, "회의실 3층 B 동 302호, 오후 2시", false), t(2, "https://jjk.distributionjn.workers.dev/", false), t(3, "정보부 협의회 안건\n1. 기기 점검\n2. 예산", false), t(4, "학교 주소: 경기도 의정부시 …", true), t(5, "계좌 안내 문구입니다", true)];
+            for (it, pin) in demo {
+                if pin { app.clip.pinned.push(it) } else { app.clip.recent.push(it) }
+            }
+            app.clip_last = hhmm();
+        }
         if std::env::var("NOTCH_CAT_SET").is_ok() {
             app.set = Some(SET_COMMON); // 시험용: 공통 설정 물방울을 연 채로
             app.sd.target = 1.0;
@@ -3732,6 +3890,28 @@ unsafe fn run() -> Result<()> {
                 Ev::Leave if app.ent_up() => app.tracking = false, // 적는 동안은 마우스가 나가도 펼친 채로
                 Ev::Leave if app.saved_hold.is_some() => app.tracking = false, // 막 저장했다: 넣은 일정이 보이게 잠깐 펼친 채로
                 Ev::Leave => app.leave(),
+                Ev::Clip => {
+                    // 무언가 복사됐다: 받아 적고(비밀번호 표시가 있으면 건너뜀) 그림은 파일로
+                    let id = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
+                    if let Some((it, imgs)) = clip::capture(hwnd, id, hhmm()) {
+                        let (added, gone) = app.clip.add(it);
+                        if app.clip.recent.first().is_some_and(|r| r.id == id) {
+                            if let Some((png, thumb)) = imgs {
+                                let _ = std::fs::write(clip::png_path(id), png);
+                                let _ = std::fs::write(clip::thumb_path(id), thumb);
+                            }
+                        }
+                        clip::forget(&gone);
+                        for g in &gone {
+                            app.clip_bmp.remove(&g.id);
+                        }
+                        if added {
+                            app.clip.save();
+                        }
+                        app.clip_last = hhmm();
+                        app.dirty = true;
+                    }
+                }
                 Ev::Down(x, y) => {
                     let (lx, ly) = (x / app.scale, y / app.scale);
                     app.drag = app.hits.iter().find(|(b, _)| lx >= b[0] && lx < b[2] && ly >= b[1] && ly < b[3]).and_then(|(_, h)| if let Hit::SetChip(k) = h { Some((*k, lx, ly)) } else { None });
