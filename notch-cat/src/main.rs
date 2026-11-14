@@ -588,6 +588,15 @@ unsafe fn queue_btn(g: &Gfx, cx: f32, cy: f32, r: f32, on: bool, a: f32) {
     }
 }
 
+/// 설정 물방울의 한 줄
+enum SetRow {
+    Toggle(u32, &'static str, bool),                  // 켜고 끄기(menu_cmd 번호)
+    Choice(&'static str, &'static [&'static str], usize, u32), // 고르기(이름, 보기, 지금, 첫 번호)
+    Button(&'static str, u32),                         // 누르기
+}
+
+const CALV_NAMES: [&str; 3] = ["한 주 줄", "한 달", "달력+목록"];
+
 /// 작은 톱니(공통 설정 단추)
 unsafe fn gear(g: &Gfx, x: f32, y: f32, c: Rgb, a: f32) {
     for k in 0..8 {
@@ -1425,7 +1434,7 @@ impl App {
                 let gx = x + w / 2.0 + (half + 1.0) * 12.0 + 6.0;
                 let gb = [gx - 9.0, 0.0, gx + 9.0, 17.0];
                 let (mx, my) = self.mouse;
-                let on = self.set == Some(SET_COMMON) || (mx >= gb[0] && mx < gb[2] && my >= gb[1] && my < gb[3]);
+                let on = self.set.is_some() || (mx >= gb[0] && mx < gb[2] && my >= gb[1] && my < gb[3]);
                 gear(g, gx, 8.0, if on { LIME } else { FG }, pa * if on { 1.0 } else { 0.45 });
                 if p > 0.9 {
                     self.hits.push((gb, Hit::SetOpen(SET_COMMON)));
@@ -3061,7 +3070,19 @@ impl App {
             (4, "오른쪽으로 비켜 놓기", self.cfg.aside),
             (6, "꽉 찬 창에선 마우스가 오면 작게", self.cfg.tiny),
         ];
-        let sh = 64.0 + rows as f32 * 30.0 + 14.0 + opts.len() as f32 * 28.0 + 40.0;
+        // 지금 쪽의 설정(톱니를 누른 쪽). 쪽을 넘기면 따라 바뀐다.
+        let prow: Vec<SetRow> = match self.page {
+            0 => vec![SetRow::Choice("음악 화면 모양", &MUSIC_NAMES, self.cfg.ml, 20)],
+            1 => vec![SetRow::Toggle(7, "닫혔을 때 시세 한 줄", self.cfg.bar), SetRow::Toggle(9, "세로 두 칸 (끄면 한 칸)", self.cfg.two), SetRow::Button("종목 목록 고치기", 8)],
+            2 => vec![SetRow::Toggle(30, "큰 판으로 보기", self.cfg.wbig)],
+            3 => vec![SetRow::Choice("달력 모양 (접히면 달력+목록으로)", &CALV_NAMES, self.cfg.cv, 40), SetRow::Button("계정 연결 · 빼기", 50)],
+            5 => vec![SetRow::Button("최근 모두 지우기", 60)],
+            6 => vec![SetRow::Button("선반 비우기", 61)],
+            _ => vec![],
+        };
+        let row_h = |r: &SetRow| match r { SetRow::Toggle(..) => 28.0, SetRow::Choice(..) => 52.0, SetRow::Button(..) => 32.0 };
+        let off = if prow.is_empty() { 0.0 } else { prow.iter().map(row_h).sum::<f32>() + 30.0 };
+        let sh = 64.0 + off + rows as f32 * 30.0 + 14.0 + opts.len() as f32 * 28.0 + 40.0;
         let bw = SET_W * (0.3 + 0.7 * tt.min(1.15));
         let bh = sh * tt;
         let top = 2.0;
@@ -3098,16 +3119,59 @@ impl App {
         let (mx, my) = self.mouse;
         let over = |b: [f32; 4]| mx >= b[0] && mx < b[2] && my >= b[1] && my < b[3];
         let mut hits: Vec<([f32; 4], Hit)> = Vec::new();
-        g.text("설정", &g.f_sub, l, top + 12.0, 200.0, FG, a, Align::Left);
+        let title = if prow.is_empty() { "설정".to_string() } else { format!("{} 설정", menu::NAMES[self.page.min(menu::N - 1)]) };
+        g.text(&title, &g.f_sub, l, top + 12.0, 200.0, FG, a, Align::Left);
         let xb = [r - 24.0, top + 10.0, r, top + 34.0];
         g.ellipse(r - 12.0, top + 22.0, 11.0, 11.0, FG, a * if over(xb) { 0.18 } else { 0.07 });
         ribbon(g, &[(r - 16.0, top + 18.0), (r - 8.0, top + 26.0)], |_| 1.5, FG, a * 0.8);
         ribbon(g, &[(r - 8.0, top + 18.0), (r - 16.0, top + 26.0)], |_| 1.5, FG, a * 0.8);
         hits.push((xb, Hit::SetClose));
         // 메뉴 정리
-        g.text("메뉴 · 누르면 켜고 끄기 · 끌어서 순서", &g.f_tiny, l, top + 42.0, inner, FG, a * 0.5, Align::Left);
+        // 이 쪽 설정
+        let mut y = top + 44.0;
+        for row in &prow {
+            match row {
+                SetRow::Toggle(id, label, on) => {
+                    let b = [l - 4.0, y - 3.0, r + 4.0, y + 23.0];
+                    if over(b) {
+                        g.rrect(b[0], b[1], b[2] - b[0], 26.0, 8.0, FG, a * 0.06);
+                    }
+                    g.text(label, &g.f_body, l, y + 2.0, inner - 44.0, FG, a * 0.9, Align::Left);
+                    let sx = r - 34.0;
+                    g.rrect(sx, y + 3.0, 34.0, 18.0, 9.0, if *on { LIME } else { FG }, a * if *on { 0.9 } else { 0.18 });
+                    g.ellipse(if *on { sx + 25.0 } else { sx + 9.0 }, y + 12.0, 6.5, 6.5, if *on { PUPIL } else { FG }, a * if *on { 1.0 } else { 0.7 });
+                    hits.push((b, Hit::SetOpt(*id)));
+                }
+                SetRow::Choice(label, opts, cur, base) => {
+                    g.text(label, &g.f_body, l, y + 2.0, inner, FG, a * 0.9, Align::Left);
+                    let mut cx = l;
+                    for (i, o) in opts.iter().enumerate() {
+                        let cw = g.measure(o, &g.f_tiny) + 18.0;
+                        let b = [cx, y + 24.0, cx + cw, y + 46.0];
+                        let on = i == *cur;
+                        g.rrect(b[0], b[1], cw, 22.0, 11.0, if on { LIME } else { FG }, a * if on { 0.26 } else if over(b) { 0.14 } else { 0.06 });
+                        g.text(o, &g.f_tiny, b[0], b[1] + 4.0, cw, if on { LIME } else { FG }, a * 0.9, Align::Center);
+                        hits.push((b, Hit::SetOpt(base + i as u32)));
+                        cx += cw + 5.0;
+                    }
+                }
+                SetRow::Button(label, id) => {
+                    let bw = g.measure(label, &g.f_bar) + 28.0;
+                    let b = [l, y + 2.0, l + bw, y + 26.0];
+                    g.rrect(b[0], b[1], bw, 24.0, 12.0, LIME, a * if over(b) { 0.3 } else { 0.18 });
+                    g.text(label, &g.f_bar, b[0], b[1] + 4.0, bw, LIME, a, Align::Center);
+                    hits.push((b, Hit::SetOpt(*id)));
+                }
+            }
+            y += row_h(row);
+        }
+        if !prow.is_empty() {
+            g.rrect(l, y + 2.0, inner, 1.0, 0.5, FG, a * 0.12);
+            g.text("공통", &g.f_tiny, l, y + 8.0, 100.0, FG, a * 0.5, Align::Left);
+        }
+        g.text("메뉴 · 누르면 켜고 끄기 · 끌어서 순서", &g.f_tiny, l, top + 42.0 + off, inner, FG, a * 0.5, if prow.is_empty() { Align::Left } else { Align::Right });
         let mut chips = Vec::new();
-        let (mut cx, mut cy) = (l, top + 60.0);
+        let (mut cx, mut cy) = (l, top + 60.0 + off);
         for (k, (_, on, cw)) in names.iter().enumerate() {
             if cx + cw > r && cx > l {
                 cx = l;
@@ -3670,24 +3734,10 @@ impl App {
 
     unsafe fn tray_menu(&mut self) -> bool {
         let Ok(m) = CreatePopupMenu() else { return false };
-        let check = |on: bool| if on { MF_CHECKED } else { MF_UNCHECKED };
         let title: Vec<u16> = format!("노치 고양이 {VERSION}").encode_utf16().chain([0]).collect();
         let _ = AppendMenuW(m, MF_GRAYED, 0, PCWSTR(title.as_ptr()));
         let _ = AppendMenuW(m, MF_SEPARATOR, 0, None);
-        let _ = AppendMenuW(m, MF_STRING, 8, w!("시세 종목 설정…"));
-        let _ = AppendMenuW(m, MF_SEPARATOR, 0, None);
-        let _ = AppendMenuW(m, check(self.cfg.hide_fullscreen), 1, w!("전체 화면일 때 숨기기"));
-        let _ = AppendMenuW(m, check(self.cfg.autostart), 2, w!("윈도우 시작할 때 자동 실행"));
-        let _ = AppendMenuW(m, check(self.cfg.aside), 4, w!("오른쪽으로 비켜 놓기"));
-        let _ = AppendMenuW(m, check(self.cfg.tiny), 6, w!("최대화 창에서 마우스가 가까이 오면 작게 줄이기"));
-        let _ = AppendMenuW(m, check(self.cfg.bar), 7, w!("닫힘에 시세 한 줄"));
-        let _ = AppendMenuW(m, check(self.cfg.two), 9, w!("시세를 세로 두 칸으로 (끄면 위젯처럼 한 칸)"));
-        let _ = AppendMenuW(m, MF_SEPARATOR, 0, None);
-        for (i, name) in MUSIC_NAMES.iter().enumerate() {
-            let t: Vec<u16> = format!("음악 화면: {name}").encode_utf16().chain([0]).collect();
-            let _ = AppendMenuW(m, check(self.cfg.ml == i), 20 + i, PCWSTR(t.as_ptr()));
-        }
-        let _ = AppendMenuW(m, MF_STRING, 5, w!("얼굴 바꾸기"));
+        let _ = AppendMenuW(m, MF_STRING, 10, w!("설정 열기"));
         let _ = AppendMenuW(m, MF_SEPARATOR, 0, None);
         let _ = AppendMenuW(m, MF_STRING, 3, w!("끝내기"));
         let mut pt = POINT::default();
@@ -3719,6 +3769,38 @@ impl App {
             7 => self.cfg.bar = !self.cfg.bar,
             9 => self.cfg.two = !self.cfg.two,
             20..=22 => self.cfg.ml = id as usize - 20,
+            30 => self.cfg.wbig = !self.cfg.wbig,
+            40..=42 => self.cfg.cv = id as usize - 40,
+            50 => {
+                // 달력 '＋ 계정' 판을 연다(설정 물방울은 닫는다)
+                self.page = 3;
+                self.acct_menu = true;
+                self.set = None;
+                self.sd.target = 0.0;
+                return false;
+            }
+            60 => {
+                let gone = std::mem::take(&mut self.clip.recent);
+                clip::forget(&gone);
+                self.clip.save();
+                return false;
+            }
+            61 => {
+                self.shelf.items.clear();
+                self.shelf_bmp.clear();
+                self.shelf.save();
+                return false;
+            }
+            10 => {
+                // 트레이 '설정 열기': 노치를 펴고 설정 물방울을 연다(마우스가 안 오면 8초 뒤 접힘)
+                self.hover = true;
+                self.set = Some(SET_COMMON);
+                self.sd.target = 1.0;
+                self.tracking = false;
+                self.saved_hold = Some(Instant::now() + Duration::from_secs(8));
+                self.tick();
+                return false;
+            }
             8 => {
                 settings::open(self.quotes.clone(), cat_icon());
                 return false;
