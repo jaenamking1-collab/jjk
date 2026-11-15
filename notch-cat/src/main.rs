@@ -66,7 +66,7 @@ const WIN_H: f32 = 800.0; // 큰 달력 + 일정 칸 + 알림 물방울까지
 const ENT_W: f32 = 560.0;
 const ENT_H: f32 = 112.0;
 const ENT_GAP: f32 = 18.0;
-const CLIP_SZ: (f32, f32) = (1200.0, 250.0); // 클립보드 쪽: 글자 목록 | 그림 3×3 | 고정 2×3 (칸 120). 높이는 몸 138 기준
+const CLIP_SZ: (f32, f32) = (1100.0, 250.0); // 클립보드 쪽: 글자 목록(366) | 그림 3×3 | 고정 2×3 (칸 120). 높이는 몸 138 기준
 const ED_GAP: f32 = 22.0; // 노치 몸 아래 ~ 편집 창 위(물방울 목 길이)
 const SHELF_SZ: (f32, f32) = (780.0, 250.0); // 파일 선반 쪽
 const TRIM_SZ: (f32, f32) = (780.0, 300.0); // 영상 자르기 쪽
@@ -3067,7 +3067,8 @@ impl App {
                     g.rrect(tx, ty, lw, lh, 8.0, if on || open { LIME } else { FG }, a * if open { 0.22 } else if on { 0.14 } else { 0.05 });
                     let kd = clip::kind(it);
                     let kc = match kd { "파일" => (0.98, 0.75, 0.2), "링크" => (0.4, 0.85, 0.95), _ => LIME };
-                    let kw = g.measure(kd, &g.f_tiny) + 12.0;
+                    let plain = kd == "글자"; // 글자 열이라 '글자' 표시는 뺀다(링크·파일만 표시)
+                    let kw = if plain { 0.0 } else { g.measure(kd, &g.f_tiny) + 12.0 };
                     let star_w = 26.0;
                     let at_w = g.measure(&it.at, &g.f_tiny) + 10.0;
                     let right = kw + at_w + star_w + 8.0;
@@ -3082,8 +3083,10 @@ impl App {
                     }
                     g.text(&s, &g.f_bar, tx + 12.0, ty + (lh - 18.0) / 2.0, avail, FG, a * 0.92, Align::Left);
                     let kx = tx + lw - right + 4.0;
-                    g.rrect(kx, ty + (lh - 15.0) / 2.0, kw, 15.0, 7.5, BG, a * 0.75);
-                    g.text(kd, &g.f_tiny, kx, ty + (lh - 15.0) / 2.0 - 0.5, kw, kc, a, Align::Center);
+                    if !plain {
+                        g.rrect(kx, ty + (lh - 15.0) / 2.0, kw, 15.0, 7.5, BG, a * 0.75);
+                        g.text(kd, &g.f_tiny, kx, ty + (lh - 15.0) / 2.0 - 0.5, kw, kc, a, Align::Center);
+                    }
                     g.text(&it.at, &g.f_tiny, kx + kw + 4.0, ty + (lh - 15.0) / 2.0 - 0.5, at_w, FG, a * 0.45, Align::Left);
                     if on {
                         hover_text = Some(format!("{one}  · {}", it.at));
