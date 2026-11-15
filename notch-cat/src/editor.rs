@@ -23,6 +23,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, ReleaseCapture, S
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 pub const WM_EDTOAST: u32 = WM_APP + 6; // 노치에게: 알림 물방울을 띄워 달라
+pub const WM_EDCLOSE: u32 = WM_APP + 10; // 노치에게: 닫아 달라(노치 안으로 빨아들인 뒤 없앤다)
 pub static TOAST: Mutex<Option<(String, String)>> = Mutex::new(None);
 
 const FONTS: [(&str, &str); 6] = [("맑은 고딕", "Malgun Gothic"), ("굴림", "Gulim"), ("바탕", "Batang"), ("궁서", "Gungsuh"), ("Segoe UI", "Segoe UI"), ("Impact", "Impact")];
@@ -205,7 +206,7 @@ impl Ed {
         self.view = (ox, oy, k);
         let bmp = self.image(&rt);
         rt.BeginDraw();
-        rt.Clear(Some(&rgb(0x161616, 1.0)));
+        rt.Clear(Some(&rgb(0x000000, 1.0))); // 노치와 한 몸으로 보이게 같은 검정
         let br = |c: u32, a: f32| rt.CreateSolidColorBrush(&rgb(c, a), None).unwrap();
         if let Some(b) = &bmp {
             rt.DrawBitmap(b, Some(&rc(ox, oy, iw, ih)), 1.0, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, None);
@@ -462,7 +463,7 @@ impl Ed {
                 self.copy(true);
             }
             Btn::Close => {
-                let _ = DestroyWindow(self.hwnd);
+                let _ = PostMessageW(self.notch, WM_EDCLOSE, WPARAM(0), LPARAM(0));
             }
         }
     }
@@ -714,6 +715,11 @@ unsafe extern "system" fn proc(hw: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
                     redraw = false;
                 }
             }
+            WM_CLOSE => {
+                let _ = PostMessageW(ed.notch, WM_EDCLOSE, WPARAM(0), LPARAM(0));
+                redraw = false;
+                return Some(LRESULT(0));
+            }
             WM_DESTROY => {
                 *b = None;
                 return Some(LRESULT(0));
@@ -760,8 +766,12 @@ pub unsafe fn open(notch: HWND, px: Vec<u8>, w: u32, h: u32) -> windows::core::R
     }
     let room = work.bottom - top;
     let wh = ((h as i32 + 160).max(420)).min(sh * 9 / 10).min(room - 10);
-    let y = if top > work.top { top } else { work.top + (sh - wh) / 2 };
-    let hw = CreateWindowExW(WINDOW_EX_STYLE(0), class, w!("노치 고양이 · 스크린샷 편집"), WS_OVERLAPPEDWINDOW | WS_VISIBLE, work.left + (sw - ww) / 2, y, ww, wh, None, None, inst, None)?;
+    // 테두리 없는 창: 노치가 dock() 으로 바로 아래에 붙이고, 물방울처럼 내려오게 투명도도 노치가 맡는다
+    let hw = CreateWindowExW(WS_EX_LAYERED, class, w!("노치 고양이 · 스크린샷 편집"), WS_POPUP, work.left + (sw - ww) / 2, top, ww, wh, None, None, inst, None)?;
+    let _ = SetLayeredWindowAttributes(hw, COLORREF(0), 0, LWA_ALPHA);
+    let round: u32 = 2; // DWMWCP_ROUND
+    let _ = windows::Win32::Graphics::Dwm::DwmSetWindowAttribute(hw, windows::Win32::Graphics::Dwm::DWMWA_WINDOW_CORNER_PREFERENCE, &round as *const u32 as _, 4);
+    let _ = ShowWindow(hw, SW_SHOW);
     let s = GetDpiForWindow(hw) as f32 / 96.0;
     let d2: ID2D1Factory = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None)?;
     let dw: IDWriteFactory = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)?;
@@ -773,6 +783,25 @@ pub unsafe fn open(notch: HWND, px: Vec<u8>, w: u32, h: u32) -> windows::core::R
     let _ = SetForegroundWindow(hw);
     let _ = InvalidateRect(hw, None, false);
     Ok(hw)
+}
+
+/// 노치 바로 아래에 붙인다(가운데 x, 위 y — 화면 픽셀) + 투명도 0~1
+pub unsafe fn dock(cx: i32, top: i32, alpha: f32) {
+    let Some(hw) = ED.with(|e| e.borrow().as_ref().map(|e| e.hwnd)) else { return };
+    let mut r = RECT::default();
+    let _ = GetWindowRect(hw, &mut r);
+    let x = cx - (r.right - r.left) / 2;
+    if (r.left, r.top) != (x, top) {
+        let _ = SetWindowPos(hw, None, x, top, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+    let _ = SetLayeredWindowAttributes(hw, COLORREF(0), (alpha.clamp(0.0, 1.0) * 255.0) as u8, LWA_ALPHA);
+}
+
+/// 편집 창을 없앤다(빌린 것을 놓은 뒤에 — WM_DESTROY 가 다시 ED 를 쓴다)
+pub unsafe fn destroy() {
+    if let Some(hw) = ED.with(|e| e.borrow().as_ref().map(|e| e.hwnd)) {
+        let _ = DestroyWindow(hw);
+    }
 }
 
 /// 시험용: 열린 편집 창에 글자·이모지를 넣고 결과 그림을 PNG 로 저장한다

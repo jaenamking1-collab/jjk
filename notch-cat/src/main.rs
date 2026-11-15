@@ -67,6 +67,7 @@ const ENT_W: f32 = 560.0;
 const ENT_H: f32 = 112.0;
 const ENT_GAP: f32 = 18.0;
 const CLIP_SZ: (f32, f32) = (780.0, 250.0); // 클립보드 쪽
+const ED_GAP: f32 = 22.0; // 노치 몸 아래 ~ 편집 창 위(물방울 목 길이)
 const SHELF_SZ: (f32, f32) = (780.0, 250.0); // 파일 선반 쪽
 const TRIM_SZ: (f32, f32) = (780.0, 300.0); // 영상 자르기 쪽
 const SET_W: f32 = 300.0; // 노치 옆으로 흘러나오는 설정 물방울 너비
@@ -292,6 +293,7 @@ enum Ev {
     Snap,           // 스크린샷 찍기(PrintScreen · 카메라 물방울)
     Snapped,        // 영역을 다 골랐다(또는 취소)
     EdToast,        // 편집 창이 알림을 부탁했다
+    EdClose,        // 편집 창이 닫아 달라고 했다
     RecSaving,      // 녹화를 멈췄다(저장 중)
     RecDone,        // 녹화 저장 끝(또는 취소)
     TrimDone,       // 영상 자르기 끝
@@ -405,6 +407,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         0x031D /* WM_CLIPBOARDUPDATE */ => push(Ev::Clip),
         capture::WM_SNAPPED => push(Ev::Snapped),
         editor::WM_EDTOAST => push(Ev::EdToast),
+        editor::WM_EDCLOSE => push(Ev::EdClose),
         rec::WM_RECSAVING => push(Ev::RecSaving),
         rec::WM_RECDONE => push(Ev::RecDone),
         trim::WM_TRIMDONE => push(Ev::TrimDone),
@@ -845,6 +848,7 @@ struct App {
     mouse: (f32, f32), // 논리 좌표. 밖이면 음수
     tracking: bool,
     ed_hold: bool, // 편집 창이 떠 있어 마우스가 나가도 펼친 채로 두는 중
+    edp: Spring,   // 편집 창이 노치 아래로 물방울처럼 내려온 정도(0 노치 안 … 1 다 나옴)
     hidden: bool,
     maxed: bool, // 앞 창이 화면을 꽉 채웠다(일하는 중)
     shy: bool,   // 〃 + 마우스가 가까이 왔다 → 작게 줄어든다
@@ -961,7 +965,7 @@ struct App {
 
 impl App {
     fn animating(&self) -> bool {
-        !(self.w.settled() && self.h.settled() && self.fade.settled() && self.scroll.settled() && self.tm.settled() && self.ck.settled() && self.pgf.settled() && self.arr[0].settled() && self.arr[1].settled() && self.drop.settled() && self.sd.settled() && self.cam.settled() && self.ssx.settled() && self.ssy.settled() && self.tb.settled() && self.tsx.settled() && self.tsy.settled() && self.nb.settled() && self.bg.settled() && self.qs.iter().all(Spring::settled) && self.face.settled())
+        !(self.w.settled() && self.h.settled() && self.fade.settled() && self.scroll.settled() && self.tm.settled() && self.ck.settled() && self.pgf.settled() && self.arr[0].settled() && self.arr[1].settled() && self.drop.settled() && self.sd.settled() && self.cam.settled() && self.edp.settled() && self.ssx.settled() && self.ssy.settled() && self.tb.settled() && self.tsx.settled() && self.tsy.settled() && self.nb.settled() && self.bg.settled() && self.qs.iter().all(Spring::settled) && self.face.settled())
     }
 
     /// 0.05초마다: 음악·가사 상태를 읽어 목표 크기와 보일 글자를 정한다.
@@ -1239,7 +1243,7 @@ impl App {
             } else if self.page == 6 {
                 SHELF_SZ
             } else if self.page == 5 {
-                (CLIP_SZ.0, CLIP_SZ.1 + if self.clip_open.is_some() { 300.0 } else { 0.0 })
+                (CLIP_SZ.0, CLIP_SZ.1 + if self.clip_open.is_some() { 300.0 - 160.0 * self.edp.pos.clamp(0.0, 1.0) } else { 0.0 })
             } else if self.page == 4 {
                 AI_SZ
             } else if self.page == 3 {
@@ -1304,7 +1308,11 @@ impl App {
                 let m = (SHADOW * p).max(EAR + 1.0).max(if self.face.tail.pos > 0.3 { TAIL_ROOM } else { 0.0 }); // 그림자·휜 모서리·꼬리 자리만큼 영역을 넓힌다
         // 펼쳐 둔 동안엔 영역을 줄이지 않는다: 쪽을 넘겨 몸통이 좁아지거나 낮아져도 마우스가 '밖'으로 떨어져 닫히지 않게
         self.hold = if self.hover { (self.hold.0.max(w), self.hold.1.max(h)) } else { (0.0, 0.0) };
+        if editor::is_open() {
+            self.hold.1 = h; // 미리보기가 줄어든 만큼 영역도 줄여야 아래 편집 창이 눌린다
+        }
         let (rw, rh) = (w.max(self.hold.0), h.max(self.hold.1));
+        let neck = self.ed_neck(h);
         let (rw, rh) = if self.ent_up() || (self.ent.is_some() && self.drop.pos > 0.02) {
             let d = if self.ent_up() { self.drop.pos.max(1.0) } else { self.drop.pos };
             let nb = (ENT_GAP + NOTE_H) * self.nb.pos.max(0.0);
@@ -1315,7 +1323,7 @@ impl App {
         let rx = (WIN_W - rw) / 2.0;
         let rgn = if h < 0.5 { [0; 4] } else { [((rx - m) * s).floor() as i32, 0, ((rx + rw + m) * s).ceil() as i32, ((rh + m) * s).ceil() as i32] };
         let mut rgn = rgn;
-        for (on, r) in [(self.set.is_some() || self.sd.pos > 0.02, self.set_rect), (self.toast.is_some() || self.tb.pos > 0.02, self.toast_rect), (self.cam.pos > 0.02, self.cam_rect)] {
+        for (on, r) in [(self.set.is_some() || self.sd.pos > 0.02, self.set_rect), (self.toast.is_some() || self.tb.pos > 0.02, self.toast_rect), (self.cam.pos > 0.02, self.cam_rect), (neck.is_some(), neck.map_or([0.0; 4], |n| [n.0 - n.2, 0.0, n.0 + n.2, n.1]))] {
             if h >= 0.5 && on && r[2] > r[0] {
                 rgn = [rgn[0].min(((r[0] - m) * s).floor() as i32), 0, rgn[2].max(((r[2] + m) * s).ceil() as i32), rgn[3].max(((r[3] + m) * s).ceil() as i32)];
             }
@@ -2561,6 +2569,7 @@ impl App {
         if h >= 0.5 {
             self.draw_cam(h);
         }
+        self.draw_ed(h);
         let g = &self.g;
         g.present()?;
         if let Ok(dir) = std::env::var("NOTCH_CAT_SHOT") {
@@ -3048,7 +3057,7 @@ impl App {
                 self.clip_full = std::fs::read(clip::png_path(it.id)).ok().and_then(|b| self.g.bitmap(&b).ok()).map(|b| (it.id, b));
             }
             let g = &self.g;
-            let (py, ph, pw) = (fy + 28.0, 270.0, w - 48.0 - 120.0);
+            let (py, ph, pw) = (fy + 28.0, 270.0 - 160.0 * self.edp.pos.clamp(0.0, 1.0), w - 48.0 - 120.0); // 편집 중엔 작게(편집판이 아래로 나온다)
             g.rrect(lx, py, pw, ph, 12.0, FG, a * 0.05);
             if let (Some((_, bmp)), Some((iw, ih))) = (&self.clip_full, it.img) {
                 let k = (pw / iw as f32).min(ph / ih as f32).min(1.0);
@@ -3441,6 +3450,60 @@ impl App {
         g.ellipse(cx, cy + 1.5, 3.0, 3.0, c, a * 0.9);
         if p > 0.9 {
             self.hits.push((hit, Hit::Snap));
+        }
+    }
+
+    /// 편집 창을 막 열었다: 노치 안에서 물방울처럼 내려오게
+    fn ed_pop(&mut self) {
+        self.edp = Spring::new(0.0, 230.0, 0.72);
+        self.edp.target = 1.0;
+        self.dirty = true;
+    }
+
+    /// 편집 창 위(논리 y)와 목: (가운데 x, 편집 창 위 y, 끝 반폭)
+    fn ed_neck(&self, h: f32) -> Option<(f32, f32, f32)> {
+        if !editor::is_open() || self.edp.pos < 0.02 {
+            return None;
+        }
+        let e = self.edp.pos;
+        let top = h + ED_GAP - (1.0 - e) * 46.0; // 처음엔 노치 몸 뒤에 숨어 있다가 내려온다
+        Some((WIN_W / 2.0, top.max(h - 40.0), (self.w.pos / 2.0 - 30.0).clamp(40.0, 150.0)))
+    }
+
+    /// 편집 창을 노치 아래에 붙이고, 둘 사이에 오목한 물방울 목을 그린다
+    unsafe fn draw_ed(&mut self, h: f32) {
+        if !editor::is_open() {
+            return;
+        }
+        if self.edp.target == 0.0 && self.edp.pos < 0.04 {
+            editor::destroy(); // 다 빨려 들어갔다
+            self.edp = Spring::new(0.0, 230.0, 0.72);
+            return;
+        }
+        let e = self.edp.pos;
+        let Some((cx, top, half)) = self.ed_neck(h).or(Some((WIN_W / 2.0, h - 40.0, 40.0))) else { return };
+        // 화면 픽셀로: 창 왼쪽 + 논리 × 배율
+        let wpx = (WIN_W * self.scale).round();
+        let dxw = if self.cfg.aside { 460.0 * self.scale } else { 0.0 };
+        let left = self.mon.left as f32 + ((self.mon.right - self.mon.left) as f32 - wpx) / 2.0 + dxw;
+        editor::dock((left + cx * self.scale).round() as i32, self.mon.top + (top * self.scale).round() as i32, ((e - 0.05) / 0.45).clamp(0.0, 1.0));
+        // 목: 몸통 아래 변과 편집 창 위 변을 잇는 오목한 다리(내려오는 동안 길어지며 가늘어진다)
+        if e > 0.02 && h >= 0.5 && top > h - 2.0 {
+            let (y0, y1) = (h - 6.0, top + 6.0);
+            let k = e.min(1.0);
+            let end = half * k;
+            let waist = end * (0.62 - 0.12 * (top - h).clamp(0.0, 40.0) / 40.0);
+            let n = 12;
+            let mut pts: Vec<(f32, f32)> = Vec::with_capacity(2 * n + 2);
+            for i in 0..=n {
+                let u = i as f32 / n as f32;
+                pts.push((cx - (waist + (end - waist) * (2.0 * u - 1.0).powi(2)), y0 + (y1 - y0) * u));
+            }
+            for i in (0..=n).rev() {
+                let u = i as f32 / n as f32;
+                pts.push((cx + (waist + (end - waist) * (2.0 * u - 1.0).powi(2)), y0 + (y1 - y0) * u));
+            }
+            self.g.poly(&pts, BG, 1.0);
         }
     }
 
@@ -4012,6 +4075,7 @@ impl App {
                         match std::fs::read(clip::png_path(it.id)).ok().and_then(|b| clip::png_to_bgra(&b)) {
                             Some((px, w, h)) => {
                                 let _ = editor::open(self.hwnd, px, w, h);
+                                self.ed_pop();
                             }
                             None => self.face.slow_blink(300),
                         }
@@ -4496,6 +4560,7 @@ unsafe fn run() -> Result<()> {
         mouse: (-1.0, -1.0),
         tracking: false,
         ed_hold: false,
+        edp: Spring::new(0.0, 230.0, 0.72),
         hidden: false,
         maxed: false,
         shy: false,
@@ -4688,6 +4753,7 @@ unsafe fn run() -> Result<()> {
             if let Ok(png) = std::fs::read(&v) {
                 if let Some((px, w, h)) = clip::png_to_bgra(&png) {
                     let _ = editor::open(hwnd, px, w, h);
+                    app.ed_pop();
                     if std::env::var("NOTCH_CAT_EDITKEEP").is_err() {
                         editor::demo(Path::new(&(v.clone() + ".out.png"))); // EDITKEEP: 편집 창만 띄워 둔다(노치가 접히지 않는지 시험)
                     }
@@ -4920,6 +4986,7 @@ unsafe fn run() -> Result<()> {
                     if let Some((px, w, h)) = shot {
                         clip::put_image(hwnd, &px, w, h); // 클립보드 쪽 최근에 들어간다
                         let _ = editor::open(hwnd, px, w, h);
+                        app.ed_pop();
                         app.toast("스크린샷을 찍었습니다", "클립보드에 넣었고 편집 창을 열었습니다", None, 4);
                         log(&format!("snap: {w}×{h}"));
                     }
@@ -4947,6 +5014,12 @@ unsafe fn run() -> Result<()> {
                         }
                         None => {}
                     }
+                    app.tick();
+                }
+                Ev::EdClose => {
+                    // 노치 안으로 빨아들인다(나올 때보다 빠르게, 튕김 없이) — 다 들어가면 draw 가 창을 없앤다
+                    app.edp.tune(420.0, 1.0);
+                    app.edp.target = 0.0;
                     app.tick();
                 }
                 Ev::EdToast => {
@@ -5069,6 +5142,7 @@ unsafe fn run() -> Result<()> {
             app.drop.step(dt);
             app.sd.step(dt);
             app.cam.step(dt);
+            app.edp.step(dt);
             app.ssx.step(dt);
             app.ssy.step(dt);
             app.tb.step(dt);
