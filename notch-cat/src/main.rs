@@ -1263,7 +1263,7 @@ impl App {
             } else if self.page == 6 {
                 SHELF_SZ
             } else if self.page == 5 {
-                (CLIP_SZ.0, CLIP_SZ.1 + (self.clip_rows() - 1) as f32 * 138.0 + if self.clip_open.is_some() { self.clip_prev_h() + 30.0 } else { 0.0 })
+                (CLIP_SZ.0, CLIP_SZ.1 + self.clip_layout().1 - 138.0 + if self.clip_open.is_some() { self.clip_prev_h() + 30.0 } else { 0.0 })
             } else if self.page == 4 {
                 AI_SZ
             } else if self.page == 3 {
@@ -3018,8 +3018,8 @@ impl App {
         let rx = x + w - 24.0 - span(clip::PIN_MAX);
         let mut hits: Vec<([f32; 4], Hit)> = Vec::new();
         let mut hover_text: Option<String> = None;
-        g.rrect((lx + col_w + rx) / 2.0, 30.0, 1.0, 32.0 + self.clip_rows() as f32 * (tile + gap), 0.5, FG, a * 0.12); // 가운데 칸막이
-        let rows = self.clip_rows();
+        let lay = self.clip_layout(); // 최근: 그림은 칸, 글자는 한 줄씩
+        g.rrect((lx + col_w + rx) / 2.0, 30.0, 1.0, 32.0 + lay.1, 0.5, FG, a * 0.12); // 가운데 칸막이
         for (pinned, x0) in [(false, lx), (true, rx)] {
             let list = if pinned { &self.clip.pinned } else { &self.clip.recent };
             let cols = if pinned { clip::PIN_MAX } else { clip::SHOW };
@@ -3029,7 +3029,7 @@ impl App {
             // 최근은 고른 종류만(전체 · 글자 · 그림). k 는 원래 순번 그대로(누르기·고정이 같은 항목을 가리키게)
             let kind = self.clip_kind;
             let shown: Vec<(usize, &clip::Item)> = list.iter().enumerate().filter(|(_, it)| pinned || clip_match(kind, it)).collect();
-            let pages = shown.len().div_ceil(clip::PER).max(1);
+            let pages = if pinned { 1 } else { lay.2 };
             if !pinned && !list.is_empty() {
                 // 종류 단추: 전체 · 글자 · 그림
                 let mut kx = x0 + 236.0;
@@ -3070,10 +3070,50 @@ impl App {
                 let msg = if pinned { "최근 칸의 ☆ 를 누르면\n여기에 고정됩니다" } else if list.is_empty() { "글자나 그림을 복사하면\n여기에 모입니다" } else if kind == 2 { "복사한 그림이 없습니다" } else { "복사한 글자가 없습니다" };
                 g.para(msg, &g.f_body, x0, 90.0, col_w, FG, a * 0.4);
             }
-            let skip = if pinned { 0 } else { self.clip_pg.min(pages - 1) * clip::PER };
-            for (n, (k, it)) in shown.iter().copied().enumerate().skip(skip).take(if pinned { cols } else { rows * cols }) {
-                let (c, r) = ((n - skip) % cols, (n - skip) / cols); // 최근은 5칸 × 2줄씩, 나머지는 다음 쪽
-                let (tx, ty) = (x0 + c as f32 * (tile + gap), 50.0 + r as f32 * (tile + gap));
+            let items: Vec<(usize, [f32; 4], bool)> = if pinned {
+                shown.iter().take(cols).enumerate().map(|(n, (k, _))| (*k, [n as f32 * (tile + gap), 50.0, tile, tile], false)).collect()
+            } else {
+                lay.0.clone()
+            };
+            for (k, rr, line) in items {
+                let Some(it) = list.get(k) else { continue };
+                let (tx, ty) = (x0 + rr[0], rr[1]);
+                if line {
+                    // 글자는 한 줄: 왼쪽 글(넘치면 …), 오른쪽 종류·시각, 마우스를 올리면 ☆
+                    let (lw, lh) = (rr[2], rr[3]);
+                    let b = [tx, ty, tx + lw, ty + lh];
+                    let on = over(b);
+                    let open = self.clip_open == Some((pinned, k));
+                    g.rrect(tx, ty, lw, lh, 8.0, if on || open { LIME } else { FG }, a * if open { 0.22 } else if on { 0.14 } else { 0.05 });
+                    let kd = clip::kind(it);
+                    let kc = match kd { "파일" => (0.98, 0.75, 0.2), "링크" => (0.4, 0.85, 0.95), _ => LIME };
+                    let kw = g.measure(kd, &g.f_tiny) + 12.0;
+                    let star_w = 26.0;
+                    let at_w = g.measure(&it.at, &g.f_tiny) + 10.0;
+                    let right = kw + at_w + star_w + 8.0;
+                    let one = it.text.as_deref().unwrap_or("").split_whitespace().collect::<Vec<_>>().join(" ");
+                    let avail = lw - 14.0 - right;
+                    let mut s: String = one.chars().take(120).collect();
+                    if g.measure(&s, &g.f_bar) > avail {
+                        while !s.is_empty() && g.measure(&(s.clone() + "…"), &g.f_bar) > avail {
+                            s.pop();
+                        }
+                        s.push('…');
+                    }
+                    g.text(&s, &g.f_bar, tx + 12.0, ty + (lh - 18.0) / 2.0, avail, FG, a * 0.92, Align::Left);
+                    let kx = tx + lw - right + 4.0;
+                    g.rrect(kx, ty + (lh - 15.0) / 2.0, kw, 15.0, 7.5, BG, a * 0.75);
+                    g.text(kd, &g.f_tiny, kx, ty + (lh - 15.0) / 2.0 - 0.5, kw, kc, a, Align::Center);
+                    g.text(&it.at, &g.f_tiny, kx + kw + 4.0, ty + (lh - 15.0) / 2.0 - 0.5, at_w, FG, a * 0.45, Align::Left);
+                    if on {
+                        hover_text = Some(format!("{one}  · {}", it.at));
+                        let cb = [tx + lw - star_w - 2.0, ty + 1.0, tx + lw - 2.0, ty + lh - 1.0];
+                        g.text("☆", &g.f_bar, cb[0], ty + (lh - 18.0) / 2.0, star_w, if over(cb) { LIME } else { FG }, a, Align::Center);
+                        hits.push((cb, Hit::ClipPin(k)));
+                    }
+                    hits.push((b, Hit::ClipItem(pinned, k)));
+                    continue;
+                }
                 let b = [tx, ty, tx + tile, ty + tile];
                 let on = over(b);
                 if let Some(bmp) = self.clip_bmp.get(&it.id) {
@@ -3116,7 +3156,7 @@ impl App {
             }
         }
         // 아래 줄: 마우스를 올린 항목 내용, 방금 복사했으면 알림, 아니면 살아 있다는 표시
-        let fy = 50.0 + self.clip_rows() as f32 * (tile + gap) + 6.0;
+        let fy = 50.0 + lay.1 + 6.0;
         // 그림을 눌렀으면 아래로 원본이 크게 펼쳐진다
         if let Some(it) = self.clip_open.and_then(|(pin, k)| if pin { self.clip.pinned.get(k) } else { self.clip.recent.get(k) }).cloned() {
             if self.clip_full.as_ref().map(|f| f.0) != Some(it.id) {
@@ -3523,7 +3563,7 @@ impl App {
     fn clip_prev_h(&self) -> f32 {
         let it = self.clip_open.and_then(|(pin, k)| if pin { self.clip.pinned.get(k) } else { self.clip.recent.get(k) });
         let base = match it.and_then(|i| i.img) {
-            Some((iw, ih)) => (ih as f32 * ((CLIP_SZ.0 - 168.0) / iw.max(1) as f32).min(1.0)).clamp(140.0, WIN_H - CLIP_SZ.1 - (self.clip_rows() - 1) as f32 * 138.0 - 30.0 - 20.0),
+            Some((iw, ih)) => (ih as f32 * ((CLIP_SZ.0 - 168.0) / iw.max(1) as f32).min(1.0)).clamp(140.0, WIN_H - CLIP_SZ.1 - (self.clip_layout().1 - 138.0) - 30.0 - 20.0),
             None => 270.0,
         };
         base - (base - 110.0) * self.edp.pos.clamp(0.0, 1.0)
@@ -3541,13 +3581,42 @@ impl App {
     }
 
     /// 클립보드 최근 칸 줄 수(지금 쪽에 보이는 것, 5칸씩 1~2줄)
-    fn clip_rows(&self) -> usize {
-        if ed_live() {
-            return 1; // 편집하는 동안엔 한 줄로 접어 아래 편집판 자리를 낸다
+    /// 최근 칸 배치(지금 쪽): (원래 순번, x0 기준 [x, y, 너비, 높이], 한 줄인가), 몸 높이(칸 한 줄 138 이상), 쪽 수.
+    /// 그림은 128 칸, 글자는 한 줄(2026-11-15 사용자: 글자는 크게 나올 필요 없다). 편집 중엔 아래 편집판 자리를 내려고 줄인다.
+    fn clip_layout(&self) -> (Vec<(usize, [f32; 4], bool)>, f32, usize) {
+        const LINE_H: f32 = 30.0;
+        let (tile, gap) = (128.0, 10.0);
+        let col_w = clip::SHOW as f32 * tile + (clip::SHOW - 1) as f32 * gap;
+        let kind = self.clip_kind;
+        let imgs: Vec<usize> = self.clip.recent.iter().enumerate().filter(|(_, it)| it.img.is_some() && clip_match(kind, it)).map(|x| x.0).collect();
+        let txts: Vec<usize> = self.clip.recent.iter().enumerate().filter(|(_, it)| it.img.is_none() && clip_match(kind, it)).map(|x| x.0).collect();
+        let small = ed_live();
+        // 한 쪽에 그림 몇 칸 · 글자 몇 줄
+        let (ip, tp) = match (kind, small) {
+            (2, false) => (10, 0),
+            (2, true) => (5, 0),
+            (1, false) => (0, 10),
+            (1, true) => (0, 4),
+            (_, false) => (5, 8),
+            (_, true) if imgs.is_empty() => (0, 4),
+            (_, true) => (5, 0),
+        };
+        let per = |n: usize, p: usize| if p == 0 { 0 } else { n.div_ceil(p) };
+        let pages = per(imgs.len(), ip).max(per(txts.len(), tp)).max(1);
+        let pg = self.clip_pg.min(pages - 1);
+        let mut out = Vec::new();
+        let mut y = 50.0;
+        let pi: Vec<usize> = imgs.iter().copied().skip(pg * ip).take(ip).collect();
+        for (n, k) in pi.iter().enumerate() {
+            out.push((*k, [(n % clip::SHOW) as f32 * (tile + gap), 50.0 + (n / clip::SHOW) as f32 * (tile + gap), tile, tile], false));
         }
-        let all = self.clip.recent.iter().filter(|it| clip_match(self.clip_kind, it)).count();
-        let n = all.saturating_sub(self.clip_pg * clip::PER).min(clip::PER);
-        n.div_ceil(clip::SHOW).clamp(1, clip::PER / clip::SHOW)
+        y += pi.len().div_ceil(clip::SHOW) as f32 * (tile + gap);
+        let pt: Vec<usize> = txts.iter().copied().skip(pg * tp).take(tp).collect();
+        for (n, k) in pt.iter().enumerate() {
+            out.push((*k, [0.0, y + n as f32 * LINE_H, col_w, LINE_H - 4.0], true));
+        }
+        y += pt.len() as f32 * LINE_H;
+        ((out), (y - 50.0).max(tile + gap), pages)
     }
 
     /// 편집 창을 막 열었다: 노치 안에서 물방울처럼 내려오게
