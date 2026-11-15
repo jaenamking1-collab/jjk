@@ -1,0 +1,38 @@
+<template>
+  <style>
+    @font-face { font-family: "MG"; src: local("Malgun Gothic"); font-weight: 400; }
+    @font-face { font-family: "MG"; src: local("Malgun Gothic Bold"); font-weight: 700; }
+    #root { position: absolute; inset: 0; overflow: hidden; font-family: "MG", sans-serif; }
+    #cta-bg { position: absolute; inset: 0; background: #1c1c1c; clip-path: circle(0px at 190px 932px); }
+    #cta-title { position: absolute; left: 0; right: 0; top: 250px; text-align: center; color: #fff; font-weight: 700; font-size: 84px; line-height: 1.25; }
+    #cta-title span { color: #ffd400; }
+    .cta-row { position: absolute; left: 90px; width: 900px; height: 150px; border-radius: 40px; background: #2a2a2a; display: flex; align-items: center; padding-left: 40px; color: #fff; font-weight: 700; font-size: 58px; }
+    .cta-row i { flex: none; width: 84px; height: 84px; border-radius: 50%; background: #ffd400; color: #1c1c1c; font-style: normal; font-size: 52px; line-height: 84px; text-align: center; margin-right: 34px; }
+    #cta-r1 { top: 510px; } #cta-r2 { top: 700px; } #cta-r3 { top: 890px; }
+    #cta-end { position: absolute; left: 0; right: 0; top: 1130px; text-align: center; color: #ffd400; font-weight: 700; font-size: 62px; }
+    #cta-sub { position: absolute; left: 0; right: 0; top: 1220px; text-align: center; color: #bdbdbd; font-size: 40px; }
+  </style>
+  <div id="root" data-composition-id="cta" data-width="1080" data-height="1920">
+    <div id="cta-bg"></div>
+    <div id="cta-title">PC 크롬 확장<br><span>무료</span> · 설치 1분</div>
+    <div class="cta-row" id="cta-r1"><i>1</i>zip 받기</div>
+    <div class="cta-row" id="cta-r2"><i>2</i>개발자 모드 켜기</div>
+    <div class="cta-row" id="cta-r3"><i>3</i>폴더 선택</div>
+    <div id="cta-end">링크는 아래 게시글에</div>
+    <div id="cta-sub">자세한 그림 설명도 같이 올려요</div>
+  </div>
+  <script>
+  (function () {
+    const tl = gsap.timeline({ paused: true });
+    // 하트를 누른 자리에서 어두운 화면이 원으로 열린다
+    tl.fromTo("#cta-bg", { clipPath: "circle(0px at 190px 932px)" }, { clipPath: "circle(2300px at 190px 932px)", duration: 0.7, ease: "power3.in" }, 0);
+    tl.fromTo("#cta-title", { opacity: 0, filter: "blur(10px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.2, ease: "power4.out" }, 0.55);
+    ["#cta-r1", "#cta-r2", "#cta-r3"].forEach((id, k) => {
+      tl.fromTo(id, { x: 140, opacity: 0, filter: "blur(10px)" }, { x: 0, opacity: 1, filter: "blur(0px)", duration: 0.5, ease: "expo.out" }, 1.1 + k * 0.4);
+    });
+    tl.fromTo("#cta-end", { opacity: 0, filter: "blur(10px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.25, ease: "power4.out" }, 2.8);
+    tl.fromTo("#cta-sub", { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.25, ease: "power4.out" }, 3.15);
+    window.__timelines["cta"] = tl;
+  })();
+  </script>
+</template>

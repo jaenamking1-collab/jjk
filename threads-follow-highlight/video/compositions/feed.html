@@ -1,0 +1,54 @@
+<template>
+  <style>
+    @font-face { font-family: "MG"; src: local("Malgun Gothic"); font-weight: 400; }
+    @font-face { font-family: "MG"; src: local("Malgun Gothic Bold"); font-weight: 700; }
+    #root { position: absolute; inset: 0; background: #ececec; overflow: hidden; font-family: "MG", sans-serif; }
+    #feed-list { position: absolute; left: 70px; top: 0; width: 940px; }
+    .card { position: relative; height: 300px; margin-bottom: 24px; background: #fff; border-radius: 44px; box-shadow: 0 6px 24px rgba(0,0,0,.07); }
+    .avw { position: absolute; left: 40px; top: 40px; width: 130px; height: 130px; }
+    .av { position: absolute; inset: 0; border-radius: 50%; background: #c4c4c4; overflow: hidden; }
+    .head { position: absolute; left: 41px; top: 24px; width: 48px; height: 48px; border-radius: 50%; background: #9f9f9f; }
+    .body { position: absolute; left: 20px; top: 80px; width: 90px; height: 90px; border-radius: 50%; background: #9f9f9f; }
+    .plus { position: absolute; right: -8px; bottom: -8px; width: 46px; height: 46px; border-radius: 50%; background: #111; color: #fff; border: 4px solid #fff; font: 700 34px/38px sans-serif; text-align: center; text-decoration: none; }
+    .bars { position: absolute; left: 204px; top: 52px; right: 44px; }
+    .bars i { display: block; height: 26px; border-radius: 13px; background: #d6d6d6; margin-bottom: 22px; }
+    .bars i:nth-child(1) { width: 300px; background: #bdbdbd; }
+    .bars i:nth-child(2) { width: 100%; }
+    .bars i:nth-child(3) { width: 78%; }
+  </style>
+  <div id="root" data-composition-id="feed" data-width="1080" data-height="1920">
+    <div id="feed-list">
+      <div class="card"><div class="avw" id="w0"><div class="av" id="a0"><b class="head"></b><b class="body"></b></div></div><div class="bars"><i></i><i></i><i></i></div></div>
+      <div class="card"><div class="avw" id="w1"><div class="av" id="a1"><b class="head"></b><b class="body"></b></div><u class="plus">+</u></div><div class="bars"><i></i><i></i><i></i></div></div>
+      <div class="card"><div class="avw" id="w2"><div class="av" id="a2"><b class="head"></b><b class="body"></b></div></div><div class="bars"><i></i><i></i><i></i></div></div>
+      <div class="card"><div class="avw" id="w3"><div class="av" id="a3"><b class="head"></b><b class="body"></b></div></div><div class="bars"><i></i><i></i><i></i></div></div>
+      <div class="card"><div class="avw" id="w4"><div class="av" id="a4"><b class="head"></b><b class="body"></b></div><u class="plus">+</u></div><div class="bars"><i></i><i></i><i></i></div></div>
+      <div class="card"><div class="avw" id="w5"><div class="av" id="a5"><b class="head"></b><b class="body"></b></div></div><div class="bars"><i></i><i></i><i></i></div></div>
+    </div>
+  </div>
+  <script>
+  (function () {
+    const tl = gsap.timeline({ paused: true });
+    const RING = "0 0 0 10px #ffd400, 0 0 56px 20px rgba(255,212,0,.9)";
+    // 피드가 위로 휙 올라가며 끝에서 가장 빠르다(다음 장면으로 컷)
+    tl.fromTo("#feed-list", { y: 190 }, { y: -770, duration: 3, ease: "power1.in" }, 0);
+    // 팔로우한 사람 아이콘: 회색 → 컬러 + 노란 링 (0번은 첫 프레임부터 켜져 있다)
+    function on(i, t, dur) {
+      tl.fromTo("#a" + i,
+        { backgroundColor: "#c4c4c4", boxShadow: "0 0 0 0 rgba(255,212,0,0), 0 0 0 0 rgba(255,212,0,0)" },
+        { backgroundColor: "#ffdca8", boxShadow: RING, duration: dur, ease: "power4.out" }, t);
+      tl.fromTo("#a" + i + " .head, #a" + i + " .body", { backgroundColor: "#9f9f9f" },
+        { backgroundColor: "#d08a45", duration: dur, ease: "power4.out" }, t);
+      tl.fromTo("#w" + i, { scale: 1 }, { scale: 1.08, duration: 0.4, ease: "sine.inOut", yoyo: true, repeat: 3 }, t + dur);
+    }
+    // 0번은 첫 프레임부터 이미 켜져 있다(섬네일이 곧 훅)
+    tl.set("#a0", { backgroundColor: "#ffdca8", boxShadow: RING }, 0);
+    tl.set("#a0 .head, #a0 .body", { backgroundColor: "#d08a45" }, 0);
+    tl.fromTo("#w0", { scale: 1 }, { scale: 1.08, duration: 0.4, ease: "sine.inOut", yoyo: true, repeat: 3 }, 0);
+    on(2, 0.4, 0.3);
+    on(3, 1.25, 0.3);
+    on(5, 2.0, 0.3);
+    window.__timelines["feed"] = tl;
+  })();
+  </script>
+</template>

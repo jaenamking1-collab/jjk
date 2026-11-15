@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js"></script>
+    <style>
+      :root {
+        --ground: #ececec;
+        --ink: #1c1c1c;
+        --yellow: #ffd400;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { margin: 0; width: 1080px; height: 1920px; overflow: hidden; background: var(--ground); }
+      #root { position: relative; width: 1080px; height: 1920px; overflow: hidden; }
+      #ground { position: absolute; inset: 0; background: var(--ground); }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="15" data-width="1080" data-height="1920">
+      <div id="ground"></div>
+
+      <div id="feed" data-composition-id="feed" data-composition-src="compositions/feed.html"
+        data-start="0" data-duration="3" data-track-index="1" data-track-kind="graphics"
+        data-width="1080" data-height="1920"></div>
+
+      <div id="compare" data-composition-id="compare" data-composition-src="compositions/compare.html"
+        data-start="3" data-duration="3" data-track-index="2" data-track-kind="graphics"
+        data-width="1080" data-height="1920"></div>
+
+      <div id="heart" data-composition-id="heart" data-composition-src="compositions/heart.html"
+        data-start="6" data-duration="4.7" data-track-index="3" data-track-kind="graphics"
+        data-width="1080" data-height="1920"></div>
+
+      <div id="cta" data-composition-id="cta" data-composition-src="compositions/cta.html"
+        data-start="10" data-duration="5" data-track-index="4" data-track-kind="graphics"
+        data-width="1080" data-height="1920"></div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

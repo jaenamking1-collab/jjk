@@ -1,0 +1,67 @@
+<template>
+  <style>
+    @font-face { font-family: "MG"; src: local("Malgun Gothic"); font-weight: 400; }
+    @font-face { font-family: "MG"; src: local("Malgun Gothic Bold"); font-weight: 700; }
+    #root { position: absolute; inset: 0; overflow: hidden; background: #fff3c4; font-family: "MG", sans-serif; }
+    #ht-card { position: absolute; left: 70px; top: 380px; width: 940px; height: 640px; background: #fff; border-radius: 48px; box-shadow: 0 10px 40px rgba(0,0,0,.10); }
+    #ht-avw { position: absolute; left: 50px; top: 50px; width: 150px; height: 150px; }
+    #ht-av { position: absolute; inset: 0; border-radius: 50%; background: #ffdca8; overflow: hidden; box-shadow: 0 0 0 11px #ffd400, 0 0 60px 22px rgba(255,212,0,.9); }
+    #ht-av b { position: absolute; background: #d08a45; border-radius: 50%; }
+    #ht-av .h { left: 47px; top: 28px; width: 56px; height: 56px; }
+    #ht-av .b { left: 22px; top: 92px; width: 106px; height: 106px; }
+    .ht-bars { position: absolute; left: 240px; top: 66px; right: 50px; }
+    .ht-bars i { display: block; height: 30px; border-radius: 15px; background: #d9d9d9; margin-bottom: 26px; }
+    .ht-bars i:nth-child(1) { width: 320px; background: #bdbdbd; }
+    #ht-lines { position: absolute; left: 50px; right: 50px; top: 250px; }
+    #ht-lines i { display: block; height: 30px; border-radius: 15px; background: #e2e2e2; margin-bottom: 26px; }
+    #ht-lines i:nth-child(2) { width: 84%; } #ht-lines i:nth-child(3) { width: 60%; }
+    .ht-heart { position: absolute; left: 70px; top: 502px; width: 100px; height: 100px; }
+    #ht-heart-on { fill: #ff3b5c; opacity: 0; }
+    #ht-heart-off { fill: none; stroke: #9a9a9a; stroke-width: 1.8; }
+    .ht-dot { position: absolute; left: 108px; top: 540px; width: 24px; height: 24px; border-radius: 50%; background: #ff3b5c; opacity: 0; }
+    #ht-cursor { position: absolute; left: 0; top: 0; width: 100px; height: 100px; filter: drop-shadow(0 6px 8px rgba(0,0,0,.3)); }
+    .ht-t { position: absolute; left: 0; right: 0; text-align: center; font-weight: 700; color: #1c1c1c; font-size: 80px; line-height: 1.25; }
+    #ht-t1 { top: 1090px; } #ht-t2 { top: 1190px; }
+    #ht-t2 span { background: linear-gradient(transparent 62%, #ffd400 62%); }
+  </style>
+  <div id="root" data-composition-id="heart" data-width="1080" data-height="1920">
+    <div id="ht-card">
+      <div id="ht-avw"><div id="ht-av"><b class="h"></b><b class="b"></b></div></div>
+      <div class="ht-bars"><i></i><i></i></div>
+      <div id="ht-lines"><i></i><i></i><i></i></div>
+      <div class="ht-dot" id="ht-d0"></div><div class="ht-dot" id="ht-d1"></div><div class="ht-dot" id="ht-d2"></div>
+      <div class="ht-dot" id="ht-d3"></div><div class="ht-dot" id="ht-d4"></div><div class="ht-dot" id="ht-d5"></div>
+      <svg class="ht-heart" viewBox="0 0 24 24"><path id="ht-heart-off" d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+      <svg class="ht-heart" id="ht-heart-wrap" viewBox="0 0 24 24"><path id="ht-heart-on" d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+    </div>
+    <div class="ht-t" id="ht-t1">놓치던 하트,</div>
+    <div class="ht-t" id="ht-t2"><span>이제 안 놓쳐요</span></div>
+    <svg id="ht-cursor" viewBox="0 0 24 24"><path d="M5 2l14 10-6 1.2 3.4 6.6-2.8 1.4-3.4-6.6L5 19z" fill="#111" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/></svg>
+  </div>
+  <script>
+  (function () {
+    const tl = gsap.timeline({ paused: true });
+    // 카드가 들어온다 (앞 장면의 노란 바탕이 이어진다)
+    tl.fromTo("#ht-card", { y: 90, opacity: 0, filter: "blur(10px)" }, { y: 0, opacity: 1, filter: "blur(0px)", duration: 0.5, ease: "expo.out" }, 0);
+    tl.fromTo("#ht-avw", { scale: 1 }, { scale: 1.07, duration: 0.4, ease: "sine.inOut", yoyo: true, repeat: 5 }, 0.3);
+    // 커서: 오른쪽 아래에서 하트로 (heart 중심 좌표 ≈ 카드 안 120,552 → 화면 190,932)
+    tl.fromTo("#ht-cursor", { x: 900, y: 1320, opacity: 0 }, { x: 200, y: 940, opacity: 1, duration: 1.0, ease: "power2.inOut" }, 0.7);
+    // 누름
+    tl.to("#ht-cursor", { scale: 0.86, duration: 0.09, ease: "power2.out" }, 1.75);
+    tl.to("#ht-cursor", { scale: 1, duration: 0.14, ease: "power2.out" }, 1.84);
+    // 하트가 빨갛게 팡
+    tl.fromTo("#ht-heart-on", { opacity: 0 }, { opacity: 1, duration: 0.05 }, 1.8);
+    tl.fromTo("#ht-heart-wrap", { scale: 0.6, transformOrigin: "50% 50%" }, { scale: 1, duration: 0.5, ease: "back.out(2.6)", transformOrigin: "50% 50%" }, 1.8);
+    // 작은 점이 퍼진다
+    for (let i = 0; i < 6; i++) {
+      const a = (Math.PI * 2 * i) / 6 - Math.PI / 2;
+      tl.fromTo("#ht-d" + i, { x: 0, y: 0, scale: 0.4, opacity: 1 },
+        { x: Math.cos(a) * 110, y: Math.sin(a) * 110, scale: 1, opacity: 0, duration: 0.5, ease: "power3.out" }, 1.82);
+    }
+    // 글
+    tl.fromTo("#ht-t1", { opacity: 0, filter: "blur(10px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.2, ease: "power4.out" }, 2.4);
+    tl.fromTo("#ht-t2", { opacity: 0, filter: "blur(10px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.2, ease: "power4.out" }, 2.75);
+    window.__timelines["heart"] = tl;
+  })();
+  </script>
+</template>
