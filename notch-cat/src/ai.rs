@@ -271,6 +271,17 @@ fn gemini(c: &HttpClient) -> Svc {
     s
 }
 
+/// 화면에 보일 값: 초기화 시각이 지났으면 새 기간이다. 서버는 새로 쓰기 전까지 지난 기간 값(100% 등)을 그대로 주므로 0% 로 본다.
+pub fn shown(b: &Bar) -> (f32, String) {
+    if b.reset > 0 && b.reset <= now() {
+        (0.0, "초기화됨".into())
+    } else if b.reset > 0 {
+        (b.pct, reset_text(b.reset))
+    } else {
+        (b.pct, String::new())
+    }
+}
+
 /// 50·70·90% 문턱
 pub fn level(p: f32) -> u8 {
     if p >= 90.0 { 90 } else if p >= 70.0 { 70 } else if p >= 50.0 { 50 } else { 0 }
@@ -330,6 +341,8 @@ pub fn spawn(out: Arc<Mutex<Usage>>, poke: Arc<Mutex<Option<Instant>>>, notes: A
                 n.body = news[1..].iter().map(|x| x.1.clone()).collect::<Vec<_>>().join(" · ");
                 n.icon = None;
             }
+            // 초기화 시각이 지나면 곧바로 다시 받는다(지난 기간 100% 가 5분 동안 남지 않게)
+            let next_reset = svcs.iter().flat_map(|s| s.bars.iter()).map(|b| b.reset).filter(|r| *r > now()).min();
             let stamp = crate::hhmm();
             let sig: Vec<(bool, usize, String)> = svcs.iter().map(|s| (s.login, s.bars.len(), s.note.clone())).collect();
             if sig != last {
@@ -348,7 +361,7 @@ pub fn spawn(out: Arc<Mutex<Usage>>, poke: Arc<Mutex<Option<Instant>>>, notes: A
                 o.ver += 1;
             }
             let fast = poke.lock().unwrap().is_some_and(|t| t.elapsed() < Duration::from_secs(300));
-            let wait = if fast { 10 } else { 300 };
+            let wait = if fast { 10 } else { next_reset.map_or(300, |r| (r - now() + 15).clamp(10, 300)) as u64 };
             for _ in 0..wait {
                 std::thread::sleep(Duration::from_secs(1));
                 if poke.lock().unwrap().is_some_and(|t| t.elapsed() < Duration::from_secs(2)) {
@@ -450,6 +463,8 @@ mod tests {
         let mut seen = std::collections::HashMap::new();
         let r = now() + 3600;
         let svc = |p: f32, reset: i64| vec![Svc { name: "클로드", login: true, bars: vec![Bar { label: "5시간".into(), pct: p, reset }], ..Default::default() }];
+        assert_eq!(shown(&Bar { label: "5시간".into(), pct: 100.0, reset: now() - 60 }), (0.0, "초기화됨".to_string())); // 지난 기간 값은 0%
+        assert_eq!(shown(&Bar { label: "5시간".into(), pct: 40.0, reset: 0 }).0, 40.0);
         assert!(crossings(&mut seen, &svc(30.0, r)).is_empty());
         assert_eq!(crossings(&mut seen, &svc(55.0, r)).len(), 1); // 50%
         assert!(crossings(&mut seen, &svc(60.0, r)).is_empty()); // 같은 문턱은 한 번

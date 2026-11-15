@@ -28,6 +28,7 @@ pub const WM_EDTOAST: u32 = WM_APP + 6; // 노치에게: 알림 물방울을 띄
 pub const WM_EDCLOSE: u32 = WM_APP + 10; // 노치에게: 닫아 달라(노치 안으로 빨아들인 뒤 없앤다)
 pub static TOAST: Mutex<Option<(String, String)>> = Mutex::new(None);
 
+const EFFECTS: [&str; 3] = ["그림자", "외곽선", "없음"];
 const FONTS: [(&str, &str); 6] = [("맑은 고딕", "Malgun Gothic"), ("굴림", "Gulim"), ("바탕", "Batang"), ("궁서", "Gungsuh"), ("Segoe UI", "Segoe UI"), ("Impact", "Impact")];
 const COLORS: [u32; 7] = [0xFFFFFF, 0x111111, 0xEF4444, 0xFACC15, 0xA3E635, 0x3B82F6, 0xEC4899];
 const EMOJIS: &str = "😀 😂 🥹 😍 😎 🤔 😭 😡 😱 🥳 👍 👎 👏 🙏 💪 👉 👈 👆 ❤️ 💔 ✨ ⭐ 🔥 🎉 ✅ ❌ ⚠️ ❓ ❗ 💡 📌 📎 📷 🎵 ☕ 🍀 🐱 🐶 💯 🚀";
@@ -49,6 +50,8 @@ enum Btn {
     EmojiPanel,
     Emoji(usize),
     Font,
+    FontPick(usize),
+    Effect,
     Smaller,
     Bigger,
     Color(usize),
@@ -67,6 +70,7 @@ pub struct Obj {
     pub font: usize,
     pub size: f32, // 그림 점 단위 글자 크기
     pub color: usize,
+    pub fx: u8, // 0 그림자 · 1 외곽선 · 2 없음
     pub x: f32,
     pub y: f32,
 }
@@ -212,6 +216,8 @@ struct Ed {
     crop: [f32; 4],   // 크롭 틀(그림 좌표 x0·y0·x1·y1)
     words: Vec<Word>, // 글자 인식 결과
     osel: Option<(usize, usize)>, // 고른 낱말(시작, 끝)
+    font_open: bool, // 글꼴 목록이 펼쳐져 있다
+    fx: u8,          // 새 글자의 효과(그림자·외곽선·없음)
 }
 
 thread_local! {
@@ -260,10 +266,20 @@ unsafe fn draw_objs(rt: &ID2D1RenderTarget, dw: &IDWriteFactory, objs: &[Obj], o
         }
         let Some(l) = layout(dw, &o, k) else { continue };
         let empty = o.text.is_empty();
-        // 글자가 어느 바탕에서도 보이게 살짝 그림자
-        if !o.emoji {
-            if let Ok(sh) = rt.CreateSolidColorBrush(&rgb(if o.color == 1 { 0xFFFFFF } else { 0x000000 }, if empty { 0.0 } else { 0.45 }), None) {
-                rt.DrawTextLayout(D2D_POINT_2F { x: ox + o.x * k + 1.5 * k.max(0.5), y: oy + o.y * k + 1.5 * k.max(0.5) }, &l, &sh, D2D1_DRAW_TEXT_OPTIONS_NONE);
+        // 글자가 어느 바탕에서도 보이게: 그림자 또는 외곽선(글자색과 반대 밝기)
+        if !o.emoji && !empty && o.fx < 2 {
+            let back = if o.color == 1 { 0xFFFFFF } else { 0x000000 };
+            if o.fx == 0 {
+                if let Ok(sh) = rt.CreateSolidColorBrush(&rgb(back, 0.45), None) {
+                    rt.DrawTextLayout(D2D_POINT_2F { x: ox + o.x * k + 1.5 * k.max(0.5), y: oy + o.y * k + 1.5 * k.max(0.5) }, &l, &sh, D2D1_DRAW_TEXT_OPTIONS_NONE);
+                }
+            } else if let Ok(sh) = rt.CreateSolidColorBrush(&rgb(back, 1.0), None) {
+                // 같은 글자를 둘레 16방향으로 조금씩 밀어 찍어 테두리를 만든다
+                let r = (o.size * 0.07 * k).max(1.0);
+                for i in 0..16 {
+                    let t = i as f32 * std::f32::consts::PI / 8.0;
+                    rt.DrawTextLayout(D2D_POINT_2F { x: ox + o.x * k + r * t.cos(), y: oy + o.y * k + r * t.sin() }, &l, &sh, D2D1_DRAW_TEXT_OPTIONS_NONE);
+                }
             }
         }
         if let Ok(b) = rt.CreateSolidColorBrush(&rgb(COLORS[o.color % COLORS.len()], if empty { 0.35 } else { 1.0 }), None) {
@@ -433,11 +449,18 @@ impl Ed {
         };
         let mut x = 14.0;
         let mut btns = std::mem::take(&mut self.btns);
-        x = btn(&rt, &mut btns, x, 11.0, "✂ 자르기", 82.0, self.tool == Tool::Crop, Btn::Tool(Tool::Crop));
-        x = btn(&rt, &mut btns, x, 11.0, "▣ 크롭", 72.0, frame, Btn::Tool(Tool::Frame));
-        x = btn(&rt, &mut btns, x, 11.0, "T 글자", 70.0, self.tool == Tool::Text, Btn::Tool(Tool::Text));
-        x = btn(&rt, &mut btns, x, 11.0, "😀 이모지", 86.0, self.emoji_open, Btn::EmojiPanel);
-        x = btn(&rt, &mut btns, x, 11.0, "🔍 글자 인식", 100.0, self.tool == Tool::Ocr, Btn::Tool(Tool::Ocr));
+        // 창이 좁으면 왼쪽 도구는 그림만, 더 좁으면 되돌리기도 그림만(오른쪽 단추와 겹치지 않게)
+        let compact = cw < 800.0;
+        let tools: [(&str, &str, f32, bool, Btn); 5] = [
+            ("✂ 자르기", "✂", 82.0, self.tool == Tool::Crop, Btn::Tool(Tool::Crop)),
+            ("▣ 크롭", "▣", 72.0, frame, Btn::Tool(Tool::Frame)),
+            ("T 글자", "T", 70.0, self.tool == Tool::Text, Btn::Tool(Tool::Text)),
+            ("😀 이모지", "😀", 86.0, self.emoji_open, Btn::EmojiPanel),
+            ("🔍 글자 인식", "🔍", 100.0, self.tool == Tool::Ocr, Btn::Tool(Tool::Ocr)),
+        ];
+        for (full, icon, wd, on, b) in tools {
+            x = if compact { btn(&rt, &mut btns, x, 11.0, icon, 40.0, on, b) } else { btn(&rt, &mut btns, x, 11.0, full, wd, on, b) };
+        }
         let _ = x;
         let mut rx = cw - 14.0 - 64.0;
         btn(&rt, &mut btns, rx, 11.0, "닫기", 64.0, false, Btn::Close);
@@ -445,11 +468,12 @@ impl Ed {
         btn(&rt, &mut btns, rx, 11.0, "저장", 64.0, false, Btn::Save);
         rx -= 78.0;
         btn(&rt, &mut btns, rx, 11.0, "복사", 72.0, true, Btn::Copy);
-        rx -= 102.0;
-        btn(&rt, &mut btns, rx, 11.0, "↶ 되돌리기", 96.0, false, Btn::Undo);
+        let uw = if cw < 600.0 { 44.0 } else { 96.0 };
+        rx -= uw + 6.0;
+        btn(&rt, &mut btns, rx, 11.0, if uw < 50.0 { "↶" } else { "↶ 되돌리기" }, uw, false, Btn::Undo);
         if self.undo.is_empty() && !self.editing {
             // 되돌릴 것이 없으면 흐리게
-            rt.FillRoundedRectangle(&D2D1_ROUNDED_RECT { rect: rc(rx, 11.0, 96.0, 32.0), radiusX: 16.0, radiusY: 16.0 }, &br(0x0B0B0B, 0.65));
+            rt.FillRoundedRectangle(&D2D1_ROUNDED_RECT { rect: rc(rx, 11.0, uw, 32.0), radiusX: 16.0, radiusY: 16.0 }, &br(0x0B0B0B, 0.65));
         }
         // 둘째 줄: 크롭 틀 적용·취소
         if frame {
@@ -466,7 +490,7 @@ impl Ed {
             let mut x = 14.0;
             if text_sel.is_some() || self.tool == Tool::Text {
                 let f = text_sel.as_ref().map_or(self.font, |o| o.font);
-                x = btn(&rt, &mut btns, x, y, &format!("글꼴 {} ▾", FONTS[f].0), 128.0, false, Btn::Font);
+                x = btn(&rt, &mut btns, x, y, &format!("글꼴 {} {}", FONTS[f].0, if self.font_open { "▴" } else { "▾" }), 128.0, self.font_open, Btn::Font);
             }
             let sz = any_sel.as_ref().map_or(self.size, |o| o.size);
             x = btn(&rt, &mut btns, x, y, "−", 34.0, false, Btn::Smaller);
@@ -487,6 +511,8 @@ impl Ed {
                     btns.push((r, Btn::Color(i)));
                     x += 26.0;
                 }
+                let fx = text_sel.as_ref().map_or(self.fx, |o| o.fx);
+                btn(&rt, &mut btns, x + 10.0, y, &format!("{} ▸", EFFECTS[fx as usize % 3]), 86.0, false, Btn::Effect);
             }
         }
         // 이모지 판
@@ -504,6 +530,27 @@ impl Ed {
                 let t: Vec<u16> = e.encode_utf16().collect();
                 rt.DrawText(&t, &ef, &rc(r[0], r[1], 38.0, 40.0), &br(0xFFFFFF, 1.0), D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT, DWRITE_MEASURING_MODE_NATURAL);
                 btns.push((r, Btn::Emoji(i)));
+            }
+        }
+        if self.font_open && style {
+            let cur = text_sel.as_ref().map_or(self.font, |o| o.font);
+            let (lx, ly, lw, ih) = (14.0, BAR - 4.0 + 36.0, 180.0, 36.0);
+            let panel = D2D1_ROUNDED_RECT { rect: rc(lx, ly, lw, ih * FONTS.len() as f32 + 8.0), radiusX: 12.0, radiusY: 12.0 };
+            rt.FillRoundedRectangle(&panel, &br(0x161616, 0.98));
+            rt.DrawRoundedRectangle(&panel, &br(0xFFFFFF, 0.14), 1.0, None);
+            for (i, (name, fam)) in FONTS.iter().enumerate() {
+                let r = [lx + 4.0, ly + 4.0 + i as f32 * ih, lx + lw - 4.0, ly + 4.0 + (i + 1) as f32 * ih];
+                let hov = mx >= r[0] && mx < r[2] && my >= r[1] && my < r[3];
+                if hov || i == cur {
+                    rt.FillRoundedRectangle(&D2D1_ROUNDED_RECT { rect: rc(r[0], r[1], r[2] - r[0], ih), radiusX: 8.0, radiusY: 8.0 }, &br(if i == cur { 0xA3E635 } else { 0xFFFFFF }, if i == cur { 0.22 } else { 0.10 }));
+                }
+                // 이름을 그 글꼴로 써서 모양을 미리 본다
+                if let Ok(ff) = self.dw.CreateTextFormat(&HSTRING::from(*fam), None, DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 16.0, w!("ko-kr")) {
+                    let _ = ff.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+                    let t: Vec<u16> = format!("{name}  가나 Ab").encode_utf16().collect();
+                    rt.DrawText(&t, &ff, &rc(r[0] + 12.0, r[1], r[2] - r[0] - 16.0, ih), &br(if i == cur { 0xA3E635 } else { 0xF3F4F6 }, 1.0), D2D1_DRAW_TEXT_OPTIONS_NONE, DWRITE_MEASURING_MODE_NATURAL);
+                }
+                btns.insert(0, (r, Btn::FontPick(i))); // 아래 그림보다 먼저 잡히게
             }
         }
         self.btns = btns;
@@ -538,7 +585,7 @@ impl Ed {
             let v = serde_json::json!({
                 "w": self.w, "h": self.h, "s": self.s, "view": [self.view.0, self.view.1, self.view.2],
                 "tool": format!("{:?}", self.tool), "sel": self.sel, "editing": self.editing, "caret": self.caret,
-                "objs": self.objs.iter().map(|o| serde_json::json!({"text": o.text, "x": o.x, "y": o.y, "size": o.size, "emoji": o.emoji})).collect::<Vec<_>>(),
+                "objs": self.objs.iter().map(|o| serde_json::json!({"text": o.text, "x": o.x, "y": o.y, "size": o.size, "emoji": o.emoji, "font": o.font, "fx": o.fx})).collect::<Vec<_>>(), "font_open": self.font_open,
                 "undo": self.undo.len(), "crop": self.crop, "words": self.words.len(),
                 "word0": self.words.first().map(|w| w.r), "wordN": self.words.last().map(|w| w.r),
                 "osel": self.osel.map(|(a, b)| sel_text(&self.words, a, b)), "status": self.status.0,
@@ -777,6 +824,9 @@ impl Ed {
     }
 
     unsafe fn press(&mut self, b: Btn) {
+        if !matches!(b, Btn::Font | Btn::FontPick(_)) {
+            self.font_open = false;
+        }
         match b {
             Btn::Tool(t) => {
                 self.end_edit();
@@ -812,17 +862,26 @@ impl Ed {
                 let size = (self.w.min(self.h) as f32 * 0.18).clamp(32.0, 160.0);
                 let s = self.snap();
                 self.push_undo(s);
-                self.objs.push(Obj { text: e.into(), emoji: true, font: 0, size, color: 0, x: self.w as f32 / 2.0 - size / 2.0, y: self.h as f32 / 2.0 - size / 2.0 });
+                self.objs.push(Obj { text: e.into(), emoji: true, font: 0, size, color: 0, fx: 0, x: self.w as f32 / 2.0 - size / 2.0, y: self.h as f32 / 2.0 - size / 2.0 });
                 self.sel = Some(self.objs.len() - 1);
                 self.tool = Tool::Move;
                 self.emoji_open = false;
                 self.rt = None;
             }
-            Btn::Font => {
+            Btn::Font => self.font_open = !self.font_open, // 아래로 목록을 펼친다
+            Btn::FontPick(i) => {
+                self.font_open = false;
                 self.style_undo();
-                self.font = (self.sel.and_then(|i| self.objs.get(i)).map_or(self.font, |o| o.font) + 1) % FONTS.len();
+                self.font = i;
                 if let Some(o) = self.sel.and_then(|i| self.objs.get_mut(i)).filter(|o| !o.emoji) {
-                    o.font = self.font;
+                    o.font = i;
+                }
+            }
+            Btn::Effect => {
+                self.style_undo();
+                self.fx = (self.sel.and_then(|i| self.objs.get(i)).filter(|o| !o.emoji).map_or(self.fx, |o| o.fx) + 1) % 3;
+                if let Some(o) = self.sel.and_then(|i| self.objs.get_mut(i)).filter(|o| !o.emoji) {
+                    o.fx = self.fx;
                 }
             }
             Btn::Smaller | Btn::Bigger => {
@@ -858,6 +917,10 @@ impl Ed {
         self.mouse = p;
         if let Some((_, b)) = self.btns.iter().find(|(r, _)| p.0 >= r[0] && p.0 < r[2] && p.1 >= r[1] && p.1 < r[3]).copied() {
             return self.press(b);
+        }
+        if self.font_open {
+            self.font_open = false; // 목록 밖을 누르면 닫기만
+            return;
         }
         let ip = self.to_img(p);
         let inside = ip.0 >= 0.0 && ip.1 >= 0.0 && ip.0 < self.w as f32 && ip.1 < self.h as f32;
@@ -897,7 +960,7 @@ impl Ed {
                     self.start_edit(i, c);
                 } else {
                     self.edit_pre = Some(self.snap());
-                    self.objs.push(Obj { text: String::new(), emoji: false, font: self.font, size: self.size, color: self.color, x: ip.0, y: ip.1 - self.size * 0.6 });
+                    self.objs.push(Obj { text: String::new(), emoji: false, font: self.font, size: self.size, color: self.color, fx: self.fx, x: ip.0, y: ip.1 - self.size * 0.6 });
                     let i = self.objs.len() - 1;
                     self.start_edit(i, 0);
                 }
@@ -1007,6 +1070,7 @@ impl Ed {
 
     unsafe fn key(&mut self, vk: u32) {
         match vk {
+            0x1B if self.font_open => self.font_open = false,
             0x1B => {
                 if self.editing {
                     self.end_edit();
@@ -1245,7 +1309,7 @@ unsafe extern "system" fn proc(hw: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
                     WMSZ_RIGHT | WMSZ_BOTTOMRIGHT => r.right - cx,
                     _ => (old.right - old.left) / 2,
                 }
-                .max((410.0 * ed.s) as i32); // 단추 줄이 겹치지 않는 너비
+                .max((270.0 * ed.s) as i32); // 반폭 270 = 너비 540: 단추 줄이 겹치지 않는 가장 좁은 너비
                 r.left = cx - half;
                 r.right = cx + half;
                 r.top = old.top;
@@ -1291,7 +1355,8 @@ pub unsafe fn open(notch: HWND, px: Vec<u8>, w: u32, h: u32) -> windows::core::R
     let mut work = RECT::default();
     let _ = SystemParametersInfoW(SPI_GETWORKAREA, 0, Some(&mut work as *mut _ as _), SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0));
     let (sw, sh) = (work.right - work.left, work.bottom - work.top);
-    let ww = ((w as i32 + 60).max(900)).min(sw * 9 / 10);
+    let ws = windows::Win32::UI::HiDpi::GetDpiForSystem() as f32 / 96.0;
+    let ww = ((w as i32 + 60).max((820.0 * ws) as i32)).min(sw * 9 / 10); // 820: 단추 줄이 글자째 다 들어가는 너비
     // 노치가 펼쳐져 있으면(맨 위에 떠 있어 창을 가린다) 그 아래에서 연다
     let mut top = work.top;
     if IsWindowVisible(notch).as_bool() {
@@ -1318,7 +1383,7 @@ pub unsafe fn open(notch: HWND, px: Vec<u8>, w: u32, h: u32) -> windows::core::R
     let dw: IDWriteFactory = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)?;
     let size = (h as f32 * 0.09).clamp(18.0, 96.0);
     ED.with(|e| {
-        *e.borrow_mut() = Some(Ed { hwnd: hw, notch, d2, dw, rt: None, bmp: None, px: Rc::new(px), w, h, objs: vec![], sel: None, editing: false, comp: String::new(), tool: Tool::Move, drag: Drag::None, emoji_open: false, font: 0, size, color: 0, mouse: (-1.0, -1.0), btns: vec![], view: (0.0, 0.0, 1.0), status: (String::new(), Instant::now()), s, caret: 0, undo: vec![], edit_pre: None, drag_pre: None, down_at: (0.0, 0.0), click_edit: false, crop: [0.0; 4], words: vec![], osel: None });
+        *e.borrow_mut() = Some(Ed { hwnd: hw, notch, d2, dw, rt: None, bmp: None, px: Rc::new(px), w, h, objs: vec![], sel: None, editing: false, comp: String::new(), tool: Tool::Move, drag: Drag::None, emoji_open: false, font: 0, size, color: 0, mouse: (-1.0, -1.0), btns: vec![], view: (0.0, 0.0, 1.0), status: (String::new(), Instant::now()), s, caret: 0, undo: vec![], edit_pre: None, drag_pre: None, down_at: (0.0, 0.0), click_edit: false, crop: [0.0; 4], words: vec![], osel: None, font_open: false, fx: 0 });
     });
     SetTimer(hw, 1, 500, None); // 글자 자리 깜빡임
     let _ = SetForegroundWindow(hw);
@@ -1341,6 +1406,14 @@ pub unsafe fn dock(cx: i32, top: i32, alpha: f32) {
     let _ = SetLayeredWindowAttributes(hw, COLORREF(0), (alpha.clamp(0.0, 1.0) * 255.0) as u8, LWA_ALPHA);
 }
 
+/// 편집 창의 화면 사각형(픽셀). 떠 있지 않으면 None
+pub fn rect() -> Option<RECT> {
+    let hw = ED.with(|e| e.try_borrow().ok().and_then(|b| b.as_ref().map(|e| e.hwnd)))?;
+    let mut r = RECT::default();
+    unsafe { GetWindowRect(hw, &mut r).ok()? };
+    Some(r)
+}
+
 /// 편집 창을 없앤다(빌린 것을 놓은 뒤에 — WM_DESTROY 가 다시 ED 를 쓴다)
 pub unsafe fn destroy() {
     if let Some(hw) = ED.with(|e| e.try_borrow().ok().and_then(|b| b.as_ref().map(|e| e.hwnd))) {
@@ -1353,8 +1426,8 @@ pub unsafe fn demo(out: &std::path::Path) {
     ED.with(|e| {
         if let Some(ed) = e.borrow_mut().as_mut() {
             let s = ed.size;
-            ed.objs.push(Obj { text: "노치 고양이 편집".into(), emoji: false, font: 0, size: s, color: 3, x: 20.0, y: 20.0 });
-            ed.objs.push(Obj { text: "👍".into(), emoji: true, font: 0, size: s * 1.6, color: 0, x: ed.w as f32 * 0.6, y: ed.h as f32 * 0.4 });
+            ed.objs.push(Obj { text: "노치 고양이 편집".into(), emoji: false, font: 0, size: s, color: 3, fx: 1, x: 20.0, y: 20.0 });
+            ed.objs.push(Obj { text: "👍".into(), emoji: true, font: 0, size: s * 1.6, color: 0, fx: 0, x: ed.w as f32 * 0.6, y: ed.h as f32 * 0.4 });
             ed.sel = Some(0);
             ed.tool = Tool::Text;
             ed.emoji_open = true;
@@ -1415,7 +1488,7 @@ mod tests {
             let rt = d2.CreateWicBitmapRenderTarget(&wb, &props).unwrap();
             rt.BeginDraw();
             rt.Clear(Some(&rgb(0xFFFFFF, 1.0)));
-            draw_objs(&rt, &dw, &[Obj { text: "안녕하세요 노치".into(), emoji: false, font: 0, size: 48.0, color: 1, x: 10.0, y: 20.0 }], 0.0, 0.0, 1.0, None);
+            draw_objs(&rt, &dw, &[Obj { text: "안녕하세요 노치".into(), emoji: false, font: 0, size: 48.0, color: 1, fx: 0, x: 10.0, y: 20.0 }], 0.0, 0.0, 1.0, None);
             rt.EndDraw(None, None).unwrap();
             let mut px = vec![0u8; (w * h * 4) as usize];
             wb.CopyPixels(std::ptr::null(), w * 4, &mut px).unwrap();
