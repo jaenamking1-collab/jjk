@@ -665,6 +665,12 @@ unsafe fn ime(hwnd: HWND, kind: IME_COMPOSITION_STRING) -> String {
 }
 
 unsafe extern "system" fn proc(hw: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    // 편집 창 일을 하는 중에 윈도우가 같은 창에 메시지를 곧바로 다시 보내면(자르기·커서 잡기 등) 이미 빌려 쓰는 중이다.
+    // 그때 빌리려 하면 노치째 꺼진다 → 기본 처리로 넘긴다
+    let busy = ED.with(|e| e.try_borrow_mut().is_err());
+    if busy {
+        return DefWindowProcW(hw, msg, wp, lp);
+    }
     let s = ED.with(|e| e.borrow().as_ref().map_or(1.0, |e| e.s));
     let pt = (((lp.0 & 0xFFFF) as i16) as f32 / s, (((lp.0 >> 16) & 0xFFFF) as i16) as f32 / s);
     let mut redraw = true;
@@ -772,7 +778,7 @@ unsafe extern "system" fn proc(hw: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
 
 /// 편집 창이 떠 있나(노치가 접히지 않게)
 pub fn is_open() -> bool {
-    ED.with(|e| e.borrow().is_some())
+    ED.with(|e| e.try_borrow().map_or(true, |b| b.is_some())) // 빌려 쓰는 중이면 열려 있는 것
 }
 
 /// 편집 창을 연다(BGRA 그림). 이미 열려 있으면 그 창을 닫고 새로.
@@ -823,7 +829,7 @@ pub unsafe fn open(notch: HWND, px: Vec<u8>, w: u32, h: u32) -> windows::core::R
 
 /// 노치 바로 아래에 붙인다(가운데 x, 위 y — 화면 픽셀) + 투명도 0~1
 pub unsafe fn dock(cx: i32, top: i32, alpha: f32) {
-    let Some(hw) = ED.with(|e| e.borrow().as_ref().map(|e| e.hwnd)) else { return };
+    let Some(hw) = ED.with(|e| e.try_borrow().ok().and_then(|b| b.as_ref().map(|e| e.hwnd))) else { return };
     let mut r = RECT::default();
     let _ = GetWindowRect(hw, &mut r);
     let x = cx - (r.right - r.left) / 2;
@@ -835,7 +841,7 @@ pub unsafe fn dock(cx: i32, top: i32, alpha: f32) {
 
 /// 편집 창을 없앤다(빌린 것을 놓은 뒤에 — WM_DESTROY 가 다시 ED 를 쓴다)
 pub unsafe fn destroy() {
-    if let Some(hw) = ED.with(|e| e.borrow().as_ref().map(|e| e.hwnd)) {
+    if let Some(hw) = ED.with(|e| e.try_borrow().ok().and_then(|b| b.as_ref().map(|e| e.hwnd))) {
         let _ = DestroyWindow(hw);
     }
 }

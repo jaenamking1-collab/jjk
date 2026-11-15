@@ -800,6 +800,7 @@ enum Hit {
     ClipPin(usize),   // 최근 → 고정
     ClipUnpin(usize), // 고정에서 빼기
     ClipClear,        // 최근 모두 지우기
+    ClipPg(i32),      // 최근 줄 앞(-1)·뒤(+1) 쪽
     ShelfItem(usize), // 선반: 두 번 누르면 열기, 끌면 복사해 내리기
     Snap,             // 카메라 물방울: 스크린샷
     Rec,              // 빨간 원: 화면 녹화
@@ -900,6 +901,7 @@ struct App {
     cam: Spring,          // 첫 쪽일 때 노치 왼쪽에 붙는 카메라 물방울
     cam_rect: [f32; 4],
     clip_open: Option<(bool, usize)>, // 펼쳐 본 그림(고정인가, 몇 번째)
+    clip_pg: usize, // 최근 줄 몇 번째 쪽(5칸씩)
     clip_full: Option<(u64, ID2D1Bitmap)>, // 펼친 그림 원본
     nb: Spring,        // 적는 동안 온 알림이 칸 아래로 볼록 나온 정도 0…1
     pgf: Spring,       // 쪽이 바뀔 때 내용이 다시 떠오르는 정도 0…1
@@ -2995,10 +2997,26 @@ impl App {
         g.rrect((lx + col_w + rx) / 2.0, 30.0, 1.0, 170.0, 0.5, FG, a * 0.12); // 가운데 칸막이
         for (pinned, x0) in [(false, lx), (true, rx)] {
             let list = if pinned { &self.clip.pinned } else { &self.clip.recent };
-            let cols = if pinned { clip::PIN_MAX } else { clip::MAX };
+            let cols = if pinned { clip::PIN_MAX } else { clip::SHOW };
             let col_w = span(cols);
-            let head = format!("{}  {}/{}", if pinned { "고정" } else { "최근" }, list.len(), cols);
+            let pages = list.len().div_ceil(cols).max(1);
+            let pg = if pinned { 0 } else { self.clip_pg.min(pages - 1) };
+            let head = if pinned { format!("고정  {}/{}", list.len(), cols) } else { format!("최근  {}개", list.len()) };
             g.text(&head, &g.f_sub, x0, 22.0, 200.0, if pinned { LIME } else { FG }, a, Align::Left);
+            if !pinned && pages > 1 {
+                // 밀린 것도 보이게: ‹ 1/4 › 로 5칸씩 넘긴다
+                let px = x0 + 110.0;
+                g.text(&format!("{}/{}", pg + 1, pages), &g.f_tiny, px + 26.0, 26.0, 44.0, FG, a * 0.6, Align::Center);
+                for (d, bx, ch) in [(-1, px, "‹"), (1, px + 72.0, "›")] {
+                    let b = [bx, 20.0, bx + 24.0, 44.0];
+                    let can = if d < 0 { pg > 0 } else { pg + 1 < pages };
+                    g.ellipse(bx + 12.0, 32.0, 11.0, 11.0, FG, a * if can && over(b) { 0.25 } else { 0.08 });
+                    g.text(ch, &g.f_sub, bx, 20.0, 24.0, if can { LIME } else { FG }, a * if can { 1.0 } else { 0.3 }, Align::Center);
+                    if can {
+                        hits.push((b, Hit::ClipPg(d)));
+                    }
+                }
+            }
             if !pinned && !list.is_empty() {
                 let cb = [x0 + col_w - 70.0, 22.0, x0 + col_w, 42.0];
                 g.text("모두 지우기", &g.f_tiny, cb[0], cb[1] + 4.0, 70.0, FG, a * if over(cb) { 0.9 } else { 0.4 }, Align::Right);
@@ -3008,8 +3026,8 @@ impl App {
                 let msg = if pinned { "최근 칸의 ☆ 를 누르면\n여기에 고정됩니다" } else { "글자나 그림을 복사하면\n여기에 모입니다" };
                 g.para(msg, &g.f_body, x0, 90.0, col_w, FG, a * 0.4);
             }
-            for (k, it) in list.iter().enumerate().take(cols) {
-                let (c, r) = (k % cols, k / cols);
+            for (k, it) in list.iter().enumerate().skip(pg * cols).take(cols) {
+                let (c, r) = ((k - pg * cols) % cols, 0);
                 let (tx, ty) = (x0 + c as f32 * (tile + gap), 50.0 + r as f32 * (tile + gap));
                 let b = [tx, ty, tx + tile, ty + tile];
                 let on = over(b);
@@ -4165,6 +4183,11 @@ impl App {
                 }
                 return self.tick();
             }
+            Hit::ClipPg(d) => {
+                let pages = self.clip.recent.len().div_ceil(clip::SHOW).max(1);
+                self.clip_pg = (self.clip_pg as i32 + d).clamp(0, pages as i32 - 1) as usize;
+                return self.tick();
+            }
             Hit::ClipClear => {
                 let gone = std::mem::take(&mut self.clip.recent);
                 clip::forget(&gone);
@@ -4345,7 +4368,7 @@ impl App {
             Hit::Line(t) => Cmd::Seek(t as i64),
             Hit::Shuffle => Cmd::Shuffle,
             Hit::Repeat => Cmd::Repeat,
-            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::AiLogin(_) | Hit::AiOpen(_) | Hit::AiGuideClose | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSchool | Hit::EntSave | Hit::EntClose | Hit::SetOpen(_) | Hit::SetClose | Hit::SetChip(_) | Hit::SetOpt(_) | Hit::ClipItem(..) | Hit::ClipPin(_) | Hit::ClipUnpin(_) | Hit::ClipClear | Hit::ShelfItem(_) | Hit::ShelfDel(_) | Hit::ShelfSend(_) | Hit::SendClose | Hit::Snap | Hit::Rec | Hit::ClipCopyOpen | Hit::ClipEdit | Hit::ClipFold | Hit::TrimPick | Hit::TrimRecent(_) | Hit::TrimBar(..) | Hit::TrimSel(_) | Hit::TrimNudge(..) | Hit::TrimSave | Hit::TrimOther => return,
+            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::AiLogin(_) | Hit::AiOpen(_) | Hit::AiGuideClose | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSchool | Hit::EntSave | Hit::EntClose | Hit::SetOpen(_) | Hit::SetClose | Hit::SetChip(_) | Hit::SetOpt(_) | Hit::ClipItem(..) | Hit::ClipPin(_) | Hit::ClipUnpin(_) | Hit::ClipClear | Hit::ClipPg(_) | Hit::ShelfItem(_) | Hit::ShelfDel(_) | Hit::ShelfSend(_) | Hit::SendClose | Hit::Snap | Hit::Rec | Hit::ClipCopyOpen | Hit::ClipEdit | Hit::ClipFold | Hit::TrimPick | Hit::TrimRecent(_) | Hit::TrimBar(..) | Hit::TrimSel(_) | Hit::TrimNudge(..) | Hit::TrimSave | Hit::TrimOther => return,
         };
         let _ = self.tx.send(cmd);
     }
@@ -4625,6 +4648,7 @@ unsafe fn run() -> Result<()> {
         cam: Spring::new(0.0, 260.0, 0.5),
         cam_rect: [0.0; 4],
         clip_open: None,
+        clip_pg: 0,
         clip_full: None,
         nb: Spring::new(0.0, 210.0, 0.5),
         wx: {
@@ -4965,6 +4989,7 @@ unsafe fn run() -> Result<()> {
                     let id = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
                     if let Some((it, imgs)) = clip::capture(hwnd, id, hhmm()) {
                         let (added, gone) = app.clip.add(it);
+                        app.clip_pg = 0; // 새로 복사하면 맨 앞 쪽으로
                         if app.clip.recent.first().is_some_and(|r| r.id == id) {
                             if let Some((png, thumb)) = imgs {
                                 let _ = std::fs::write(clip::png_path(id), png);

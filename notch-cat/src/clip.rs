@@ -14,7 +14,8 @@ use windows::Win32::System::DataExchange::*;
 use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE};
 use windows::Win32::UI::Shell::SHCreateMemStream;
 
-pub const MAX: usize = 5; // 최근 칸 수(2026-11-15 사용자: 5칸을 크게)
+pub const MAX: usize = 20; // 최근 보관 수(화면엔 SHOW 칸씩 넘겨 본다)
+pub const SHOW: usize = 5; // 최근 한 줄 칸 수(2026-11-15 사용자: 5칸을 크게, 밀린 것도 다 보이게)
 pub const PIN_MAX: usize = 2; // 고정 칸 수
 const CF_DIB: u32 = 8;
 const CF_UNICODETEXT: u32 = 13;
@@ -444,12 +445,12 @@ mod tests {
     #[test]
     fn recent_keeps_ten_newest_first() {
         let mut c = Clip::default();
-        for i in 0..12 {
+        for i in 0..(MAX + 2) as u64 {
             c.add(t(i, &format!("글 {i}")));
         }
         assert_eq!(c.recent.len(), MAX);
-        assert_eq!(c.recent[0].text.as_deref(), Some("글 11"));
-        assert_eq!(c.recent[MAX - 1].text.as_deref(), Some(format!("글 {}", 12 - MAX).as_str()));
+        assert_eq!(c.recent[0].text.as_deref(), Some(format!("글 {}", MAX + 1).as_str()));
+        assert_eq!(c.recent[MAX - 1].text.as_deref(), Some("글 2"));
         // 같은 것을 다시 복사하면 늘지 않고 맨 앞으로
         let (added, gone) = c.add(t(99, "글 9"));
         assert!(added && gone.is_empty());
