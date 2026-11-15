@@ -66,7 +66,7 @@ const WIN_H: f32 = 800.0; // 큰 달력 + 일정 칸 + 알림 물방울까지
 const ENT_W: f32 = 560.0;
 const ENT_H: f32 = 112.0;
 const ENT_GAP: f32 = 18.0;
-const CLIP_SZ: (f32, f32) = (780.0, 250.0); // 클립보드 쪽
+const CLIP_SZ: (f32, f32) = (1040.0, 250.0); // 클립보드 쪽(최근 5칸 + 고정 2칸, 칸 128)
 const ED_GAP: f32 = 22.0; // 노치 몸 아래 ~ 편집 창 위(물방울 목 길이)
 const SHELF_SZ: (f32, f32) = (780.0, 250.0); // 파일 선반 쪽
 const TRIM_SZ: (f32, f32) = (780.0, 300.0); // 영상 자르기 쪽
@@ -2985,16 +2985,19 @@ impl App {
         let (mx, my) = self.mouse;
         let live = p > 0.9;
         let over = |b: [f32; 4]| live && mx >= b[0] && mx < b[2] && my >= b[1] && my < b[3];
-        let (tile, gap, cols) = (64.0, 8.0, 5usize);
-        let col_w = cols as f32 * tile + (cols - 1) as f32 * gap;
+        let (tile, gap) = (128.0, 10.0);
+        let span = |n: usize| n as f32 * tile + (n - 1) as f32 * gap;
+        let col_w = span(clip::MAX);
         let lx = x + 24.0;
-        let rx = x + w - 24.0 - col_w;
+        let rx = x + w - 24.0 - span(clip::PIN_MAX);
         let mut hits: Vec<([f32; 4], Hit)> = Vec::new();
         let mut hover_text: Option<String> = None;
         g.rrect((lx + col_w + rx) / 2.0, 30.0, 1.0, 170.0, 0.5, FG, a * 0.12); // 가운데 칸막이
         for (pinned, x0) in [(false, lx), (true, rx)] {
             let list = if pinned { &self.clip.pinned } else { &self.clip.recent };
-            let head = if pinned { format!("고정  {}/{}", list.len(), clip::MAX) } else { format!("최근  {}/{}", list.len(), clip::MAX) };
+            let cols = if pinned { clip::PIN_MAX } else { clip::MAX };
+            let col_w = span(cols);
+            let head = format!("{}  {}/{}", if pinned { "고정" } else { "최근" }, list.len(), cols);
             g.text(&head, &g.f_sub, x0, 22.0, 200.0, if pinned { LIME } else { FG }, a, Align::Left);
             if !pinned && !list.is_empty() {
                 let cb = [x0 + col_w - 70.0, 22.0, x0 + col_w, 42.0];
@@ -3005,7 +3008,7 @@ impl App {
                 let msg = if pinned { "최근 칸의 ☆ 를 누르면\n여기에 고정됩니다" } else { "글자나 그림을 복사하면\n여기에 모입니다" };
                 g.para(msg, &g.f_body, x0, 90.0, col_w, FG, a * 0.4);
             }
-            for (k, it) in list.iter().enumerate().take(clip::MAX) {
+            for (k, it) in list.iter().enumerate().take(cols) {
                 let (c, r) = (k % cols, k / cols);
                 let (tx, ty) = (x0 + c as f32 * (tile + gap), 50.0 + r as f32 * (tile + gap));
                 let b = [tx, ty, tx + tile, ty + tile];
@@ -3016,10 +3019,10 @@ impl App {
                     g.rrect(tx, ty, tile, tile, 10.0, FG, a * 0.08);
                     if let Some(t) = &it.text {
                         g.clip(tx + 6.0, ty + 5.0, tile - 12.0, tile - 24.0); // 아래 종류 표시 자리는 비운다
-                        g.para(&t.chars().take(60).collect::<String>(), &g.f_tiny, tx + 6.0, ty + 5.0, tile - 12.0, FG, a * 0.85);
+                        g.para(&t.chars().take(160).collect::<String>(), &g.f_tiny, tx + 6.0, ty + 5.0, tile - 12.0, FG, a * 0.85);
                         g.unclip();
                     } else {
-                        g.text("그림", &g.f_tiny, tx, ty + 26.0, tile, FG, a * 0.4, Align::Center);
+                        g.text("그림", &g.f_tiny, tx, ty + tile / 2.0 - 8.0, tile, FG, a * 0.4, Align::Center);
                     }
                 }
                 // 종류 표시(그림 · 파일 · 링크 · 글자)
@@ -3050,7 +3053,7 @@ impl App {
             }
         }
         // 아래 줄: 마우스를 올린 항목 내용, 방금 복사했으면 알림, 아니면 살아 있다는 표시
-        let fy = 50.0 + 2.0 * (tile + gap) + 6.0;
+        let fy = 50.0 + (tile + gap) + 6.0;
         // 그림을 눌렀으면 아래로 원본이 크게 펼쳐진다
         if let Some(it) = self.clip_open.and_then(|(pin, k)| if pin { self.clip.pinned.get(k) } else { self.clip.recent.get(k) }).cloned() {
             if self.clip_full.as_ref().map(|f| f.0) != Some(it.id) {

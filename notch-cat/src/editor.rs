@@ -715,6 +715,42 @@ unsafe extern "system" fn proc(hw: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
                     redraw = false;
                 }
             }
+            WM_NCHITTEST => {
+                // 테두리 없는 창: 왼쪽·오른쪽·아래 가장자리를 끌어 크기를 바꾼다(위는 노치에 붙어 있다)
+                let mut r = RECT::default();
+                let _ = GetWindowRect(hw, &mut r);
+                let (x, y) = (((lp.0 & 0xFFFF) as i16) as i32, (((lp.0 >> 16) & 0xFFFF) as i16) as i32);
+                let e = (8.0 * ed.s) as i32;
+                let (l, rr, b) = (x < r.left + e, x >= r.right - e, y >= r.bottom - e);
+                redraw = false;
+                return Some(LRESULT(match (l, rr, b) {
+                    (true, _, true) => HTBOTTOMLEFT,
+                    (_, true, true) => HTBOTTOMRIGHT,
+                    (true, _, _) => HTLEFT,
+                    (_, true, _) => HTRIGHT,
+                    (_, _, true) => HTBOTTOM,
+                    _ => HTCLIENT,
+                } as isize));
+            }
+            0x0214 /* WM_SIZING */ => {
+                // 노치 가운데 아래에 붙은 채로 양옆이 같이 늘고 준다
+                let mut old = RECT::default();
+                let _ = GetWindowRect(hw, &mut old);
+                let r = &mut *(lp.0 as *mut RECT);
+                let cx = (old.left + old.right) / 2;
+                let half = match wp.0 as u32 {
+                    WMSZ_LEFT | WMSZ_BOTTOMLEFT => cx - r.left,
+                    WMSZ_RIGHT | WMSZ_BOTTOMRIGHT => r.right - cx,
+                    _ => (old.right - old.left) / 2,
+                }
+                .max((300.0 * ed.s) as i32);
+                r.left = cx - half;
+                r.right = cx + half;
+                r.top = old.top;
+                r.bottom = r.bottom.max(old.top + (320.0 * ed.s) as i32);
+                redraw = false;
+                return Some(LRESULT(1));
+            }
             WM_CLOSE => {
                 let _ = PostMessageW(ed.notch, WM_EDCLOSE, WPARAM(0), LPARAM(0));
                 redraw = false;

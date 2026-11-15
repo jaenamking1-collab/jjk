@@ -14,7 +14,8 @@ use windows::Win32::System::DataExchange::*;
 use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE};
 use windows::Win32::UI::Shell::SHCreateMemStream;
 
-pub const MAX: usize = 10;
+pub const MAX: usize = 5; // 최근 칸 수(2026-11-15 사용자: 5칸을 크게)
+pub const PIN_MAX: usize = 2; // 고정 칸 수
 const CF_DIB: u32 = 8;
 const CF_UNICODETEXT: u32 = 13;
 const CF_HDROP: u32 = 15;
@@ -74,8 +75,8 @@ fn item_from(v: &Value) -> Option<Item> {
 impl Clip {
     pub fn load() -> Clip {
         let v: Value = std::fs::read_to_string(dir().join("index.json")).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
-        let list = |k: &str| v[k].as_array().into_iter().flatten().filter_map(item_from).take(MAX).collect();
-        Clip { recent: list("recent"), pinned: list("pinned") }
+        let list = |k: &str, n: usize| v[k].as_array().into_iter().flatten().filter_map(item_from).take(n).collect();
+        Clip { recent: list("recent", MAX), pinned: list("pinned", PIN_MAX) }
     }
 
     pub fn save(&self) {
@@ -101,7 +102,7 @@ impl Clip {
 
     /// 최근 k 번째를 고정으로. 고정이 꽉 찼으면 false.
     pub fn pin(&mut self, k: usize) -> bool {
-        if k >= self.recent.len() || self.pinned.len() >= MAX {
+        if k >= self.recent.len() || self.pinned.len() >= PIN_MAX {
             return false;
         }
         let it = self.recent.remove(k);
@@ -279,7 +280,7 @@ pub unsafe fn dib_to_png(dib: &[u8]) -> windows::core::Result<(Vec<u8>, Vec<u8>,
     conv.Initialize(&frame, &GUID_WICPixelFormat32bppBGR, WICBitmapDitherTypeNone, None, 0.0, WICBitmapPaletteTypeMedianCut)?;
     let src: IWICBitmapSource = conv.cast()?;
     let png = encode_png(&f, &src, w, h)?;
-    let k = (160.0 / w.max(h).max(1) as f32).min(1.0);
+    let k = (320.0 / w.max(h).max(1) as f32).min(1.0); // 칸이 128 이라 짧은 변도 넉넉히
     let (tw, th) = (((w as f32 * k) as u32).max(1), ((h as f32 * k) as u32).max(1));
     let sc = f.CreateBitmapScaler()?;
     sc.Initialize(&src, tw, th, WICBitmapInterpolationModeFant)?;
@@ -448,12 +449,12 @@ mod tests {
         }
         assert_eq!(c.recent.len(), MAX);
         assert_eq!(c.recent[0].text.as_deref(), Some("글 11"));
-        assert_eq!(c.recent[9].text.as_deref(), Some("글 2"));
+        assert_eq!(c.recent[MAX - 1].text.as_deref(), Some(format!("글 {}", 12 - MAX).as_str()));
         // 같은 것을 다시 복사하면 늘지 않고 맨 앞으로
-        let (added, gone) = c.add(t(99, "글 5"));
+        let (added, gone) = c.add(t(99, "글 9"));
         assert!(added && gone.is_empty());
         assert_eq!(c.recent.len(), MAX);
-        assert_eq!(c.recent[0].id, 5);
+        assert_eq!(c.recent[0].id, 9);
     }
 
     #[test]
@@ -470,9 +471,9 @@ mod tests {
             c.add(t(10 + i, &format!("새 글 {i}")));
             c.pin(0);
         }
-        assert_eq!(c.pinned.len(), MAX); // 고정도 10개까지
+        assert_eq!(c.pinned.len(), PIN_MAX); // 고정은 2개까지
         assert!(c.unpin(0).is_some());
-        assert_eq!(c.pinned.len(), MAX - 1);
+        assert_eq!(c.pinned.len(), PIN_MAX - 1);
     }
 
     #[test]
