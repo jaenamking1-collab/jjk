@@ -15,8 +15,7 @@ use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalSize, Global
 use windows::Win32::UI::Shell::SHCreateMemStream;
 
 pub const MAX: usize = 20; // 최근 보관 수(2026-11-15 사용자: 20개는 저장하되 한 화면엔 10개, 넘기는 단추로)
-pub const SHOW: usize = 5; // 최근 그림 한 줄 칸 수(글자는 한 줄씩 — main.rs clip_layout)
-pub const PIN_MAX: usize = 2; // 고정 칸 수
+pub const PIN_MAX: usize = 6; // 고정 칸 수(2 × 3, 2026-11-15 사용자)
 const CF_DIB: u32 = 8;
 const CF_UNICODETEXT: u32 = 13;
 const CF_HDROP: u32 = 15;
@@ -472,7 +471,7 @@ mod tests {
             c.add(t(10 + i, &format!("새 글 {i}")));
             c.pin(0);
         }
-        assert_eq!(c.pinned.len(), PIN_MAX); // 고정은 2개까지
+        assert_eq!(c.pinned.len(), PIN_MAX); // 고정은 PIN_MAX 개까지
         assert!(c.unpin(0).is_some());
         assert_eq!(c.pinned.len(), PIN_MAX - 1);
     }
