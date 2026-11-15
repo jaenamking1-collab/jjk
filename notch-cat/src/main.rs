@@ -155,6 +155,11 @@ const WM_MOUSELEAVE: u32 = 0x02A3;
 
 // ── 공용: 데이터 폴더·로그·시각 ─────────────────────────────
 
+/// 편집 창이 떠 있고 보이는 중(숨겨 둔 건 아님)
+fn ed_live() -> bool {
+    editor::is_open() && !editor::parked()
+}
+
 /// 클립보드 종류 거르기: 0 전체 · 1 글자(링크·파일 이름 포함, 그림 아닌 것) · 2 그림
 fn clip_match(kind: u8, it: &clip::Item) -> bool {
     match kind {
@@ -291,6 +296,7 @@ impl Cfg {
 // ── 창 메시지 → 사건 목록 ───────────────────────────────
 
 enum Ev {
+    EdBlur, // 편집 창이 다른 창 뒤로 밀렸다
     Move(f32, f32),
     Leave,
     Click(f32, f32),
@@ -417,6 +423,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         capture::WM_SNAPPED => push(Ev::Snapped),
         editor::WM_EDTOAST => push(Ev::EdToast),
         editor::WM_EDCLOSE => push(Ev::EdClose),
+        editor::WM_EDBLUR => push(Ev::EdBlur),
         rec::WM_RECSAVING => push(Ev::RecSaving),
         rec::WM_RECDONE => push(Ev::RecDone),
         trim::WM_TRIMDONE => push(Ev::TrimDone),
@@ -1321,7 +1328,7 @@ impl App {
                 let m = (SHADOW * p).max(EAR + 1.0).max(if self.face.tail.pos > 0.3 { TAIL_ROOM } else { 0.0 }); // 그림자·휜 모서리·꼬리 자리만큼 영역을 넓힌다
         // 펼쳐 둔 동안엔 영역을 줄이지 않는다: 쪽을 넘겨 몸통이 좁아지거나 낮아져도 마우스가 '밖'으로 떨어져 닫히지 않게
         self.hold = if self.hover { (self.hold.0.max(w), self.hold.1.max(h)) } else { (0.0, 0.0) };
-        if editor::is_open() {
+        if ed_live() {
             self.hold.1 = h; // 미리보기가 줄어든 만큼 영역도 줄여야 아래 편집 창이 눌린다
         }
         let (rw, rh) = (w.max(self.hold.0), h.max(self.hold.1));
@@ -3535,7 +3542,7 @@ impl App {
 
     /// 클립보드 최근 칸 줄 수(지금 쪽에 보이는 것, 5칸씩 1~2줄)
     fn clip_rows(&self) -> usize {
-        if editor::is_open() {
+        if ed_live() {
             return 1; // 편집하는 동안엔 한 줄로 접어 아래 편집판 자리를 낸다
         }
         let all = self.clip.recent.iter().filter(|it| clip_match(self.clip_kind, it)).count();
@@ -3552,7 +3559,7 @@ impl App {
 
     /// 편집 창 위(논리 y)와 목: (가운데 x, 편집 창 위 y, 끝 반폭)
     fn ed_neck(&self, h: f32) -> Option<(f32, f32, f32)> {
-        if !editor::is_open() || self.edp.pos < 0.02 {
+        if !ed_live() || self.edp.pos < 0.02 {
             return None;
         }
         let e = self.edp.pos;
@@ -3562,7 +3569,7 @@ impl App {
 
     /// 편집 창을 노치 아래에 붙이고, 둘 사이에 오목한 물방울 목을 그린다
     unsafe fn draw_ed(&mut self, h: f32) {
-        if !editor::is_open() {
+        if !ed_live() {
             return;
         }
         if self.edp.target == 0.0 && self.edp.pos < 0.04 {
@@ -4996,6 +5003,13 @@ unsafe fn run() -> Result<()> {
                     let on_pill = app.mouse.0 >= px0 - EAR && app.mouse.0 <= px0 + app.w.pos + EAR && app.mouse.1 <= app.h.pos + 2.0;
                     if !app.hover && on_pill {
                         app.hover = true;
+                        if editor::is_open() && editor::parked() {
+                            // 숨겨 둔 편집 창을 클립보드 쪽과 함께 다시 꺼낸다(노치 몸 뒤에서 물방울처럼 내려온다)
+                            app.page = 5;
+                            editor::park(false);
+                            app.ed_pop();
+                            app.ed_hold = true;
+                        }
                         if let Some(e) = app.ent.as_mut().filter(|e| e.parked && !e.closing) {
                             e.parked = false; // 접어 둔 일정 칸을 달력 쪽과 함께 다시 꺼낸다
                             app.page = 3;
@@ -5039,7 +5053,7 @@ unsafe fn run() -> Result<()> {
                 Ev::Leave if std::env::var("NOTCH_CAT_SHOT").is_ok() => {} // 시험 중엔 마우스가 없어도 펼친 채로
                 Ev::Leave if app.ent_up() => app.tracking = false, // 적는 동안은 마우스가 나가도 펼친 채로
                 Ev::Leave if app.saved_hold.is_some() => app.tracking = false, // 막 저장했다: 넣은 일정이 보이게 잠깐 펼친 채로
-                Ev::Leave if editor::is_open() => {
+                Ev::Leave if ed_live() => {
                     // 편집 창이 노치 위를 덮어도 접지 않는다(창을 닫으면 그때 마우스가 밖이면 접는다)
                     app.tracking = false;
                     app.ed_hold = true;
@@ -5137,6 +5151,15 @@ unsafe fn run() -> Result<()> {
                     }
                     app.tick();
                 }
+                Ev::EdBlur => {
+                    // 다른 창을 눌렀다: 편집 창은 숨겨 두고 노치를 접는다(작업한 것은 그대로 — 노치에 마우스를 올리면 다시 나온다)
+                    if ed_live() && app.edp.target > 0.0 {
+                        editor::park(true);
+                        app.edp = Spring::new(0.0, 230.0, 0.72);
+                        app.ed_hold = false;
+                        app.leave();
+                    }
+                }
                 Ev::EdClose => {
                     // 노치 안으로 빨아들인다(나올 때보다 빠르게, 튕김 없이) — 다 들어가면 draw 가 창을 없앤다
                     app.edp.tune(420.0, 1.0);
@@ -5230,7 +5253,7 @@ unsafe fn run() -> Result<()> {
                     if let Some(p) = app.trim_job.clone() {
                         app.toast("영상 자르는 중", "", Some(p.load(std::sync::atomic::Ordering::Relaxed) as f32 / 1000.0), 60);
                     }
-                    if app.ed_hold && !editor::is_open() {
+                    if app.ed_hold && !ed_live() {
                         app.ed_hold = false;
                         if !app.tracking {
                             app.leave();

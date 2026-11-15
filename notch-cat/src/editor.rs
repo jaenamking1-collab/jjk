@@ -26,6 +26,7 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 
 pub const WM_EDTOAST: u32 = WM_APP + 6; // 노치에게: 알림 물방울을 띄워 달라
 pub const WM_EDCLOSE: u32 = WM_APP + 10; // 노치에게: 닫아 달라(노치 안으로 빨아들인 뒤 없앤다)
+pub const WM_EDBLUR: u32 = WM_APP + 11; // 노치에게: 다른 창을 눌렀다(편집 창을 숨겨 두고 노치를 접어 달라)
 pub static TOAST: Mutex<Option<(String, String)>> = Mutex::new(None);
 
 const EFFECTS: [&str; 3] = ["그림자", "외곽선", "없음"];
@@ -1405,6 +1406,13 @@ unsafe extern "system" fn proc(hw: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
                 redraw = false;
                 return Some(LRESULT(1));
             }
+            WM_ACTIVATE => {
+                // 다른 창(크롬 등)을 눌러 뒤로 밀렸다 → 노치가 숨겨 두었다가, 노치에 마우스가 오면 하던 그대로 다시 꺼낸다
+                if wp.0 & 0xFFFF == 0 && IsWindowVisible(hw).as_bool() {
+                    let _ = PostMessageW(ed.notch, WM_EDBLUR, WPARAM(0), LPARAM(0));
+                }
+                redraw = false;
+            }
             WM_CLOSE => {
                 let _ = PostMessageW(ed.notch, WM_EDCLOSE, WPARAM(0), LPARAM(0));
                 redraw = false;
@@ -1491,6 +1499,25 @@ pub unsafe fn dock(cx: i32, top: i32, alpha: f32) {
         let _ = SetWindowPos(hw, None, x, top, r.right - r.left, hh, SWP_NOZORDER | SWP_NOACTIVATE);
     }
     let _ = SetLayeredWindowAttributes(hw, COLORREF(0), (alpha.clamp(0.0, 1.0) * 255.0) as u8, LWA_ALPHA);
+}
+
+/// 숨겨 두었나(다른 창을 누르면 숨긴다 — 작업한 것은 그대로)
+pub fn parked() -> bool {
+    ED.with(|e| e.try_borrow().ok().and_then(|b| b.as_ref().map(|e| e.hwnd))).is_some_and(|hw| unsafe { !IsWindowVisible(hw).as_bool() })
+}
+
+/// 숨긴다 / 다시 꺼낸다(꺼낼 땐 맨 앞으로, 글자를 바로 칠 수 있게)
+pub unsafe fn park(on: bool) {
+    let Some((hw, notch)) = ED.with(|e| e.try_borrow().ok().and_then(|b| b.as_ref().map(|e| (e.hwnd, e.notch)))) else { return };
+    if on {
+        let _ = ShowWindow(hw, SW_HIDE);
+    } else {
+        let _ = SetLayeredWindowAttributes(hw, COLORREF(0), 0, LWA_ALPHA); // 노치 몸 뒤에서 다시 내려오게 처음엔 투명
+        // 윈도우는 뒤에 있는 프로그램이 창을 앞으로 가져오는 걸 막는다(크롬 뒤에 남았다) → 맨 위 창으로 올리고, 노치는 그보다 위에
+        let _ = SetWindowPos(hw, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        let _ = SetWindowPos(notch, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        let _ = SetForegroundWindow(hw); // 되면 바로 글자를 칠 수 있고, 안 되면 한 번 누르면 된다
+    }
 }
 
 /// 편집 창의 화면 사각형(픽셀). 떠 있지 않으면 None
