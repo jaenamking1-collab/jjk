@@ -101,6 +101,7 @@ struct Ed {
 
 thread_local! {
     static ED: RefCell<Option<Ed>> = const { RefCell::new(None) };
+    static WANT_H: std::cell::Cell<i32> = const { std::cell::Cell::new(0) }; // 바라는 높이(처음 크기 또는 사용자가 끌어 바꾼 크기) — 노치 아래 남은 자리에 맞춰 줄인다
 }
 
 fn rgb(c: u32, a: f32) -> D2D1_COLOR_F {
@@ -754,6 +755,7 @@ unsafe extern "system" fn proc(hw: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LR
                 r.right = cx + half;
                 r.top = old.top;
                 r.bottom = r.bottom.max(old.top + (320.0 * ed.s) as i32);
+                WANT_H.with(|w| w.set(r.bottom - r.top));
                 redraw = false;
                 return Some(LRESULT(1));
             }
@@ -807,7 +809,9 @@ pub unsafe fn open(notch: HWND, px: Vec<u8>, w: u32, h: u32) -> windows::core::R
         let _ = DeleteObject(rgn);
     }
     let room = work.bottom - top;
-    let wh = ((h as i32 + 160).max(420)).min(sh * 9 / 10).min(room - 10);
+    let natural = ((h as i32 + 160).max(420)).min(sh * 9 / 10);
+    WANT_H.with(|c| c.set(natural));
+    let wh = natural.min(room - 10).max(240);
     // 테두리 없는 창: 노치가 dock() 으로 바로 아래에 붙이고, 물방울처럼 내려오게 투명도도 노치가 맡는다
     let hw = CreateWindowExW(WS_EX_LAYERED, class, w!("노치 고양이 · 스크린샷 편집"), WS_POPUP, work.left + (sw - ww) / 2, top, ww, wh, None, None, inst, None)?;
     let _ = SetLayeredWindowAttributes(hw, COLORREF(0), 0, LWA_ALPHA);
@@ -833,8 +837,11 @@ pub unsafe fn dock(cx: i32, top: i32, alpha: f32) {
     let mut r = RECT::default();
     let _ = GetWindowRect(hw, &mut r);
     let x = cx - (r.right - r.left) / 2;
-    if (r.left, r.top) != (x, top) {
-        let _ = SetWindowPos(hw, None, x, top, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    let mut work = RECT::default();
+    let _ = SystemParametersInfoW(SPI_GETWORKAREA, 0, Some(&mut work as *mut _ as _), SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0));
+    let hh = WANT_H.with(|w| w.get()).min(work.bottom - top - 12).max(240);
+    if (r.left, r.top, r.bottom - r.top) != (x, top, hh) {
+        let _ = SetWindowPos(hw, None, x, top, r.right - r.left, hh, SWP_NOZORDER | SWP_NOACTIVATE);
     }
     let _ = SetLayeredWindowAttributes(hw, COLORREF(0), (alpha.clamp(0.0, 1.0) * 255.0) as u8, LWA_ALPHA);
 }

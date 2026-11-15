@@ -15,7 +15,7 @@ use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalSize, Global
 use windows::Win32::UI::Shell::SHCreateMemStream;
 
 pub const MAX: usize = 20; // 최근 보관 수(화면엔 SHOW 칸씩 넘겨 본다)
-pub const SHOW: usize = 5; // 최근 한 줄 칸 수(2026-11-15 사용자: 5칸을 크게, 밀린 것도 다 보이게)
+pub const SHOW: usize = 5; // 최근 한 줄 칸 수(2026-11-15 사용자: 5칸을 크게, 20개 다 한 화면에 — 줄을 늘린다)
 pub const PIN_MAX: usize = 2; // 고정 칸 수
 const CF_DIB: u32 = 8;
 const CF_UNICODETEXT: u32 = 13;
