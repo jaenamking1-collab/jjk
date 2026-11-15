@@ -1,0 +1,68 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{width:540px;height:675px;background:#fff8e1;font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif;color:#222;padding:26px 26px 0;display:flex;flex-direction:column;justify-content:center;overflow:hidden}
+h1{font-size:40px;line-height:1.3;text-align:center}
+h1 b{background:linear-gradient(transparent 60%,#ffd400 60%)}
+.sub{text-align:center;font-size:22px;color:#555;margin:12px 0 28px}
+.demo{display:flex;justify-content:center;align-items:center;gap:60px;background:#fff;border-radius:24px;padding:22px;margin-bottom:30px;box-shadow:0 2px 10px rgba(0,0,0,.08)}
+.av{width:72px;height:72px;border-radius:50%;background:#9aa7b8;position:relative}
+.av.on{box-shadow:0 0 0 5px #ffd400,0 0 22px 8px rgba(255,200,0,.9)}
+.av i{position:absolute;right:-4px;bottom:-4px;width:26px;height:26px;border-radius:50%;background:#111;color:#fff;font-style:normal;font-weight:700;font-size:20px;line-height:24px;text-align:center;border:2px solid #fff}
+.lab{font-size:20px;margin-top:12px;text-align:center}
+.step{background:#fff;border-radius:24px;padding:26px 30px 30px;margin-bottom:22px;box-shadow:0 2px 10px rgba(0,0,0,.08)}
+.num{display:inline-block;width:46px;height:46px;border-radius:50%;background:#111;color:#ffd400;font-size:26px;font-weight:800;line-height:46px;text-align:center;margin-right:12px;vertical-align:middle}
+.step h2{display:inline;font-size:30px;vertical-align:middle}
+.step p{font-size:21px;color:#555;margin:10px 0 16px 58px}
+.ui{margin-left:0;border:2px solid #d8d8d8;border-radius:14px;overflow:hidden;background:#fafafa}
+.red{outline:4px solid #ff2d2d;outline-offset:3px;border-radius:8px;position:relative}
+.tag{position:absolute;background:#ff2d2d;color:#fff;font-size:17px;font-weight:700;padding:3px 10px;border-radius:12px;white-space:nowrap}
+/* explorer */
+.exp{padding:18px 22px;display:flex;gap:26px;align-items:flex-start}
+.file{width:150px;text-align:center;font-size:15px}
+.zip{width:64px;height:78px;margin:0 auto 6px;background:#f3d36b;border-radius:6px;position:relative}
+.zip:after{content:"";position:absolute;left:28px;top:0;width:8px;height:78px;background:repeating-linear-gradient(#7a5b00 0 6px,#f3d36b 6px 12px)}
+.menu{background:#fff;border:1px solid #ccc;border-radius:10px;box-shadow:0 4px 14px rgba(0,0,0,.2);font-size:18px;width:300px}
+.menu div{padding:9px 18px}
+.menu .hi{background:#cfe4ff}
+.folder{width:64px;height:50px;margin:14px auto 12px;background:#f4c542;border-radius:4px 10px 6px 6px}
+/* chrome */
+.bar{background:#dfe3ea;padding:12px 16px}
+.addr{background:#fff;border-radius:22px;padding:11px 22px;font-size:21px;color:#222;display:inline-block;min-width:520px}
+.page{padding:18px 24px;background:#f6f8fc;font-size:20px;position:relative}
+.toggle{width:54px;height:28px;border-radius:14px;background:#aaa;position:relative;display:inline-block;vertical-align:middle}
+.toggle:after{content:"";position:absolute;left:3px;top:3px;width:22px;height:22px;border-radius:50%;background:#fff}
+.toggle.on{background:#1a73e8}.toggle.on:after{left:29px}
+.btn{display:inline-block;border:1px solid #1a73e8;color:#1a73e8;background:#fff;border-radius:20px;padding:9px 18px;font-size:18px;margin-right:8px}
+.dlg{width:560px;margin:0 auto;background:#fff;border:1px solid #bbb;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,.25);font-size:17px}
+.dlg .t{padding:10px 14px;border-bottom:1px solid #ddd;font-weight:700}
+.dlg .row{padding:8px 16px}
+.dlg .sel{background:#cfe4ff}
+.dlg .foot{padding:12px 16px;text-align:right}
+.dlg .foot span{display:inline-block;border:1px solid #888;border-radius:4px;padding:6px 18px;margin-left:8px;background:#f2f2f2}
+.note{text-align:center;font-size:20px;color:#444;margin-top:8px;line-height:1.6}
+
+h1{font-size:34px}.sub{font-size:20px;margin:10px 0 20px}
+.demo{gap:34px;padding:18px;margin-bottom:18px}.av{width:64px;height:64px}.lab{font-size:19px}
+.step{padding:20px 20px 22px;margin-bottom:0}
+.num{width:42px;height:42px;line-height:42px;font-size:24px}.step h2{font-size:25px}
+.step p{font-size:19px;margin:10px 0 14px 0}
+.addr{min-width:0;display:block;font-size:22px}
+.menu{width:260px;font-size:18px}.file{width:120px}
+.dlg{width:100%;font-size:16px}.btn{font-size:15px;padding:8px 12px;margin-bottom:6px}
+.page{font-size:19px}.note{font-size:18px;margin-top:14px}
+.step.only{display:block}.next{text-align:center;font-size:20px;color:#777;margin-top:14px}
+.big{font-size:22px;text-align:center;line-height:1.6;margin-top:18px;color:#444}
+</style></head><body><div class="next" style="margin:0 0 12px;text-align:left;font-size:18px">설치 방법 1/5</div><div class="step only">
+  <span class="num">1</span><h2>zip 파일 받고 압축 풀기</h2>
+  <p>받은 파일을 오른쪽 클릭 → <b>모두 압축 풀기</b> → <b>압축 풀기</b>. (풀린 폴더는 지우지 마세요)</p>
+  <div class="ui exp">
+    <div class="file"><div class="zip"></div>threads-follow-<br>highlight.zip</div>
+    <div class="menu">
+      <div>열기</div><div>압축 풀기…</div>
+      <div class="hi red" style="margin:4px 0"><span class="tag" style="right:-6px;top:-18px">여기 클릭</span>모두 압축 풀기…</div>
+      <div>복사</div>
+    </div>
+  </div>
+</div>
+
+</body></html>
