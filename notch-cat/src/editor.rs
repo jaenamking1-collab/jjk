@@ -52,6 +52,7 @@ enum Btn {
     Font,
     FontPick(usize),
     Effect,
+    EffColor(u8),
     Smaller,
     Bigger,
     Color(usize),
@@ -71,6 +72,7 @@ pub struct Obj {
     pub size: f32, // 그림 점 단위 글자 크기
     pub color: usize,
     pub fx: u8, // 0 그림자 · 1 외곽선 · 2 없음
+    pub ec: u8, // 그림자·외곽선 색(COLORS 번호, 255 = 자동: 글자색과 반대 밝기)
     pub x: f32,
     pub y: f32,
 }
@@ -218,6 +220,7 @@ struct Ed {
     osel: Option<(usize, usize)>, // 고른 낱말(시작, 끝)
     font_open: bool, // 글꼴 목록이 펼쳐져 있다
     fx: u8,          // 새 글자의 효과(그림자·외곽선·없음)
+    ec: u8,          // 새 글자의 효과 색(255 자동)
 }
 
 thread_local! {
@@ -268,10 +271,23 @@ unsafe fn draw_objs(rt: &ID2D1RenderTarget, dw: &IDWriteFactory, objs: &[Obj], o
         let empty = o.text.is_empty();
         // 글자가 어느 바탕에서도 보이게: 그림자 또는 외곽선(글자색과 반대 밝기)
         if !o.emoji && !empty && o.fx < 2 {
-            let back = if o.color == 1 { 0xFFFFFF } else { 0x000000 };
+            // 자동: 외곽선은 글자색과 반대 밝기, 그림자는 늘 어둡게(검정 글자면 회색 — 흰 그림자는 흰 바탕에서 안 보였다)
+            let back = if (o.ec as usize) < COLORS.len() {
+                COLORS[o.ec as usize]
+            } else if o.fx == 0 {
+                if o.color == 1 { 0x6B7280 } else { 0x000000 }
+            } else if o.color == 1 {
+                0xFFFFFF
+            } else {
+                0x000000
+            };
             if o.fx == 0 {
-                if let Ok(sh) = rt.CreateSolidColorBrush(&rgb(back, 0.45), None) {
-                    rt.DrawTextLayout(D2D_POINT_2F { x: ox + o.x * k + 1.5 * k.max(0.5), y: oy + o.y * k + 1.5 * k.max(0.5) }, &l, &sh, D2D1_DRAW_TEXT_OPTIONS_NONE);
+                // 그림자: 글자 크기에 맞춰 오른쪽 아래로 밀고(바탕이 흰색이어도 보이게) 두 겹으로 부드럽게
+                let d = (o.size * 0.06 * k).max(2.0);
+                for (m, al) in [(1.0f32, 0.35f32), (0.6, 0.55)] {
+                    if let Ok(sh) = rt.CreateSolidColorBrush(&rgb(back, al), None) {
+                        rt.DrawTextLayout(D2D_POINT_2F { x: ox + o.x * k + d * m, y: oy + o.y * k + d * m }, &l, &sh, D2D1_DRAW_TEXT_OPTIONS_NONE);
+                    }
                 }
             } else if let Ok(sh) = rt.CreateSolidColorBrush(&rgb(back, 1.0), None) {
                 // 같은 글자를 둘레 16방향으로 조금씩 밀어 찍어 테두리를 만든다
@@ -329,7 +345,10 @@ impl Ed {
         let any_sel = self.sel.and_then(|i| self.objs.get(i)).cloned();
         let style = any_sel.is_some() || self.tool == Tool::Text;
         let frame = self.tool == Tool::Frame;
-        let sty_h = if style || frame { STYLE_H } else { 0.0 };
+        let fx_cur = text_sel.as_ref().map_or(self.fx, |o| o.fx);
+        let ec_cur = text_sel.as_ref().map_or(self.ec, |o| o.ec);
+        let row2 = style && (text_sel.is_some() || self.tool == Tool::Text) && fx_cur < 2; // 그림자·외곽선 색 줄
+        let sty_h = if style || frame { STYLE_H } else { 0.0 } + if row2 { STYLE_H - 6.0 } else { 0.0 };
         let per = ((cw - 28.0) / 40.0).floor().max(1.0) as usize;
         let emo_h = (EMOJIS.split(' ').count().div_ceil(per)) as f32 * 44.0 + 8.0;
         let top = BAR + sty_h + if self.emoji_open { emo_h } else { 0.0 };
@@ -513,6 +532,23 @@ impl Ed {
                 }
                 let fx = text_sel.as_ref().map_or(self.fx, |o| o.fx);
                 btn(&rt, &mut btns, x + 10.0, y, &format!("{} ▸", EFFECTS[fx as usize % 3]), 86.0, false, Btn::Effect);
+                if row2 {
+                    // 셋째 줄: 그림자 색 / 외곽선 색 — 자동(글자색 반대) + 7색
+                    let y2 = y + STYLE_H - 6.0;
+                    let t: Vec<u16> = format!("{} 색", EFFECTS[fx_cur as usize % 3]).encode_utf16().collect();
+                    rt.DrawText(&t, &tf, &rc(14.0, y2, 80.0, 32.0), &br(0xF3F4F6, 0.85), D2D1_DRAW_TEXT_OPTIONS_NONE, DWRITE_MEASURING_MODE_NATURAL);
+                    let mut x2 = btn(&rt, &mut btns, 100.0, y2, "자동", 56.0, ec_cur == 255, Btn::EffColor(255)) + 4.0;
+                    for (i, c) in COLORS.iter().enumerate() {
+                        let (cx, cy) = (x2 + 14.0, y2 + 16.0);
+                        rt.FillEllipse(&D2D1_ELLIPSE { point: D2D_POINT_2F { x: cx, y: cy }, radiusX: 9.0, radiusY: 9.0 }, &br(*c, 1.0));
+                        rt.DrawEllipse(&D2D1_ELLIPSE { point: D2D_POINT_2F { x: cx, y: cy }, radiusX: 9.0, radiusY: 9.0 }, &br(0xFFFFFF, 0.55), 1.0, None);
+                        if ec_cur as usize == i {
+                            rt.DrawEllipse(&D2D1_ELLIPSE { point: D2D_POINT_2F { x: cx, y: cy }, radiusX: 12.0, radiusY: 12.0 }, &br(0xA3E635, 1.0), 2.0, None);
+                        }
+                        btns.push(([x2 + 4.0, y2 + 6.0, x2 + 24.0, y2 + 26.0], Btn::EffColor(i as u8)));
+                        x2 += 26.0;
+                    }
+                }
             }
         }
         // 이모지 판
@@ -585,7 +621,7 @@ impl Ed {
             let v = serde_json::json!({
                 "w": self.w, "h": self.h, "s": self.s, "view": [self.view.0, self.view.1, self.view.2],
                 "tool": format!("{:?}", self.tool), "sel": self.sel, "editing": self.editing, "caret": self.caret,
-                "objs": self.objs.iter().map(|o| serde_json::json!({"text": o.text, "x": o.x, "y": o.y, "size": o.size, "emoji": o.emoji, "font": o.font, "fx": o.fx})).collect::<Vec<_>>(), "font_open": self.font_open,
+                "objs": self.objs.iter().map(|o| serde_json::json!({"text": o.text, "x": o.x, "y": o.y, "size": o.size, "emoji": o.emoji, "font": o.font, "fx": o.fx, "ec": o.ec})).collect::<Vec<_>>(), "font_open": self.font_open,
                 "undo": self.undo.len(), "crop": self.crop, "words": self.words.len(),
                 "word0": self.words.first().map(|w| w.r), "wordN": self.words.last().map(|w| w.r),
                 "osel": self.osel.map(|(a, b)| sel_text(&self.words, a, b)), "status": self.status.0,
@@ -862,7 +898,7 @@ impl Ed {
                 let size = (self.w.min(self.h) as f32 * 0.18).clamp(32.0, 160.0);
                 let s = self.snap();
                 self.push_undo(s);
-                self.objs.push(Obj { text: e.into(), emoji: true, font: 0, size, color: 0, fx: 0, x: self.w as f32 / 2.0 - size / 2.0, y: self.h as f32 / 2.0 - size / 2.0 });
+                self.objs.push(Obj { text: e.into(), emoji: true, font: 0, size, color: 0, fx: 0, ec: 255, x: self.w as f32 / 2.0 - size / 2.0, y: self.h as f32 / 2.0 - size / 2.0 });
                 self.sel = Some(self.objs.len() - 1);
                 self.tool = Tool::Move;
                 self.emoji_open = false;
@@ -875,6 +911,13 @@ impl Ed {
                 self.font = i;
                 if let Some(o) = self.sel.and_then(|i| self.objs.get_mut(i)).filter(|o| !o.emoji) {
                     o.font = i;
+                }
+            }
+            Btn::EffColor(c) => {
+                self.style_undo();
+                self.ec = c;
+                if let Some(o) = self.sel.and_then(|i| self.objs.get_mut(i)).filter(|o| !o.emoji) {
+                    o.ec = c;
                 }
             }
             Btn::Effect => {
@@ -960,7 +1003,7 @@ impl Ed {
                     self.start_edit(i, c);
                 } else {
                     self.edit_pre = Some(self.snap());
-                    self.objs.push(Obj { text: String::new(), emoji: false, font: self.font, size: self.size, color: self.color, fx: self.fx, x: ip.0, y: ip.1 - self.size * 0.6 });
+                    self.objs.push(Obj { text: String::new(), emoji: false, font: self.font, size: self.size, color: self.color, fx: self.fx, ec: self.ec, x: ip.0, y: ip.1 - self.size * 0.6 });
                     let i = self.objs.len() - 1;
                     self.start_edit(i, 0);
                 }
@@ -1383,7 +1426,7 @@ pub unsafe fn open(notch: HWND, px: Vec<u8>, w: u32, h: u32) -> windows::core::R
     let dw: IDWriteFactory = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)?;
     let size = (h as f32 * 0.09).clamp(18.0, 96.0);
     ED.with(|e| {
-        *e.borrow_mut() = Some(Ed { hwnd: hw, notch, d2, dw, rt: None, bmp: None, px: Rc::new(px), w, h, objs: vec![], sel: None, editing: false, comp: String::new(), tool: Tool::Move, drag: Drag::None, emoji_open: false, font: 0, size, color: 0, mouse: (-1.0, -1.0), btns: vec![], view: (0.0, 0.0, 1.0), status: (String::new(), Instant::now()), s, caret: 0, undo: vec![], edit_pre: None, drag_pre: None, down_at: (0.0, 0.0), click_edit: false, crop: [0.0; 4], words: vec![], osel: None, font_open: false, fx: 0 });
+        *e.borrow_mut() = Some(Ed { hwnd: hw, notch, d2, dw, rt: None, bmp: None, px: Rc::new(px), w, h, objs: vec![], sel: None, editing: false, comp: String::new(), tool: Tool::Move, drag: Drag::None, emoji_open: false, font: 0, size, color: 0, mouse: (-1.0, -1.0), btns: vec![], view: (0.0, 0.0, 1.0), status: (String::new(), Instant::now()), s, caret: 0, undo: vec![], edit_pre: None, drag_pre: None, down_at: (0.0, 0.0), click_edit: false, crop: [0.0; 4], words: vec![], osel: None, font_open: false, fx: 0, ec: 255 });
     });
     SetTimer(hw, 1, 500, None); // 글자 자리 깜빡임
     let _ = SetForegroundWindow(hw);
@@ -1426,8 +1469,8 @@ pub unsafe fn demo(out: &std::path::Path) {
     ED.with(|e| {
         if let Some(ed) = e.borrow_mut().as_mut() {
             let s = ed.size;
-            ed.objs.push(Obj { text: "노치 고양이 편집".into(), emoji: false, font: 0, size: s, color: 3, fx: 1, x: 20.0, y: 20.0 });
-            ed.objs.push(Obj { text: "👍".into(), emoji: true, font: 0, size: s * 1.6, color: 0, fx: 0, x: ed.w as f32 * 0.6, y: ed.h as f32 * 0.4 });
+            ed.objs.push(Obj { text: "노치 고양이 편집".into(), emoji: false, font: 0, size: s, color: 3, fx: 1, ec: 255, x: 20.0, y: 20.0 });
+            ed.objs.push(Obj { text: "👍".into(), emoji: true, font: 0, size: s * 1.6, color: 0, fx: 0, ec: 255, x: ed.w as f32 * 0.6, y: ed.h as f32 * 0.4 });
             ed.sel = Some(0);
             ed.tool = Tool::Text;
             ed.emoji_open = true;
@@ -1488,7 +1531,7 @@ mod tests {
             let rt = d2.CreateWicBitmapRenderTarget(&wb, &props).unwrap();
             rt.BeginDraw();
             rt.Clear(Some(&rgb(0xFFFFFF, 1.0)));
-            draw_objs(&rt, &dw, &[Obj { text: "안녕하세요 노치".into(), emoji: false, font: 0, size: 48.0, color: 1, fx: 0, x: 10.0, y: 20.0 }], 0.0, 0.0, 1.0, None);
+            draw_objs(&rt, &dw, &[Obj { text: "안녕하세요 노치".into(), emoji: false, font: 0, size: 48.0, color: 1, fx: 0, ec: 255, x: 10.0, y: 20.0 }], 0.0, 0.0, 1.0, None);
             rt.EndDraw(None, None).unwrap();
             let mut px = vec![0u8; (w * h * 4) as usize];
             wb.CopyPixels(std::ptr::null(), w * 4, &mut px).unwrap();

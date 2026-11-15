@@ -155,6 +155,15 @@ const WM_MOUSELEAVE: u32 = 0x02A3;
 
 // ── 공용: 데이터 폴더·로그·시각 ─────────────────────────────
 
+/// 클립보드 종류 거르기: 0 전체 · 1 글자(링크·파일 이름 포함, 그림 아닌 것) · 2 그림
+fn clip_match(kind: u8, it: &clip::Item) -> bool {
+    match kind {
+        1 => it.img.is_none(),
+        2 => it.img.is_some(),
+        _ => true,
+    }
+}
+
 pub fn data_dir() -> PathBuf {
     let d = PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| ".".into())).join("notch-cat");
     let _ = std::fs::create_dir_all(&d);
@@ -801,6 +810,7 @@ enum Hit {
     ClipUnpin(usize), // 고정에서 빼기
     ClipClear,        // 최근 모두 지우기
     ClipPage(usize),  // 최근 쪽 넘기기(10개씩)
+    ClipKind(u8),     // 최근 종류 고르기(0 전체 · 1 글자 · 2 그림)
     ShelfItem(usize), // 선반: 두 번 누르면 열기, 끌면 복사해 내리기
     Snap,             // 카메라 물방울: 스크린샷
     Rec,              // 빨간 원: 화면 녹화
@@ -902,6 +912,7 @@ struct App {
     cam_rect: [f32; 4],
     clip_open: Option<(bool, usize)>, // 펼쳐 본 그림(고정인가, 몇 번째)
     clip_pg: usize, // 최근 몇째 쪽(10개씩)
+    clip_kind: u8,  // 최근에서 보는 종류(0 전체 · 1 글자 · 2 그림)
     clip_full: Option<(u64, ID2D1Bitmap)>, // 펼친 그림 원본
     nb: Spring,        // 적는 동안 온 알림이 칸 아래로 볼록 나온 정도 0…1
     pgf: Spring,       // 쪽이 바뀔 때 내용이 다시 떠오르는 정도 0…1
@@ -3008,7 +3019,25 @@ impl App {
             let col_w = span(cols);
             let head = if pinned { format!("고정  {}/{}", list.len(), cols) } else { format!("최근  {}/{}", list.len(), clip::MAX) };
             g.text(&head, &g.f_sub, x0, 22.0, 200.0, if pinned { LIME } else { FG }, a, Align::Left);
-            let pages = list.len().div_ceil(clip::PER).max(1);
+            // 최근은 고른 종류만(전체 · 글자 · 그림). k 는 원래 순번 그대로(누르기·고정이 같은 항목을 가리키게)
+            let kind = self.clip_kind;
+            let shown: Vec<(usize, &clip::Item)> = list.iter().enumerate().filter(|(_, it)| pinned || clip_match(kind, it)).collect();
+            let pages = shown.len().div_ceil(clip::PER).max(1);
+            if !pinned && !list.is_empty() {
+                // 종류 단추: 전체 · 글자 · 그림
+                let mut kx = x0 + 236.0;
+                for (n, label) in [(0u8, "전체"), (1, "글자"), (2, "그림")] {
+                    let cnt = list.iter().filter(|it| clip_match(n, it)).count();
+                    let t = format!("{label} {cnt}");
+                    let bw = g.measure(&t, &g.f_bar) + 22.0;
+                    let b = [kx, 19.0, kx + bw, 45.0];
+                    let on = kind == n;
+                    g.rrect(b[0], b[1], bw, 26.0, 13.0, if on { LIME } else { FG }, a * if on { 0.9 } else if over(b) { 0.16 } else { 0.08 });
+                    g.text(&t, &g.f_bar, b[0], b[1] + 3.0, bw, if on { PUPIL } else { FG }, a * if on { 1.0 } else { 0.8 }, Align::Center);
+                    hits.push((b, Hit::ClipKind(n)));
+                    kx += bw + 6.0;
+                }
+            }
             if !pinned && pages > 1 {
                 // 쪽 넘기기: ‹ 1 / 2 › — 잘 보이게 연두 동그라미 단추
                 let pg = self.clip_pg.min(pages - 1);
@@ -3030,13 +3059,13 @@ impl App {
                 g.text("모두 지우기", &g.f_tiny, cb[0], cb[1] + 4.0, 70.0, FG, a * if over(cb) { 0.9 } else { 0.4 }, Align::Right);
                 hits.push((cb, Hit::ClipClear));
             }
-            if list.is_empty() {
-                let msg = if pinned { "최근 칸의 ☆ 를 누르면\n여기에 고정됩니다" } else { "글자나 그림을 복사하면\n여기에 모입니다" };
+            if shown.is_empty() {
+                let msg = if pinned { "최근 칸의 ☆ 를 누르면\n여기에 고정됩니다" } else if list.is_empty() { "글자나 그림을 복사하면\n여기에 모입니다" } else if kind == 2 { "복사한 그림이 없습니다" } else { "복사한 글자가 없습니다" };
                 g.para(msg, &g.f_body, x0, 90.0, col_w, FG, a * 0.4);
             }
             let skip = if pinned { 0 } else { self.clip_pg.min(pages - 1) * clip::PER };
-            for (k, it) in list.iter().enumerate().skip(skip).take(if pinned { cols } else { rows * cols }) {
-                let (c, r) = ((k - skip) % cols, (k - skip) / cols); // 최근은 5칸 × 2줄씩, 나머지는 다음 쪽
+            for (n, (k, it)) in shown.iter().copied().enumerate().skip(skip).take(if pinned { cols } else { rows * cols }) {
+                let (c, r) = ((n - skip) % cols, (n - skip) / cols); // 최근은 5칸 × 2줄씩, 나머지는 다음 쪽
                 let (tx, ty) = (x0 + c as f32 * (tile + gap), 50.0 + r as f32 * (tile + gap));
                 let b = [tx, ty, tx + tile, ty + tile];
                 let on = over(b);
@@ -3509,7 +3538,8 @@ impl App {
         if editor::is_open() {
             return 1; // 편집하는 동안엔 한 줄로 접어 아래 편집판 자리를 낸다
         }
-        let n = self.clip.recent.len().saturating_sub(self.clip_pg * clip::PER).min(clip::PER);
+        let all = self.clip.recent.iter().filter(|it| clip_match(self.clip_kind, it)).count();
+        let n = all.saturating_sub(self.clip_pg * clip::PER).min(clip::PER);
         n.div_ceil(clip::SHOW).clamp(1, clip::PER / clip::SHOW)
     }
 
@@ -4239,6 +4269,11 @@ impl App {
                 }
                 return self.tick();
             }
+            Hit::ClipKind(n) => {
+                self.clip_kind = n;
+                self.clip_pg = 0;
+                return self.tick();
+            }
             Hit::ClipPage(n) => {
                 self.clip_pg = n;
                 return self.tick();
@@ -4423,7 +4458,7 @@ impl App {
             Hit::Line(t) => Cmd::Seek(t as i64),
             Hit::Shuffle => Cmd::Shuffle,
             Hit::Repeat => Cmd::Repeat,
-            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::AiLogin(_) | Hit::AiOpen(_) | Hit::AiGuideClose | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSchool | Hit::EntSave | Hit::EntClose | Hit::SetOpen(_) | Hit::SetClose | Hit::SetChip(_) | Hit::SetOpt(_) | Hit::ClipItem(..) | Hit::ClipPin(_) | Hit::ClipUnpin(_) | Hit::ClipClear | Hit::ClipPage(_) | Hit::ShelfItem(_) | Hit::ShelfDel(_) | Hit::ShelfSend(_) | Hit::SendClose | Hit::Snap | Hit::Rec | Hit::ClipCopyOpen | Hit::ClipEdit | Hit::ClipFold | Hit::TrimPick | Hit::TrimRecent(_) | Hit::TrimBar(..) | Hit::TrimSel(_) | Hit::TrimNudge(..) | Hit::TrimSave | Hit::TrimOther => return,
+            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::AiLogin(_) | Hit::AiOpen(_) | Hit::AiGuideClose | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSchool | Hit::EntSave | Hit::EntClose | Hit::SetOpen(_) | Hit::SetClose | Hit::SetChip(_) | Hit::SetOpt(_) | Hit::ClipItem(..) | Hit::ClipPin(_) | Hit::ClipUnpin(_) | Hit::ClipClear | Hit::ClipPage(_) | Hit::ClipKind(_) | Hit::ShelfItem(_) | Hit::ShelfDel(_) | Hit::ShelfSend(_) | Hit::SendClose | Hit::Snap | Hit::Rec | Hit::ClipCopyOpen | Hit::ClipEdit | Hit::ClipFold | Hit::TrimPick | Hit::TrimRecent(_) | Hit::TrimBar(..) | Hit::TrimSel(_) | Hit::TrimNudge(..) | Hit::TrimSave | Hit::TrimOther => return,
         };
         let _ = self.tx.send(cmd);
     }
@@ -4704,6 +4739,7 @@ unsafe fn run() -> Result<()> {
         cam_rect: [0.0; 4],
         clip_open: None,
         clip_pg: 0,
+        clip_kind: 0,
         clip_full: None,
         nb: Spring::new(0.0, 210.0, 0.5),
         wx: {
