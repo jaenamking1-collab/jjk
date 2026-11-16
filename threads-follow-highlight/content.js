@@ -1,8 +1,64 @@
-// 팔로우 안 한 사람 아바타에는 + 배지가 붙는다. 배지가 없는 아바타 = 팔로우한 사람 → 노란 링이 깜빡이며 커졌다 작아진다.
-// 아바타 칸: img → div → a → div → div(칸). 칸 안에 + 배지가 있으면 팔로우 안 한 사람.
-// 초록 점(활동 중 표시)은 배지가 아니다 — 있어도 팔로우한 사람으로 본다.
-const css = document.createElement("style");
-css.textContent = `
+// 팔로우 여부를 + 배지로 짐작하지 않고, Threads 가 받아 오는 데이터의 friendship_status.following 으로 판단한다.
+// (답글 화면엔 + 배지가 아예 없어서 배지 방식은 모두를 팔로우로 봤다 — 2026-11-16)
+// 페이지 쪽(MAIN world)에서 돌아야 fetch/XHR 응답을 볼 수 있다. 모르는 사람은 링을 달지 않는다.
+const follow = new Map(); // username → true/false
+
+function walk(o, depth) {
+  if (!o || typeof o !== "object" || depth > 60) return;
+  if (Array.isArray(o)) { for (const v of o) walk(v, depth + 1); return; }
+  const fs = o.friendship_status;
+  if (typeof o.username === "string" && fs && typeof fs.following === "boolean") follow.set(o.username, fs.following);
+  for (const k in o) walk(o[k], depth + 1);
+}
+
+function eat(text) {
+  if (!text || text.indexOf("friendship_status") < 0) return;
+  for (const line of text.replace(/^for \(;;\);/, "").split("\n")) {
+    try { walk(JSON.parse(line), 0); } catch (e) {}
+  }
+  schedule();
+}
+
+const of = window.fetch;
+window.fetch = async function (...a) {
+  const r = await of.apply(this, a);
+  try { r.clone().text().then(eat, () => {}); } catch (e) {}
+  return r;
+};
+const oo = XMLHttpRequest.prototype.open;
+XMLHttpRequest.prototype.open = function (...a) {
+  this.addEventListener("load", () => { try { if (this.responseType === "" || this.responseType === "text") eat(this.responseText); } catch (e) {} });
+  return oo.apply(this, a);
+};
+
+const seen = new WeakSet();
+function scanScripts() {
+  document.querySelectorAll('script[type="application/json"]').forEach((s) => {
+    if (seen.has(s)) return;
+    seen.add(s);
+    eat(s.textContent);
+  });
+}
+
+function mark() {
+  document.querySelectorAll('img[alt$="프로필 사진"]').forEach((img) => {
+    if (img.height < 30 || img.height > 60) return;       // 답글 쌓인 작은 아이콘·큰 프로필 제외
+    const a = img.closest('a[href^="/@"]');
+    if (!a) return;
+    const name = decodeURIComponent(a.getAttribute("href").slice(2).split(/[/?#]/)[0]);
+    const f = follow.get(name);
+    const box = img.parentElement;                         // 동그란 사진 칸
+    box.classList.toggle("tfh-follow", f === true);
+    box.dataset.tfh = f === true ? "follow" : f === false ? "no" : "unknown";
+  });
+}
+
+let t = null;
+function schedule() { clearTimeout(t); t = setTimeout(() => { scanScripts(); mark(); }, 200); }
+
+function start() {
+  const css = document.createElement("style");
+  css.textContent = `
 @keyframes tfhPulse {
   0%   { box-shadow: 0 0 0 3px #ffd400, 0 0 6px 2px rgba(255,212,0,.7); transform: scale(1); }
   50%  { box-shadow: 0 0 0 5px #ff9500, 0 0 22px 8px rgba(255,200,0,1); transform: scale(1.08); }
@@ -10,37 +66,9 @@ css.textContent = `
 }
 .tfh-follow { border-radius: 50% !important; animation: tfhPulse 1.4s ease-in-out infinite; }
 `;
-document.documentElement.appendChild(css);
-
-function isGreen(el) {
-  const c = getComputedStyle(el).backgroundColor.match(/\d+/g);
-  if (!c) return false;
-  const [r, g, b] = c.map(Number);
-  return g > 140 && g > r + 40 && g > b + 40;
+  document.head.appendChild(css);
+  new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });
+  schedule();
 }
-
-function isPlusBadge(el) {
-  if ((el.getAttribute("aria-label") || "").includes("팔로우")) return true;
-  const svg = el.tagName.toLowerCase() === "svg" ? el : el.querySelector("svg");
-  if (!svg) return false;                                  // svg 없는 것(초록 점 등)은 배지 아님
-  if (!svg.querySelector("path, line, polygon, rect")) return false; // 동그라미만 있는 점 제외
-  return !isGreen(el);
-}
-
-function mark() {
-  document.querySelectorAll('img[alt$="프로필 사진"]').forEach((img) => {
-    if (img.height < 30 || img.height > 60) return;       // 답글 쌓인 작은 아이콘·큰 프로필 제외
-    const a = img.closest("a");
-    const cell = a && a.parentElement && a.parentElement.parentElement;
-    if (!cell) return;
-    const box = img.parentElement;                         // 동그란 사진 칸
-    const hasPlus = [...cell.querySelectorAll('svg, [role="button"], [aria-label*="팔로우"]')].some(isPlusBadge);
-    box.classList.toggle("tfh-follow", !hasPlus);
-    box.dataset.tfh = hasPlus ? "no" : "follow";
-  });
-}
-
-let t = null;
-new MutationObserver(() => { clearTimeout(t); t = setTimeout(mark, 200); })
-  .observe(document.body, { childList: true, subtree: true });
-mark();
+if (document.body) start(); else document.addEventListener("DOMContentLoaded", start);
+window.__tfhFollow = follow; // 콘솔 점검용: __tfhFollow.size
