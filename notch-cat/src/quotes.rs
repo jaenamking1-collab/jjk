@@ -223,6 +223,56 @@ pub fn config_path() -> std::path::PathBuf {
     }
 }
 
+/// 휴대폰 시세(ticker.html)와 같은 중계. `?list=<8자리 코드>` 면 집 PC 목록을 준다.
+const RELAY: &str = "https://script.google.com/macros/s/AKfycbwjjzNI_BpGyvJ_-3j2b-6VxQB2m5HXmQhiOkvGBrmPYx7hvs9xIL4KjoblZzjEiOph/exec";
+
+/// 휴대폰과 같은 목록 코드 모양(소문자·2~9 숫자 8자). 금액도 여는 열쇠라 exe 에 넣지 않고 사용자가 시세 종목 창에 넣는다.
+pub fn is_code(s: &str) -> bool {
+    s.len() == 8 && s.bytes().all(|b| b.is_ascii_lowercase() || (b'2'..=b'9').contains(&b))
+}
+
+/// 공용 목록(claude-memory)이 없는 PC(전산실 등)만 코드로 집 목록을 따라간다.
+fn own_list() -> bool {
+    std::env::var("NOTCH_CAT_TICKER_CONFIG").map_or(true, |p| p.is_empty()) && !std::path::PathBuf::from(std::env::var("USERPROFILE").unwrap_or_default()).join("claude-memory").is_dir()
+        || std::env::var("NOTCH_CAT_TICKER_CODE_TEST").is_ok()
+}
+
+/// 목록 파일에 코드를 적는다(다른 값은 그대로).
+pub fn save_code(path: &std::path::Path, code: &str) -> std::result::Result<(), String> {
+    let mut v = std::fs::read_to_string(path).ok().and_then(|s| serde_json::from_str::<Value>(&s).ok()).filter(Value::is_object).unwrap_or_else(|| serde_json::json!({}));
+    v["code"] = code.into();
+    if let Some(d) = path.parent() {
+        let _ = std::fs::create_dir_all(d);
+    }
+    std::fs::write(path, serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?).map_err(|e| format!("저장 실패: {e}"))
+}
+
+/// 코드가 적혀 있으면 중계에서 집 목록을 받아 바뀐 경우만 저장한다. 바뀌었으면 true.
+fn sync_by_code(c: &HttpClient) -> bool {
+    if !own_list() {
+        return false;
+    }
+    let path = config_path();
+    let v: Value = std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+    let Some(code) = v["code"].as_str().filter(|c| is_code(c)) else { return false };
+    let got: Option<Vec<String>> = get(c, &format!("{RELAY}?list={code}"))
+        .ok()
+        .and_then(|b| serde_json::from_str::<Value>(&b).ok())
+        .and_then(|j| j["list"].as_array().map(|a| a.iter().filter_map(|t| t.as_str()).map(str::to_string).collect()));
+    match got {
+        Some(list) if !list.is_empty() && list != read_lines(&path) => {
+            let ok = save_lines(&path, &list).is_ok();
+            crate::log(&format!("ticker: 코드로 집 목록 받음 {}종목", list.len()));
+            ok
+        }
+        Some(list) if !list.is_empty() => false,
+        _ => {
+            crate::log("ticker: 코드로 목록을 못 받음");
+            false
+        }
+    }
+}
+
 /// 목록이 없을 때 쓰는 기본 종목(시세 위젯 DEFAULT 와 같다).
 pub const DEFAULT: [&str; 9] = ["KOSPI=코스피", "069500=코덱스200", "USDKRW=X=환율", "---", "BTC-KRW=비트코인", "XRP-KRW=XRP", "---", "AAPL", "NVDA"];
 
@@ -357,7 +407,13 @@ pub fn spawn(out: Arc<Mutex<Quotes>>) {
         };
         let Ok(c) = client() else { return };
         let (mut gecko, mut bithumb_off) = (Gecko::default(), None);
+        let mut synced: Option<Instant> = None;
         loop {
+            // 코드로 집 목록 따라가기: 켤 때·설정 저장 때·한 시간마다
+            if synced.map_or(true, |t| t.elapsed() > Duration::from_secs(3600)) {
+                sync_by_code(&c);
+                synced = Some(Instant::now());
+            }
             let list = fetch(&c, &mut gecko, &mut bithumb_off);
             out.lock().unwrap().tried = crate::hhmm();
             if !list.is_empty() {
@@ -370,6 +426,7 @@ pub fn spawn(out: Arc<Mutex<Quotes>>) {
             for _ in 0..30 {
                 std::thread::sleep(Duration::from_millis(500));
                 if std::mem::take(&mut out.lock().unwrap().reload) {
+                    synced = None;
                     break;
                 }
             }
@@ -380,6 +437,34 @@ pub fn spawn(out: Arc<Mutex<Quotes>>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn list_code_shape() {
+        assert!(is_code("ab2c9xyz"));
+        assert!(!is_code("AB2C9XYZ") && !is_code("ab1c9xyz") && !is_code("abc") && !is_code("069500=x"));
+    }
+
+    /// 실제 중계에서 코드로 집 목록을 받아 임시 파일에 저장하는지(코드는 claude-memory 에서 읽음, 저장소에 안 남김).
+    /// cargo test code_sync_live -- --ignored
+    #[test]
+    #[ignore]
+    fn code_sync_live() {
+        let code = std::fs::read_to_string(std::path::PathBuf::from(std::env::var("USERPROFILE").unwrap()).join("claude-memory/ticker/phone_code.txt")).unwrap().trim().to_string();
+        let p = std::env::temp_dir().join(format!("notch-cat-code-{}.json", std::process::id()));
+        std::env::set_var("NOTCH_CAT_TICKER_CONFIG", &p);
+        std::env::set_var("NOTCH_CAT_TICKER_CODE_TEST", "1");
+        save_code(&p, &code).unwrap();
+        let c = HttpClient::new().unwrap();
+        assert!(sync_by_code(&c), "처음엔 받아서 저장");
+        let got = read_lines(&p);
+        let home = read_lines(&std::path::PathBuf::from(std::env::var("USERPROFILE").unwrap()).join("claude-memory/ticker/ticker_config.json"));
+        assert_eq!(got, home, "집 목록과 같아야");
+        assert!(!sync_by_code(&c), "같으면 다시 안 씀");
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+        assert_eq!(v["code"].as_str(), Some(code.as_str()), "코드는 남아 있어야 다음에도 따라감");
+        let _ = std::fs::remove_file(&p);
+        println!("{} 종목", got.len());
+    }
 
     #[test]
     fn splits_lines_like_the_widget() {

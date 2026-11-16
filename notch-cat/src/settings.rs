@@ -107,7 +107,7 @@ pub unsafe fn open(quotes: Arc<Mutex<Quotes>>, icon: HICON) {
         c
     };
     let (tab, btn) = (WS_TABSTOP.0, WS_TABSTOP.0 | BS_OWNERDRAW as u32);
-    mk(w!("STATIC"), "목록 (한 줄에 하나 · 심볼=이름)", 0, 14.0, 12.0, W - 28.0, 18.0, -1, 0);
+    mk(w!("STATIC"), "목록 (한 줄에 하나 · 심볼=이름 · 집 목록 코드 8자도 됨)", 0, 14.0, 12.0, W - 28.0, 18.0, -1, 0);
     let mut id = ID_IDX;
     for (r, group) in IDX_BTNS.iter().enumerate() {
         let mut x = 14.0;
@@ -209,7 +209,13 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             } else if id == ID_EDIT && code == EN_CHANGE {
                 repaint();
             } else if id == IDOK.0 {
-                match quotes::save_lines(&quotes::config_path(), &quotes::text_lines(&text_of(s.edit))) {
+                let lines = quotes::text_lines(&text_of(s.edit));
+                // 휴대폰 시세와 같은 8자리 코드 한 줄이면 집 목록을 받아 따라간다(받기는 시세 쪽이 바로 한다)
+                let saved = match lines.as_slice() {
+                    [one] if quotes::is_code(one) => quotes::save_code(&quotes::config_path(), one),
+                    _ => quotes::save_lines(&quotes::config_path(), &lines),
+                };
+                match saved {
                     Ok(()) => {
                         s.quotes.lock().unwrap().reload = true;
                         crate::log("settings saved");
