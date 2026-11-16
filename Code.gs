@@ -1320,11 +1320,31 @@ function _itemCycle(it) {
   const d = m ? parseInt(m[1] || m[2], 10) : 0;
   return d ? (d <= 20 ? '월중' : '월말') : ((it && it.cycle) || '');
 }
+// 회차를 '월중/월말'만으로 비교하면 옛 회차가 새 회차를 대신한다 — 2026-11-16 18:39 KODEX: 삼성 공지 읽기가 한 번
+// 실패해 자사 API(10월 회차까지만)로 넘어갔는데, 10월 월중이 있다고 11월 월중 18종을 버려 공개 페이지에서 빠졌다.
+// 그래서 같은 종류(월중/월말)의 **더 새 달** 회차가 새 결과에 없으면 옛 값을 이어 붙인다.
+function _itemRoundMonth(it) {
+  const md = _mdOfSched(((it && it.sched) || {})['기준일']);
+  return md ? md.m : 0;
+}
 function _carryMissingCycles(payload, oldRaw) {
   try {
     const old = JSON.parse(oldRaw);
-    const have = new Set((payload.items || []).filter(it => !it.hist).map(_itemCycle));
-    const carry = (old.items || []).filter(it => !it.hist && _itemCycle(it) && !have.has(_itemCycle(it)));
+    const later = (a, b) => { const d = (a - b + 12) % 12; return d >= 1 && d <= 6; };   // a월이 b월보다 뒤(연말 넘김 포함)
+    const have = new Set(), newest = {};                  // '월중'|'월말' → 새 결과의 가장 새 기준월
+    (payload.items || []).filter(it => !it.hist).forEach(it => {
+      const c = _itemCycle(it), m = _itemRoundMonth(it);
+      have.add(c);
+      if (m && (!newest[c] || later(m, newest[c]))) newest[c] = m;
+    });
+    const missing = it => {
+      const c = _itemCycle(it);
+      if (!c) return false;
+      if (!have.has(c)) return true;
+      const m = _itemRoundMonth(it);
+      return !!(m && newest[c] && later(m, newest[c]));    // 옛 줄 회차가 새 결과보다 새 달이다
+    };
+    const carry = (old.items || []).filter(it => !it.hist && missing(it));
     if (carry.length) {
       payload.items = (payload.items || []).concat(carry);
       console.log('분배캐시: 이번 파싱에 없는 회차 ' + carry.length + '건을 이전 값으로 유지');
@@ -1487,6 +1507,9 @@ function _attachPrevAmount(out, histRows) {
       if (it.amount == null || it.amount === '') return;
       const k = keyOf(it, sched);
       if (k && amt[k] == null) amt[k] = Number(it.amount);     // 최신 행이 먼저 — 정정 공지가 이긴다
+      // 이름으로도 둔다 — 지난달 코드가 OCR 오독(PLUS 0132K0→0132KO, 2026-11-11)이면 코드로는 짝이 안 맞아 전달 칸이 '-'였다.
+      const kn = it.name ? keyOf({ name: it.name }, sched) : '';
+      if (kn && amt[kn] == null) amt[kn] = Number(it.amount);
     };
     out.items.forEach(it => { if (it.hist) add(it, it.sched); });
     (histRows || []).forEach(h => {
@@ -1499,7 +1522,9 @@ function _attachPrevAmount(out, histRows) {
       const md = _mdOfSched(sched['기준일'] || sched['지급일']);
       if (!md) return;
       const pm = md.m === 1 ? 12 : md.m - 1;
-      const v = amt[(it.ticker || it.name) + '|' + (md.d <= 20 ? '중' : '말') + '|' + pm];
+      const tail = '|' + (md.d <= 20 ? '중' : '말') + '|' + pm;
+      let v = amt[(it.ticker || it.name) + tail];
+      if (v == null && it.name) v = amt[it.name + tail];
       if (v != null && !isNaN(v)) it.prevAmount = v;
     });
   } catch(e) {}
@@ -3296,6 +3321,10 @@ function fetchDist_sol() {
       if (!p || !p.items.length) { console.log('SOL 분배 글 파싱 0건 — 표기 변경 의심: ' + notices[i].title); continue; }
       const cyc = _solCycle(p.sched, notices[i].title);
       if (!cyc || found[cyc]) continue;        // 최신순이므로 같은 회차는 첫 글(=정정 공지가 이긴다)만 쓴다
+      // SOL 본문의 '분배금 공시일'은 분배율 계산용 종가 날짜(=기준일)다. 표의 '공시'는 공지 올린 날이라 글 날짜를 쓴다
+      // (2026-11-17: 11/10 글인데 공시 11/13 으로 분배락 11/12 보다 늦게 보였다).
+      const posted = _mdLabel(notices[i].date);
+      if (posted) p.sched['공시일'] = posted;
       found[cyc] = p;
     }
     // 한쪽이라도 못 채우면 실제 제목을 로그에 남긴다 — SOL 표기가 또 바뀌었을 때 이것만 보면 바로 안다.

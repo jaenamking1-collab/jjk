@@ -73,13 +73,25 @@ jobs:
             //  · 이번 달: 공시가 난 줄('(예정)' 아님)은 공시·분배락·기준·지급 네 칸이 모두 날짜여야 한다.
             //  · 지난달: 모든 줄이 공시 난 줄이어야 한다('공시 전'·'(예정)'이 남으면 그 달 자료가 빠진 것).
             const rowsOf = () => p.evaluate(() => { let cur = ''; return [...document.querySelectorAll('#distScheduleList tbody tr')].map(r => {
-              const s = r.querySelector('td[rowspan] span'); if (s) cur = s.innerText.trim();
+              const s = r.querySelector('td[rowspan] span') || (r.cells.length >= 6 && r.querySelector('td:first-child > span')); if (s) cur = s.innerText.trim();
               const c = [...r.cells].map(x => x.innerText.trim()); return { who: cur, label: c[c.length - 5], dates: c.slice(-4) }; }); });
             const cellBad = [];
             const full = r => r.dates.every(d => /^\d{1,2}\/\d{1,2}$/.test(d));
             // 대체 자료(예탁결제원)엔 공시일이 없다 — 그 운용사는 공시 칸만 비어도 정상으로 본다(대체 자료 자체는 아래에서 따로 알린다).
             const fullV = x => r.via.includes(x.who) ? x.dates.slice(1).every(d => /^\d{1,2}\/\d{1,2}$/.test(d)) : full(x);
-            (await rowsOf()).filter(x => !/예정/.test(x.label) && !fullV(x)).forEach(x => cellBad.push(`${x.who} ${x.label} 빈 칸(${x.dates.join(' ')})`));
+            const nowRows = await rowsOf();
+            nowRows.filter(x => !/예정/.test(x.label) && !fullV(x)).forEach(x => cellBad.push(`${x.who} ${x.label} 빈 칸(${x.dates.join(' ')})`));
+            // 공지 표엔 이번 달 회차 글(날짜)이 있는데 일정 표는 '(예정)'이면 그 회차 종목이 빠진 것이다
+            // (2026-11-16 18:39 KODEX 11월 월중 18종이 통째로 빠졌는데 매시간 통과했다).
+            const ntRounds = await p.evaluate(() => { let cur = ''; const out = [];
+              document.querySelectorAll('.nt-table tbody tr').forEach(r => {
+                const b = r.querySelector('.nt-brand');
+                if (b) cur = (b.querySelector('b') ? b.querySelector('b').innerText : b.innerText.split('\n')[0]).trim();
+                const m = r.innerText.match(/(\d{1,2})월\s*(월중|월말)배당[\s\S]*?\d{4}\.\d\d\.\d\d/);
+                if (cur && m) out.push({ who: cur, label: m[1] + '월 ' + m[2] }); });
+              return out; });
+            ntRounds.filter(n => !nowRows.some(x => x.who === n.who && x.label.startsWith(n.label) && !/예정/.test(x.label)))
+              .forEach(n => cellBad.push(`${n.who} ${n.label} 공지는 있는데 일정·종목 없음`));
             try {
               await p.evaluate(() => schedShiftMonth(-1)); await p.waitForTimeout(1500);
               (await rowsOf()).filter(x => /예정/.test(x.label) || !fullV(x)).forEach(x => cellBad.push(`지난달 ${x.who} ${x.label} 빠짐(${x.dates.join(' ')})`));
