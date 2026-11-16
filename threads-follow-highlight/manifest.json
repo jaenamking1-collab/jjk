@@ -1,14 +1,18 @@
 {
   "manifest_version": 3,
   "name": "Threads 팔로우 강조",
-  "version": "0.2",
+  "version": "0.3",
   "description": "Threads 웹에서 내가 팔로우한 사람의 프로필 사진에 노란 링을 둘러 잘 보이게 합니다.",
   "content_scripts": [
     {
-      "matches": ["https://www.threads.com/*", "https://www.threads.net/*"],
-      "js": ["content.js"],
-      "run_at": "document_start",
-      "world": "MAIN"
+      "matches": [
+        "https://www.threads.com/*",
+        "https://www.threads.net/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
     }
   ]
 }
