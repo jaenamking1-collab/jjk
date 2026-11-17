@@ -322,7 +322,7 @@ pub fn crossings(seen: &mut std::collections::HashMap<String, u8>, svcs: &[Svc])
 /// 5분마다(연결을 누른 뒤 5분 동안은 10초마다) 세 곳을 받는다. 문턱(50·70·90%)을 넘으면 노치 알림으로 알린다.
 pub fn spawn(out: Arc<Mutex<Usage>>, poke: Arc<Mutex<Option<Instant>>>, notes: Arc<Mutex<crate::notif::Note>>) {
     std::thread::spawn(move || {
-        let Ok(c) = HttpClient::new() else { return };
+        let Ok(c) = crate::quotes::fresh_client() else { return };
         let mut last: Vec<(bool, usize, String)> = Vec::new();
         // 이미 알린 문턱은 파일에 둔다(노치를 다시 켜도 같은 알림을 또 띄우지 않게)
         let path = crate::data_dir().join("ai_alerts.json");

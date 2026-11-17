@@ -207,6 +207,18 @@ impl Gecko {
     }
 }
 
+/// 윈도우 HttpClient 는 기본으로 응답을 저장해 두고 같은 주소에 그 값을 계속 돌려준다 —
+/// 노치 코스피가 토스보다 15포인트 묵어 있었다(2026-11-17, 1분 동안 curl 은 6번 바뀌고 이건 6번 같은 값).
+/// 시세·날씨처럼 늘 새 값이 필요한 곳은 이걸 쓴다.
+pub fn fresh_client() -> Result<HttpClient> {
+    use windows::Web::Http::Filters::{HttpBaseProtocolFilter, HttpCacheReadBehavior, HttpCacheWriteBehavior};
+    let f = HttpBaseProtocolFilter::new()?;
+    let cc = f.CacheControl()?;
+    cc.SetReadBehavior(HttpCacheReadBehavior::NoCache)?;
+    cc.SetWriteBehavior(HttpCacheWriteBehavior::NoCache)?;
+    HttpClient::Create(&f)
+}
+
 pub fn get(c: &HttpClient, url: &str) -> Result<String> {
     Ok(c.GetStringAsync(&Uri::CreateUri(&HSTRING::from(url))?)?.get()?.to_string())
 }
@@ -399,7 +411,7 @@ fn fetch(c: &HttpClient, gecko: &mut Gecko, bithumb_off: &mut Option<Instant>) -
 pub fn spawn(out: Arc<Mutex<Quotes>>) {
     std::thread::spawn(move || {
         let client = || -> Result<HttpClient> {
-            let c = HttpClient::new()?;
+            let c = fresh_client()?;
             let h = c.DefaultRequestHeaders()?;
             h.UserAgent()?.TryParseAdd(&HSTRING::from("Mozilla/5.0"))?;
             h.Append(&HSTRING::from("Referer"), &HSTRING::from("https://finance.naver.com/"))?;
@@ -454,7 +466,7 @@ mod tests {
         std::env::set_var("NOTCH_CAT_TICKER_CONFIG", &p);
         std::env::set_var("NOTCH_CAT_TICKER_CODE_TEST", "1");
         save_code(&p, &code).unwrap();
-        let c = HttpClient::new().unwrap();
+        let c = fresh_client().unwrap();
         assert!(sync_by_code(&c), "처음엔 받아서 저장");
         let got = read_lines(&p);
         let home = read_lines(&std::path::PathBuf::from(std::env::var("USERPROFILE").unwrap()).join("claude-memory/ticker/ticker_config.json"));
@@ -535,6 +547,20 @@ XRP-KRW/KAIA-KRW=XRP당 카이아 @49,50,v41
         assert_eq!(g, vec![("KAIA".to_string(), 43.77)]);
     }
 
+    /// 노치가 쓰는 HttpClient 로 같은 주소를 여러 번 받아 값이 바뀌는지(묵은 값 의심). cargo test fresh_probe -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn fresh_probe() {
+        let c = fresh_client().unwrap();
+        for _ in 0..6 {
+            let b = get(&c, "https://polling.finance.naver.com/api/realtime/domestic/index/KOSPI").unwrap_or_default();
+            let g = parse_naver(&b, 2);
+            let y = get(&c, "https://query1.finance.yahoo.com/v7/finance/spark?range=1d&interval=1d&symbols=USDKRW%3DX").unwrap_or_default();
+            println!("{:?} {:?}", g.first().map(|g| (&g.1, g.2)), parse_yahoo(&y).first().map(|g| (&g.1, g.2)));
+            std::thread::sleep(Duration::from_secs(10));
+        }
+    }
+
     #[test]
     fn parses_naver_and_yahoo() {
         let n = r#"{"datas":[{"itemCode":"069500","closePrice":"81,950","compareToPreviousClosePrice":"-50","fluctuationsRatio":"-0.06","stockName":"KODEX 200"}]}"#;
@@ -558,7 +584,7 @@ mod live {
     #[test]
     #[ignore]
     fn fetch_prints_what_the_notch_shows() {
-        let c = HttpClient::new().unwrap();
+        let c = fresh_client().unwrap();
         let h = c.DefaultRequestHeaders().unwrap();
         h.UserAgent().unwrap().TryParseAdd(&HSTRING::from("Mozilla/5.0")).unwrap();
         h.Append(&HSTRING::from("Referer"), &HSTRING::from("https://finance.naver.com/")).unwrap();
@@ -589,7 +615,7 @@ mod no_shared {
         std::env::set_var("USERPROFILE", &home);
         assert!(!config_path().starts_with(&home), "공용 목록 자리가 아니라 노치 고양이 폴더여야 한다: {:?}", config_path());
         assert_eq!(config().len(), 7);
-        let c = HttpClient::new().unwrap();
+        let c = fresh_client().unwrap();
         let h = c.DefaultRequestHeaders().unwrap();
         h.UserAgent().unwrap().TryParseAdd(&HSTRING::from("Mozilla/5.0")).unwrap();
         h.Append(&HSTRING::from("Referer"), &HSTRING::from("https://finance.naver.com/")).unwrap();

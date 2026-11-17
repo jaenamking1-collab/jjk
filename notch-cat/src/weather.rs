@@ -170,7 +170,7 @@ pub fn parse_place(body: &str) -> Option<String> {
 }
 
 fn client() -> Result<HttpClient> {
-    let c = HttpClient::new()?;
+    let c = crate::quotes::fresh_client()?;
     c.DefaultRequestHeaders()?.UserAgent()?.TryParseAdd(&HSTRING::from("NotchCat/0.1 (github.com/jaenamking1-collab/jjk)"))?; // 기상청·지도가 프로그램 이름을 밝히라고 한다
     Ok(c)
 }
