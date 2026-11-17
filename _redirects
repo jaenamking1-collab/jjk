@@ -1,2 +1,4 @@
 # 공개 분배금공지 페이지 전용 배포. 루트로 들어오면 공지 페이지를 보여준다.
 /    /dist_notice    302
+# 비디오 다운로더 최신 묶음(비공개 저장소 릴리스 — GitHub 로그인된 브라우저에서 받아진다)
+/vd  https://github.com/jaenamking1-collab/video-downloader-extension/releases/download/exe/VideoDownloader-windows.zip  302
