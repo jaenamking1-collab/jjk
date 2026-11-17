@@ -447,6 +447,38 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
     DefWindowProcW(hwnd, msg, wp, lp)
 }
 
+/// 켜 둔 채 지내다 보면 브라우저 등 다른 창 아래로 밀려 노치가 가려진다(2026-11-17, 엣지·크롬).
+/// 내 것이 아닌 보이는 창이 위에 있으면 다시 맨 위로 올린다(앞창은 빼앗지 않는다).
+unsafe fn keep_on_top(own: HWND) {
+    if !IsWindowVisible(own).as_bool() {
+        return; // 스크린샷·녹화 중 숨겨 둔 것
+    }
+    let mut me = 0u32;
+    GetWindowThreadProcessId(own, Some(&mut me));
+    // 노치가 늘 있는 자리(위 가운데). 작업 표시줄처럼 안 겹치는 창은 상관없다
+    let mut r = RECT::default();
+    let _ = GetWindowRect(own, &mut r);
+    let cx = (r.left + r.right) / 2;
+    let spot = RECT { left: cx - 150, top: r.top, right: cx + 150, bottom: r.top + 40 };
+    let mut w = GetWindow(own, GW_HWNDPREV).unwrap_or_default();
+    while !w.0.is_null() {
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(w, Some(&mut pid));
+        let mut wr = RECT::default();
+        let over = GetWindowRect(w, &mut wr).is_ok() && wr.left < spot.right && wr.right > spot.left && wr.top < spot.bottom && wr.bottom > spot.top;
+        let mut cloaked = 0u32; // 안 보이게 감춰 둔 앱 창(입력 환경 등)은 빼고
+        let _ = windows::Win32::Graphics::Dwm::DwmGetWindowAttribute(w, windows::Win32::Graphics::Dwm::DWMWA_CLOAKED, &mut cloaked as *mut u32 as _, 4);
+        if pid != me && over && cloaked == 0 && IsWindowVisible(w).as_bool() && GetWindowLongW(w, GWL_EXSTYLE) as u32 & WS_EX_TOOLWINDOW.0 == 0 {
+            let mut cls = [0u16; 64];
+            let n = GetClassNameW(w, &mut cls) as usize;
+            log(&format!("top: '{}' 창 아래로 밀려 다시 맨 위로", String::from_utf16_lossy(&cls[..n])));
+            let _ = SetWindowPos(own, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+            return;
+        }
+        w = GetWindow(w, GW_HWNDPREV).unwrap_or_default();
+    }
+}
+
 /// 앞에 있는 창이 이 모니터를 꼭 맞게 덮고 있나(게임·영상·슬라이드).
 unsafe fn fullscreen_in_front(own: HWND, mon: &RECT) -> bool {
     let fg = GetForegroundWindow();
@@ -1141,6 +1173,7 @@ impl App {
             self.fade.target = 1.0;
         }
         if self.ticks % 10 == 0 {
+            keep_on_top(self.hwnd);
             self.hidden = self.cfg.hide_fullscreen && fullscreen_in_front(self.hwnd, &self.mon);
             // 앞에 나온 창이 아니라 노치 밑에 실제로 깔린 창을 본다(다른 모니터에서 일해도 이 화면 탭은 가려지므로)
             let nx = self.mon.left + ((self.mon.right - self.mon.left) as f32 / 2.0 + if self.cfg.aside { 460.0 * self.scale } else { 0.0 }) as i32;
