@@ -468,10 +468,14 @@ unsafe fn keep_on_top(own: HWND) {
         let over = GetWindowRect(w, &mut wr).is_ok() && wr.left < spot.right && wr.right > spot.left && wr.top < spot.bottom && wr.bottom > spot.top;
         let mut cloaked = 0u32; // 안 보이게 감춰 둔 앱 창(입력 환경 등)은 빼고
         let _ = windows::Win32::Graphics::Dwm::DwmGetWindowAttribute(w, windows::Win32::Graphics::Dwm::DWMWA_CLOAKED, &mut cloaked as *mut u32 as _, 4);
-        if pid != me && over && cloaked == 0 && IsWindowVisible(w).as_bool() && GetWindowLongW(w, GWL_EXSTYLE) as u32 & WS_EX_TOOLWINDOW.0 == 0 {
-            let mut cls = [0u16; 64];
-            let n = GetClassNameW(w, &mut cls) as usize;
-            log(&format!("top: '{}' 창 아래로 밀려 다시 맨 위로", String::from_utf16_lossy(&cls[..n])));
+        if pid != me && over && cloaked == 0 && IsWindowVisible(w).as_bool() {
+            use std::sync::atomic::{AtomicIsize, Ordering};
+            static LAST: AtomicIsize = AtomicIsize::new(0);
+            if LAST.swap(w.0 as isize, Ordering::Relaxed) != w.0 as isize {
+                let mut cls = [0u16; 64];
+                let n = GetClassNameW(w, &mut cls) as usize;
+                log(&format!("top: '{}' 창 아래로 밀려 다시 맨 위로", String::from_utf16_lossy(&cls[..n])));
+            }
             let _ = SetWindowPos(own, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
             return;
         }
