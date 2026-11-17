@@ -28,6 +28,7 @@ mod settings;
 mod shelf;
 mod spring;
 mod weather;
+mod update;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -4903,6 +4904,7 @@ unsafe fn run() -> Result<()> {
         settings::open(app.quotes.clone(), cat_icon()); // 시험용: 켜자마자 설정창
     }
     ai::spawn(app.ai.clone(), app.ai_poke.clone(), app.notes.clone()); // AI 사용량(5분마다, 50·70·90% 알림)
+    update::spawn(app.notes.clone()); // 새 판 스스로 받기(6시간마다)
     if let Some(n) = std::env::var("NOTCH_CAT_PAGE").ok().and_then(|v| v.parse().ok()) {
         app.hover = true; // 시험용: 그 쪽을 펼친 채로 띄운다(NOTCH_CAT_SHOT 과 함께 쓰면 마우스 없이 찍힌다)
         app.page = n;
