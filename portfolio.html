@@ -15,7 +15,7 @@ if (!/[?&]pc=1/.test(location.search) && window.innerWidth <= 768) {
 <!-- SheetJS(약 900KB)는 엑셀 탭에서만 쓴다. head 에서 동기 로드하면 그동안 첫 화면이
      통째로 멈춘다 → defer. 순서는 지켜지고 DOMContentLoaded 전에 실행되므로 탭 진입 시엔 준비돼 있다. -->
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="calc.js?v=4"></script>
+<script src="calc.js?v=5"></script>
 <style>
   :root {
     --bg: #f4f7ff;
@@ -807,7 +807,7 @@ window.addEventListener('load', () => api({ action: 'hitCounter' }).then(d => {
     </div>
 
     <div class="card mt-16">
-      <div class="card-header"><div class="card-title">월별 분배금 <span id="dashYear"></span></div><select id="dashYearSel" onchange="loadDashboard()" style="padding:5px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px"></select></div>
+      <div class="card-header"><div class="card-title">월별 분배금 <span id="dashYear"></span></div><div id="divMonthModeBtns" style="display:flex;gap:4px;margin-left:auto;margin-right:8px"></div><select id="dashYearSel" onchange="loadDashboard()" style="padding:5px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px"></select></div>
       <div id="monthChart" style="padding:8px 0"></div>
     </div>
 
@@ -3005,6 +3005,14 @@ function renderGoalHist(map, goal) {
     <div style="font-size:10px;color:var(--text3);margin-top:2px">막대 = 그달 실제 받은 분배금(입력분) · 초록선 = 3개월 평균 · 빨간 점선 = 목표 · 회색 = 이번 달(받는 중)</div>`;
 }
 
+// 월별 분배금 그래프 기준: 'earn'(번 달, 기본) / 'pay'(받은 달). 보는 사람 브라우저에만 기억한다.
+function divMonthMode() { try { return localStorage.getItem('jjk_divmonth') === 'pay' ? 'pay' : 'earn'; } catch (e) { return 'earn'; } }
+function setDivMonthMode(m) { try { localStorage.setItem('jjk_divmonth', m); } catch (e) {} loadDashboard(); }
+function renderDivMonthModeBtns(payMode) {
+  const el = document.getElementById('divMonthModeBtns'); if (!el) return;
+  const b = (m, label, on) => `<button onclick="setDivMonthMode('${m}')" style="padding:4px 10px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid ${on?'var(--accent)':'var(--border)'};background:${on?'var(--accent)':'var(--bg3)'};color:${on?'#fff':'var(--text)'};font-weight:${on?700:500}">${label}</button>`;
+  el.innerHTML = b('earn', '번 달', !payMode) + b('pay', '받은 달', payMode);
+}
 async function loadDashboard() {
   const year = parseInt(document.getElementById('dashYearSel').value) || new Date().getFullYear();
   document.getElementById('dashYear').textContent = year + '년';
@@ -3115,14 +3123,22 @@ async function loadDashboard() {
   document.getElementById('ds-yield').textContent = (costAll>0? annualProj/costAll*100 : 0).toFixed(2)+'%';
 
   // ④ 월별 차트 (확정=진하게, 예상=연하게)
+  // '번 달'(기준월, 기본) / '받은 달'(월말분을 다음 달로 — 더리치·미래에셋 앱·세금 귀속과 같은 기준) 전환. 목표 카드는 번 달 그대로.
+  const payMode = divMonthMode() === 'pay';
+  renderDivMonthModeBtns(payMode);
+  let monthProjC = monthProj, monthActualC = monthActual, monthWhoC = monthWho;
+  if (payMode) {
+    const r = Calc.projectMonths(holdings, Calc.toPayMonth(holdings, divs), year, rate);
+    monthProjC = r.proj; monthActualC = r.actual; monthWhoC = r.who;
+  }
   const curMonth = new Date().getMonth(), nowY = new Date().getFullYear();
   // 지난 달은 확정(입력) 실측, 이번 달·미래는 예상(투영). 과거 연도 전부 확정, 미래 연도 전부 예상.
   const isConfirmed = i => year < nowY || (year === nowY && i < curMonth);
-  const barVal = i => isConfirmed(i) ? monthActual[i] : monthProj[i];
+  const barVal = i => isConfirmed(i) ? monthActualC[i] : monthProjC[i];
   // 확정 달인데 아직 안 들어온 종목이 있으면 그 달 투영액을 뒤에 흐린 막대로 겹친다.
   // (8월에 3종목만 입력돼 249만으로 보이면, 원래 예상 570만이 뒤에 남아 '덜 들어왔다'가 보인다)
-  const ghostVal = i => (isConfirmed(i) && monthProj[i] > barVal(i)) ? monthProj[i] : 0;
-  const max = Math.max(...monthProj, ...monthActual, 1);
+  const ghostVal = i => (isConfirmed(i) && monthProjC[i] > barVal(i)) ? monthProjC[i] : 0;
+  const max = Math.max(...monthProjC, ...monthActualC, 1);
   const mlabels=['1','2','3','4','5','6','7','8','9','10','11','12'];
   document.getElementById('monthChart').innerHTML = `<div class="chart-bars">
     ${mlabels.map((_,i)=>{
@@ -3130,15 +3146,15 @@ async function loadDashboard() {
       const col = (i===curMonth&&year===nowY) ? 'var(--green)' : (isConfirmed(i) ? 'var(--accent)' : 'var(--accent2)');
       const op = isConfirmed(i) ? '1' : '0.4';
       // 툴팁: 이 달 금액이 뭘로 이뤄졌는지. 예상이 섞인 달은 '왜 이만큼인지'가 안 보인다.
-      const who = (monthWho[i] || []).slice().sort((a,b)=>b.amt-a.amt);
+      const who = (monthWhoC[i] || []).slice().sort((a,b)=>b.amt-a.amt);
       const est = who.filter(x=>x.est).reduce((a,b)=>a+b.amt,0);
       const tip = isConfirmed(i)
         ? (g ? [mlabels[i]+'월 확정 '+Math.round(t).toLocaleString(),
                 '  예상 '+Math.round(g).toLocaleString()+' · 아직 안 들어온 것 '+Math.round(est).toLocaleString(),
                 ''].concat(who.filter(x=>x.est).slice(0,8).map(x=>'· '+x.name+'  '+Math.round(x.amt).toLocaleString())).join(String.fromCharCode(10))
              : mlabels[i]+'월 확정 '+Math.round(t).toLocaleString())
-        : [mlabels[i]+'월 예상 '+Math.round(monthProj[i]).toLocaleString(),
-           '  확정 입력 '+Math.round(monthProj[i]-est).toLocaleString()+' + 예상 '+Math.round(est).toLocaleString(),
+        : [mlabels[i]+'월 예상 '+Math.round(monthProjC[i]).toLocaleString(),
+           '  확정 입력 '+Math.round(monthProjC[i]-est).toLocaleString()+' + 예상 '+Math.round(est).toLocaleString(),
            ''].concat(who.slice(0,8).map(x=>(x.est?'· ':'✔ ')+x.name+'  '+Math.round(x.amt).toLocaleString())).join(String.fromCharCode(10));
       const hBar = Math.max((t/max)*120, 2), hGhost = g ? Math.max((g/max)*120, 2) : 0;
       return `<div class="bar-wrap" title="${tip.replace(/"/g,'')}">
@@ -3151,7 +3167,10 @@ async function loadDashboard() {
       </div>`;
     }).join('')}
   </div>
-  <div style="font-size:10px;color:var(--text3);margin-top:8px;display:flex;gap:12px"><span style="color:var(--accent)">■ 확정(입력)</span><span style="color:var(--accent2);opacity:.6">■ 예상(투영)</span><span style="color:var(--accent);opacity:.35">■ 아직 안 들어온 몫</span></div>`;
+  <div style="font-size:10px;color:var(--text3);margin-top:8px;display:flex;gap:12px"><span style="color:var(--accent)">■ 확정(입력)</span><span style="color:var(--accent2);opacity:.6">■ 예상(투영)</span><span style="color:var(--accent);opacity:.35">■ 아직 안 들어온 몫</span></div>
+  <div style="font-size:11px;color:var(--text);margin-top:4px">${payMode
+    ? '받은 달 기준 — 월말 분배금을 들어온 달에 넣었습니다(예: 10월 월말분 → 11월 초 지급). 더리치·증권사 앱·세금(지급일 귀속)과 같은 기준'
+    : '번 달 기준 — 월말 분배금은 다음 달 초에 들어와도 그 전달 칸입니다(목표 진척과 같은 기준)'}</div>`;
 
   // ⑥ 탑5 / 하위5
   perHolding.sort((a,b)=>b.plPct-a.plPct);

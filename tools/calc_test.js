@@ -57,6 +57,15 @@ if (process.argv.includes('--update')) {
   if (Calc.costKrw({ quantity:'10', avg_price:'20', currency:'USD' }, 1400) !== 280000) bad('krw_cost 없는 달러 종목은 오늘 환율이어야 한다');
 }
 
+// 받은 달 전환: 월말만 다음 달로, 12월 월말은 다음 해 1월로, 나머지는 그대로
+{
+  const hs = [{ id:'e', div_cycle:'월말|AI' }, { id:'m', div_cycle:'월중' }];
+  const p = Calc.toPayMonth(hs, [{ holding_id:'e', year:2025, month:12, amount:'1' }, { holding_id:'e', year:2026, month:10, amount:'1' }, { holding_id:'m', year:2026, month:10, amount:'1' }]);
+  if (p[0].year !== 2026 || p[0].month !== 1) bad('12월 월말분이 다음 해 1월로 안 간다');
+  if (p[1].month !== 11) bad('10월 월말분이 11월로 안 간다');
+  if (p[2].month !== 10) bad('월중이 옮겨졌다');
+}
+
 // ② 화면 파일 구조
 ['portfolio.html', 'm.html'].forEach(f => {
   const src = fs.readFileSync(path.join(root, f), 'utf8');

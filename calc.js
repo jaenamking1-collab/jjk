@@ -141,6 +141,20 @@ const Calc = (() => {
     return { proj, actual, who, runInfo, byH, divRate, perH, annual: proj.reduce((a,b)=>a+b,0) };
   }
 
+  // 받은 달 기준으로 옮기기(2026-11-18 사용자). 앱 기본은 번 달(기준월)이고, 월말 분배금은 다음 달 초에 들어온다
+  // (KODEX 10월 월말분 → 11/3 지급). 더리치·미래에셋 앱·세금(지급일 귀속)은 받은 달로 센다 — 그래프 전환 버튼용.
+  // 분기·반기·월초·월중은 이미 받은 달에 입력돼 있어 그대로 둔다. 12월 월말분은 다음 해 1월로 간다.
+  function toPayMonth(holdings, dividends) {
+    const end = {};
+    (holdings || []).forEach(h => { if (/^월말/.test(h.div_cycle || '')) end[h.id] = true; });
+    return (dividends || []).map(d => {
+      if (!end[d.holding_id]) return d;
+      let y = parseInt(d.year), m = parseInt(d.month) + 1;
+      if (m > 12) { m = 1; y++; }
+      return Object.assign({}, d, { year: y, month: m });
+    });
+  }
+
   // 지금 보유 기준 월 예상(대시보드 목표 카드 아래 한 줄). runInfo 는 projectMonths 의 것.
   //   월배당은 최근 공시 좌당 분배금 × 수량(일반 계좌는 종목 원천징수율을 뺀 세후),
   //   나머지는 입력 기준 한 달 치(분기·반기는 12달로 나눔). base = 입력 기준 한 달 치 합.
@@ -164,6 +178,6 @@ const Calc = (() => {
     return { run, base, fromNotice, noData };
   }
 
-  return { divKrw, costKrw, holding, investValue, projectAnnual, projectMonths, goalRun };
+  return { divKrw, costKrw, holding, investValue, projectAnnual, projectMonths, goalRun, toPayMonth };
 })();
 if (typeof module !== 'undefined') module.exports = Calc;   // node tools/calc_test.js 용
