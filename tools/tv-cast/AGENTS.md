@@ -16,3 +16,4 @@
 - 영화 파일 인자(탐색기 보내기)로 실행하면 같은 이름 자막 자동 선택·TV 1대면 자동 재생. 재생은 변환 완료를 기다리지 않는 라이브 MPEG-TS(startLive, 시크 불가). UMS(Universal Media Server)는 LG에 원본을 그대로 보내 TV 내장 영어 자막이 나와 포기.
 - 넘기기: 화면 버튼(/seek)이 그 위치부터 스트림을 새로 시작(-ss + setpts 로 자막 시각 보정). LG UK6570PUB 은 SOAP Seek 를 200으로 받고도 라이브 스트림에선 실제로 넘기지 않음(TimeSeekRange 요청도 안 옴) → TV 리모컨 넘기기는 안 됨(2026-11-19 확인).
 - 기본 재생 = remux(영상 재압축 없이 한국어 SRT 를 mkv 안에 넣음, 2.5GB 8초) + 파일 서버(video/x-mkv, contentFeatures/DIDL 에 DLNA.ORG_OP=01·FLAGS). OP=01 과 mime 이 빠지면 LG 가 범위 요청을 안 해 넘기기가 안 된다(2026-11-19 확인). h264/hevc 가 아니면 startLive 로 대체.
+- 2026-11-19 사용자 확인: remux 방식에서 TV 리모컨 넘기기와 한국어 자막 표시 둘 다 정상.
