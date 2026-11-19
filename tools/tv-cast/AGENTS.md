@@ -1,5 +1,7 @@
 # TV 자막 전송 작업 규칙
 
+- Windows 실행.cmd는 ASCII 내용과 CRLF 줄바꿈을 유지한다(.gitattributes). node 테스트만으로 실행 확인을 대신하지 말고 cmd.exe로 실행.cmd --check 및 실제 시작을 검증한다.
+
 - 원본: 사용자가 선택한 로컬 영상·외부 자막. 결과: LG TV 화면.
 - 실제 FFmpeg 합성 영상의 자막 픽셀과 HTTP 범위 요청·SOAP 응답을 검증한다.
 - SOAP 200이나 TV의 파일 요청을 실제 자막·소리 검증으로 표현하지 않는다.
