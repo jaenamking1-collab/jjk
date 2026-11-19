@@ -11,6 +11,7 @@ const token = crypto.randomBytes(24).toString('hex');
 const cache = path.join(os.tmpdir(),'jjk-tv-cast');
 const state = {phase:'대기',progress:0,message:'동영상과 자막을 선택해 주세요.',video:'',subtitle:'',devices:[],lastCheck:null,lastRead:null,offset:0,position:0,duration:0,error:'',busy:false};
 let lastIndex = 0, media = null, activeTV = null, controller = null, stopping = false, castJob = null, readTimer = null, stopJob = null;
+function hms(t) {t = Math.max(0,Math.floor(t)); return [Math.floor(t/3600),Math.floor(t/60)%60,t%60].map((n,i) => String(n).padStart(i ? 2 : 1,'0')).join(':');}
 function update(values) {Object.assign(state,values,{lastCheck:new Date().toISOString()});}
 function json(res, data, status=200) {res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'}); res.end(JSON.stringify(data));}
 function closeMedia() {
@@ -45,14 +46,24 @@ async function cast(index,start=0) {
   try {
     if (activeTV) await core.soap(activeTV,'Stop',{InstanceID:0},controller.signal);
     activeTV = null; closeMedia();
-    update({message:'자막을 준비하고 있습니다.'});
-    media = await core.startLive(state.video,state.subtitle,cache,tv.localAddress,(method,from) => update({lastRead:new Date().toISOString(),phase:'TV가 영상 받는 중',message:'TV의 영상 요청을 확인했습니다. 실제 화면의 자막과 소리는 TV에서 확인해 주세요.',...(from === undefined ? {} : {offset:from,position:from})}),controller.signal,start);
+    update({message:'자막을 영상 파일에 넣고 있습니다.'});
+    const onRead = (method,from) => update({lastRead:new Date().toISOString(),phase:'TV가 영상 받는 중',message:'TV의 영상 요청을 확인했습니다. 리모컨으로 넘길 수 있습니다.',...(from === undefined ? {} : {offset:from,position:from})});
+    const native = await core.remux(state.video,state.subtitle,cache,controller.signal);
+    if (native) {
+      media = await core.startMedia(native.output,tv.localAddress,onRead,'video/x-mkv');
+      Object.assign(media,{duration:native.duration,native:true});
+      update({offset:0});
+    } else {
+      update({message:'TV가 직접 못 여는 영상이라 자막을 입히면서 보냅니다(넘기기 시 다시 시작).'});
+      media = await core.startLive(state.video,state.subtitle,cache,tv.localAddress,onRead,controller.signal,start);
+    }
     update({duration:media.duration});
     if (stopping) {closeMedia(); return;}
     update({phase:'TV로 보내는 중',message:'TV의 재생 명령 응답을 기다리고 있습니다.'});
     controller.signal.throwIfAborted();
     activeTV = tv;
-    await core.play(tv,media.url,controller.signal,'video/mpeg',media.duration);
+    await core.play(tv,media.url,controller.signal,media.native ? 'video/x-mkv' : 'video/mpeg',media.duration,media.native ? core.FILE_FEATURES : '*');
+    if (media.native && start > 0) await core.soap(tv,'Seek',{InstanceID:0,Unit:'REL_TIME',Target:hms(start)},controller.signal).catch(() => {});
     if (stopping) return;
     if (!state.lastRead) update({phase:'TV 응답 확인',message:'TV가 재생 명령을 수락했습니다. 영상 요청을 기다리고 있습니다.'});
     readTimer = setTimeout(() => {
@@ -117,6 +128,7 @@ const server = http.createServer(async (req,res) => {
       const to = input.to !== undefined ? Number(input.to) : state.position + Number(input.delta);
       if (!Number.isFinite(to)) throw new Error('이동할 위치가 올바르지 않습니다.');
       const target = Math.max(0,Math.min(to,Math.max(0,state.duration - 5)));
+      if (media.native) {await core.soap(activeTV,'Seek',{InstanceID:0,Unit:'REL_TIME',Target:hms(target)}); update({position:target}); return json(res,{ok:true,target});}
       castJob = cast(lastIndex,target); void castJob.catch(e => update({phase:'오류',error:e.message}));
       return json(res,{ok:true,target});
     }

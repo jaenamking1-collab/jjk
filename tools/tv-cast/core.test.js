@@ -112,3 +112,16 @@ test('startLive streams MPEG-TS with burned subtitles immediately and stops ffmp
     assert.equal((await fetch(live.url.replace('video.ts','x.ts'))).status,404);
   } finally {live.server.closeAllConnections();await new Promise(r=>live.server.close(r));}
 });
+
+test('remux puts Korean subtitle into mkv without re-encoding video, null for unsupported codec', async () => {
+  const os=require('node:os'), fs=require('node:fs'), path=require('node:path'), {execFileSync}=require('node:child_process');
+  const ff=core.findTool('ffmpeg'), dir=fs.mkdtempSync(path.join(os.tmpdir(),'remux-')), v=path.join(dir,'a.mp4'), m=path.join(dir,'b.avi'), s=path.join(dir,'a.smi');
+  execFileSync(ff,['-y','-loglevel','error','-f','lavfi','-i','testsrc=size=640x360:rate=25:duration=2','-f','lavfi','-i','sine=duration=2','-c:v','libx264','-pix_fmt','yuv420p','-c:a','aac','-shortest',v]);
+  execFileSync(ff,['-y','-loglevel','error','-f','lavfi','-i','testsrc=size=320x240:rate=25:duration=1','-c:v','mpeg4',m]);
+  fs.writeFileSync(s,'<SAMI><BODY><SYNC Start=0><P Class=KRCC>안녕하세요<SYNC Start=1500><P Class=KRCC>&nbsp;</BODY></SAMI>');
+  const r=await core.remux(v,s,path.join(dir,'cache'));
+  const info=JSON.parse(execFileSync(core.findTool('ffprobe'),['-v','error','-show_entries','stream=codec_name,codec_type:stream_tags=language','-of','json',r.output]));
+  assert.deepEqual(info.streams.map(x=>x.codec_name),['h264','aac','subrip']);
+  assert.equal(info.streams[2].tags.language,'kor');
+  assert.equal(await core.remux(m,s,path.join(dir,'cache')),null);
+});

@@ -31,7 +31,7 @@ function byteRange(header, size) {
   let end = m[1] && m[2] ? Math.min(Number(m[2]), size - 1) : size - 1;
   return Number.isSafeInteger(start) && Number.isSafeInteger(end) && start <= end && start < size ? [start,end] : false;
 }
-function mediaHandler(file, route, onRead) {
+function mediaHandler(file, route, onRead, mime = 'video/mp4') {
   return (req,res) => {
     if (req.url !== route) { res.writeHead(404); return res.end(); }
     if (!['GET','HEAD'].includes(req.method)) {res.writeHead(405); return res.end();}
@@ -40,8 +40,8 @@ function mediaHandler(file, route, onRead) {
     const range = byteRange(req.headers.range, size);
     if (range === false) {res.writeHead(416, {'Content-Range':`bytes */${size}`}); return res.end();}
     const [start,end] = range || [0,size-1];
-    const headers = {'Content-Type':'video/mp4','Accept-Ranges':'bytes','Content-Length':end-start+1,
-      'transferMode.dlna.org':'Streaming','contentFeatures.dlna.org':'DLNA.ORG_OP=01;DLNA.ORG_CI=0'};
+    const headers = {'Content-Type':mime,'Accept-Ranges':'bytes','Content-Length':end-start+1,
+      'transferMode.dlna.org':'Streaming','contentFeatures.dlna.org':'DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000'};
     if (range) headers['Content-Range'] = `bytes ${start}-${end}/${size}`;
     res.writeHead(range ? 206 : 200, headers);
     if (req.method === 'HEAD') return res.end();
@@ -184,12 +184,34 @@ async function convert(video, subtitle, cache, onProgress = () => {}, signal) {
     fs.renameSync(partial,output); onProgress(100); return output;
   } finally {try{fs.unlinkSync(partial);}catch{}}
 }
-async function startMedia(file, localAddress, onRead) {
-  const route = '/' + crypto.randomBytes(18).toString('hex') + '/video.mp4';
-  const server = http.createServer(mediaHandler(file,route,onRead));
+async function startMedia(file, localAddress, onRead, mime = 'video/mp4') {
+  const route = '/' + crypto.randomBytes(18).toString('hex') + '/video' + (mime.includes('mkv') || mime.includes('matroska') ? '.mkv' : '.mp4');
+  const server = http.createServer(mediaHandler(file,route,onRead,mime));
   await new Promise((resolve,reject) => {server.once('error',reject); server.listen(0,'0.0.0.0',resolve);});
   return {server,url:`http://${localAddress}:${server.address().port}${route}`};
 }
+// 영상은 다시 압축하지 않고 한국어 자막만 파일 안에 넣는다(몇 초). TV가 보통 파일처럼 재생해 리모컨 넘기기·시간 표시가 정상이다.
+// TV가 직접 못 여는 영상 코덱이면 null 을 돌려주고, 호출한 쪽이 실시간 변환(startLive)으로 넘어간다.
+async function remux(video, subtitle, cache, signal) {
+  const {ffmpeg,work,duration} = await prepare(video,subtitle,cache,signal,false);
+  const info = JSON.parse(await run(findTool('ffprobe'),['-v','error','-show_entries','stream=codec_type,codec_name','-of','json',video],{signal}));
+  const v = info.streams?.find(s => s.codec_type === 'video')?.codec_name, a = info.streams?.find(s => s.codec_type === 'audio')?.codec_name;
+  if (!['h264','hevc'].includes(v)) return null;
+  const output = path.join(work,'tv.mkv');
+  if (fs.existsSync(output)) return {output,duration};
+  // 디스크 절약: 다른 영화로 만든 tv.mkv 는 지운다.
+  for (const d of fs.readdirSync(cache)) {const f = path.join(cache,d,'tv.mkv'); if (f !== output) try {fs.unlinkSync(f);} catch {}}
+  const subname = fs.readdirSync(work).find(n => /^subtitle\./.test(n));
+  const audio = !a || ['aac','ac3','eac3','mp3'].includes(a) ? ['-c:a','copy'] : ['-c:a','aac','-b:a','384k'];
+  const partial = path.join(work,'tv.partial.mkv');
+  try {
+    await run(ffmpeg,['-hide_banner','-y','-nostdin','-i',video,'-i',subname,'-map','0:v:0','-map','0:a:0?','-map','1:0','-c:v','copy',...audio,
+      '-c:s','srt','-metadata:s:s:0','language=kor','-metadata:s:s:0','title=한국어','-disposition:s:0','default',partial],{cwd:work,signal});
+    fs.renameSync(partial,output);
+  } finally {try {fs.unlinkSync(partial);} catch {}}
+  return {output,duration};
+}
+const FILE_FEATURES = 'DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000';
 let gpuOk;
 async function hasNvenc(ffmpeg) {
   if (gpuOk === undefined) {
@@ -230,9 +252,9 @@ async function startLive(video, subtitle, cache, localAddress, onRead, signal, s
   server.close = (...a) => {for (const c of children) c.kill(); return close(...a);};
   return {server,url:`http://${localAddress}:${server.address().port}${route}?start=${start}`,gpu,duration};
 }
-async function play(tv,url,signal,mime='video/mp4',duration=0) {
+async function play(tv,url,signal,mime='video/mp4',duration=0,features='*') {
   const hms = t => [Math.floor(t/3600),Math.floor(t/60)%60,Math.floor(t)%60].map((n,i) => String(n).padStart(i ? 2 : 1,'0')).join(':');
-  const metadata = `<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/"><item id="1" parentID="0" restricted="1"><dc:title>자막 영상</dc:title><upnp:class>object.item.videoItem</upnp:class><res ${duration ? `duration="${hms(duration)}" ` : ''}protocolInfo="http-get:*:${mime}:*">${xmlEscape(url)}</res></item></DIDL-Lite>`;
+  const metadata = `<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/"><item id="1" parentID="0" restricted="1"><dc:title>자막 영상</dc:title><upnp:class>object.item.videoItem</upnp:class><res ${duration ? `duration="${hms(duration)}" ` : ''}protocolInfo="http-get:*:${mime}:${features}">${xmlEscape(url)}</res></item></DIDL-Lite>`;
   // 다른 앱이 재생·일시정지 중이면 LG TV가 "Transition not available"(500)로 새 주소를 거절한다. 먼저 정지하고 멈출 때까지 기다린다.
   try {await soap(tv,'Stop',{InstanceID:0},signal);} catch(e) {signal?.throwIfAborted();}
   for (let i = 0; i < 8; i++) {
@@ -246,4 +268,4 @@ async function play(tv,url,signal,mime='video/mp4',duration=0) {
   signal?.throwIfAborted();
   await soap(tv,'Play',{InstanceID:0,Speed:1},signal);
 }
-module.exports = {xmlEscape,parseDevice,byteRange,mediaHandler,soap,addresses,discover,findTool,run,convert,prepare,startLive,startMedia,play,smiToSrt};
+module.exports = {xmlEscape,parseDevice,byteRange,mediaHandler,soap,addresses,discover,findTool,run,convert,prepare,remux,FILE_FEATURES,startLive,startMedia,play,smiToSrt};
