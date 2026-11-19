@@ -1192,11 +1192,14 @@ function getDistribution(source, force) {
       result = fetchDist_tiger();
       if (!result || !result.items || !result.items.length) {
         const siteErr = (result && result.error) || 'TIGER 자사 파서 empty';
-        try { result = _fetchDistTigerSeibro(force, siteErr); } catch(e) { console.log('TIGER SEIBRO 실패: ' + e); result = null; }
+        let seiErr = '';
+        try { result = _fetchDistTigerSeibro(force, siteErr); } catch(e) { seiErr = String(e && e.stack || e).slice(0, 300); console.log('TIGER SEIBRO 실패: ' + seiErr); result = null; }
         if (result && result.items && result.items.length) return finishDist(source, result, cache, cacheKey);
+        if (!seiErr) seiErr = '예탁결제원 TIGER 0건';
         const all = fetchDist_smarttoday(force);
         result = all[source] || { items: [], error: 'TIGER 양쪽 실패' };
-        if (result.items && result.items.length) { result._fallback = 'news'; result._siteError = siteErr; }
+        // 뉴스로 내려간 이유를 응답에 남긴다(2026-11-20: 이유 없이 뉴스로 떨어져 기준일·분배락일 칸이 비었다)
+        if (result.items && result.items.length) { result._fallback = 'news'; result._siteError = siteErr; result._seibroError = seiErr; }
       }
       return finishDist(source, result, cache, cacheKey);
     }
