@@ -145,7 +145,7 @@ function smiToSrt(text, durationMs) {
   if(!result.length) throw new Error('SMI 파일에서 자막을 찾지 못했습니다. 다른 자막 파일을 선택해 주세요.');
   return result.join('\n');
 }
-async function convert(video, subtitle, cache, onProgress = () => {}, signal) {
+async function prepare(video, subtitle, cache, signal) {
   for (const file of [video,subtitle]) if (!file || !fs.statSync(file).isFile()) throw new Error('동영상과 자막 파일을 선택해 주세요.');
   const ext = path.extname(subtitle).toLowerCase();
   if (!['.srt','.smi','.ass','.ssa','.vtt'].includes(ext)) throw new Error('SRT, SMI, ASS, SSA, VTT 자막을 선택해 주세요.');
@@ -156,18 +156,23 @@ async function convert(video, subtitle, cache, onProgress = () => {}, signal) {
   const work = path.join(cache,key);
   fs.mkdirSync(work,{recursive:true});
   const output = path.join(work,'video.mp4');
-  if (fs.existsSync(output)) {onProgress(100); return output;}
+  if (fs.existsSync(output)) return {ffmpeg,work,output,done:true};
   let text;
   try {text = new TextDecoder('utf-8',{fatal:true}).decode(raw);} catch {text = new TextDecoder('euc-kr').decode(raw);}
   if (raw[0] === 255 && raw[1] === 254) text = raw.toString('utf16le');
   const probe = JSON.parse(await run(ffprobe,['-v','error','-show_entries','format=duration','-of','json',video],{signal}));
   const duration = Number(probe.format?.duration) || 0;
   const subname = 'subtitle' + (ext === '.smi' ? '.srt' : ext);
-  text=text.replace(/^\uFEFF/,'');
+  text=text.replace(/^﻿/,'');
   fs.writeFileSync(path.join(work,subname),ext === '.smi' ? smiToSrt(text,duration*1000) : text,'utf8');
-  const partial = path.join(work,'partial.mp4');
   const style = 'FontName=Malgun Gothic,FontSize=22,Outline=2,Shadow=0,MarginV=24';
   const filter = `scale=w='min(1920,iw)':h='min(1080,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2,subtitles=${subname}:force_style='${style}'`;
+  return {ffmpeg,work,output,duration,filter,done:false};
+}
+async function convert(video, subtitle, cache, onProgress = () => {}, signal) {
+  const {ffmpeg,work,output,duration,filter,done} = await prepare(video,subtitle,cache,signal);
+  if (done) {onProgress(100); return output;}
+  const partial = path.join(work,'partial.mp4');
   try {
     await run(ffmpeg,['-hide_banner','-y','-nostdin','-i',video,'-map','0:v:0','-map','0:a:0?',
       '-vf',filter,'-c:v','libx264','-preset','veryfast','-crf','21','-pix_fmt','yuv420p',
@@ -185,8 +190,41 @@ async function startMedia(file, localAddress, onRead) {
   await new Promise((resolve,reject) => {server.once('error',reject); server.listen(0,'0.0.0.0',resolve);});
   return {server,url:`http://${localAddress}:${server.address().port}${route}`};
 }
-async function play(tv,url,signal) {
-  const metadata = `<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/"><item id="1" parentID="0" restricted="1"><dc:title>자막 영상</dc:title><upnp:class>object.item.videoItem</upnp:class><res protocolInfo="http-get:*:video/mp4:*">${xmlEscape(url)}</res></item></DIDL-Lite>`;
+let gpuOk;
+async function hasNvenc(ffmpeg) {
+  if (gpuOk === undefined) {
+    try {await run(ffmpeg,['-hide_banner','-nostdin','-f','lavfi','-i','color=black:s=256x256:d=0.2','-frames:v','1','-c:v','h264_nvenc','-f','null','-']); gpuOk = true;} catch {gpuOk = false;}
+  }
+  return gpuOk;
+}
+// 변환이 끝나길 기다리지 않고, 변환하는 대로 TV에 흘려 보낸다(MPEG-TS). 그래픽카드가 있으면 쓴다.
+async function startLive(video, subtitle, cache, localAddress, onRead, signal) {
+  const {ffmpeg,work,filter} = await prepare(video,subtitle,cache,signal);
+  const gpu = await hasNvenc(ffmpeg);
+  const route = '/' + crypto.randomBytes(18).toString('hex') + '/video.ts';
+  const children = new Set();
+  const headers = {'Content-Type':'video/mpeg','transferMode.dlna.org':'Streaming','contentFeatures.dlna.org':'DLNA.ORG_OP=00;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000','Cache-Control':'no-store'};
+  const server = http.createServer((req,res) => {
+    if (req.url !== route || !['GET','HEAD'].includes(req.method)) {res.writeHead(404); return res.end();}
+    onRead?.(req.method);
+    res.writeHead(200,headers);
+    if (req.method === 'HEAD') return res.end();
+    const video_args = gpu ? ['-c:v','h264_nvenc','-preset','p4','-b:v','8M','-maxrate','10M','-bufsize','16M'] : ['-c:v','libx264','-preset','ultrafast','-b:v','6M','-maxrate','8M','-bufsize','12M'];
+    const child = spawn(ffmpeg,['-hide_banner','-loglevel','error','-nostdin','-i',video,'-map','0:v:0','-map','0:a:0?','-vf',filter,...video_args,'-g','60','-pix_fmt','yuv420p',
+      '-c:a','aac','-b:a','192k','-ac','2','-sn','-f','mpegts','pipe:1'],{cwd:work,windowsHide:true});
+    children.add(child);
+    child.stdout.pipe(res);
+    child.stderr.on('data',() => {});
+    child.on('close',() => {children.delete(child); res.end();});
+    res.on('close',() => child.kill());
+  });
+  await new Promise((resolve,reject) => {server.once('error',reject); server.listen(0,'0.0.0.0',resolve);});
+  const close = server.close.bind(server);
+  server.close = (...a) => {for (const c of children) c.kill(); return close(...a);};
+  return {server,url:`http://${localAddress}:${server.address().port}${route}`,gpu};
+}
+async function play(tv,url,signal,mime='video/mp4') {
+  const metadata = `<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/"><item id="1" parentID="0" restricted="1"><dc:title>자막 영상</dc:title><upnp:class>object.item.videoItem</upnp:class><res protocolInfo="http-get:*:${mime}:*">${xmlEscape(url)}</res></item></DIDL-Lite>`;
   // 다른 앱이 재생·일시정지 중이면 LG TV가 "Transition not available"(500)로 새 주소를 거절한다. 먼저 정지하고 멈출 때까지 기다린다.
   try {await soap(tv,'Stop',{InstanceID:0},signal);} catch(e) {signal?.throwIfAborted();}
   for (let i = 0; i < 8; i++) {
@@ -200,4 +238,4 @@ async function play(tv,url,signal) {
   signal?.throwIfAborted();
   await soap(tv,'Play',{InstanceID:0,Speed:1},signal);
 }
-module.exports = {xmlEscape,parseDevice,byteRange,mediaHandler,soap,addresses,discover,findTool,run,convert,startMedia,play,smiToSrt};
+module.exports = {xmlEscape,parseDevice,byteRange,mediaHandler,soap,addresses,discover,findTool,run,convert,prepare,startLive,startMedia,play,smiToSrt};

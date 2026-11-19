@@ -40,17 +40,17 @@ async function cast(index) {
   if (!tv) throw new Error('TV를 선택해 주세요.');
   if (!state.video || !state.subtitle) throw new Error('동영상과 자막을 선택해 주세요.');
   stopping = false; controller = new AbortController();
-  update({busy:true,phase:'자막 합치는 중',progress:0,error:'',lastRead:null,message:'변환이 끝나면 TV로 보냅니다. 처음에는 시간이 걸릴 수 있습니다.'});
+  update({busy:true,phase:'자막 준비 중',progress:0,error:'',lastRead:null,message:'자막을 입히면서 바로 TV로 보냅니다.'});
   try {
     if (activeTV) await core.soap(activeTV,'Stop',{InstanceID:0},controller.signal);
     activeTV = null; closeMedia();
-    const output = await core.convert(state.video,state.subtitle,cache,progress => update({progress}),controller.signal);
-    if (stopping) return;
+    update({message:'자막을 준비하고 있습니다.'});
+    media = await core.startLive(state.video,state.subtitle,cache,tv.localAddress,() => update({lastRead:new Date().toISOString(),phase:'TV가 영상 받는 중',message:'TV의 영상 요청을 확인했습니다. 실제 화면의 자막과 소리는 TV에서 확인해 주세요.'}),controller.signal);
+    if (stopping) {closeMedia(); return;}
     update({phase:'TV로 보내는 중',message:'TV의 재생 명령 응답을 기다리고 있습니다.'});
-    media = await core.startMedia(output,tv.localAddress,() => update({lastRead:new Date().toISOString(),phase:'TV가 영상 받는 중',message:'TV의 영상 요청을 확인했습니다. 실제 화면의 자막과 소리는 TV에서 확인해 주세요.'}));
     controller.signal.throwIfAborted();
     activeTV = tv;
-    await core.play(tv,media.url,controller.signal);
+    await core.play(tv,media.url,controller.signal,'video/mpeg');
     if (stopping) return;
     if (!state.lastRead) update({phase:'TV 응답 확인',message:'TV가 재생 명령을 수락했습니다. 영상 요청을 기다리고 있습니다.'});
     readTimer = setTimeout(() => {

@@ -97,3 +97,18 @@ test('play stops a TV paused by another app before SetURI (LG 500 Transition not
     assert.deepEqual(actions,['Stop','GetTransportInfo','SetAVTransportURI','Play']);
   } finally {server.closeAllConnections();await new Promise(r=>server.close(r));}
 });
+
+test('startLive streams MPEG-TS with burned subtitles immediately and stops ffmpeg on disconnect', async () => {
+  const os=require('node:os'), fs=require('node:fs'), path=require('node:path'), {execFileSync}=require('node:child_process');
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'live-')), v=path.join(dir,'a.mp4'), s=path.join(dir,'a.srt');
+  execFileSync(core.findTool('ffmpeg'),['-y','-loglevel','error','-f','lavfi','-i','testsrc=size=640x360:rate=25:duration=3','-f','lavfi','-i','sine=duration=3','-c:v','libx264','-pix_fmt','yuv420p','-c:a','aac','-shortest',v]);
+  fs.writeFileSync(s,'1\n00:00:00,000 --> 00:00:02,000\n안녕하세요\n');
+  const live=await core.startLive(v,s,path.join(dir,'cache'),'127.0.0.1');
+  try {
+    const r=await fetch(live.url); assert.equal(r.status,200); assert.equal(r.headers.get('content-type'),'video/mpeg');
+    const reader=r.body.getReader(); const {value}=await reader.read();
+    assert.equal(value[0],0x47);
+    await reader.cancel();
+    assert.equal((await fetch(live.url.replace('video.ts','x.ts'))).status,404);
+  } finally {live.server.closeAllConnections();await new Promise(r=>live.server.close(r));}
+});
