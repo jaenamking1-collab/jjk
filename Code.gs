@@ -1196,6 +1196,15 @@ function getDistribution(source, force) {
         try { result = _fetchDistTigerSeibro(force, siteErr); } catch(e) { seiErr = String(e && e.stack || e).slice(0, 300); console.log('TIGER SEIBRO 실패: ' + seiErr); result = null; }
         if (result && result.items && result.items.length) return finishDist(source, result, cache, cacheKey);
         if (!seiErr) seiErr = '예탁결제원 TIGER 0건';
+        // 예탁결제원이 잠깐 안 될 때(2026-11-20 새벽 5시) 뉴스로 내려가면 기준일·분배락일이 빠진 채 캐시에 굳어
+        // 공개 페이지 칸이 비었다. 같은 회차를 이미 예탁결제원·운용사 자료로 받아 뒀으면 그걸 그대로 쓴다.
+        try {
+          const sc = readDistCache(source);
+          if (sc && sc.payload && (sc.payload.items || []).length && sc.cycleKey === currentCycleKey() && sc.payload._fallback !== 'news') {
+            console.log('TIGER 예탁결제원 실패(' + seiErr + ') — 같은 회차 저장분 유지');
+            return attachDistHistory(source, sc.payload);
+          }
+        } catch(e) {}
         const all = fetchDist_smarttoday(force);
         result = all[source] || { items: [], error: 'TIGER 양쪽 실패' };
         // 뉴스로 내려간 이유를 응답에 남긴다(2026-11-20: 이유 없이 뉴스로 떨어져 기준일·분배락일 칸이 비었다)
