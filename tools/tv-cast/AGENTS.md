@@ -1,5 +1,7 @@
 # TV 자막 전송 작업 규칙
 
+- 파일 선택은 브라우저 기본 input[type=file]로 처리한다. 숨겨진 PowerShell 대화상자는 실제 화면에서 안 뜬 사례가 있으므로 사용하지 않는다. 파일은 localhost로 스트리밍하여 임시 폴더에 보관한다.
+
 - Windows 실행.cmd는 ASCII 내용과 CRLF 줄바꿈을 유지한다(.gitattributes). node 테스트만으로 실행 확인을 대신하지 말고 cmd.exe로 실행.cmd --check 및 실제 시작을 검증한다.
 
 - 원본: 사용자가 선택한 로컬 영상·외부 자막. 결과: LG TV 화면.

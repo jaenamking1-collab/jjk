@@ -4,6 +4,7 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const {spawn} = require('node:child_process');
+const {pipeline} = require('node:stream/promises');
 const core = require('./core');
 
 const token = crypto.randomBytes(24).toString('hex');
@@ -12,17 +13,6 @@ const state = {phase:'대기',progress:0,message:'동영상과 자막을 선택�
 let media = null, activeTV = null, controller = null, stopping = false, castJob = null, readTimer = null, stopJob = null;
 function update(values) {Object.assign(state,values,{lastCheck:new Date().toISOString()});}
 function json(res, data, status=200) {res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'}); res.end(JSON.stringify(data));}
-function choose(kind) {
-  const filter = kind === 'video' ? '동영상|*.mp4;*.mkv;*.avi;*.mov;*.ts;*.m4v;*.wmv|모든 파일|*.*' : '자막|*.srt;*.smi;*.ass;*.ssa;*.vtt|모든 파일|*.*';
-  const script = `Add-Type -AssemblyName System.Windows.Forms; $d=New-Object System.Windows.Forms.OpenFileDialog; $d.Filter='${filter}'; $d.Title='${kind === 'video' ? '동영상' : '자막'} 선택'; $owner=New-Object System.Windows.Forms.Form; $owner.TopMost=$true; if($d.ShowDialog($owner) -eq 'OK'){[Console]::OutputEncoding=[Text.UTF8Encoding]::new(); [Console]::Write($d.FileName)}; $d.Dispose(); $owner.Dispose()`;
-  return core.run('powershell.exe',['-NoProfile','-STA','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')]);
-}
-function autoSubtitle(video) {
-  const folder = path.dirname(video), base = path.basename(video,path.extname(video)).toLowerCase();
-  const files = fs.readdirSync(folder);
-  return files.filter(n => ['.srt','.smi','.ass','.ssa','.vtt'].includes(path.extname(n).toLowerCase()))
-    .sort((a,b) => a.localeCompare(b)).find(n => path.basename(n,path.extname(n)).toLowerCase() === base);
-}
 function closeMedia() {
   clearTimeout(readTimer); readTimer = null;
   if (media) {media.server.closeAllConnections(); media.server.close(); media = null;}
@@ -86,22 +76,25 @@ const server = http.createServer(async (req,res) => {
       return res.end(fs.readFileSync(path.join(__dirname,'index.html'),'utf8').replace('__TOKEN__',token));
     }
     if (req.headers['x-cast-token'] !== token) return json(res,{error:'잘못된 세션'},403);
+    if (req.url === '/upload' && req.method === 'POST') {
+      if (state.busy || stopping) throw new Error('진행 중인 작업이 있습니다.');
+      const kind = req.headers['x-file-kind'];
+      if (!['video','subtitle'].includes(kind)) throw new Error('잘못된 파일 종류');
+      const name = path.basename(decodeURIComponent(req.headers['x-file-name'] || 'file'));
+      const folder = path.join(cache,'inputs',crypto.randomBytes(12).toString('hex'));
+      fs.mkdirSync(folder,{recursive:true});
+      const file = path.join(folder,name);
+      update({busy:true,phase:'파일 준비 중',error:'',message:'선택한 파일을 이 컴퓨터의 임시 폴더에 준비하고 있습니다.'});
+      try {
+        await pipeline(req,fs.createWriteStream(file,{flags:'wx'}));
+        update({[kind]:file,phase:'파일 선택 완료',message:'파일이 준비되었습니다. 자막과 TV를 확인한 뒤 재생해 주세요.'});
+        return json(res,state);
+      } catch(e) {try{fs.unlinkSync(file);}catch{} throw e;}
+      finally {update({busy:false});}
+    }
     if (req.url === '/state' && req.method === 'GET') return json(res,state);
     if (req.method !== 'POST') return json(res,{error:'없는 요청'},404);
     const input = await body(req);
-    if (req.url === '/choose') {
-      if (state.busy || stopping) throw new Error('작업 중에는 파일을 바꿀 수 없습니다.');
-      if (!['video','subtitle'].includes(input.kind)) throw new Error('잘못된 파일 종류');
-      const file = await choose(input.kind);
-      if (file) {
-        update({[input.kind]:file,error:''});
-        if (input.kind === 'video') {
-          const sub = autoSubtitle(file);
-          update({subtitle:sub ? path.join(path.dirname(file),sub) : ''});
-        }
-      }
-      return json(res,state);
-    }
     if (req.url === '/discover') {
       if (state.busy || stopping) throw new Error('진행 중인 작업이 있습니다.');
       update({busy:true,phase:'TV 찾는 중',error:''});

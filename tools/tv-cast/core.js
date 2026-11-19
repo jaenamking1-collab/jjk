@@ -119,7 +119,8 @@ function findTool(name) {
 }
 function run(exe, args, options = {}) {
   return new Promise((resolve,reject) => {
-    const child = spawn(exe,args,{windowsHide:true,cwd:options.cwd,signal:options.signal});
+    const child = spawn(exe,args,{windowsHide:options.windowsHide !== false,cwd:options.cwd,signal:options.signal});
+    child.stdin.end();
     let out = '', err = '', spawnError = null;
     child.stdout.on('data', b => {out += b; options.progress?.(b.toString());});
     child.stderr.on('data', b => {err = (err + b).slice(-6000);});
