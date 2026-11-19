@@ -14,7 +14,18 @@ let lastIndex = 0, media = null, activeTV = null, controller = null, stopping = 
 function hms(t) {t = Math.max(0,Math.floor(t)); return [Math.floor(t/3600),Math.floor(t/60)%60,t%60].map((n,i) => String(n).padStart(i ? 2 : 1,'0')).join(':');}
 function update(values) {Object.assign(state,values,{lastCheck:new Date().toISOString()});}
 function json(res, data, status=200) {res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'}); res.end(JSON.stringify(data));}
+// TV로 보내는 동안 컴퓨터가 절전에 들어가면 영상 전송이 끊긴다. 재생 중에만 절전을 막는다(화면 꺼짐은 그대로 둔다).
+let awake = null, stoppedPolls = 0;
+function keepAwake(on) {
+  if (!on) {awake?.kill(); awake = null; return;}
+  if (awake || process.platform !== 'win32') return;
+  const ps = "Add-Type -Name P -Namespace W -MemberDefinition '[DllImport(\"kernel32.dll\")] public static extern uint SetThreadExecutionState(uint f);'; [void][W.P]::SetThreadExecutionState([uint32]2147483649); while ($true) {Start-Sleep 60}";
+  awake = spawn('powershell.exe',['-NoProfile','-NonInteractive','-Command',ps],{windowsHide:true,stdio:'ignore'});
+  awake.on('exit',() => {awake = null;}).on('error',() => {awake = null;});
+}
+process.on('exit',() => awake?.kill());
 function closeMedia() {
+  keepAwake(false); stoppedPolls = 0;
   clearTimeout(readTimer); readTimer = null;
   if (media) {media.server.closeAllConnections(); media.server.close(); media = null;}
 }
@@ -65,6 +76,7 @@ async function cast(index,start=0) {
     await core.play(tv,media.url,controller.signal,media.native ? 'video/x-mkv' : 'video/mpeg',media.duration,media.native ? core.FILE_FEATURES : '*');
     if (media.native && start > 0) await core.soap(tv,'Seek',{InstanceID:0,Unit:'REL_TIME',Target:hms(start)},controller.signal).catch(() => {});
     if (stopping) return;
+    keepAwake(true);
     if (!state.lastRead) update({phase:'TV 응답 확인',message:'TV가 재생 명령을 수락했습니다. 영상 요청을 기다리고 있습니다.'});
     readTimer = setTimeout(() => {
       if (!stopping && media && !state.lastRead) update({phase:'영상 요청 미확인',message:'TV의 영상 요청이 없습니다. Windows 방화벽의 개인 네트워크 허용 여부와 TV 연결 허용 화면을 확인해 주세요.'});
@@ -167,6 +179,11 @@ setInterval(async () => {
   try {
     const m = /<RelTime>(\d+):(\d+):(\d+)/.exec(await core.soap(activeTV,'GetPositionInfo',{InstanceID:0}));
     if (m) update({position:state.offset + Number(m[1])*3600 + Number(m[2])*60 + Number(m[3])});
+    // TV에서 끝났거나 꺼서 5분 넘게 멈춰 있으면 절전 막기를 푼다(다 보고 자리를 떠도 컴퓨터가 계속 켜져 있지 않게).
+    const t = /<CurrentTransportState>(\w+)/.exec(await core.soap(activeTV,'GetTransportInfo',{InstanceID:0}))?.[1];
+    stoppedPolls = ['STOPPED','NO_MEDIA_PRESENT'].includes(t) ? stoppedPolls + 1 : 0;
+    if (stoppedPolls === 150) {keepAwake(false); update({message:'TV 재생이 멈춰 있어 컴퓨터 절전 막기를 풀었습니다.'});}
+    else if (stoppedPolls === 0 && t === 'PLAYING') keepAwake(true);
   } catch {}
 },2000).unref();
 process.on('SIGINT',async () => {await stop(); process.exit(0);});
