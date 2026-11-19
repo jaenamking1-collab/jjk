@@ -12,3 +12,4 @@
 - 화면에 진행률·프로그램 생존 표시·TV 요청 시각·오류를 유지한다. 서버·변환은 종료 시 정리한다.
 - FFmpeg 8.1의 SMI 빈 종료 구간 디코딩 오류를 재현했다. SMI는 먼저 SRT로 정규화하고 한국어 선택·종료 시각을 검증한다.
 - 중지 때 SOAP 취소·변환 종료·서버 정리까지 새 재생을 차단한다. 이전 전송의 감시 타이머는 새 전송 전에 해제한다.
+- TV가 다른 앱 재생·일시정지 상태면 LG가 SetAVTransportURI를 500 "Transition not available"로 거절한다(실제 UK6570PUB에서 확인). play()는 먼저 Stop → GetTransportInfo로 STOPPED 확인 후 SetURI한다.

@@ -77,6 +77,23 @@ test('stopping during SetURI prevents any subsequent Play command', async () => 
   await new Promise(r=>server.listen(0,'127.0.0.1',r));
   try {
     await assert.rejects(core.play({control:`http://127.0.0.1:${server.address().port}/`,type:'urn:schemas-upnp-org:service:AVTransport:1'},'http://host/video.mp4',controller.signal));
-    assert.equal(actions.length,1);
+    assert.ok(actions.some(a=>a.includes('SetAVTransportURI')));
+    assert.ok(!actions.some(a=>a.includes('#Play')));
+  } finally {server.closeAllConnections();await new Promise(r=>server.close(r));}
+});
+
+test('play stops a TV paused by another app before SetURI (LG 500 Transition not available)', async () => {
+  let state='PAUSED_PLAYBACK'; const actions=[];
+  const server=http.createServer((req,res)=>{
+    const action=req.headers.soapaction.replace(/.*#|"/g,''); actions.push(action);
+    if(action==='Stop') {state='STOPPED'; return res.end('<ok/>');}
+    if(action==='GetTransportInfo') return res.end(`<CurrentTransportState>${state}</CurrentTransportState>`);
+    if(action==='SetAVTransportURI' && state!=='STOPPED') {res.statusCode=500; return res.end('<errorDescription>Transition not available</errorDescription>');}
+    res.end('<ok/>');
+  });
+  await new Promise(r=>server.listen(0,'127.0.0.1',r));
+  try {
+    await core.play({control:`http://127.0.0.1:${server.address().port}/`,type:'urn:schemas-upnp-org:service:AVTransport:1'},'http://host/video.mp4');
+    assert.deepEqual(actions,['Stop','GetTransportInfo','SetAVTransportURI','Play']);
   } finally {server.closeAllConnections();await new Promise(r=>server.close(r));}
 });

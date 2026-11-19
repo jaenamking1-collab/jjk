@@ -187,6 +187,15 @@ async function startMedia(file, localAddress, onRead) {
 }
 async function play(tv,url,signal) {
   const metadata = `<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/"><item id="1" parentID="0" restricted="1"><dc:title>자막 영상</dc:title><upnp:class>object.item.videoItem</upnp:class><res protocolInfo="http-get:*:video/mp4:*">${xmlEscape(url)}</res></item></DIDL-Lite>`;
+  // 다른 앱이 재생·일시정지 중이면 LG TV가 "Transition not available"(500)로 새 주소를 거절한다. 먼저 정지하고 멈출 때까지 기다린다.
+  try {await soap(tv,'Stop',{InstanceID:0},signal);} catch(e) {signal?.throwIfAborted();}
+  for (let i = 0; i < 8; i++) {
+    let state = '';
+    try {state = tag(await soap(tv,'GetTransportInfo',{InstanceID:0},signal),'CurrentTransportState');} catch(e) {signal?.throwIfAborted(); break;}
+    if (!state || /^(STOPPED|NO_MEDIA_PRESENT)$/i.test(state)) break;
+    await new Promise(r => setTimeout(r,500));
+  }
+  signal?.throwIfAborted();
   await soap(tv,'SetAVTransportURI',{InstanceID:0,CurrentURI:url,CurrentURIMetaData:metadata},signal);
   signal?.throwIfAborted();
   await soap(tv,'Play',{InstanceID:0,Speed:1},signal);
