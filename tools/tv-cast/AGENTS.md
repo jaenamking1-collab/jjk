@@ -14,3 +14,4 @@
 - 중지 때 SOAP 취소·변환 종료·서버 정리까지 새 재생을 차단한다. 이전 전송의 감시 타이머는 새 전송 전에 해제한다.
 - TV가 다른 앱 재생·일시정지 상태면 LG가 SetAVTransportURI를 500 "Transition not available"로 거절한다(실제 UK6570PUB에서 확인). play()는 먼저 Stop → GetTransportInfo로 STOPPED 확인 후 SetURI한다.
 - 영화 파일 인자(탐색기 보내기)로 실행하면 같은 이름 자막 자동 선택·TV 1대면 자동 재생. 재생은 변환 완료를 기다리지 않는 라이브 MPEG-TS(startLive, 시크 불가). UMS(Universal Media Server)는 LG에 원본을 그대로 보내 TV 내장 영어 자막이 나와 포기.
+- 넘기기: 화면 버튼(/seek)이 그 위치부터 스트림을 새로 시작(-ss + setpts 로 자막 시각 보정). LG UK6570PUB 은 SOAP Seek 를 200으로 받고도 라이브 스트림에선 실제로 넘기지 않음(TimeSeekRange 요청도 안 옴) → TV 리모컨 넘기기는 안 됨(2026-11-19 확인).

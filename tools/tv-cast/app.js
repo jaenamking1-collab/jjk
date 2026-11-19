@@ -9,8 +9,8 @@ const core = require('./core');
 
 const token = crypto.randomBytes(24).toString('hex');
 const cache = path.join(os.tmpdir(),'jjk-tv-cast');
-const state = {phase:'대기',progress:0,message:'동영상과 자막을 선택해 주세요.',video:'',subtitle:'',devices:[],lastCheck:null,lastRead:null,error:'',busy:false};
-let media = null, activeTV = null, controller = null, stopping = false, castJob = null, readTimer = null, stopJob = null;
+const state = {phase:'대기',progress:0,message:'동영상과 자막을 선택해 주세요.',video:'',subtitle:'',devices:[],lastCheck:null,lastRead:null,offset:0,position:0,duration:0,error:'',busy:false};
+let lastIndex = 0, media = null, activeTV = null, controller = null, stopping = false, castJob = null, readTimer = null, stopJob = null;
 function update(values) {Object.assign(state,values,{lastCheck:new Date().toISOString()});}
 function json(res, data, status=200) {res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'}); res.end(JSON.stringify(data));}
 function closeMedia() {
@@ -34,23 +34,25 @@ async function performStop() {
   activeTV = null; closeMedia();
   update({phase:'중지',message:stopError ? '전송을 중지했습니다. TV 중지 명령은 확인하지 못했습니다.' : '전송을 중지했습니다.',error:stopError});
 }
-async function cast(index) {
+async function cast(index,start=0) {
   if (state.busy || stopping) throw new Error('진행 중인 작업을 먼저 중지해 주세요.');
   const tv = state.devices[index];
   if (!tv) throw new Error('TV를 선택해 주세요.');
   if (!state.video || !state.subtitle) throw new Error('동영상과 자막을 선택해 주세요.');
+  lastIndex = index;
   stopping = false; controller = new AbortController();
-  update({busy:true,phase:'자막 준비 중',progress:0,error:'',lastRead:null,message:'자막을 입히면서 바로 TV로 보냅니다.'});
+  update({busy:true,phase:'자막 준비 중',progress:0,error:'',lastRead:null,offset:start,position:start,message:'자막을 입히면서 바로 TV로 보냅니다.'});
   try {
     if (activeTV) await core.soap(activeTV,'Stop',{InstanceID:0},controller.signal);
     activeTV = null; closeMedia();
     update({message:'자막을 준비하고 있습니다.'});
-    media = await core.startLive(state.video,state.subtitle,cache,tv.localAddress,() => update({lastRead:new Date().toISOString(),phase:'TV가 영상 받는 중',message:'TV의 영상 요청을 확인했습니다. 실제 화면의 자막과 소리는 TV에서 확인해 주세요.'}),controller.signal);
+    media = await core.startLive(state.video,state.subtitle,cache,tv.localAddress,(method,from) => update({lastRead:new Date().toISOString(),phase:'TV가 영상 받는 중',message:'TV의 영상 요청을 확인했습니다. 실제 화면의 자막과 소리는 TV에서 확인해 주세요.',...(from === undefined ? {} : {offset:from,position:from})}),controller.signal,start);
+    update({duration:media.duration});
     if (stopping) {closeMedia(); return;}
     update({phase:'TV로 보내는 중',message:'TV의 재생 명령 응답을 기다리고 있습니다.'});
     controller.signal.throwIfAborted();
     activeTV = tv;
-    await core.play(tv,media.url,controller.signal,'video/mpeg');
+    await core.play(tv,media.url,controller.signal,'video/mpeg',media.duration);
     if (stopping) return;
     if (!state.lastRead) update({phase:'TV 응답 확인',message:'TV가 재생 명령을 수락했습니다. 영상 요청을 기다리고 있습니다.'});
     readTimer = setTimeout(() => {
@@ -110,6 +112,14 @@ const server = http.createServer(async (req,res) => {
       void castJob.catch(e => update({phase:'오류',error:e.message}));
       return json(res,{ok:true});
     }
+    if (req.url === '/seek') {
+      if (!activeTV || !media || state.busy || stopping) throw new Error('재생 중일 때만 이동할 수 있습니다.');
+      const to = input.to !== undefined ? Number(input.to) : state.position + Number(input.delta);
+      if (!Number.isFinite(to)) throw new Error('이동할 위치가 올바르지 않습니다.');
+      const target = Math.max(0,Math.min(to,Math.max(0,state.duration - 5)));
+      castJob = cast(lastIndex,target); void castJob.catch(e => update({phase:'오류',error:e.message}));
+      return json(res,{ok:true,target});
+    }
     if (req.url === '/stop') {await stop(); return json(res,state);}
     if (req.url === '/quit') {await stop(); json(res,{ok:true}); server.close(); setTimeout(() => process.exit(0),300).unref(); return;}
     return json(res,{error:'없는 요청'},404);
@@ -140,4 +150,11 @@ server.listen(0,'127.0.0.1',() => {
   if (arg) void autoStart(arg);
   if (!process.argv.includes('--no-open')) spawn('rundll32.exe',['url.dll,FileProtocolHandler',url],{windowsHide:true}).on('error',e => console.error(e.message));
 });
+setInterval(async () => {
+  if (!activeTV || !media || state.busy || stopping) return;
+  try {
+    const m = /<RelTime>(\d+):(\d+):(\d+)/.exec(await core.soap(activeTV,'GetPositionInfo',{InstanceID:0}));
+    if (m) update({position:state.offset + Number(m[1])*3600 + Number(m[2])*60 + Number(m[3])});
+  } catch {}
+},2000).unref();
 process.on('SIGINT',async () => {await stop(); process.exit(0);});

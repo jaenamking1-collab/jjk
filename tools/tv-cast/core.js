@@ -145,7 +145,7 @@ function smiToSrt(text, durationMs) {
   if(!result.length) throw new Error('SMI 파일에서 자막을 찾지 못했습니다. 다른 자막 파일을 선택해 주세요.');
   return result.join('\n');
 }
-async function prepare(video, subtitle, cache, signal) {
+async function prepare(video, subtitle, cache, signal, useCache = true) {
   for (const file of [video,subtitle]) if (!file || !fs.statSync(file).isFile()) throw new Error('동영상과 자막 파일을 선택해 주세요.');
   const ext = path.extname(subtitle).toLowerCase();
   if (!['.srt','.smi','.ass','.ssa','.vtt'].includes(ext)) throw new Error('SRT, SMI, ASS, SSA, VTT 자막을 선택해 주세요.');
@@ -156,7 +156,7 @@ async function prepare(video, subtitle, cache, signal) {
   const work = path.join(cache,key);
   fs.mkdirSync(work,{recursive:true});
   const output = path.join(work,'video.mp4');
-  if (fs.existsSync(output)) return {ffmpeg,work,output,done:true};
+  if (useCache && fs.existsSync(output)) return {ffmpeg,work,output,done:true};
   let text;
   try {text = new TextDecoder('utf-8',{fatal:true}).decode(raw);} catch {text = new TextDecoder('euc-kr').decode(raw);}
   if (raw[0] === 255 && raw[1] === 254) text = raw.toString('utf16le');
@@ -198,19 +198,26 @@ async function hasNvenc(ffmpeg) {
   return gpuOk;
 }
 // 변환이 끝나길 기다리지 않고, 변환하는 대로 TV에 흘려 보낸다(MPEG-TS). 그래픽카드가 있으면 쓴다.
-async function startLive(video, subtitle, cache, localAddress, onRead, signal) {
-  const {ffmpeg,work,filter} = await prepare(video,subtitle,cache,signal);
+async function startLive(video, subtitle, cache, localAddress, onRead, signal, start = 0) {
+  const {ffmpeg,work,filter,duration} = await prepare(video,subtitle,cache,signal,false);
   const gpu = await hasNvenc(ffmpeg);
   const route = '/' + crypto.randomBytes(18).toString('hex') + '/video.ts';
   const children = new Set();
-  const headers = {'Content-Type':'video/mpeg','transferMode.dlna.org':'Streaming','contentFeatures.dlna.org':'DLNA.ORG_OP=00;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000','Cache-Control':'no-store'};
+  const headers = {'Content-Type':'video/mpeg','transferMode.dlna.org':'Streaming','contentFeatures.dlna.org':'DLNA.ORG_OP=10;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000','Cache-Control':'no-store'};
   const server = http.createServer((req,res) => {
-    if (req.url !== route || !['GET','HEAD'].includes(req.method)) {res.writeHead(404); return res.end();}
-    onRead?.(req.method);
-    res.writeHead(200,headers);
+    const u = new URL(req.url,'http://x');
+    if (u.pathname !== route || !['GET','HEAD'].includes(req.method)) {res.writeHead(404); return res.end();}
+    // 시작 위치: TV 리모컨이 보내는 TimeSeekRange 헤더, 없으면 주소의 start.
+    const seek = /npt=([\d.]+)/i.exec(req.headers['timeseekrange.dlna.org'] || '');
+    let from = seek ? Number(seek[1]) : Number(u.searchParams.get('start') ?? start) || 0;
+    if (!(from >= 0)) from = 0;
+    if (duration && from > duration - 3) from = Math.max(0,duration - 3);
+    onRead?.(req.method,seek ? from : undefined);
+    res.writeHead(200,seek ? {...headers,'TimeSeekRange.dlna.org':`npt=${from.toFixed(3)}-${duration.toFixed(3)}/${duration.toFixed(3)}`} : headers);
     if (req.method === 'HEAD') return res.end();
+    const vf = from > 0 ? `setpts=PTS+${from}/TB,${filter},setpts=PTS-${from}/TB` : filter;
     const video_args = gpu ? ['-c:v','h264_nvenc','-preset','p4','-b:v','8M','-maxrate','10M','-bufsize','16M'] : ['-c:v','libx264','-preset','ultrafast','-b:v','6M','-maxrate','8M','-bufsize','12M'];
-    const child = spawn(ffmpeg,['-hide_banner','-loglevel','error','-nostdin','-i',video,'-map','0:v:0','-map','0:a:0?','-vf',filter,...video_args,'-g','60','-pix_fmt','yuv420p',
+    const child = spawn(ffmpeg,['-hide_banner','-loglevel','error','-nostdin',...(from > 0 ? ['-ss',String(from)] : []),'-i',video,'-map','0:v:0','-map','0:a:0?','-vf',vf,...video_args,'-g','60','-pix_fmt','yuv420p',
       '-c:a','aac','-b:a','192k','-ac','2','-sn','-f','mpegts','pipe:1'],{cwd:work,windowsHide:true});
     children.add(child);
     child.stdout.pipe(res);
@@ -221,10 +228,11 @@ async function startLive(video, subtitle, cache, localAddress, onRead, signal) {
   await new Promise((resolve,reject) => {server.once('error',reject); server.listen(0,'0.0.0.0',resolve);});
   const close = server.close.bind(server);
   server.close = (...a) => {for (const c of children) c.kill(); return close(...a);};
-  return {server,url:`http://${localAddress}:${server.address().port}${route}`,gpu};
+  return {server,url:`http://${localAddress}:${server.address().port}${route}?start=${start}`,gpu,duration};
 }
-async function play(tv,url,signal,mime='video/mp4') {
-  const metadata = `<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/"><item id="1" parentID="0" restricted="1"><dc:title>자막 영상</dc:title><upnp:class>object.item.videoItem</upnp:class><res protocolInfo="http-get:*:${mime}:*">${xmlEscape(url)}</res></item></DIDL-Lite>`;
+async function play(tv,url,signal,mime='video/mp4',duration=0) {
+  const hms = t => [Math.floor(t/3600),Math.floor(t/60)%60,Math.floor(t)%60].map((n,i) => String(n).padStart(i ? 2 : 1,'0')).join(':');
+  const metadata = `<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/"><item id="1" parentID="0" restricted="1"><dc:title>자막 영상</dc:title><upnp:class>object.item.videoItem</upnp:class><res ${duration ? `duration="${hms(duration)}" ` : ''}protocolInfo="http-get:*:${mime}:*">${xmlEscape(url)}</res></item></DIDL-Lite>`;
   // 다른 앱이 재생·일시정지 중이면 LG TV가 "Transition not available"(500)로 새 주소를 거절한다. 먼저 정지하고 멈출 때까지 기다린다.
   try {await soap(tv,'Stop',{InstanceID:0},signal);} catch(e) {signal?.throwIfAborted();}
   for (let i = 0; i < 8; i++) {
