@@ -115,10 +115,29 @@ const server = http.createServer(async (req,res) => {
     return json(res,{error:'없는 요청'},404);
   } catch(e) {json(res,{error:e.message},400);}
 });
+// 영화 파일을 인자로 받으면(탐색기 '보내기') 같은 폴더의 자막을 고르고 TV를 찾아, TV가 한 대면 바로 재생한다.
+async function autoStart(arg) {
+  try {
+    const file = path.resolve(arg);
+    if (!fs.statSync(file).isFile()) throw new Error('동영상 파일이 아닙니다.');
+    const dir = path.dirname(file), base = path.basename(file,path.extname(file)).toLowerCase();
+    const subs = fs.readdirSync(dir).filter(n => n.toLowerCase().startsWith(base) && /\.(srt|smi|ass|ssa|vtt)$/i.test(n))
+      .map(n => ({file:path.join(dir,n),size:fs.statSync(path.join(dir,n)).size})).sort((a,b) => b.size-a.size);
+    update({video:file,subtitle:subs[0]?.file || ''});
+    if (!subs.length) return update({phase:'자막 없음',message:'같은 이름의 자막 파일이 없습니다. 자막 선택 버튼으로 골라 주세요.'});
+    update({busy:true,phase:'TV 찾는 중',error:''});
+    let result;
+    try {result = await core.discover();} finally {update({busy:false});}
+    update({devices:result.devices,phase:'검색 완료',message:result.devices.length ? `TV ${result.devices.length}대를 찾았습니다.` : 'TV를 찾지 못했습니다. TV 전원과 같은 네트워크인지 확인해 주세요.',error:result.devices.length ? '' : result.errors.join('; ').slice(0,500)});
+    if (result.devices.length === 1) {castJob = cast(0); void castJob.catch(e => update({phase:'오류',error:e.message}));}
+  } catch(e) {update({busy:false,phase:'오류',error:e.message});}
+}
 server.listen(0,'127.0.0.1',() => {
   const url = `http://127.0.0.1:${server.address().port}/`;
   console.log(`TV 자막 전송: ${url}`);
   console.log('종료하려면 화면의 프로그램 종료 버튼을 누르세요.');
+  const arg = process.argv.slice(2).find(a => !a.startsWith('--'));
+  if (arg) void autoStart(arg);
   if (!process.argv.includes('--no-open')) spawn('rundll32.exe',['url.dll,FileProtocolHandler',url],{windowsHide:true}).on('error',e => console.error(e.message));
 });
 process.on('SIGINT',async () => {await stop(); process.exit(0);});
