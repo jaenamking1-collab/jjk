@@ -95,6 +95,17 @@ fn download(title: &str, artist: &str, dur_ms: i64) -> Result<Option<String>> {
     Ok(None)
 }
 
+/// 노래가 아니라 사이트·앱 이름만 넘어온 경우. 인스타그램 릴스는 제목이 그냥 "Instagram"이고 부른 사람도 비어서,
+/// 그대로 찾으면 제목이 "Instagram"인 엉뚱한 노래 가사가 붙었다(2026-11-20).
+pub fn not_a_song(title: &str, artist: &str) -> bool {
+    const SITES: [&str; 18] = [
+        "instagram", "youtube", "youtube music", "facebook", "tiktok", "threads", "x", "twitter", "netflix", "twitch",
+        "chrome", "google chrome", "microsoft edge", "edge", "whale", "naver", "네이버", "카카오톡",
+    ];
+    let t = title.trim().trim_end_matches(" - Chrome").trim().to_lowercase();
+    t.is_empty() || (artist.trim().is_empty() && SITES.contains(&t.as_str()))
+}
+
 pub fn fetch(lyr: Arc<Mutex<Lyr>>, key: String, title: String, artist: String, dur_ms: i64) {
     {
         let mut l = lyr.lock().unwrap();
@@ -110,6 +121,8 @@ pub fn fetch(lyr: Arc<Mutex<Lyr>>, key: String, title: String, artist: String, d
         let als = key.strip_prefix("ALSong|").and_then(crate::alsong::lyc);
         let (text, st) = if let Some(t) = als {
             (Some(t), St::Found)
+        } else if not_a_song(&title, &artist) {
+            (None, St::Missing)
         } else { match std::fs::read_to_string(&path) {
             Ok(t) => (Some(t), St::Found),
             Err(_) => match download(&title, &artist, dur_ms) {
@@ -151,6 +164,15 @@ mod tests {
         assert!(pick(r#"{"syncedLyrics":null}"#, 1.0).is_none());
         assert!(pick(&only_near(j, 205.0, 3.0), 205.0).is_none());
         assert_eq!(pick(&only_near(j, 211.0, 3.0), 211.0).unwrap(), "[00:01.00]near");
+    }
+
+    #[test]
+    fn site_names_are_not_songs() {
+        assert!(not_a_song("Instagram", ""));
+        assert!(not_a_song(" instagram ", " "));
+        assert!(not_a_song("YouTube", ""));
+        assert!(!not_a_song("Instagram", "DEAN")); // 정말 그 이름의 노래면 찾는다
+        assert!(!not_a_song("Ditto", ""));
     }
 
     #[test]
