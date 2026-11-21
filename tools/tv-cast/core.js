@@ -211,6 +211,15 @@ async function remux(video, subtitle, cache, signal) {
   } finally {try {fs.unlinkSync(partial);} catch {}}
   return {output,duration};
 }
+// 자막 파일이 없을 때(자막이 화면에 새겨진 영상 등): 영상을 손대지 않고 그대로 보낸다. TV가 못 여는 코덱·포장이면 null.
+async function plain(video, signal) {
+  if (!video || !fs.statSync(video).isFile()) throw new Error('동영상 파일을 선택해 주세요.');
+  const info = JSON.parse(await run(findTool('ffprobe'),['-v','error','-show_entries','format=duration:stream=codec_type,codec_name','-of','json',video],{signal}));
+  const v = info.streams?.find(s => s.codec_type === 'video')?.codec_name, ext = path.extname(video).toLowerCase();
+  const mime = {'.mkv':'video/x-mkv','.mp4':'video/mp4','.m4v':'video/mp4'}[ext];
+  if (!mime || !['h264','hevc'].includes(v)) return null;
+  return {output:video,duration:Number(info.format?.duration) || 0,mime};
+}
 const FILE_FEATURES = 'DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000';
 let gpuOk;
 async function hasNvenc(ffmpeg) {
@@ -268,4 +277,4 @@ async function play(tv,url,signal,mime='video/mp4',duration=0,features='*') {
   signal?.throwIfAborted();
   await soap(tv,'Play',{InstanceID:0,Speed:1},signal);
 }
-module.exports = {xmlEscape,parseDevice,byteRange,mediaHandler,soap,addresses,discover,findTool,run,convert,prepare,remux,FILE_FEATURES,startLive,startMedia,play,smiToSrt};
+module.exports = {xmlEscape,parseDevice,byteRange,mediaHandler,soap,addresses,discover,findTool,run,convert,prepare,remux,plain,FILE_FEATURES,startLive,startMedia,play,smiToSrt};

@@ -50,7 +50,7 @@ async function cast(index,start=0) {
   if (state.busy || stopping) throw new Error('진행 중인 작업을 먼저 중지해 주세요.');
   const tv = state.devices[index];
   if (!tv) throw new Error('TV를 선택해 주세요.');
-  if (!state.video || !state.subtitle) throw new Error('동영상과 자막을 선택해 주세요.');
+  if (!state.video) throw new Error('동영상을 선택해 주세요.');
   lastIndex = index;
   stopping = false; controller = new AbortController();
   update({busy:true,phase:'자막 준비 중',progress:0,error:'',lastRead:null,offset:start,position:start,message:'자막을 입히면서 바로 TV로 보냅니다.'});
@@ -59,10 +59,11 @@ async function cast(index,start=0) {
     activeTV = null; closeMedia();
     update({message:'자막을 영상 파일에 넣고 있습니다.'});
     const onRead = (method,from) => update({lastRead:new Date().toISOString(),phase:'TV가 영상 받는 중',message:'TV의 영상 요청을 확인했습니다. 리모컨으로 넘길 수 있습니다.',...(from === undefined ? {} : {offset:from,position:from})});
-    const native = await core.remux(state.video,state.subtitle,cache,controller.signal);
+    const native = state.subtitle ? await core.remux(state.video,state.subtitle,cache,controller.signal) : await core.plain(state.video,controller.signal);
+    if (!native && !state.subtitle) throw new Error('자막 파일이 없고, TV가 이 영상을 그대로 열 수 없습니다. 자막을 골라 주세요.');
     if (native) {
-      media = await core.startMedia(native.output,tv.localAddress,onRead,'video/x-mkv');
-      Object.assign(media,{duration:native.duration,native:true});
+      media = await core.startMedia(native.output,tv.localAddress,onRead,native.mime || 'video/x-mkv');
+      Object.assign(media,{duration:native.duration,native:true,mime:native.mime || 'video/x-mkv'});
       update({offset:0});
     } else {
       update({message:'TV가 직접 못 여는 영상이라 자막을 입히면서 보냅니다(넘기기 시 다시 시작).'});
@@ -73,7 +74,7 @@ async function cast(index,start=0) {
     update({phase:'TV로 보내는 중',message:'TV의 재생 명령 응답을 기다리고 있습니다.'});
     controller.signal.throwIfAborted();
     activeTV = tv;
-    await core.play(tv,media.url,controller.signal,media.native ? 'video/x-mkv' : 'video/mpeg',media.duration,media.native ? core.FILE_FEATURES : '*');
+    await core.play(tv,media.url,controller.signal,media.native ? media.mime : 'video/mpeg',media.duration,media.native ? core.FILE_FEATURES : '*');
     if (media.native && start > 0) await core.soap(tv,'Seek',{InstanceID:0,Unit:'REL_TIME',Target:hms(start)},controller.signal).catch(() => {});
     if (stopping) return;
     keepAwake(true);
@@ -158,7 +159,6 @@ async function autoStart(arg) {
     const subs = fs.readdirSync(dir).filter(n => n.toLowerCase().startsWith(base) && /\.(srt|smi|ass|ssa|vtt)$/i.test(n))
       .map(n => ({file:path.join(dir,n),size:fs.statSync(path.join(dir,n)).size})).sort((a,b) => b.size-a.size);
     update({video:file,subtitle:subs[0]?.file || ''});
-    if (!subs.length) return update({phase:'자막 없음',message:'같은 이름의 자막 파일이 없습니다. 자막 선택 버튼으로 골라 주세요.'});
     update({busy:true,phase:'TV 찾는 중',error:''});
     let result;
     try {result = await core.discover();} finally {update({busy:false});}
