@@ -141,7 +141,9 @@ const server = http.createServer(async (req,res) => {
       const to = input.to !== undefined ? Number(input.to) : state.position + Number(input.delta);
       if (!Number.isFinite(to)) throw new Error('이동할 위치가 올바르지 않습니다.');
       const target = Math.max(0,Math.min(to,Math.max(0,state.duration - 5)));
-      if (media.native) {await core.soap(activeTV,'Seek',{InstanceID:0,Unit:'REL_TIME',Target:hms(target)}); update({position:target}); return json(res,{ok:true,target});}
+      // LG는 일시정지 중엔 Seek 를 500 Action Failed 로 거절한다 → 재생을 건 뒤 한 번 더 보낸다.
+      const seek = () => core.soap(activeTV,'Seek',{InstanceID:0,Unit:'REL_TIME',Target:hms(target)});
+      if (media.native) {await seek().catch(async () => {await core.soap(activeTV,'Play',{InstanceID:0,Speed:1}); await new Promise(r => setTimeout(r,1500)); await seek();}); update({position:target}); return json(res,{ok:true,target});}
       castJob = cast(lastIndex,target); void castJob.catch(e => update({phase:'오류',error:e.message}));
       return json(res,{ok:true,target});
     }
