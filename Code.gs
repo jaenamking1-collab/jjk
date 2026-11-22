@@ -4020,6 +4020,36 @@ function _logSent(via, ok, text) {
     if (sh.getLastRow() > 501) sh.deleteRows(502, sh.getLastRow() - 501);   // 최근 500건만
   } catch (e) { console.log('발송기록 실패 — ' + e); }
 }
+// 발송기록이 생기기 전에 텔레그램으로 간 메시지를 되읽는다(봇은 대화 기록을 못 읽으므로 '전달'해서 원문을 받고, 전달본은 바로 지운다).
+// 결과는 공개 Actions 로그가 아니라 발송기록 시트에 '복원'으로 적는다. arg = 며칠 전까지(기본 1 = 어제 0시부터).
+function _tgReadBack(arg) {
+  const pr = PropertiesService.getScriptProperties(), token = pr.getProperty('TELEGRAM_TOKEN'), chat = pr.getProperty('TELEGRAM_CHAT');
+  if (!token || !chat) { console.log('텔레그램 설정 없음'); return; }
+  const api = 'https://api.telegram.org/bot' + token + '/';
+  const call = (m, p) => JSON.parse(UrlFetchApp.fetch(api + m, { method: 'post', muteHttpExceptions: true, payload: p }).getContentText() || '{}');
+  const probe = call('sendMessage', { chat_id: chat, text: '.', disable_notification: 'true' });
+  if (!probe.ok) { console.log('시험 발송 실패 ' + probe.description); return; }
+  call('deleteMessage', { chat_id: chat, message_id: probe.result.message_id });
+  const since = new Date(Utilities.formatDate(new Date(Date.now() - (Number(arg) || 1) * 864e5), 'Asia/Seoul', 'yyyy-MM-dd') + 'T00:00:00+09:00').getTime() / 1000;
+  const got = [];
+  for (let id = probe.result.message_id - 1, miss = 0; id > 0 && miss < 15 && got.length < 40; id--) {
+    const f = call('forwardMessage', { chat_id: chat, from_chat_id: chat, message_id: id, disable_notification: 'true' });
+    if (!f.ok) { miss++; continue; }
+    miss = 0;
+    call('deleteMessage', { chat_id: chat, message_id: f.result.message_id });
+    const when = f.result.forward_date || f.result.date;
+    if (when < since) break;
+    if (f.result.forward_from && !f.result.forward_from.is_bot) continue;   // 사용자가 봇에 보낸 말은 건너뛴다
+    got.push([Utilities.formatDate(new Date(when * 1000), 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss'), '텔레그램(복원)', '성공', f.result.text || '(글 없음)']);
+  }
+  if (got.length) {
+    const sh = SpreadsheetApp.openById(SENT_LOG_SHEET_ID).getSheets()[0];
+    const have = new Set(sh.getDataRange().getValues().map(r => String(r[3])));
+    const add = got.filter(r => !have.has(r[3]));
+    if (add.length) { sh.insertRowsAfter(1, add.length); sh.getRange(2, 1, add.length, 4).setValues(add); sh.getRange(2, 1, sh.getLastRow() - 1, 4).sort({ column: 1, ascending: false }); }
+  }
+  console.log('되읽은 메시지 ' + got.length + '건 → 발송기록 시트');   // 원문은 공개 로그에 찍지 않는다
+}
 function sendKakaoMemo(text) {
   const ok = _sendKakaoMemo(text);
   _logSent(ok === 'tg' ? '텔레그램' : '카카오톡', !!ok, text);
