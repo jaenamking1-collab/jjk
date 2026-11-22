@@ -4040,7 +4040,7 @@ function _tgReadBack(arg) {
     const when = f.result.forward_date || f.result.date;
     if (when < since) break;
     if (f.result.forward_from && !f.result.forward_from.is_bot) continue;   // 사용자가 봇에 보낸 말은 건너뛴다
-    got.push([Utilities.formatDate(new Date(when * 1000), 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss'), '텔레그램(복원)', '성공', f.result.text || '(글 없음)']);
+    got.push([Utilities.formatDate(new Date(when * 1000), 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss'), '텔레그램(복원)', '성공', (f.result.text || '(글 없음)').replace(/\n?https:\/\/jjk\.distributionjn\.workers\.dev\/$/, '')]);   // 붙는 링크를 떼야 발송기록 원문과 겹침 판정이 맞는다
   }
   if (got.length) {
     const sh = SpreadsheetApp.openById(SENT_LOG_SHEET_ID).getSheets()[0];
