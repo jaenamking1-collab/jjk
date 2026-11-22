@@ -4009,8 +4009,24 @@ function _telegramTestOnce() {
   else if (pr.getProperty('TELEGRAM_LAST_WHY') !== _tgWhy) { pr.setProperty('TELEGRAM_LAST_WHY', _tgWhy); _fixLog('텔레그램 시험 발송 실패 — ' + _tgWhy); }   // 이유가 바뀔 때만(5분마다 같은 줄 쌓지 않게)
 }
 
+// 보낸 알림 원문을 비공개 시트 'jjk 알림 발송기록'에 맨 위로 쌓는다(2026-11-23 사용자: "아침에 날아온 텔레그램 확인" —
+// 봇은 보낸 메시지를 다시 못 읽고 학교 망은 텔레그램을 막아, 원문이 어디에도 없었다). 에이전트는 드라이브 커넥터로 읽는다.
+const SENT_LOG_SHEET_ID = '1QPiIeAgr8-HQOUs_aWtC221gL94LBp8i9lO5H4X3Leg';
+function _logSent(via, ok, text) {
+  try {
+    const sh = SpreadsheetApp.openById(SENT_LOG_SHEET_ID).getSheets()[0];
+    sh.insertRowAfter(1);
+    sh.getRange(2, 1, 1, 4).setValues([[Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss'), via, ok ? '성공' : '실패', String(text).slice(0, 3500)]]);
+    if (sh.getLastRow() > 501) sh.deleteRows(502, sh.getLastRow() - 501);   // 최근 500건만
+  } catch (e) { console.log('발송기록 실패 — ' + e); }
+}
 function sendKakaoMemo(text) {
-  try { if (_sendTelegram(text)) return true; } catch (e) { console.log('텔레그램 실패 — ' + e); }
+  const ok = _sendKakaoMemo(text);
+  _logSent(ok === 'tg' ? '텔레그램' : '카카오톡', !!ok, text);
+  return !!ok;
+}
+function _sendKakaoMemo(text) {
+  try { if (_sendTelegram(text)) return 'tg'; } catch (e) { console.log('텔레그램 실패 — ' + e); }
   const token = _kakaoAccessToken();
   const template = {
     object_type: 'text',
