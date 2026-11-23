@@ -3666,7 +3666,10 @@ function _addAlert(sheet, source, kind, message, level, oncePerDay) {
     for (const r of rows) {
       if (r[1] !== source || r[2] !== kind || r[5] === '확인') continue;
       if (r[3] === message) return false;                                   // 완전히 같은 알림
-      if (oncePerDay && String(r[0] || '').slice(0, 10) === today) return false;  // 오늘 같은 종류를 이미 냈다
+      // 시트가 '시각' 칸을 날짜로 바꿔 저장하므로 Date 면 다시 글자로 맞춘다(2026-11-23: 문자열로만 비교해
+      // 'Mon Nov 23' ≠ '2026-11-23' → 하루 한 번 장치가 안 먹어 KODEX 회차 미상 4→52→76건이 세 번 왔다).
+      const d0 = r[0] instanceof Date ? Utilities.formatDate(r[0], 'Asia/Seoul', 'yyyy-MM-dd') : String(r[0] || '').slice(0, 10);
+      if (oncePerDay && d0 === today) return false;  // 오늘 같은 종류를 이미 냈다
     }
   }
   sheet.appendRow([now, source, kind, message, level || '정보', '신규']);
