@@ -147,6 +147,11 @@
             "type": "command",
             "command": "node .claude/hooks/design-skill.js",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node .claude/hooks/sent-alerts.js",
+            "timeout": 10
           }
         ]
       }
