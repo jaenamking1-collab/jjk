@@ -3753,7 +3753,7 @@ function checkAndLogAlerts() {
         kakaoMsgs.push(`⚠️ ${label} 자사 파서 실패(뉴스 우회)`);
       // 월중/월말 어디에도 분류 안 된 항목 → 달력·일정표에서 누락됨.
       // ⚠️ oncePerDay: 건수가 4→3→5 로 흔들려도 하루 한 번만 알린다.
-      const noCyc = (result.items || []).filter(it => !it.cycle || it.cycle === '?').length;
+      const noCyc = (result.items || []).filter(it => !it.hist && (!it.cycle || it.cycle === '?')).length;  // 지난 회차 이력은 달력과 무관(2026-11-23 KODEX 이력 4건)
       if (noCyc && _addAlert(logSheet, label, '파싱경고', `${label} 회차 미상 ${noCyc}건 — 월중/월말 분류 안 됨, 달력 누락 가능`, '경고', true))
         kakaoMsgs.push(`⚠️ ${label} 회차 미상 ${noCyc}건`);
       // 공지는 읽었는데 기준일·지급일이 빈 항목 → 달력에 '?'(예정)로만 뜬다. 공지 모양이 바뀐 신호다
