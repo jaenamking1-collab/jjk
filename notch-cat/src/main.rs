@@ -3486,7 +3486,7 @@ impl App {
         let cw = mid - cx - 14.0;
         g.text("휴대폰 카메라로 QR 을 찍으세요", &g.f_lyric, cx, 52.0, r - cx - 110.0, FG, a, Align::Left);
         let left = sd.left().as_secs();
-        g.text(&format!("{}분 동안 안 쓰면 닫힘 · 처음 한 번 윈도우 '허용'", (left + 59) / 60), &g.f_tiny, cx, 78.0, r - cx, FG, a * 0.45, Align::Left);
+        g.text(&format!("{} · {}분 쉬면 닫힘 · 처음 한 번 윈도우 '허용'", sd.url, (left + 59) / 60), &g.f_tiny, cx, 78.0, r - cx, FG, a * 0.45, Align::Left);
         g.text(&format!("PC → 휴대폰  {}", sd.out.len()), &g.f_bar, cx, 102.0, cw, LIME, a, Align::Left);
         if sd.out.is_empty() {
             g.para("여기로 파일을 끌어다 놓으면\n휴대폰 화면에 받기 단추가 생깁니다", &g.f_tiny, cx, 124.0, cw, FG, a * 0.5);
