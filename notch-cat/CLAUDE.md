@@ -9,3 +9,4 @@
 - 편집기 상태 확인: `NOTCH_CAT_EDDUMP=<파일>` 이면 편집 창이 그릴 때마다 상태(도구·글자 칸·단추 위치·되돌리기 수·글자 인식 선택)를 json 으로 적는다. `NOTCH_CAT_CLIPOPEN=<숫자>` 는 그 칸을 펼친다.
 - 구글 비밀값을 붙여 넣으면 끝 줄바꿈이 따라 들어갈 수 있다 → `gcal::client()` 가 trim 한다(invalid_client 의 원인이었다).
 - 새 판 스스로 받기(update.rs, 2026-11-17): 설치본은 켜고 1분 뒤·6시간마다 릴리스 지문과 비교해 스스로 바꾼다. 시험판은 이름을 NotchTest.exe 로 하거나 NOTCH_CAT_* 변수를 주면 건너뛴다 — NotchCat.exe 이름으로 target 밖에서 켜면 릴리스 판으로 바뀐다.
+- 파일 전송 쪽(xfer.rs, 쪽 번호 8, 2026-11-23): 쪽을 펼치면 와이파이 창구를 열고 QR 을 띄운다. 휴대폰 웹 화면에서 올린 파일은 `%USERPROFILE%\Downloads`, 이 쪽에 끌어다 놓은 파일은 휴대폰에서 받기. 10분 쉬면 닫힘. 시험은 `NOTCH_CAT_PAGE=8 NOTCH_CAT_XFERLOCAL=1`(이 PC 안에서만 열어 방화벽을 안 건드림).
