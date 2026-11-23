@@ -7,6 +7,8 @@ termux-wake-lock 2>/dev/null
 while true; do
   h=$(date +%H | sed 's/^0//')
   if [ "$h" -ge 9 ] && [ "$h" -le 18 ]; then
+    git rebase --abort 2>/dev/null
+    git fetch -q origin && git reset -q --hard origin/main
     python tools/tiger_relay.py
     date '+%Y-%m-%d %H:%M 탭 중계 살아있음' > tab_alive.txt
     git add tab_alive.txt

@@ -29,6 +29,10 @@ button{font-size:22px;padding:12px 24px;margin:6px 0 22px;border:0;border-radius
 <pre id="c5">cd ~/jjk && git status --short | head -5; git remote get-url origin | wc -c; python tools/tiger_relay.py --force; tail -3 tools/tiger_relay.log</pre>
 <button onclick="cp('c5',this)">복사</button>
 <p>붙여넣고 엔터. 마지막에 나오는 3줄을 알려 주세요(또는 화면을 찍어 주세요).</p>
+<h3>8. 정리하고 다시 돌리기</h3>
+<pre id="c7">cd ~/jjk && pkill -f tab_loop.sh; git rebase --abort 2>/dev/null; git stash clear; git fetch -q origin && git reset -q --hard origin/main && (nohup sh tools/tab_loop.sh >/dev/null 2>&1 &); sleep 2; git status --short | head -3; ps -ef | grep -c "[t]ab_loop"</pre>
+<button onclick="cp('c7',this)">복사</button>
+<p>붙여넣고 엔터. 마지막 숫자 1이면 돌고 있는 것입니다. (7번은 이미 했으니 건너뛰세요)</p>
 <h3>7. 자동으로 돌리기</h3>
 <p>먼저 한 번만: 탭 설정 → 앱 → Termux → 배터리 → <b>제한 없음</b>.</p>
 <pre id="c6">cd ~/jjk && git pull -q --rebase --autostash && (nohup sh tools/tab_loop.sh >/dev/null 2>&1 &) ; sleep 2; ps -ef | grep -c "[t]ab_loop"</pre>
