@@ -14,6 +14,10 @@ button{font-size:22px;padding:12px 24px;margin:6px 0 22px;border:0;border-radius
 <pre id="c2">apt update && apt full-upgrade -y -o Dpkg::Options::=--force-confnew</pre>
 <button onclick="cp('c2',this)">복사</button>
 <p>붙여넣고 엔터. 끝나면 위 1번을 다시 한 번 복사해 실행하세요.</p>
+<h3>3. 프로그램 받고 읽기 시험</h3>
+<pre id="c3">pkg install -y python git && git clone --depth 1 https://github.com/jaenamking1-collab/jjk ~/jjk && cd ~/jjk/tools && python -c "import tiger_relay as t;i=t.fetch_list();print(len(i),i[0]['date'])"</pre>
+<button onclick="cp('c3',this)">복사</button>
+<p>붙여넣고 엔터. 끝에 나오는 숫자 두 개를 알려 주세요.</p>
 <script>
 function cp(id,b){var t=document.getElementById(id).textContent;
  (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){b.textContent='복사됨'},function(){
