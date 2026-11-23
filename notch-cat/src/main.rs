@@ -866,6 +866,7 @@ enum Hit {
     XferGot(usize),   // 파일 전송: 받은 파일 열기
     XferOut(usize),   // 〃 내놓은 파일 빼기
     XferFolder,       // 〃 다운로드 폴더 열기
+    XferMode(bool),   // 〃 QR 고르기(true 인터넷 중계, false 같은 와이파이)
     Shuffle,
     Repeat,
     Queue,        // 다음 곡 목록 열고 닫기
@@ -946,6 +947,7 @@ struct App {
     xfer: xfer::State,                    // 파일 전송 쪽 창구(휴대폰 ↔ PC)
     xfer_got: usize,                      // 알림 띄운 받은 파일 수
     xfer_fail: Option<Instant>,           // 창구를 못 연 때(10초 뒤 다시)
+    xfer_net: bool,                       // QR 을 인터넷 중계로(아니면 같은 와이파이)
     trim: Option<TrimDoc>,  // 영상 자르기: 고른 영상
     trim_recent: Vec<PathBuf>, // 최근 녹화(쪽을 열 때 읽는다)
     trim_bmp: Option<(f64, ID2D1Bitmap)>, // 고른 손잡이 자리 장면(때, 그림)
@@ -3423,10 +3425,16 @@ impl App {
             return;
         }
         let lan = std::env::var("NOTCH_CAT_XFERLOCAL").is_err(); // 시험용: 이 PC 안에서만
-        match xfer::start(lan, xfer::downloads(), self.xfer.clone()) {
+        let relay = lan || std::env::var("NOTCH_CAT_RELAY").is_ok(); // 인터넷 중계(Cloudflare)
+        match xfer::start(lan, relay, xfer::downloads(), self.xfer.clone()) {
             Ok(()) => {
                 self.xfer_fail = None;
                 log("xfer: 창구 열림");
+                if let Ok(f) = std::env::var("NOTCH_CAT_XFEROUT") {
+                    if let Some(x) = self.xfer.lock().unwrap().as_mut() {
+                        x.add(&[f]); // 시험용: 끌어다 놓은 셈 치는 파일
+                    }
+                }
             }
             Err(e) => {
                 self.xfer_fail = Some(Instant::now());
@@ -3450,7 +3458,7 @@ impl App {
         let (l, r) = (x + 24.0, x + w - 24.0);
         let mut hits: Vec<([f32; 4], Hit)> = Vec::new();
         g.text("파일 전송", &g.f_sub, l, 22.0, 300.0, FG, a, Align::Left);
-        g.text("같은 와이파이의 휴대폰 ↔ PC · 앱 설치 없음", &g.f_tiny, l, 26.0, r - l, FG, a * 0.4, Align::Right);
+        g.text("휴대폰 ↔ PC · 앱 설치 없음", &g.f_tiny, l, 26.0, r - l, FG, a * 0.4, Align::Right);
         if self.drag_in {
             let zone = [l - 6.0, 46.0, r + 6.0, 234.0];
             let pulse = 0.5 + 0.5 * (self.born.elapsed().as_secs_f32() * 6.0).sin();
@@ -3466,8 +3474,23 @@ impl App {
             self.dirty = true;
             return;
         };
+        // 제목 옆: 인터넷 / 와이파이 고르기. 중계가 아직 안 열렸으면 와이파이 QR 을 보인다.
+        let net = self.xfer_net && sd.relay.is_some();
+        let mut cxp = l + 92.0;
+        for (lab, v) in [("어디서나 (인터넷)", true), ("같은 와이파이 (빠름)", false)] {
+            let cw = g.measure(lab, &g.f_tiny) + 20.0;
+            let b = [cxp, 20.0, cxp + cw, 40.0];
+            let on = net == v;
+            g.rrect(b[0], b[1], cw, 20.0, 10.0, if on { LIME } else { FG }, a * if on { 0.9 } else if over(b) { 0.18 } else { 0.08 });
+            g.text(lab, &g.f_tiny, b[0], b[1] + 3.0, cw, if on { BG } else { FG }, a * 0.9, Align::Center);
+            hits.push((b, Hit::XferMode(v)));
+            cxp += cw + 6.0;
+        }
+        let (url, q) = match (&sd.relay, net) {
+            (Some((u, q)), true) => (u.as_str(), q),
+            _ => (sd.url.as_str(), &sd.qr),
+        };
         // 왼쪽: QR
-        let q = &sd.qr;
         let n = q.len().max(1) as f32;
         let side = 176.0;
         let m = side / (n + 8.0);
@@ -3486,7 +3509,7 @@ impl App {
         let cw = mid - cx - 14.0;
         g.text("휴대폰 카메라로 QR 을 찍으세요", &g.f_lyric, cx, 52.0, r - cx - 110.0, FG, a, Align::Left);
         let left = sd.left().as_secs();
-        g.text(&format!("{} · {}분 쉬면 닫힘 · 처음 한 번 윈도우 '허용'", sd.url, (left + 59) / 60), &g.f_tiny, cx, 78.0, r - cx, FG, a * 0.45, Align::Left);
+        g.text(&if net { format!("{url} · 와이파이가 달라도 됨 · 파일 하나 95MB까지") } else { format!("{url} · {}분 쉬면 닫힘 · 처음 한 번 윈도우 '허용'", (left + 59) / 60) }, &g.f_tiny, cx, 78.0, r - cx, FG, a * 0.45, Align::Left);
         g.text(&format!("PC → 휴대폰  {}", sd.out.len()), &g.f_bar, cx, 102.0, cw, LIME, a, Align::Left);
         if sd.out.is_empty() {
             g.para("여기로 파일을 끌어다 놓으면\n휴대폰 화면에 받기 단추가 생깁니다", &g.f_tiny, cx, 124.0, cw, FG, a * 0.5);
@@ -4507,10 +4530,12 @@ impl App {
             }
             Hit::XferOut(k) => {
                 if let Some(x) = self.xfer.lock().unwrap().as_mut() {
-                    if k < x.out.len() {
-                        x.out.remove(k);
-                    }
+                    x.remove(k);
                 }
+                return self.tick();
+            }
+            Hit::XferMode(net) => {
+                self.xfer_net = net;
                 return self.tick();
             }
             Hit::XferFolder => {
@@ -4709,7 +4734,7 @@ impl App {
             Hit::Line(t) => Cmd::Seek(t as i64),
             Hit::Shuffle => Cmd::Shuffle,
             Hit::Repeat => Cmd::Repeat,
-            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::AiLogin(_) | Hit::AiOpen(_) | Hit::AiGuideClose | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSchool | Hit::EntSave | Hit::EntClose | Hit::SetOpen(_) | Hit::SetClose | Hit::SetChip(_) | Hit::SetOpt(_) | Hit::ClipItem(..) | Hit::ClipPin(_) | Hit::ClipUnpin(_) | Hit::ClipClear | Hit::ClipPage(_) | Hit::ShelfItem(_) | Hit::ShelfDel(_) | Hit::ShelfSend(_) | Hit::SendClose | Hit::XferGot(_) | Hit::XferOut(_) | Hit::XferFolder | Hit::Snap | Hit::Rec | Hit::ClipCopyOpen | Hit::ClipEdit | Hit::ClipFold | Hit::TrimPick | Hit::TrimRecent(_) | Hit::TrimBar(..) | Hit::TrimSel(_) | Hit::TrimNudge(..) | Hit::TrimSave | Hit::TrimOther => return,
+            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::AiLogin(_) | Hit::AiOpen(_) | Hit::AiGuideClose | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSchool | Hit::EntSave | Hit::EntClose | Hit::SetOpen(_) | Hit::SetClose | Hit::SetChip(_) | Hit::SetOpt(_) | Hit::ClipItem(..) | Hit::ClipPin(_) | Hit::ClipUnpin(_) | Hit::ClipClear | Hit::ClipPage(_) | Hit::ShelfItem(_) | Hit::ShelfDel(_) | Hit::ShelfSend(_) | Hit::SendClose | Hit::XferGot(_) | Hit::XferOut(_) | Hit::XferFolder | Hit::XferMode(_) | Hit::Snap | Hit::Rec | Hit::ClipCopyOpen | Hit::ClipEdit | Hit::ClipFold | Hit::TrimPick | Hit::TrimRecent(_) | Hit::TrimBar(..) | Hit::TrimSel(_) | Hit::TrimNudge(..) | Hit::TrimSave | Hit::TrimOther => return,
         };
         let _ = self.tx.send(cmd);
     }
@@ -4985,6 +5010,7 @@ unsafe fn run() -> Result<()> {
         xfer: Arc::new(Mutex::new(None)),
         xfer_got: 0,
         xfer_fail: None,
+        xfer_net: true,
         trim: None,
         trim_recent: Vec::new(),
         trim_bmp: None,

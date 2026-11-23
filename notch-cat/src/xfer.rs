@@ -19,6 +19,10 @@ pub struct Xfer {
     pub got: Vec<PathBuf>,     // 휴대폰 → PC(받은 파일, 최근 것이 앞)
     pub busy: Option<(String, u64, u64)>, // 지금 받는 중(이름, 받은 바이트, 전체)
     pub served: u32,           // 휴대폰이 받아 간 횟수
+    pub relay: Option<(String, Vec<Vec<bool>>)>, // 인터넷 중계 방 주소·QR(열렸으면)
+    rids: Vec<(PathBuf, u64)>, // 중계소에 올린 파일 → 그쪽 번호
+    rkey: String,
+    me: State,
     dir: PathBuf,
     stop: Arc<AtomicBool>,
 }
@@ -31,10 +35,27 @@ impl Xfer {
         for p in paths {
             let p = PathBuf::from(p);
             if p.is_file() && !self.out.contains(&p) {
-                self.out.insert(0, p);
+                self.out.insert(0, p.clone());
+                if !self.rkey.is_empty() && p.metadata().map_or(0, |m| m.len()) <= RELAY_LIMIT {
+                    let key = self.rkey.clone();
+                    let st = self.me.clone();
+                    std::thread::spawn(move || relay_put(&key, &p, st));
+                }
             }
         }
         self.until = Instant::now() + IDLE;
+    }
+    /// 내놓은 파일 k 를 뺀다(중계소에 올린 것도 지운다)
+    pub fn remove(&mut self, k: usize) {
+        if k >= self.out.len() {
+            return;
+        }
+        let p = self.out.remove(k);
+        if let Some(i) = self.rids.iter().position(|r| r.0 == p) {
+            let (_, id) = self.rids.remove(i);
+            let key = self.rkey.clone();
+            std::thread::spawn(move || curl(&["-X", "POST", &format!("{}/{key}/del/{id}", relay_base())]));
+        }
     }
 }
 
@@ -206,7 +227,7 @@ fn handle(mut c: TcpStream, key: &str, st: &State) {
 }
 
 /// 창구를 연다. lan = false 면 이 PC 안에서만(시험용). dir = 받은 파일을 둘 곳.
-pub fn start(lan: bool, dir: PathBuf, st: State) -> std::io::Result<()> {
+pub fn start(lan: bool, relay: bool, dir: PathBuf, st: State) -> std::io::Result<()> {
     let ip = if lan { crate::send::lan_ip().ok_or_else(|| std::io::Error::other("와이파이 주소 없음"))? } else { "127.0.0.1".into() };
     let l = TcpListener::bind((if lan { "0.0.0.0" } else { "127.0.0.1" }, 0))?;
     l.set_nonblocking(true)?;
@@ -215,7 +236,15 @@ pub fn start(lan: bool, dir: PathBuf, st: State) -> std::io::Result<()> {
     let url = format!("http://{ip}:{port}/{key}");
     let stop = Arc::new(AtomicBool::new(false));
     let keep = st.lock().unwrap().take().map(|x| x.out.clone()).unwrap_or_default(); // 다시 열어도 내놓은 파일은 그대로
-    *st.lock().unwrap() = Some(Xfer { qr: crate::send::qr(&url), url, until: Instant::now() + IDLE, out: keep, got: vec![], busy: None, served: 0, dir, stop: stop.clone() });
+    let rkey = if relay { crate::gcal::random(16).replace(['.', '~'], "_") } else { String::new() };
+    *st.lock().unwrap() = Some(Xfer { qr: crate::send::qr(&url), url, until: Instant::now() + IDLE, out: vec![], got: vec![], busy: None, served: 0, relay: None, rids: vec![], rkey: rkey.clone(), me: st.clone(), dir, stop: stop.clone() });
+    if relay {
+        let (st, stop) = (st.clone(), stop.clone());
+        std::thread::spawn(move || relay_loop(rkey, st, stop));
+    }
+    if let Some(x) = st.lock().unwrap().as_mut() {
+        x.add(&keep.iter().map(|p| p.display().to_string()).collect::<Vec<_>>());
+    }
     std::thread::spawn(move || {
         while !stop.load(Ordering::Relaxed) {
             if st.lock().unwrap().as_ref().map_or(true, |x| x.left().is_zero() && x.busy.is_none()) {
@@ -233,6 +262,90 @@ pub fn start(lan: bool, dir: PathBuf, st: State) -> std::io::Result<()> {
         }
     });
     Ok(())
+}
+
+// ── 인터넷 중계(Cloudflare, workers/notch-drop). 와이파이가 달라도 된다. ──
+
+pub const RELAY_LIMIT: u64 = 95 * 1024 * 1024;
+
+/// 중계소 주소. NOTCH_CAT_RELAY 로 바꿀 수 있다(시험용·나중에 집 서버로 옮길 때).
+pub fn relay_base() -> String {
+    std::env::var("NOTCH_CAT_RELAY").unwrap_or_else(|_| "https://notch-drop.distributionjn.workers.dev".into())
+}
+
+/// 윈도우에 들어 있는 curl 로 요청한다(창 없이). (상태 코드, 받은 글)
+fn curl(args: &[&str]) -> Option<(u16, String)> {
+    use std::os::windows::process::CommandExt;
+    let o = std::process::Command::new("curl.exe").args(["-s", "-m", "900", "-w", "\n%{http_code}"]).args(args).creation_flags(0x0800_0000).output().ok()?;
+    let t = String::from_utf8_lossy(&o.stdout).into_owned();
+    let (body, code) = t.rsplit_once('\n')?;
+    Some((code.trim().parse().ok()?, body.to_string()))
+}
+
+fn relay_put(key: &str, p: &Path, st: State) {
+    let name = p.file_name().map_or("file".into(), |n| n.to_string_lossy().into_owned());
+    let url = format!("{}/{key}/put?n={}", relay_base(), crate::gcal::enc(&name));
+    let at = format!("@{}", p.display());
+    match curl(&["-X", "POST", "-H", "Content-Type: application/octet-stream", "--data-binary", &at, &url]) {
+        Some((200, b)) => {
+            let id = serde_json::from_str::<serde_json::Value>(&b).ok().and_then(|v| v["id"].as_u64());
+            if let (Some(id), Some(x)) = (id, st.lock().unwrap().as_mut()) {
+                x.rids.push((p.to_path_buf(), id));
+            }
+        }
+        r => crate::log(&format!("xfer: 중계 올리기 실패 {:?}", r.map(|r| r.0))),
+    }
+}
+
+fn relay_loop(key: String, st: State, stop: Arc<AtomicBool>) {
+    let base = relay_base();
+    let open = curl(&["-X", "POST", &format!("{base}/{key}/open")]);
+    if open.as_ref().map(|r| r.0) != Some(200) {
+        crate::log(&format!("xfer: 중계 못 엶 {:?}", open.map(|r| r.0)));
+        return;
+    }
+    let url = format!("{base}/{key}");
+    if let Some(x) = st.lock().unwrap().as_mut() {
+        x.relay = Some((url.clone(), crate::send::qr(&url)));
+    }
+    crate::log("xfer: 중계 열림");
+    while !stop.load(Ordering::Relaxed) {
+        // 휴대폰이 올린 파일을 받아 다운로드 폴더에 둔다
+        if let Some((200, b)) = curl(&[&format!("{url}/inbox")]) {
+            let items: Vec<serde_json::Value> = serde_json::from_str(&b).unwrap_or_default();
+            for it in items {
+                let (Some(id), Some(raw)) = (it["id"].as_u64(), it["name"].as_str()) else { continue };
+                let name = safe_name(raw);
+                let Some(dir) = st.lock().unwrap().as_mut().map(|x| {
+                    x.busy = Some((name.clone(), 0, it["size"].as_u64().unwrap_or(0)));
+                    x.until = Instant::now() + IDLE;
+                    x.dir.clone()
+                }) else { return };
+                let _ = std::fs::create_dir_all(&dir);
+                let dest = unique(&dir, &name);
+                let part = dest.with_file_name(format!("{}.받는중", dest.file_name().unwrap().to_string_lossy()));
+                let ok = curl(&["-o", &part.display().to_string(), &format!("{url}/take/{id}")]).is_some_and(|r| r.0 == 200) && std::fs::rename(&part, &dest).is_ok();
+                if let Some(x) = st.lock().unwrap().as_mut() {
+                    x.busy = None;
+                }
+                if ok {
+                    curl(&["-X", "POST", &format!("{url}/took/{id}")]);
+                    crate::log("xfer: 중계로 휴대폰에서 받음");
+                    if let Some(x) = st.lock().unwrap().as_mut() {
+                        x.got.insert(0, dest);
+                    }
+                } else {
+                    let _ = std::fs::remove_file(&part);
+                }
+            }
+        }
+        for _ in 0..20 {
+            if stop.load(Ordering::Relaxed) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(150));
+        }
+    }
 }
 
 const PAGE: &str = r##"<!doctype html><html lang="ko"><head><meta charset="utf-8">
@@ -303,7 +416,7 @@ mod tests {
         let src = dir.join("PC 파일.txt");
         std::fs::write(&src, "PC 에서 폰으로").unwrap();
         let st: State = Arc::new(Mutex::new(None));
-        start(false, dir.join("받음"), st.clone()).unwrap();
+        start(false, false, dir.join("받음"), st.clone()).unwrap();
         st.lock().unwrap().as_mut().unwrap().add(&[src.display().to_string()]);
         let url = st.lock().unwrap().as_ref().unwrap().url.clone();
         // 화면
