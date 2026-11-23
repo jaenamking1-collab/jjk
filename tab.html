@@ -26,7 +26,7 @@ button{font-size:22px;padding:12px 24px;margin:6px 0 22px;border:0;border-radius
 <button onclick="cp('c4',this)">복사</button>
 <p>Termux에 붙여넣고 엔터 → "열쇠 붙여넣기:" 가 뜨면 방금 복사한 열쇠를 길게 눌러 붙여넣고 엔터. 글자는 안 보이는 게 정상입니다.</p>
 <h3>6. 올리기 시험</h3>
-<pre id="c5">cd ~/jjk && git pull -q --rebase && python tools/tiger_relay.py --force; tail -3 tools/tiger_relay.log</pre>
+<pre id="c5">cd ~/jjk && git status --short | head -5; git remote get-url origin | wc -c; python tools/tiger_relay.py --force; tail -3 tools/tiger_relay.log</pre>
 <button onclick="cp('c5',this)">복사</button>
 <p>붙여넣고 엔터. 마지막에 나오는 3줄을 알려 주세요(또는 화면을 찍어 주세요).</p>
 <script>
