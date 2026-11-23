@@ -7,7 +7,9 @@ set "URL=https://github.com/jaenamking1-collab/jjk/releases/download/notch/Notch
 if not exist "%DIR%" mkdir "%DIR%"
 echo 노치 고양이 최신판을 받는 중...
 curl -sSfL -o "%DIR%\NotchCat.new" "%URL%"
-if errorlevel 1 (
+rem 학교망은 윈도우 curl 의 GitHub 받기를 끊는다(2026-11-23) - 그때는 파워셸로 다시 받는다
+if errorlevel 1 powershell -NoProfile -Command "Invoke-WebRequest -UseBasicParsing -Uri '%URL%' -OutFile '%DIR%\NotchCat.new'"
+if not exist "%DIR%\NotchCat.new" (
   echo 받기에 실패했습니다. 인터넷 연결을 확인한 뒤 다시 눌러 주세요.
   pause
   exit /b 1
