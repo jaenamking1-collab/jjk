@@ -47,3 +47,4 @@ Writes (`apiPost`): `addAccount` / `updateAccount` / `deleteAccount`, `addHoldin
 - 사용자가 "텔레그램/카톡 온 거 확인해"라고 하면 **추측하지 말고** 드라이브 커넥터로 비공개 시트 `jjk 알림 발송기록`(`SENT_LOG_SHEET_ID`, 맨 위가 최신)을 읽는다. `sendKakaoMemo` 가 보내는 모든 알림의 시각·통로·성공·원문이 남는다(최근 500건).
 - ⛔ **알림을 보내는 곳은 `Code.gs` 만이 아니다.** `smoke-ticker`·`smoke-public` 같은 GitHub Actions 도 `sendKakaoMemo` 를 부르고, 그 실행 로그에 보낸 문장이 그대로 찍힌다. 그 시각에 실패한 Actions 실행부터 읽어라(2026-11-23 05:01 휴대폰 시세 경고가 이랬다 — 로그로 바로 읽을 수 있었는데 텔레그램 쪽에서 찾느라 돌아갔다).
 - 봇은 자기가 보낸 메시지를 다시 못 읽고, 학교 망은 telegram.org 를 막는다 — 이 시트가 유일한 원문이다. 2026-11-23 이걸 몰라 "아마 월요일 정기 메시지일 것"이라 추측으로 답했다가 지적받았다.
+- ⛔ **시트에서 읽은 '시각' 칸은 Date 다 — `String(r[0]).slice(0,10)` 로 날짜 비교하지 마라**(2026-11-23). `appendRow` 로 넣은 `yyyy-MM-dd HH:mm` 글자를 시트가 날짜로 바꿔 `Mon Nov 23…` 으로 돌아온다. 그래서 `_addAlert` 의 하루 한 번 장치가 처음부터 안 먹어 'KODEX 회차 미상' 이 건수 바뀔 때마다 왔다. `Utilities.formatDate` 로 맞춰 비교한다.
