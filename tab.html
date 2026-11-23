@@ -18,6 +18,13 @@ button{font-size:22px;padding:12px 24px;margin:6px 0 22px;border:0;border-radius
 <pre id="c3">pkg install -y python git && git clone --depth 1 https://github.com/jaenamking1-collab/jjk ~/jjk && cd ~/jjk/tools && python -c "import tiger_relay as t;i=t.fetch_list();print(len(i),i[0]['date'])"</pre>
 <button onclick="cp('c3',this)">복사</button>
 <p>붙여넣고 엔터. 끝에 나오는 숫자 두 개를 알려 주세요.</p>
+<h3>4. 올리는 열쇠 만들기</h3>
+<p><a href="https://github.com/settings/personal-access-tokens/new?name=tablet-relay&amp;description=tablet+relay+push+only&amp;expires_in=365&amp;contents=write" style="font-size:22px">여기를 눌러 열기</a></p>
+<p>열리면 이것만 확인하세요.<br>① Repository access → <b>Only select repositories</b> → <b>jjk</b> 하나만 고름<br>② 맨 아래 <b>Generate token</b> 누름<br>③ 나온 긴 글자(github_pat_로 시작)를 <b>복사</b> (이 화면을 벗어나면 다시 못 봅니다)</p>
+<h3>5. 열쇠 넣기</h3>
+<pre id="c4">cd ~/jjk && git config user.name jaenamking1-collab && git config user.email jaenamking1-collab@users.noreply.github.com && read -rsp "열쇠 붙여넣기: " T && git remote set-url origin https://jaenamking1-collab:$T@github.com/jaenamking1-collab/jjk.git && unset T && echo 넣음</pre>
+<button onclick="cp('c4',this)">복사</button>
+<p>Termux에 붙여넣고 엔터 → "열쇠 붙여넣기:" 가 뜨면 방금 복사한 열쇠를 길게 눌러 붙여넣고 엔터. 글자는 안 보이는 게 정상입니다.</p>
 <script>
 function cp(id,b){var t=document.getElementById(id).textContent;
  (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){b.textContent='복사됨'},function(){
