@@ -2219,7 +2219,10 @@ function fetchDist_kodex_api() {
     const items = [];
     Object.keys(byTicker).forEach(ticker => {
       const it = byTicker[ticker];
-      items.push({ name: it.fNm || '', ticker, amount: Number(it.dividA), rate: it.dividY != null ? Math.round(Number(it.dividY)*100)/100 : null, sched: { '기준일': ymd(it.basicD), '지급일': ymd(it.payD) } });
+      // 회차는 기준일의 '일'로 정한다(20일 이하=월중) — 다른 운용사와 같은 규칙. 예전엔 비워 둬서 공지 파싱이
+      // 실패해 이 길로 오면 전 종목이 '회차 미상'이 됐다(2026-11-23 76건, 달력 누락).
+      const bd = it.basicD ? parseInt(String(it.basicD).substr(6,2), 10) : 0;
+      items.push({ name: it.fNm || '', ticker, amount: Number(it.dividA), rate: it.dividY != null ? Math.round(Number(it.dividY)*100)/100 : null, cycle: bd ? (bd <= 20 ? '월중' : '월말') : '', sched: { '기준일': ymd(it.basicD), '지급일': ymd(it.payD) } });
     });
     if (!items.length) return { items: [], error: 'KODEX: API 결과 없음' };
     const cnt = {};
