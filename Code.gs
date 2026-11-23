@@ -58,7 +58,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr', '_diagOcrText',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_probeTiger', '_probeTigerKind', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', '_addExtDepSheet', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp', '_syncDivRates', '_fillPastDivFromApp', 'setKrwCost', 'aptRefresh', '_molitKeyOnce', '_diagApt', '_aptHistory', '_aptGeoBackfill', '_exaoneKeyOnce', '_exaoneTest', '_exaoneNoticeTest', '_exaoneTigerTest', '_exaoneFallbackTest', '_tigerAiFill', '_deleteNoticeEvents', '_tgReadBack'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_probeTiger', '_probeTigerKind', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', '_addExtDepSheet', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp', '_syncDivRates', '_fillPastDivFromApp', 'setKrwCost', 'aptRefresh', '_molitKeyOnce', '_diagApt', '_aptHistory', '_aptGeoBackfill', '_exaoneKeyOnce', '_exaoneTest', '_exaoneNoticeTest', '_exaoneTigerTest', '_exaoneFallbackTest', '_tigerAiFill', '_deleteNoticeEvents', '_tgReadBack', '_testMail'
 ];
 
 function runMaint(name, arg) {
@@ -656,8 +656,7 @@ function sendMaturityAlerts() {
     const key = s.id + '|' + s.mat_date + '|' + bucket; // 만기일 포함 → 재예치 시 새 회차로 재알림
     if (sent[key]) return;
     const subject = '[만기알림][' + (s.name || '이름없음') + '][' + bucket + ']';
-    MailApp.sendEmail({ to: to, subject: subject, body: _matAlertBody(s, days, bucket) });
-    _logSent('메일', true, subject);
+    _sendMail(to, subject, _matAlertBody(s, days, bucket));
     sent[key] = new Date().toISOString();
     outbox.push(subject);
   });
@@ -4051,6 +4050,13 @@ function _tgReadBack(arg) {
   }
   console.log('되읽은 메시지 ' + got.length + '건 → 발송기록 시트');   // 원문은 공개 로그에 찍지 않는다
 }
+// 메일도 한 길로 — 보낸 제목·본문이 발송기록에 남는다. 실패하면 기록하고 예외를 그대로 던진다(호출부 처리 유지).
+function _sendMail(to, subject, body) {
+  try { MailApp.sendEmail(to, subject, body); }
+  catch (e) { _logSent('메일', false, subject + '\n' + e); throw e; }
+  _logSent('메일', true, subject + '\n' + body);
+}
+function _testMail() { _sendMail(Session.getEffectiveUser().getEmail(), '[시험] jjk 메일 발송기록 확인', '이 메일이 오고 발송기록 시트 맨 위에 같은 제목이 있으면 정상입니다.'); console.log('시험 메일 발송'); }
 function sendKakaoMemo(text) {
   const ok = _sendKakaoMemo(text);
   _logSent(ok === 'tg' ? '텔레그램' : '카카오톡', !!ok, text);
@@ -4405,11 +4411,10 @@ function distWatchdog() {
         + ' _diagSendNow() 로 실제 발송을 시험하세요.'
         + '\n앱: ' + _NOTICE_PAGE_URL + '  /  ' + _PHONE_APP_URL;
       try {
-        MailApp.sendEmail(Session.getEffectiveUser().getEmail(),
+        _sendMail(Session.getEffectiveUser().getEmail(),
           '[분배알림 이상] ' + problems.length + '건 — ' + Utilities.formatDate(now, 'Asia/Seoul', 'MM-dd HH:mm'), body);
         props.setProperty('WD_LAST', JSON.stringify({ sig: sig, ts: now.toISOString() }));
         mailed = true;
-        _logSent('메일', true, '[분배알림 이상] ' + problems.length + '건\n' + body);
       } catch(e) { console.log('워치독 메일 실패', e); }
     } else {
       console.log('같은 이상이 ' + WD_RESEND_DAYS + '일 내 이미 보고됨 — 메일 생략');
