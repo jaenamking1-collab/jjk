@@ -657,6 +657,7 @@ function sendMaturityAlerts() {
     if (sent[key]) return;
     const subject = '[만기알림][' + (s.name || '이름없음') + '][' + bucket + ']';
     MailApp.sendEmail({ to: to, subject: subject, body: _matAlertBody(s, days, bucket) });
+    _logSent('메일', true, subject);
     sent[key] = new Date().toISOString();
     outbox.push(subject);
   });
@@ -4408,6 +4409,7 @@ function distWatchdog() {
           '[분배알림 이상] ' + problems.length + '건 — ' + Utilities.formatDate(now, 'Asia/Seoul', 'MM-dd HH:mm'), body);
         props.setProperty('WD_LAST', JSON.stringify({ sig: sig, ts: now.toISOString() }));
         mailed = true;
+        _logSent('메일', true, '[분배알림 이상] ' + problems.length + '건\n' + body);
       } catch(e) { console.log('워치독 메일 실패', e); }
     } else {
       console.log('같은 이상이 ' + WD_RESEND_DAYS + '일 내 이미 보고됨 — 메일 생략');
