@@ -46,7 +46,7 @@ pub fn qr(url: &str) -> Vec<Vec<bool>> {
 }
 
 /// 파일 이름을 내려받기 머리에 넣을 꼴로(한글은 UTF-8 % 꼴)
-fn disposition(name: &str) -> String {
+pub fn disposition(name: &str) -> String {
     let ascii: String = name.chars().map(|c| if c.is_ascii_alphanumeric() || ".-_".contains(c) { c } else { '_' }).collect();
     let pct: String = name.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect();
     format!("attachment; filename=\"{ascii}\"; filename*=UTF-8''{pct}")

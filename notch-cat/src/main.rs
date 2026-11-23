@@ -28,6 +28,7 @@ mod settings;
 mod shelf;
 mod spring;
 mod weather;
+mod xfer;
 mod update;
 
 use std::cell::RefCell;
