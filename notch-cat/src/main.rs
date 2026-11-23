@@ -71,6 +71,7 @@ const ENT_GAP: f32 = 18.0;
 const CLIP_SZ: (f32, f32) = (1100.0, 250.0); // 클립보드 쪽: 글자 목록(366) | 그림 3×3 | 고정 2×3 (칸 120). 높이는 몸 138 기준
 const ED_GAP: f32 = 22.0; // 노치 몸 아래 ~ 편집 창 위(물방울 목 길이)
 const SHELF_SZ: (f32, f32) = (780.0, 250.0); // 파일 선반 쪽
+const XFER_SZ: (f32, f32) = (780.0, 250.0); // 파일 전송 쪽
 const TRIM_SZ: (f32, f32) = (780.0, 300.0); // 영상 자르기 쪽
 const SET_W: f32 = 300.0; // 노치 옆으로 흘러나오는 설정 물방울 너비
 const SET_GAP: f32 = 18.0;
@@ -862,6 +863,9 @@ enum Hit {
     ShelfDel(usize),  // 선반에서 빼기(원본은 그대로)
     ShelfSend(usize), // 휴대폰으로 보내기(QR)
     SendClose,        // 보내기 창구 닫기
+    XferGot(usize),   // 파일 전송: 받은 파일 열기
+    XferOut(usize),   // 〃 내놓은 파일 빼기
+    XferFolder,       // 〃 다운로드 폴더 열기
     Shuffle,
     Repeat,
     Queue,        // 다음 곡 목록 열고 닫기
@@ -939,6 +943,9 @@ struct App {
     pulled: Instant,             // 마지막으로 끌어 내린 때(뒤따르는 '누름'을 무시)
     last_click: Option<(usize, Instant)>, // 선반 두 번 누름
     send: Arc<Mutex<Option<send::Send>>>, // 휴대폰으로 보내는 창구(열려 있으면)
+    xfer: xfer::State,                    // 파일 전송 쪽 창구(휴대폰 ↔ PC)
+    xfer_got: usize,                      // 알림 띄운 받은 파일 수
+    xfer_fail: Option<Instant>,           // 창구를 못 연 때(10초 뒤 다시)
     trim: Option<TrimDoc>,  // 영상 자르기: 고른 영상
     trim_recent: Vec<PathBuf>, // 최근 녹화(쪽을 열 때 읽는다)
     trim_bmp: Option<(f64, ID2D1Bitmap)>, // 고른 손잡이 자리 장면(때, 그림)
@@ -1018,6 +1025,20 @@ impl App {
     /// 0.05초마다: 음악·가사 상태를 읽어 목표 크기와 보일 글자를 정한다.
     unsafe fn tick(&mut self) {
         self.ticks += 1;
+        // 파일 전송: 쪽을 펼치면 창구를 열고, 휴대폰에서 파일이 오면 알린다
+        if self.page == 8 && self.hover {
+            self.xfer_open();
+        }
+        let got = self.xfer.lock().unwrap().as_ref().map(|x| (x.got.len(), x.got.first().cloned()));
+        match got {
+            Some((n, Some(p))) if n > self.xfer_got => {
+                self.xfer_got = n;
+                self.toast("휴대폰에서 받음", &p.file_name().map_or(String::new(), |f| f.to_string_lossy().into_owned()), None, 5);
+                self.face.happy(800);
+            }
+            None => self.xfer_got = 0,
+            _ => {}
+        }
         if self.set.is_none() && self.ticks == 30 && std::env::var("NOTCH_CAT_SETLATE").is_ok() {
             self.set = Some(SET_COMMON); // 시험용: 펼쳐진 뒤 1.5초쯤에 설정 물방울을 연다(솟아오르는 모습을 찍으려고)
             self.sd.target = 1.0;
@@ -1286,7 +1307,9 @@ impl App {
         } else if tiny {
             TINY
         } else if self.hover {
-            if self.page == 7 {
+            if self.page == 8 {
+                XFER_SZ
+            } else if self.page == 7 {
                 TRIM_SZ
             } else if self.page == 6 {
                 SHELF_SZ
@@ -1320,7 +1343,7 @@ impl App {
         if th > BAR_H + 10.0 {
             // 시세 쪽은 작은 판 높이를 '다 펼친 높이'로 삼는다(큰 판으로 자라는 동안 내용이 흐려지지 않게)
             self.open_h = if self.page == 1 && !noting { q_layout(&self.q.iter().map(|q| q.group).collect::<Vec<_>>(), 1.0, self.cfg.cols()).2 .1 } else { th };
-            self.mode = if noting { 2 } else if self.page == 7 { 9 } else if self.page == 6 { 8 } else if self.page == 5 { 7 } else if self.page == 4 { 6 } else if self.page == 3 { 5 } else if self.page == 2 { 4 } else if self.page == 1 { 3 } else if self.n.has { 0 } else { 1 };
+            self.mode = if noting { 2 } else if self.page == 8 { 10 } else if self.page == 7 { 9 } else if self.page == 6 { 8 } else if self.page == 5 { 7 } else if self.page == 4 { 6 } else if self.page == 3 { 5 } else if self.page == 2 { 4 } else if self.page == 1 { 3 } else if self.n.has { 0 } else { 1 };
             self.w.tune(250.0, 0.62);
             self.h.tune(190.0, 0.68);
         } else {
@@ -2612,6 +2635,9 @@ impl App {
         if h >= 0.5 && self.mode == 8 {
             self.draw_shelf(h);
         }
+        if h >= 0.5 && self.mode == 10 {
+            self.draw_xfer(h);
+        }
         if h >= 0.5 && (self.set.is_some() || self.sd.pos > 0.02) {
             self.draw_set(h);
         } else {
@@ -3386,6 +3412,130 @@ impl App {
             g.rrect(mx - 1.0, by + 2.0, 2.0, 20.0, 1.0, FG, a * 0.5);
         }
         hits.push((bar, Hit::TrimBar(bx, bw)));
+        if live {
+            self.hits.extend(hits);
+        }
+    }
+
+    /// 파일 전송 창구가 닫혀 있으면 연다(와이파이가 없으면 10초마다 다시)
+    fn xfer_open(&mut self) {
+        if self.xfer.lock().unwrap().is_some() || self.xfer_fail.is_some_and(|t| t.elapsed() < Duration::from_secs(10)) {
+            return;
+        }
+        let lan = std::env::var("NOTCH_CAT_XFERLOCAL").is_err(); // 시험용: 이 PC 안에서만
+        match xfer::start(lan, xfer::downloads(), self.xfer.clone()) {
+            Ok(()) => {
+                self.xfer_fail = None;
+                log("xfer: 창구 열림");
+            }
+            Err(e) => {
+                self.xfer_fail = Some(Instant::now());
+                log(&format!("xfer: 못 엶 {e}"));
+            }
+        }
+    }
+
+    unsafe fn draw_xfer(&mut self, h: f32) {
+        let w = self.w.pos;
+        let x = (WIN_W - w) / 2.0;
+        let p = ((h - BAR_H) / (self.open_h - BAR_H)).clamp(0.0, 1.0);
+        let a = ((p - 0.35) / 0.65).clamp(0.0, 1.0) * self.pgf.pos.clamp(0.0, 1.0);
+        if a <= 0.0 {
+            return;
+        }
+        let g = &self.g;
+        let (mx, my) = self.mouse;
+        let live = p > 0.9;
+        let over = |b: [f32; 4]| live && mx >= b[0] && mx < b[2] && my >= b[1] && my < b[3];
+        let (l, r) = (x + 24.0, x + w - 24.0);
+        let mut hits: Vec<([f32; 4], Hit)> = Vec::new();
+        g.text("파일 전송", &g.f_sub, l, 22.0, 300.0, FG, a, Align::Left);
+        g.text("같은 와이파이의 휴대폰 ↔ PC · 앱 설치 없음", &g.f_tiny, l, 26.0, r - l, FG, a * 0.4, Align::Right);
+        if self.drag_in {
+            let zone = [l - 6.0, 46.0, r + 6.0, 234.0];
+            let pulse = 0.5 + 0.5 * (self.born.elapsed().as_secs_f32() * 6.0).sin();
+            g.rrect(zone[0], zone[1], zone[2] - zone[0], zone[3] - zone[1], 16.0, LIME, a * (0.10 + 0.08 * pulse));
+            g.text("놓으면 휴대폰에서 받을 수 있게 내놓습니다", &g.f_lyric, zone[0], (zone[1] + zone[3]) / 2.0 - 10.0, zone[2] - zone[0], LIME, a, Align::Center);
+            self.dirty = true;
+            return;
+        }
+        let st = self.xfer.lock().unwrap();
+        let Some(sd) = st.as_ref() else {
+            g.para("와이파이 주소를 찾지 못했습니다.\n와이파이(또는 공유기 랜선)에 연결되면 저절로 다시 엽니다.", &g.f_body, l, 90.0, r - l, FG, a * 0.6);
+            drop(st);
+            self.dirty = true;
+            return;
+        };
+        // 왼쪽: QR
+        let q = &sd.qr;
+        let n = q.len().max(1) as f32;
+        let side = 176.0;
+        let m = side / (n + 8.0);
+        let (qx, qy) = (l, 50.0);
+        g.rrect(qx, qy, side, side, 10.0, (1.0, 1.0, 1.0), a);
+        for (yy, row) in q.iter().enumerate() {
+            for (xx, on) in row.iter().enumerate() {
+                if *on {
+                    g.rrect(qx + (xx as f32 + 4.0) * m, qy + (yy as f32 + 4.0) * m, m + 0.3, m + 0.3, 0.0, (0.0, 0.0, 0.0), a);
+                }
+            }
+        }
+        // 가운데: 안내 + PC → 휴대폰
+        let cx = qx + side + 22.0;
+        let mid = cx + (r - cx) * 0.52;
+        let cw = mid - cx - 14.0;
+        g.text("휴대폰 카메라로 QR 을 찍으세요", &g.f_lyric, cx, 52.0, r - cx - 110.0, FG, a, Align::Left);
+        let left = sd.left().as_secs();
+        g.text(&format!("{}분 동안 안 쓰면 닫힘 · 처음 한 번 윈도우 '허용'", (left + 59) / 60), &g.f_tiny, cx, 78.0, r - cx, FG, a * 0.45, Align::Left);
+        g.text(&format!("PC → 휴대폰  {}", sd.out.len()), &g.f_bar, cx, 102.0, cw, LIME, a, Align::Left);
+        if sd.out.is_empty() {
+            g.para("여기로 파일을 끌어다 놓으면\n휴대폰 화면에 받기 단추가 생깁니다", &g.f_tiny, cx, 124.0, cw, FG, a * 0.5);
+        }
+        for (k, pth) in sd.out.iter().take(4).enumerate() {
+            let y = 124.0 + k as f32 * 24.0;
+            let b = [cx - 4.0, y - 2.0, mid - 10.0, y + 20.0];
+            let on = over(b);
+            if on {
+                g.rrect(b[0], b[1], b[2] - b[0], 22.0, 8.0, FG, a * 0.08);
+                g.text("✕", &g.f_bar, b[2] - 22.0, y, 20.0, LIME, a, Align::Center);
+                hits.push((b, Hit::XferOut(k)));
+            }
+            g.text(&pth.file_name().map_or(String::new(), |f| f.to_string_lossy().into_owned()), &g.f_bar, cx, y, cw - if on { 24.0 } else { 0.0 }, FG, a * 0.85, Align::Left);
+        }
+        if sd.served > 0 {
+            g.text(&format!("받아 갔습니다 ✓ ({}번)", sd.served), &g.f_tiny, cx, 222.0, cw, LIME, a * 0.8, Align::Left);
+        }
+        // 오른쪽: 휴대폰 → PC
+        g.text(&format!("휴대폰 → PC  {}", sd.got.len()), &g.f_bar, mid, 102.0, r - mid, LIME, a, Align::Left);
+        let fb = [r - 96.0, 50.0, r, 74.0];
+        g.rrect(fb[0], fb[1], 96.0, 24.0, 12.0, FG, a * if over(fb) { 0.18 } else { 0.08 });
+        g.text("받은 폴더", &g.f_bar, fb[0], fb[1] + 4.0, 96.0, FG, a * 0.9, Align::Center);
+        hits.push((fb, Hit::XferFolder));
+        let mut y = 124.0;
+        if let Some((nm, done, all)) = &sd.busy {
+            let f = if *all > 0 { *done as f32 / *all as f32 } else { 0.0 };
+            g.text(nm, &g.f_bar, mid, y, r - mid, FG, a, Align::Left);
+            g.rrect(mid, y + 22.0, r - mid, 5.0, 2.5, FG, a * 0.15);
+            g.rrect(mid, y + 22.0, (r - mid) * f, 5.0, 2.5, LIME, a);
+            y += 34.0;
+        }
+        if sd.got.is_empty() && sd.busy.is_none() {
+            g.para("휴대폰 화면의 초록 단추로 보내면\n'다운로드' 폴더에 저장됩니다", &g.f_tiny, mid, 124.0, r - mid, FG, a * 0.5);
+        }
+        for (k, pth) in sd.got.iter().enumerate() {
+            if y > 210.0 {
+                break;
+            }
+            let b = [mid - 4.0, y - 2.0, r, y + 20.0];
+            if over(b) {
+                g.rrect(b[0], b[1], b[2] - b[0], 22.0, 8.0, LIME, a * 0.14);
+            }
+            g.text(&pth.file_name().map_or(String::new(), |f| f.to_string_lossy().into_owned()), &g.f_bar, mid, y, r - mid, FG, a * 0.85, Align::Left);
+            hits.push((b, Hit::XferGot(k)));
+            y += 24.0;
+        }
+        drop(st);
+        self.dirty = true; // 남은 시간·받는 중 막대가 흐른다
         if live {
             self.hits.extend(hits);
         }
@@ -4349,6 +4499,24 @@ impl App {
                 *self.send.lock().unwrap() = None;
                 return self.tick();
             }
+            Hit::XferGot(k) => {
+                if let Some(p) = self.xfer.lock().unwrap().as_ref().and_then(|x| x.got.get(k).cloned()) {
+                    shelf::open(&p.display().to_string());
+                }
+                return self.tick();
+            }
+            Hit::XferOut(k) => {
+                if let Some(x) = self.xfer.lock().unwrap().as_mut() {
+                    if k < x.out.len() {
+                        x.out.remove(k);
+                    }
+                }
+                return self.tick();
+            }
+            Hit::XferFolder => {
+                shelf::open(&xfer::downloads().display().to_string());
+                return self.tick();
+            }
             Hit::ShelfDel(k) => {
                 if k < self.shelf.items.len() {
                     let gone = self.shelf.items.remove(k);
@@ -4541,7 +4709,7 @@ impl App {
             Hit::Line(t) => Cmd::Seek(t as i64),
             Hit::Shuffle => Cmd::Shuffle,
             Hit::Repeat => Cmd::Repeat,
-            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::AiLogin(_) | Hit::AiOpen(_) | Hit::AiGuideClose | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSchool | Hit::EntSave | Hit::EntClose | Hit::SetOpen(_) | Hit::SetClose | Hit::SetChip(_) | Hit::SetOpt(_) | Hit::ClipItem(..) | Hit::ClipPin(_) | Hit::ClipUnpin(_) | Hit::ClipClear | Hit::ClipPage(_) | Hit::ShelfItem(_) | Hit::ShelfDel(_) | Hit::ShelfSend(_) | Hit::SendClose | Hit::Snap | Hit::Rec | Hit::ClipCopyOpen | Hit::ClipEdit | Hit::ClipFold | Hit::TrimPick | Hit::TrimRecent(_) | Hit::TrimBar(..) | Hit::TrimSel(_) | Hit::TrimNudge(..) | Hit::TrimSave | Hit::TrimOther => return,
+            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::AiLogin(_) | Hit::AiOpen(_) | Hit::AiGuideClose | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSchool | Hit::EntSave | Hit::EntClose | Hit::SetOpen(_) | Hit::SetClose | Hit::SetChip(_) | Hit::SetOpt(_) | Hit::ClipItem(..) | Hit::ClipPin(_) | Hit::ClipUnpin(_) | Hit::ClipClear | Hit::ClipPage(_) | Hit::ShelfItem(_) | Hit::ShelfDel(_) | Hit::ShelfSend(_) | Hit::SendClose | Hit::XferGot(_) | Hit::XferOut(_) | Hit::XferFolder | Hit::Snap | Hit::Rec | Hit::ClipCopyOpen | Hit::ClipEdit | Hit::ClipFold | Hit::TrimPick | Hit::TrimRecent(_) | Hit::TrimBar(..) | Hit::TrimSel(_) | Hit::TrimNudge(..) | Hit::TrimSave | Hit::TrimOther => return,
         };
         let _ = self.tx.send(cmd);
     }
@@ -4814,6 +4982,9 @@ unsafe fn run() -> Result<()> {
         pulled: Instant::now(),
         last_click: None,
         send: Arc::new(Mutex::new(None)),
+        xfer: Arc::new(Mutex::new(None)),
+        xfer_got: 0,
+        xfer_fail: None,
         trim: None,
         trim_recent: Vec::new(),
         trim_bmp: None,
@@ -5140,8 +5311,8 @@ unsafe fn run() -> Result<()> {
                     // 파일을 끌고 왔다: 펼쳐서 선반을 보여 주고 받는 칸을 빛낸다
                     app.drag_in = true;
                     app.hover = true;
-                    if app.page != 6 {
-                        app.page = 6;
+                    if app.page != 6 && app.page != 8 {
+                        app.page = 6; // 파일 전송 쪽에 끌어 오면 그 쪽 그대로(휴대폰으로 내놓는다)
                         app.pgf.pos = 0.0;
                         app.pgf.target = 1.0;
                     }
@@ -5155,8 +5326,15 @@ unsafe fn run() -> Result<()> {
                 }
                 Ev::Dropped(paths) => {
                     app.drag_in = false;
-                    app.shelf.add(&paths);
-                    app.shelf.save();
+                    if app.page == 8 {
+                        app.xfer_open();
+                        if let Some(x) = app.xfer.lock().unwrap().as_mut() {
+                            x.add(&paths);
+                        }
+                    } else {
+                        app.shelf.add(&paths);
+                        app.shelf.save();
+                    }
                     app.gulp = Some(Instant::now());
                     app.face.happy(900);
                     // 물방울이 받아먹으며 출렁: 몸통을 살짝 눌렀다 놓는다
