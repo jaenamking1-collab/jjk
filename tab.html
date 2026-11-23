@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>탭 설치 명령</title>
+<style>
+body{font:20px/1.6 sans-serif;margin:24px;max-width:760px}
+pre{background:#f3f3f3;padding:14px;border-radius:8px;white-space:pre-wrap;word-break:break-all;font-size:17px}
+button{font-size:22px;padding:12px 24px;margin:6px 0 22px;border:0;border-radius:10px;background:#2b6cb0;color:#fff}
+</style></head><body>
+<h3>1. 연결 시험</h3>
+<pre id="c1">pkg install -y curl && curl -s -o /dev/null -w "%{http_code}\n" -A Mozilla/5.0 -d "firstIndex=0&amp;listCnt=20&amp;pageIndex=1" https://investments.miraeasset.com/tigeretf/ko/customer/notice/list.ajax</pre>
+<button onclick="cp('c1',this)">복사</button>
+<p>복사한 뒤 Termux 화면을 길게 눌러 붙여넣고 엔터. 끝에 나오는 숫자를 알려 주세요.</p>
+<script>
+function cp(id,b){var t=document.getElementById(id).textContent;
+ (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){b.textContent='복사됨'},function(){
+  var r=document.createRange();r.selectNode(document.getElementById(id));var s=getSelection();s.removeAllRanges();s.addRange(r);
+  try{document.execCommand('copy');b.textContent='복사됨'}catch(e){b.textContent='직접 길게 눌러 복사'}})}
+</script>
+</body></html>
