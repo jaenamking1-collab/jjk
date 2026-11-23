@@ -29,6 +29,7 @@ mod shelf;
 mod spring;
 mod weather;
 mod xfer;
+mod launch;
 mod update;
 
 use std::cell::RefCell;
@@ -72,6 +73,7 @@ const CLIP_SZ: (f32, f32) = (1100.0, 250.0); // 클립보드 쪽: 글자 목록(
 const ED_GAP: f32 = 22.0; // 노치 몸 아래 ~ 편집 창 위(물방울 목 길이)
 const SHELF_SZ: (f32, f32) = (780.0, 250.0); // 파일 선반 쪽
 const XFER_SZ: (f32, f32) = (780.0, 250.0); // 파일 전송 쪽
+const LAUNCH_SZ: (f32, f32) = (780.0, 346.0); // 실행도구모음 쪽(3줄)
 const TRIM_SZ: (f32, f32) = (780.0, 300.0); // 영상 자르기 쪽
 const SET_W: f32 = 300.0; // 노치 옆으로 흘러나오는 설정 물방울 너비
 const SET_GAP: f32 = 18.0;
@@ -867,6 +869,9 @@ enum Hit {
     XferOut(usize),   // 〃 내놓은 파일 빼기
     XferFolder,       // 〃 다운로드 폴더 열기
     XferMode(bool),   // 〃 QR 고르기(true 인터넷 중계, false 같은 와이파이)
+    LaunchRun(usize), // 실행도구모음: 실행
+    LaunchDel(usize), // 〃 목록에서 빼기(원본은 그대로)
+    LaunchAdd,        // 〃 ＋ 등록(파일 창)
     Shuffle,
     Repeat,
     Queue,        // 다음 곡 목록 열고 닫기
@@ -937,6 +942,7 @@ struct App {
     clip_last: String, // 마지막으로 받아 적은 시각(살아 있다는 표시)
     clip_flash: Option<Instant>, // 눌러서 다시 복사한 때(잠깐 '복사했습니다')
     shelf: shelf::Shelf,         // 파일 선반(경로만)
+    launch: launch::Launch,      // 실행도구모음(경로만)
     shelf_bmp: HashMap<String, ID2D1Bitmap>, // 미리보기(경로별)
     drag_in: bool,               // 파일을 끌고 노치 위에 있다
     gulp: Option<Instant>,       // 방금 받아먹었다(새 칸이 쏙 들어오는 효과)
@@ -1309,7 +1315,9 @@ impl App {
         } else if tiny {
             TINY
         } else if self.hover {
-            if self.page == 8 {
+            if self.page == 9 {
+                LAUNCH_SZ
+            } else if self.page == 8 {
                 XFER_SZ
             } else if self.page == 7 {
                 TRIM_SZ
@@ -1345,7 +1353,7 @@ impl App {
         if th > BAR_H + 10.0 {
             // 시세 쪽은 작은 판 높이를 '다 펼친 높이'로 삼는다(큰 판으로 자라는 동안 내용이 흐려지지 않게)
             self.open_h = if self.page == 1 && !noting { q_layout(&self.q.iter().map(|q| q.group).collect::<Vec<_>>(), 1.0, self.cfg.cols()).2 .1 } else { th };
-            self.mode = if noting { 2 } else if self.page == 8 { 10 } else if self.page == 7 { 9 } else if self.page == 6 { 8 } else if self.page == 5 { 7 } else if self.page == 4 { 6 } else if self.page == 3 { 5 } else if self.page == 2 { 4 } else if self.page == 1 { 3 } else if self.n.has { 0 } else { 1 };
+            self.mode = if noting { 2 } else if self.page == 9 { 11 } else if self.page == 8 { 10 } else if self.page == 7 { 9 } else if self.page == 6 { 8 } else if self.page == 5 { 7 } else if self.page == 4 { 6 } else if self.page == 3 { 5 } else if self.page == 2 { 4 } else if self.page == 1 { 3 } else if self.n.has { 0 } else { 1 };
             self.w.tune(250.0, 0.62);
             self.h.tune(190.0, 0.68);
         } else {
@@ -2640,6 +2648,9 @@ impl App {
         if h >= 0.5 && self.mode == 10 {
             self.draw_xfer(h);
         }
+        if h >= 0.5 && self.mode == 11 {
+            self.draw_launch(h);
+        }
         if h >= 0.5 && (self.set.is_some() || self.sd.pos > 0.02) {
             self.draw_set(h);
         } else {
@@ -3419,6 +3430,126 @@ impl App {
         }
     }
 
+    /// 실행도구모음 '＋ 등록': 바탕화면에서 여러 개 고른다(바로가기는 바로가기 그대로 기억)
+    unsafe fn launch_pick(&mut self) {
+        use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
+        let picked = (|| -> Option<Vec<String>> {
+            let d: IFileOpenDialog = CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER).ok()?;
+            let o = d.GetOptions().ok()?;
+            let _ = d.SetOptions(o | FOS_ALLOWMULTISELECT | FOS_NODEREFERENCELINKS | FOS_FILEMUSTEXIST);
+            let _ = d.SetTitle(w!("실행도구모음에 넣을 프로그램·바로가기 고르기 (Ctrl 로 여러 개)"));
+            if let Ok(f) = SHCreateItemFromParsingName::<_, _, IShellItem>(&windows::core::HSTRING::from(launch::desktop().as_os_str()), None) {
+                let _ = d.SetFolder(&f);
+            }
+            d.Show(self.hwnd).ok()?;
+            let arr = d.GetResults().ok()?;
+            let mut out = Vec::new();
+            for i in 0..arr.GetCount().ok()? {
+                let Ok(it) = arr.GetItemAt(i) else { continue };
+                let Ok(p) = it.GetDisplayName(SIGDN_FILESYSPATH) else { continue };
+                if let Ok(s) = p.to_string() {
+                    out.push(s);
+                }
+                windows::Win32::System::Com::CoTaskMemFree(Some(p.0 as _));
+            }
+            Some(out)
+        })();
+        // 파일 창 뒤에 밀린 '마우스 나감'으로 바로 접히지 않게
+        self.hover = true;
+        self.page = 9;
+        self.tracking = false;
+        self.saved_hold = Some(Instant::now() + Duration::from_secs(6));
+        if let Some(ps) = picked.filter(|p| !p.is_empty()) {
+            self.launch.add(&ps);
+            self.launch.save();
+            self.gulp = Some(Instant::now());
+            self.face.happy(800);
+            log(&format!("launch: {}개 등록", ps.len()));
+        }
+    }
+
+    unsafe fn draw_launch(&mut self, h: f32) {
+        let w = self.w.pos;
+        let x = (WIN_W - w) / 2.0;
+        let p = ((h - BAR_H) / (self.open_h - BAR_H)).clamp(0.0, 1.0);
+        let a = ((p - 0.35) / 0.65).clamp(0.0, 1.0) * self.pgf.pos.clamp(0.0, 1.0);
+        if a <= 0.0 {
+            return;
+        }
+        let paths = self.launch.items.clone();
+        for pth in &paths {
+            if !self.shelf_bmp.contains_key(pth) {
+                if let Some(b) = shelf::thumb(pth).and_then(|hb| self.g.bitmap_hbitmap(hb).ok()) {
+                    self.shelf_bmp.insert(pth.clone(), b);
+                }
+            }
+        }
+        let g = &self.g;
+        let (mx, my) = self.mouse;
+        let live = p > 0.9;
+        let over = |b: [f32; 4]| live && mx >= b[0] && mx < b[2] && my >= b[1] && my < b[3];
+        let (l, r) = (x + 24.0, x + w - 24.0);
+        let mut hits: Vec<([f32; 4], Hit)> = Vec::new();
+        g.text("실행도구모음", &g.f_sub, l, 22.0, 300.0, FG, a, Align::Left);
+        let ab = [r - 84.0, 18.0, r, 42.0];
+        g.rrect(ab[0], ab[1], 84.0, 24.0, 12.0, LIME, a * if over(ab) { 1.0 } else { 0.85 });
+        g.text("＋ 등록", &g.f_bar, ab[0], ab[1] + 4.0, 84.0, BG, a, Align::Center);
+        hits.push((ab, Hit::LaunchAdd));
+        g.text(&format!("누르면 실행 · ✕ 는 목록에서만 빼기  {}/{}", paths.len(), launch::MAX), &g.f_tiny, l, 26.0, ab[0] - l - 12.0, FG, a * 0.4, Align::Right);
+        if paths.is_empty() {
+            g.para("오른쪽 위 '＋ 등록'을 누르고 바탕화면의 바로가기를 고르세요.\nCtrl 을 누른 채 누르면 여러 개를 한 번에 넣을 수 있습니다.", &g.f_body, l, 120.0, r - l, FG, a * 0.45);
+        }
+        let (tile, gap) = (88.0, 10.0);
+        let cols = ((r - l + gap) / (tile + gap)).floor().max(1.0) as usize;
+        let gulp = self.gulp.map(|t| t.elapsed().as_secs_f32()).filter(|s| *s < 0.6);
+        let mut hover_name: Option<String> = None;
+        for (k, pth) in paths.iter().enumerate() {
+            let (c, rr) = (k % cols, k / cols);
+            if rr >= 3 {
+                break;
+            }
+            let (tx, ty) = (l + c as f32 * (tile + gap), 52.0 + rr as f32 * (tile + 4.0));
+            let b = [tx, ty, tx + tile, ty + tile];
+            let alive = Path::new(pth).exists();
+            let on = over(b);
+            let pop = match gulp { Some(s) if k + 1 == paths.len() => { let u = (s / 0.6).min(1.0); 1.0 + 0.25 * (u * std::f32::consts::PI).sin() * (1.0 - u) - 0.6 * (1.0 - u).powi(3) } _ => 1.0 };
+            if on {
+                g.rrect(tx, ty, tile, tile, 12.0, LIME, a * 0.14);
+            }
+            let ic = 48.0 * pop;
+            let (ix, iy) = (tx + (tile - ic) / 2.0, ty + 8.0 + (48.0 - ic) / 2.0);
+            match self.shelf_bmp.get(pth) {
+                Some(bmp) => g.art(bmp, ix, iy, ic, 6.0, a * if alive { 1.0 } else { 0.3 }),
+                None => g.rrect(ix, iy, ic, ic, 8.0, FG, a * 0.12),
+            }
+            g.clip(tx + 2.0, ty + 60.0, tile - 4.0, 26.0);
+            g.para(&launch::name(pth), &g.f_tiny, tx + 4.0, ty + 60.0, tile - 8.0, FG, a * if alive { 0.85 } else { 0.35 });
+            g.unclip();
+            if !alive {
+                g.text("없음", &g.f_tiny, tx, ty + 24.0, tile, WARN, a, Align::Center);
+            }
+            if on {
+                hover_name = Some(if alive { pth.clone() } else { format!("원본이 없습니다 · {pth}") });
+            }
+            let cb = [tx + tile - 22.0, ty + 2.0, tx + tile - 2.0, ty + 22.0];
+            if on || over(cb) {
+                g.ellipse(tx + tile - 12.0, ty + 12.0, 9.0, 9.0, BG, a * 0.85);
+                g.text("✕", &g.f_bar, cb[0], cb[1] + 2.0, 20.0, if over(cb) { LIME } else { FG }, a, Align::Center);
+                hits.push((cb, Hit::LaunchDel(k)));
+            }
+            hits.push((b, Hit::LaunchRun(k)));
+        }
+        if gulp.is_some() {
+            self.dirty = true;
+        }
+        if let Some(t) = hover_name {
+            g.text(&t, &g.f_tiny, l, 52.0 + 3.0 * (tile + 4.0) + 2.0, r - l, FG, a * 0.6, Align::Left);
+        }
+        if live {
+            self.hits.extend(hits);
+        }
+    }
+
     /// 파일 전송 창구가 닫혀 있으면 연다(와이파이가 없으면 10초마다 다시)
     fn xfer_open(&mut self) {
         if self.xfer.lock().unwrap().is_some() || self.xfer_fail.is_some_and(|t| t.elapsed() < Duration::from_secs(10)) {
@@ -4000,6 +4131,7 @@ impl App {
             5 => vec![SetRow::Button("최근 모두 지우기", 60)],
             6 => vec![SetRow::Button("선반 비우기", 61)],
             7 => vec![SetRow::Button("다른 영상 고르기", 62)],
+            9 => vec![SetRow::Button("도구 등록하기", 63)],
             _ => vec![],
         };
         let row_h = |r: &SetRow| match r { SetRow::Toggle(..) => 28.0, SetRow::Choice(..) => 52.0, SetRow::Button(..) => 32.0 };
@@ -4534,6 +4666,29 @@ impl App {
                 }
                 return self.tick();
             }
+            Hit::LaunchRun(k) => {
+                if let Some(p) = self.launch.items.get(k).cloned() {
+                    if Path::new(&p).exists() {
+                        shelf::open(&p);
+                        log("launch: 실행");
+                        self.face.happy(500);
+                    } else {
+                        self.face.slow_blink(300);
+                    }
+                }
+                return self.tick();
+            }
+            Hit::LaunchDel(k) => {
+                if k < self.launch.items.len() {
+                    self.launch.items.remove(k);
+                    self.launch.save();
+                }
+                return self.tick();
+            }
+            Hit::LaunchAdd => {
+                self.launch_pick();
+                return self.tick();
+            }
             Hit::XferMode(net) => {
                 self.xfer_net = net;
                 return self.tick();
@@ -4734,7 +4889,7 @@ impl App {
             Hit::Line(t) => Cmd::Seek(t as i64),
             Hit::Shuffle => Cmd::Shuffle,
             Hit::Repeat => Cmd::Repeat,
-            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::AiLogin(_) | Hit::AiOpen(_) | Hit::AiGuideClose | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSchool | Hit::EntSave | Hit::EntClose | Hit::SetOpen(_) | Hit::SetClose | Hit::SetChip(_) | Hit::SetOpt(_) | Hit::ClipItem(..) | Hit::ClipPin(_) | Hit::ClipUnpin(_) | Hit::ClipClear | Hit::ClipPage(_) | Hit::ShelfItem(_) | Hit::ShelfDel(_) | Hit::ShelfSend(_) | Hit::SendClose | Hit::XferGot(_) | Hit::XferOut(_) | Hit::XferFolder | Hit::XferMode(_) | Hit::Snap | Hit::Rec | Hit::ClipCopyOpen | Hit::ClipEdit | Hit::ClipFold | Hit::TrimPick | Hit::TrimRecent(_) | Hit::TrimBar(..) | Hit::TrimSel(_) | Hit::TrimNudge(..) | Hit::TrimSave | Hit::TrimOther => return,
+            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::AiLogin(_) | Hit::AiOpen(_) | Hit::AiGuideClose | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSchool | Hit::EntSave | Hit::EntClose | Hit::SetOpen(_) | Hit::SetClose | Hit::SetChip(_) | Hit::SetOpt(_) | Hit::ClipItem(..) | Hit::ClipPin(_) | Hit::ClipUnpin(_) | Hit::ClipClear | Hit::ClipPage(_) | Hit::ShelfItem(_) | Hit::ShelfDel(_) | Hit::ShelfSend(_) | Hit::SendClose | Hit::XferGot(_) | Hit::XferOut(_) | Hit::XferFolder | Hit::XferMode(_) | Hit::LaunchRun(_) | Hit::LaunchDel(_) | Hit::LaunchAdd | Hit::Snap | Hit::Rec | Hit::ClipCopyOpen | Hit::ClipEdit | Hit::ClipFold | Hit::TrimPick | Hit::TrimRecent(_) | Hit::TrimBar(..) | Hit::TrimSel(_) | Hit::TrimNudge(..) | Hit::TrimSave | Hit::TrimOther => return,
         };
         let _ = self.tx.send(cmd);
     }
@@ -4796,6 +4951,12 @@ impl App {
                 self.set = None;
                 self.sd.target = 0.0;
                 self.trim_pick();
+                return false;
+            }
+            63 => {
+                self.set = None;
+                self.sd.target = 0.0;
+                self.launch_pick();
                 return false;
             }
             61 => {
@@ -5000,6 +5161,7 @@ unsafe fn run() -> Result<()> {
         clip_last: String::new(),
         clip_flash: None,
         shelf: shelf::Shelf::load(),
+        launch: launch::Launch::load(),
         shelf_bmp: HashMap::new(),
         drag_in: false,
         gulp: None,
@@ -5126,6 +5288,10 @@ unsafe fn run() -> Result<()> {
         if let Ok(v) = std::env::var("NOTCH_CAT_SHELF") {
             // 시험용: 선반에 보기 파일들(저장하지 않는다). ';' 로 나눈 경로
             app.shelf.items = v.split(';').filter(|p| !p.is_empty()).map(str::to_string).collect();
+        }
+        if let Ok(v) = std::env::var("NOTCH_CAT_LAUNCH") {
+            // 시험용: 실행도구모음에 보기 도구들(저장하지 않는다). ';' 로 나눈 경로
+            app.launch.items = v.split(';').filter(|p| !p.is_empty()).map(str::to_string).collect();
         }
         if let Ok(f) = std::env::var("NOTCH_CAT_SENDDEMO") {
             let _ = send::start(Path::new(&f), false, app.send.clone()); // 시험용: 이 PC 안에서만 여는 보내기 창구
