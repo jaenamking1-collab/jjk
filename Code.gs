@@ -57,7 +57,7 @@ function _unauthorized() {
 // ⚠️ resetAllTriggers 는 여기서 도는지 **확인되지 않았다.** 트리거 설치는 스코프 재승인이
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
-  '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagOcr', '_diagOcrText',
+  '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagNoticeLag', '_diagOcr', '_diagOcrText',
   '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_probeTiger', '_probeTigerKind', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', '_addExtDepSheet', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp', '_syncDivRates', '_fillPastDivFromApp', 'setKrwCost', 'aptRefresh', '_molitKeyOnce', '_diagApt', '_aptHistory', '_aptGeoBackfill', '_exaoneKeyOnce', '_exaoneTest', '_exaoneNoticeTest', '_exaoneTigerTest', '_exaoneFallbackTest', '_tigerAiFill', '_deleteNoticeEvents', '_tgReadBack', '_testMail'
 ];
 
@@ -6281,6 +6281,20 @@ function _diagApt(name) {
 }
 
 // ===================================================================
+
+// 운용사별 '새 분배금 공지'를 처음 잡은 시각(알림로그 신규공지). 실제 공지 날짜와의 차이를 보려고(2026-11-23).
+function _diagNoticeLag(arg) {
+  const days = Number(arg) || 45, from = new Date(Date.now() - days * 864e5);
+  const sh = _getOrCreateSheet('알림로그', ['시각','운용사','종류','메시지','중요도','상태']);
+  const n = sh.getLastRow() - 1; if (n < 1) return 'empty';
+  sh.getRange(2, 1, n, 4).getValues().forEach(r => {
+    const t = r[0] instanceof Date ? r[0] : new Date(r[0]);
+    if (r[2] !== '신규공지' || !(t >= from)) return;
+    console.log('LAG ' + Utilities.formatDate(t, 'Asia/Seoul', 'MM-dd HH:mm') + ' | ' + r[1] + ' | ' + r[3]);
+  });
+  return 'ok';
+}
+
 // ===== 수동 실행 (편집기에서 함수 골라 ▶실행. 재배포와 별개) =====
 
 // ── 진단: dividends 연도 값이 어떻게 저장돼 있나 ─────────────────────
