@@ -10,6 +10,10 @@ button{font-size:22px;padding:12px 24px;margin:6px 0 22px;border:0;border-radius
 <pre id="c1">pkg install -y curl && curl -s -o /dev/null -w "%{http_code}\n" -A Mozilla/5.0 -d "firstIndex=0&amp;listCnt=20&amp;pageIndex=1" https://investments.miraeasset.com/tigeretf/ko/customer/notice/list.ajax</pre>
 <button onclick="cp('c1',this)">복사</button>
 <p>복사한 뒤 Termux 화면을 길게 눌러 붙여넣고 엔터. 끝에 나오는 숫자를 알려 주세요.</p>
+<h3>2. 고치기 (curl 실행 안 될 때)</h3>
+<pre id="c2">echo "deb https://packages.termux.dev/apt/termux-main stable main" > $PREFIX/etc/apt/sources.list && pkg upgrade -y -o Dpkg::Options::=--force-confnew</pre>
+<button onclick="cp('c2',this)">복사</button>
+<p>붙여넣고 엔터. 끝나면 위 1번을 다시 한 번 복사해 실행하세요.</p>
 <script>
 function cp(id,b){var t=document.getElementById(id).textContent;
  (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){b.textContent='복사됨'},function(){
