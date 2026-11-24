@@ -6,7 +6,7 @@
 # 국내 PC 에선 열리므로 여기서 목록을 받아 tiger_notices.json 으로 저장소에 올리고,
 # 서버(Code.gs _tigerRelay)가 그 파일을 raw 로 읽어 공지 목록·공시일로 쓴다.
 # 서버가 TIGER 를 제대로 읽고 있으면 아무것도 안 하고 끝난다(차단이 풀리면 저절로 멈춘다).
-import html as html_lib, json, os, re, subprocess, sys, urllib.request
+import html as html_lib, json, os, re, subprocess, sys, time, urllib.request
 from datetime import datetime, timezone, timedelta
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -225,6 +225,15 @@ def relay_rise():
             if img:
                 files['img_%s.png' % hit[0]] = get('https://kbam.co.kr' + img.group(1))
     os.makedirs(RISE_DIR, exist_ok=True)
+    # 공시 시간엔 10분마다 돈다 — 내용이 같으면 saved.txt(서버가 20시간 넘게 묵으면 블로그로 가는 기준)만 3시간마다 갱신한다.
+    same = all(rel == 'saved.txt' or (os.path.exists(os.path.join(RISE_DIR, rel)) and open(os.path.join(RISE_DIR, rel), 'rb').read() == data)
+               for rel in files) and set(os.listdir(RISE_DIR)) == set(files)
+    try:
+        age = (datetime.now(KST) - datetime.strptime(open(os.path.join(RISE_DIR, 'saved.txt')).read().strip(), '%Y-%m-%d %H:%M').replace(tzinfo=KST)).total_seconds()
+    except Exception:
+        age = 1e9
+    if same and age < 3 * 3600:
+        return
     for rel, data in files.items():
         open(os.path.join(RISE_DIR, rel), 'wb').write(data)
     for nm in os.listdir(RISE_DIR):   # 지난 회차 사본은 지운다
@@ -287,7 +296,10 @@ def main():
     except Exception as e:
         log('PLUS 사본 실패: %s' % e)
     try:
-        relay_fundnav()
+        st = os.path.expanduser('~/.fundnav_last')   # 펀드 기준가는 하루 한 번 바뀐다 — 10분마다 돌아도 50분에 한 번만
+        if time.time() - (os.path.getmtime(st) if os.path.exists(st) else 0) > 3000:
+            open(st, 'w').close()
+            relay_fundnav()
     except Exception as e:
         log('펀드 기준가 실패: %s' % e)
     # 예전엔 need_fetch 로 '다른 운용사가 먼저 공지했을 때만' 미래에셋을 열었다(PC 가 자주 꺼지던 때의 절약).

@@ -57,7 +57,7 @@ function _unauthorized() {
 // ⚠️ resetAllTriggers 는 여기서 도는지 **확인되지 않았다.** 트리거 설치는 스코프 재승인이
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
-  '_diagPortfolioLog', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagNoticeLag', '_diagOcr', '_diagOcrText',
+  '_diagPortfolioLog', 'onRelayPush', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagNoticeLag', '_diagOcr', '_diagOcrText',
   '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_probeTiger', '_probeTigerKind', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', '_addExtDepSheet', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp', '_syncDivRates', '_fillPastDivFromApp', 'setKrwCost', 'aptRefresh', '_molitKeyOnce', '_diagApt', '_aptHistory', '_aptGeoBackfill', '_exaoneKeyOnce', '_exaoneTest', '_exaoneNoticeTest', '_exaoneTigerTest', '_exaoneFallbackTest', '_tigerAiFill', '_deleteNoticeEvents', '_tgReadBack', '_testMail'
 ];
 
@@ -1079,6 +1079,20 @@ function clearDistCache(arg) {
   console.log(' | ' + source + ': ' + (all ? '전체' : '이번 회차(' + need + ')') + ' ' + removed
     + '행 삭제 · 지난 회차 ' + kept + '행 유지 · dist2_' + source + '·dist2_ALL 비움');
   return { success: true, source: source, scope: all ? 'all' : need, rowsRemoved: removed, rowsKept: kept };
+}
+
+// 집 탭(·PC) 중계가 새 공지 사본을 올리면 relay-push.yml 이 부른다(runMaint, arg=운용사). 저장분을 버리고 그 운용사만
+// 바로 새로 읽어 둔다 — 30분 감지 주기·중계본 30분 캐시를 기다리지 않게(2026-11-24 탭 공시 시간 10분 확인과 짝).
+function onRelayPush(src) {
+  const s = String(src || '').trim();
+  if (DIST_SOURCE_IDS.indexOf(s) < 0) return { success: false, error: '운용사 이름이 아님: ' + s };
+  const cache = CacheService.getScriptCache();
+  ['tigerRelay', 'notices_v2_' + s, 'dist2_' + s, 'dist2_ALL'].forEach(k => cache.remove(k));
+  let r = {};
+  try { r = getDistribution(s, true) || {}; } catch (e) { r = { error: String(e) }; }
+  try { getEtfNotices(s); } catch (e) { console.log(s + ' 공지 목록 실패 ' + e); }
+  console.log(' | ' + s + ' 새로 읽음: ' + (r.items || []).length + '건 · ' + (r.title || r.error || ''));
+  return { success: !!(r.items || []).length, n: (r.items || []).length };
 }
 
 function seedLastNotices(only) {

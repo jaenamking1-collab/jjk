@@ -1,0 +1,48 @@
+# 집 탭(·PC) 중계가 운용사 공지 사본을 새로 올리면, 서버가 그 운용사만 바로 다시 읽게 한다(Code.gs onRelayPush).
+# 왜(2026-11-24): 탭은 공시 시간대에 10분마다 올리는데, 서버는 30분마다만 감지하고 TIGER 중계본은 30분 더 묵혔다.
+# raw.githubusercontent 는 푸시 뒤 몇 분 옛 파일을 주므로 4분 기다렸다 부른다.
+name: relay-push
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - tiger_notices.json
+      - 'plus_relay/**'
+      - 'rise_relay/**'
+
+concurrency:
+  group: relay-push
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: 바뀐 운용사 고르기
+        id: pick
+        run: |
+          files=$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" 2>/dev/null || git show --name-only --format= "${{ github.sha }}")
+          echo "$files"
+          src=""
+          echo "$files" | grep -q '^tiger_notices.json$' && src="$src tiger"
+          echo "$files" | grep -q '^plus_relay/' && src="$src plus"
+          # RISE 는 saved.txt(생존 시각)만 바뀐 푸시는 건너뛴다
+          echo "$files" | grep '^rise_relay/' | grep -vq '^rise_relay/saved.txt$' && src="$src rise"
+          echo "src=$src" >> "$GITHUB_OUTPUT"
+      - name: 서버에 다시 읽게 하기
+        if: steps.pick.outputs.src != ''
+        env:
+          TOKEN: ${{ secrets.APP_TOKEN }}
+          SRC: ${{ steps.pick.outputs.src }}
+        run: |
+          sleep 240
+          BASE='https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec'
+          for s in $SRC; do
+            curl -sL -o /tmp/r.json --max-time 340 -G --data-urlencode action=runMaint --data-urlencode fn=onRelayPush \
+              --data-urlencode "arg=$s" --data-urlencode "token=$TOKEN" "$BASE" || true
+            python3 -c "import json;d=json.load(open('/tmp/r.json'));print('\n'.join(d.get('log') or []), d.get('error') or '')" || cat /tmp/r.json | head -c 500
+          done
