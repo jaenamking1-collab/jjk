@@ -2997,6 +2997,7 @@ function _fetchDistTigerSeibro(force, siteErr) {
       (n.items || []).forEach(x => {
         const k = x.ticker + '|' + b, v = rel[k] || (rel[k] = { sched: n.sched });
         if (v.rate == null && x.rate != null) v.rate = x.rate;
+        if (v.amount == null && x.amount != null && x.amount !== '') v.amount = Number(x.amount);
         const rc = relCyc[n.cycle];
         if (rc.base === b && !rc.items[x.ticker]) rc.items[x.ticker] = x;
       });
@@ -3056,6 +3057,7 @@ function _fetchDistTigerSeibro(force, siteErr) {
     const rv = rel[it.ticker + '|' + it.sched['기준일']];
     if (rv) {
       relStat.hit++;
+      if (rv.amount == null || rv.amount === Number(it.amount)) relStat.same = (relStat.same || 0) + 1;
       if (rv.rate != null) it.rate = rv.rate;
       ['공시일', '분배락일', '지급일'].forEach(k => { if (rv.sched[k]) it.sched[k] = rv.sched[k]; });
     }
@@ -3080,6 +3082,12 @@ function _fetchDistTigerSeibro(force, siteErr) {
   });
   const latest = items.reduce((a, b) => (b._std > a._std ? b : a));
   items.forEach(it => delete it._std);
+  // 집 탭(tools/tab_loop.sh)이 올린 미래에셋 공지 본문과 이번 회차 종목이 **전부·금액까지** 맞으면 원본과 같다 —
+  // '대체 자료' 표시를 떼고 출처를 탭 중계로 밝힌다(2026-11-24: 98/98 일치인데도 대체 자료로 떠 있었다).
+  const cur = items.filter(it => !it.hist).length;
+  if (cur && relStat.same === cur)
+    return { success: true, items, schedule: latest.sched, title: 'TIGER 분배금 (미래에셋 공지 — 집 탭 중계)',
+             _siteError: siteErr, _relay: relStat };
   return { success: true, items, schedule: latest.sched, title: 'TIGER 분배금 (예탁결제원 SEIBRO — 미래에셋 사이트 접속 실패)',
            _fallback: 'seibro', _siteError: siteErr, _relay: relStat };
 }
