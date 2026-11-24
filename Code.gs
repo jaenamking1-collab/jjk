@@ -901,8 +901,8 @@ function getEtfNotices(source) {
     } else if (source === 'rise') {
       // KB 사이트가 막히면(해외 차단, 2026-10-05~) RISE 네이버 블로그 글 목록으로 대신한다.
       let rn = [];
-      // KB 실패는 응답 없이 수십 초를 잡아먹는다 — 분배 쪽이 남긴 'riseSiteDown'(6시간)이면 KB 는 건너뛴다.
-      if (!cache.get('riseSiteDown')) try { rn = _riseNotices(); } catch (e) { console.log('RISE 공지 KB 실패: ' + e); }
+      // KB 가 막혔으면 _riseGet 이 집 탭 사본을 읽는다(실패 기록 'riseSiteDown' 이 있으면 KB 는 건너뛰고 바로 사본).
+      try { rn = _riseNotices(); } catch (e) { console.log('RISE 공지 KB·탭 사본 실패: ' + e); }
       if (!rn.length) rn = _riseBlogNotices();
       rn.forEach(n => {
         if (items.length >= NOTICE_MAX) return;
@@ -2692,10 +2692,9 @@ function _fetchDistPlusSite() {
 function fetchDist_rise() {
   // KB 접속 실패는 응답 없이 ~100초를 잡아먹는다 → 한 번 실패하면 6시간은 KB 를 건너뛴다(그 뒤 다시 시도).
   // 대체 순서: KB 사이트 → RISE 네이버 블로그(riseetf, 공지 당일 올라온다) → SEIBRO(공시 다음 날 이후에야 뜬다).
-  const cache = CacheService.getScriptCache();
-  const site = cache.get('riseSiteDown') ? { items: [], error: 'RISE: KB 사이트 실패 기록(6시간 건너뜀)' } : _fetchDistRiseSite();
+  // KB 가 막혀 있으면 _riseGet 이 집 탭 사본(rise_relay/)을 대신 읽는다(2026-11-24). 사본도 없거나 묵었으면 블로그로.
+  const site = _fetchDistRiseSite();
   if (site.items && site.items.length) return site;
-  if (/Address unavailable|timed out|Timeout|시간/.test(site.error || '')) cache.put('riseSiteDown', '1', 21600);
   try {
     const blog = _riseBlogItems();
     if (blog.items.length) {
@@ -3123,12 +3122,33 @@ function _seibroRows(back, fwd) {
 // 글 번호가 없고 클릭해야 /support/notice/<id> 로 간다. 다만 요청에 `RSC: 1` 헤더를 붙이면
 // 서버가 목록을 JSON 조각으로 돌려주고 거기에 번호가 있다(빌드 토큰 _rsc 는 필요 없다).
 // category/1 = 분배금 게시판.
+// KB(kbam.co.kr)는 2026-10-05부터 구글 서버를 막는다 → 집 갤럭시탭(tools/tiger_relay.py relay_rise)이 올린 사본(rise_relay/)을 읽는다.
+// KB 접속 실패는 응답 없이 ~100초를 잡아먹어서, 한 번 실패하면 6시간은 KB 를 건너뛰고 바로 사본을 본다.
+// 사본이 20시간 넘게 묵었으면(탭이 죽음) 던진다 → 부르는 쪽이 블로그로 넘어간다. KB 원본이 블로그보다 20~55분 먼저 올라온다.
+var _riseViaTab = false;
+function _riseGet(path, rsc) {
+  const cache = CacheService.getScriptCache();
+  if (!cache.get('riseSiteDown')) {
+    try {
+      const r = UrlFetchApp.fetch('https://kbam.co.kr' + path, { muteHttpExceptions: true,
+        headers: rsc ? { 'RSC': '1', 'User-Agent': 'Mozilla/5.0' } : { 'User-Agent': 'Mozilla/5.0' } });
+      if (r.getResponseCode() === 200) return r.getContentText('UTF-8');
+    } catch (e) {}
+    cache.put('riseSiteDown', '1', 21600);
+  }
+  const raw = f => UrlFetchApp.fetch('https://raw.githubusercontent.com/jaenamking1-collab/jjk/main/rise_relay/' + f, { muteHttpExceptions: true });
+  const sv = raw('saved.txt'), at = sv.getResponseCode() === 200 ? new Date(sv.getContentText().trim().replace(' ', 'T') + ':00+09:00') : null;
+  if (!at || isNaN(at) || Date.now() - at > 20 * 3600000) throw new Error('RISE 탭 사본 없음·묵음(' + (at ? sv.getContentText().trim() : '-') + ')');
+  const f = path.indexOf('/category/') >= 0 ? 'list.txt' : 'n_' + path.split('/').pop() + '.html';
+  const m = raw(f);
+  if (m.getResponseCode() !== 200) throw new Error('RISE 탭 사본 없음: ' + f);
+  _riseViaTab = true;
+  return m.getContentText('UTF-8');
+}
+
 function _riseNotices() {
-  const res = UrlFetchApp.fetch('https://kbam.co.kr/support/notice/category/1', {
-    muteHttpExceptions: true, headers: { 'RSC': '1', 'User-Agent': 'Mozilla/5.0' }
-  });
-  if (res.getResponseCode() !== 200) return [];
-  const body = res.getContentText('UTF-8');
+  let body;
+  try { body = _riseGet('/support/notice/category/1', true); } catch (e) { return []; }
   const re = /"id":(\d+),"category":\{"id":\d+,"name":"[^"]*"\},"title":"([^"]*)"[^{]*?"created_at":"(\d{4})-(\d{2})-(\d{2})/g;
   const out = [];
   let m;
@@ -3163,7 +3183,7 @@ function _fetchDistRiseSite() {
     const endE = dated.find(c => c.cycle === '월말');
 
     const parseRiseNotice = (entry) => {
-      const html = UrlFetchApp.fetch('https://kbam.co.kr' + entry.url, { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } }).getContentText('UTF-8');
+      const html = _riseGet(entry.url);
       const text = html.replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' ').replace(/\s+/g,' ');
       // 일정: 텍스트로 명시 ("지급기준일 : 2026년 6월 30일")
       const sched = {};
@@ -3182,6 +3202,16 @@ function _fetchDistRiseSite() {
       }
       if (baseM) sched['기준일'] = parseInt(baseM[1]) + '월 ' + parseInt(baseM[2]) + '일';
       if (payM) sched['지급일'] = parseInt(payM[1]) + '월 ' + parseInt(payM[2]) + '일';
+      // 지금 KB 공지는 일정을 글이 아니라 **그림**(11/13(금) 분배금 지급 기준일 …)에만 싣는다 — PLUS 그림과 같은 모양이라
+      // plusOcrSched(요일 붙은 날짜 넷 = 분배락전일·분배락일·기준일·지급일)로 읽는다(2026-11-24).
+      if (!sched['기준일']) {
+        const im = html.match(/tiny-content[\s\S]*?<img[^>]+src="(\/media\/[^"]+)"/);
+        if (im) {
+          const id = entry.url.split('/').pop();
+          const o = plusOcrSched(ocrImageText(_riseViaTab ? 'https://raw.githubusercontent.com/jaenamking1-collab/jjk/main/rise_relay/img_' + id + '.png' : 'https://kbam.co.kr' + im[1]));
+          ['분배락일', '기준일', '지급일'].forEach(k => { if (o && o[k]) sched[k] = o[k]; });
+        }
+      }
       // 표: [종목명, 코드, 좌당예상분배금, 좌당과세분배금, 분배율]
       const out = [];
       const trRe = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
@@ -3209,7 +3239,7 @@ function _fetchDistRiseSite() {
     if (midE) { const r = parseRiseNotice(midE); items = items.concat(r.items); if (Object.keys(r.schedule).length) schedule = r.schedule; }
     if (endE) { const r = parseRiseNotice(endE); items = items.concat(r.items); if (!Object.keys(schedule).length && Object.keys(r.schedule).length) schedule = r.schedule; }
     if (!items.length) return { items: [], error: 'RISE: 표 파싱 0건' };
-    return { success: true, items, schedule, title: 'RISE 분배금 (자사 공지 파싱)' };
+    return { success: true, items, schedule, title: _riseViaTab ? 'RISE 분배금 (KB 공지 — 집 탭 중계)' : 'RISE 분배금 (자사 공지 파싱)' };
   } catch(e) {
     return { items: [], error: 'RISE: ' + e.toString() };
   }

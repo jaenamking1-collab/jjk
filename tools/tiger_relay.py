@@ -197,7 +197,51 @@ def relay_plus(force=False):
     log('PLUS 사본 올림 %d개, 최신 %s · commit %s · push %s' % (len(files), rows[0][1][:40], r.returncode, p.returncode or 'ok'))
 
 
+RISE_DIR = os.path.join(REPO, 'rise_relay')
+
+
+def relay_rise():
+    """KB(kbam.co.kr) RISE 분배금 게시판 목록과 회차별 최신 공지 본문을 rise_relay/ 에 올린다.
+    KB 는 2026-10-05부터 해외(구글) 서버를 막아 서버가 블로그로 버텼다 — 블로그는 KB 보다 20~55분 늦다(2026-11-24 실측).
+    서버(Code.gs _riseGet)는 KB 가 안 열리면 이 사본을 읽고, saved.txt 가 20시간 넘게 묵으면 블로그로 돌아간다."""
+    H = {'User-Agent': 'Mozilla/5.0'}
+    get = lambda u, h=H: urllib.request.urlopen(urllib.request.Request(u, headers=h), timeout=30).read()
+    lst = get('https://kbam.co.kr/support/notice/category/1', dict(H, RSC='1'))
+    rows = re.findall(r'"id":(\d+),"category":\{"id":\d+,"name":"[^"]*"\},"title":"([^"]*)"[^{]*?"created_at":"(\d{4}-\d{2}-\d{2})', lst.decode('utf-8', 'ignore'))
+    if not rows:
+        log('RISE 목록 0건 — 올리지 않음')
+        return
+    rows.sort(key=lambda r: (r[2], int(r[0])), reverse=True)
+    files = {'list.txt': lst, 'saved.txt': datetime.now(KST).strftime('%Y-%m-%d %H:%M').encode()}
+    for cyc in ('월말', '월중'):   # 서버 _fetchDistRiseSite 와 같은 고르기: '말'=월말, 아니면 '중순|중'=월중, 회차별 최신 1건
+        hit = next((r for r in rows if '분배금' in r[1] and re.search(r'\d{1,2}월', r[1])
+                    and ('월말' if '말' in r[1] else '월중' if re.search('중순|중', r[1]) else '') == cyc), None)
+        if hit:
+            h = get('https://kbam.co.kr/support/notice/' + hit[0])
+            files['n_%s.html' % hit[0]] = h
+            # 일정(분배락·기준일·지급일)은 본문 글이 아니라 그림에만 있다 — 그림도 올린다(KB 그림 주소도 구글 서버엔 막힘).
+            img = re.search(r'tiny-content[\s\S]*?<img[^>]+src="(/media/[^"]+)"', h.decode('utf-8', 'ignore'))
+            if img:
+                files['img_%s.png' % hit[0]] = get('https://kbam.co.kr' + img.group(1))
+    os.makedirs(RISE_DIR, exist_ok=True)
+    for rel, data in files.items():
+        open(os.path.join(RISE_DIR, rel), 'wb').write(data)
+    for nm in os.listdir(RISE_DIR):   # 지난 회차 사본은 지운다
+        if nm not in files:
+            os.remove(os.path.join(RISE_DIR, nm))
+    g = lambda *a: subprocess.run(['git', '-C', REPO] + list(a), capture_output=True, text=True)
+    g('pull', '-q', '--rebase', '--autostash')
+    g('add', '-A', 'rise_relay')
+    r = g('commit', '-qm', 'RISE 공지 사본(탭) — 최신 ' + rows[0][2] + ' ' + rows[0][1][:40])
+    p = g('push', '-q')
+    log('RISE 사본 올림 %d개, 최신 %s · commit %s · push %s' % (len(files), rows[0][1][:40], r.returncode, p.returncode or 'ok'))
+
+
 def main():
+    try:
+        relay_rise()
+    except Exception as e:
+        log('RISE 사본 실패: %s' % e)
     try:
         relay_plus('--force' in sys.argv)
     except Exception as e:
