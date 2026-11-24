@@ -1,0 +1,30 @@
+monitors [{'rect': (0, 0, 1024, 768), 'work': (0, 0, 1024, 720), 'primary': True}]
+windows 3 [(327802, (111, 104, 865, 616)), (131440, (51, 52, 1081, 680)), (65690, (318, 319, 724, 504))]
+window platforms [(111, 865, 104), (51, 1081, 52)]
+icons [(0, 5, 78, 57), (0, 103, 78, 155), (0, 201, 78, 253), (0, 299, 78, 351), (0, 397, 78, 449), (0, 495, 78, 547)]
+edges 139 ms 45 [(52, 1000, 679), (111, 865, 104), (112, 864, 615), (267, 365, 640), (917, 1000, 450), (917, 1000, 526)]
+alive after 25s True
+alive after mouse True
+ctrl+click pet -> love logged True
+second run replaced first: True second alive: True
+ctrl+alt+q quit: True
+log tail:
+2026-11-24 23:37:47 test mode=ground action=sit x=395 y=720 plats={'ground': 1, 'window': 2, 'icon': 6}
+2026-11-24 23:37:49 test mode=ground action=walk x=394 y=720 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 110}
+2026-11-24 23:37:51 test mode=ground action=walk x=310 y=720 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 109}
+2026-11-24 23:37:53 test mode=ground action=walk x=227 y=720 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 110}
+2026-11-24 23:37:55 test mode=ground action=walk x=143 y=720 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 89}
+2026-11-24 23:37:57 test mode=ground action=walk x=60 y=720 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 59}
+2026-11-24 23:37:59 test mode=climb action=climb x=109 y=531 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 107}
+2026-11-24 23:38:01 test mode=climb action=climb x=109 y=387 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 86}
+2026-11-24 23:38:03 test mode=climb action=slide x=109 y=447 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 93}
+2026-11-24 23:38:05 test mode=ground action=sneak x=107 y=679 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 87}
+2026-11-24 23:38:07 test mode=ground action=walk x=52 y=720 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 58}
+2026-11-24 23:38:09 test mode=climb action=climb x=109 y=543 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 107}
+2026-11-24 23:38:11 test mode=climb action=climb x=109 y=399 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 99}
+2026-11-24 23:38:13 test mode=air action=air x=74 y=580 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 88}
+2026-11-24 23:38:15 test mode=ground action=watch x=232 y=720 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 110}
+2026-11-24 23:38:17 test mode=ground action=love x=232 y=720 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 110}
+2026-11-24 23:38:19 test mode=ground action=love x=232 y=720 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 110}
+2026-11-24 23:38:20 test mode=ground action=sit x=771 y=720 plats={'ground': 1, 'window': 2, 'icon': 6}
+2026-11-24 23:38:22 test mode=ground action=walk x=772 y=720 plats={'ground': 1, 'window': 2, 'icon': 6, 'edge': 94}
