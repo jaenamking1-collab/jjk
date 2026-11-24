@@ -1,5 +1,5 @@
 import { test, expect } from 'claude-code/testing'
-import { judgeCommand, judgeWrite, cacheLabel, turnLabel, weather, todoLines, newModsCount, nowStale } from './register'
+import { judgeCommand, judgeWrite, cacheLabel, turnLabel, weather, todoLines, newModsCount, nowStale, whereIs } from './register'
 
 const LIVE = 'AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s'
 
@@ -99,4 +99,11 @@ test('새 모드 개수', () => {
 test('새 모드 확인 멈춤 감지', () => {
   expect(nowStale(0, 3 * 24 * 3600 * 1000)).toBe(true)
   expect(nowStale(0, 1 * 24 * 3600 * 1000)).toBe(false)
+})
+
+test('작업 환경 이름', () => {
+  expect(whereIs('조재남1\r\n', 'windows').name).toBe('🏫 학교 PC')
+  expect(whereIs('JAENAMHOME', 'windows').name).toBe('🏠 집 PC')
+  expect(whereIs('', 'linux').name).toBe('☁️ 클라우드')
+  expect(whereIs('LAB-07', 'windows').name).toContain('LAB-07')
 })

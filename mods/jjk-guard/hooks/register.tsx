@@ -81,6 +81,30 @@ export function nowStale(at: number, now: number): boolean {
 export function newModsCount(text: string): number {
   return text.split(/\r?\n/).filter(l => l.trim()).length
 }
+// 오른쪽 '지금 작업 환경' 칸(2026-11-24): 앱의 '환경' 표시(이 컴퓨터·main·Remote Control)가 어느 PC인지,
+// 휴대폰으로 이어서 할 수 있는지 말해 주지 않아 사용자가 매번 헷갈렸다. PC 이름으로 가려 쉬운 말로 보여 준다.
+export type Where = { name: string; lines: string[] }
+export function whereIs(host: string, platform?: string): Where {
+  const h = host.trim().toLowerCase()
+  if (platform === 'linux' || platform === 'unknown' || !h)
+    return { name: '☁️ 클라우드', lines: ['PC를 꺼도 작업이 이어집니다', '어느 기기에서 열어도 같은 대화', 'PC 안 파일·프로그램은 못 만집니다'] }
+  if (h === '조재남1')
+    return { name: '🏫 학교 PC', lines: ['15분 쉬면 잠들어 휴대폰 연결이 끊깁니다', '(PC지키미 때문에 절전은 그대로 둡니다)', '휴대폰으로 이어서 하려면 → 집 PC나 클라우드'] }
+  if (h.includes('jaenamhome'))
+    return { name: '🏠 집 PC', lines: ['휴대폰에서 이어서 할 본부입니다', '이 PC가 켜져 있으면 어디서든 붙을 수 있습니다'] }
+  return { name: '🖥️ ' + host.trim() + ' (전산실 PC?)', lines: ['처음 보는 PC입니다 — 어디인지 알려 주시면 이름을 붙입니다'] }
+}
+// 앱 오른쪽 '환경' 칸의 말을 풀어 쓴 것
+export const LEGEND = [
+  '이 컴퓨터 = 지금 이 PC에서 돌고 있음',
+  'main = 저장소 기본 줄기(늘 main 이면 정상)',
+  'Remote Control 켜짐 = 휴대폰에서 이 PC에 붙을 수 있음',
+  '컨텍스트 = 이 대화 길이(50% 넘으면 새 창이 쌈)',
+  '커넥터 = 연결된 지메일·캘린더 같은 도구',
+]
+let where: Where | undefined
+const WHERE_PANE = 'jjk-where'
+
 function paint($: { ui: { status: (t?: string) => unknown } }) {
   const parts = [deployPending ? '⚠ 배포 뒤 resetAllTriggers 안 함' : '', usageText, turnText, cacheLabel(lastReplyAt, nowMs)].filter(Boolean)
   $.ui.status(parts.length ? parts.join(' · ') : undefined)
@@ -133,6 +157,18 @@ export const register: Register = on => {
     } catch {
       // 아직 한 번도 안 돈 상태
     }
+    try {
+      const info = await $.session.info()
+      let host = ''
+      if (info.platform === 'windows') {
+        const r = await $.process.run(['powershell', '-NoProfile', '-Command', '[Console]::OutputEncoding=[Text.Encoding]::UTF8; $env:COMPUTERNAME'])
+        host = r.stdout
+      }
+      where = whereIs(host, info.isHosted ? 'linux' : info.platform)
+      void $.ui.open({ id: WHERE_PANE, title: '📍 지금 작업 환경' })
+    } catch {
+      // 못 알아내면 칸을 띄우지 않는다
+    }
     nowMs = await $.clock.now()
     $.clock.every(60000, async () => { nowMs = await $.clock.now(); paint($) })
     return next(e)
@@ -178,6 +214,24 @@ export const register: Register = on => {
       warned[name] = step
     }
     return next(e)
+  })
+
+  on('ui.render', { component: 'Pane', requestId: WHERE_PANE }, ($, e) => {
+    const { Box, Text } = $.ui.resolve(e)
+    const w = where ?? { name: '알아보는 중…', lines: [] }
+    return (
+      <Box flexDirection="column">
+        <Text bold>{w.name}</Text>
+        {w.lines.map((l, i) => (
+          <Text key={'w' + i}>{'· ' + l}</Text>
+        ))}
+        <Text> </Text>
+        <Text dimColor>앱 오른쪽 '환경' 칸 뜻</Text>
+        {LEGEND.map((l, i) => (
+          <Text key={'l' + i} dimColor>{'· ' + l}</Text>
+        ))}
+      </Box>
+    )
   })
 
   on('ui.render', { component: 'AbovePrompt' }, ($, e, next) => {
