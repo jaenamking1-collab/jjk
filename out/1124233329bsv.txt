@@ -1,0 +1,6 @@
+url: https://kbam.co.kr/support/notice/category/1
+at: 2026-11-24 23:34:28
+status: 200
+type: text/html; charset=utf-8
+final: https://kbam.co.kr/support/notice/category/1
+bytes: 82015
