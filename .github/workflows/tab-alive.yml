@@ -1,0 +1,38 @@
+# 집 갤럭시탭 중계(tools/tab_loop.sh)가 살아 있는지 본다. 탭은 09~18시 매시 :58 쯤 tab_alive.txt 를 올린다.
+# 낮(11~19시 KST)에 그 시각이 2시간 넘게 묵으면 카톡 1번(열린 이슈가 있으면 생략), 다시 살아나면 이슈를 닫는다.
+# 왜: 탭이 죽으면 TIGER·PLUS 공지가 PC 사본만 기다리게 되는데, 사람이 화면을 보고서야 알게 두지 않으려고(2026-11-24).
+name: tab-alive
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '40 2-10 * * *'   # KST 11:40~19:40
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 탭 생존 확인
+        env:
+          TOKEN: ${{ secrets.APP_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          R="${{ github.repository }}"
+          last=$(date -d "$(gh api "repos/$R/commits?path=tab_alive.txt&per_page=1" --jq '.[0].commit.committer.date')" +%s)
+          age=$(( ($(date +%s) - ${last:-0}) / 60 ))
+          echo "tab_alive.txt 마지막 갱신 ${age}분 전"
+          N=$(gh issue list -R "$R" --state open --search "집 탭 중계 멈춤 in:title" --json number --jq '.[0].number // empty')
+          if [ "$age" -le 120 ]; then
+            [ -n "$N" ] && gh issue close "$N" -R "$R" -c "다시 살아남 (${age}분 전 갱신)"
+            exit 0
+          fi
+          [ -n "$N" ] && { echo "::warning::이미 알림(이슈 #$N)"; exit 0; }
+          gh issue create -R "$R" --title "🚨 집 탭 중계 멈춤" --body "마지막 생존 표시 ${age}분 전"
+          curl -sL -o /dev/null -G --max-time 120 --data-urlencode action=runMaint --data-urlencode fn=sendKakaoMemo \
+            --data-urlencode "arg=🚨 집 갤럭시탭 중계가 ${age}분째 멈춤 — 탭 재부팅·Termux 확인 필요 (TIGER·PLUS 공지 지연 가능)" --data-urlencode "token=$TOKEN" \
+            'https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec' || true
+          echo "::error::탭 중계 ${age}분째 멈춤"; exit 1
