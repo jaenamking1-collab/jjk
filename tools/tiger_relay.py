@@ -238,7 +238,24 @@ def relay_rise():
     log('RISE 사본 올림 %d개, 최신 %s · commit %s · push %s' % (len(files), rows[0][1][:40], r.returncode, p.returncode or 'ok'))
 
 
+def tab_alive_min():
+    """탭이 마지막으로 '살아있음'을 올린 뒤 몇 분 지났나(모르면 큰 수)."""
+    try:
+        t = urllib.request.urlopen('https://raw.githubusercontent.com/jaenamking1-collab/jjk/main/tab_alive.txt', timeout=30).read().decode('utf-8')
+        at = datetime.strptime(t[:16], '%Y-%m-%d %H:%M').replace(tzinfo=KST)
+        return (datetime.now(KST) - at).total_seconds() / 60
+    except Exception:
+        return 1e9
+
+
 def main():
+    # PC 는 예비다(2026-11-24): 탭이 2시간 안에 살아있음을 올렸으면 PC 는 아무것도 안 한다.
+    # 둘이 같은 파일을 동시에 올려 커밋이 엉키는 걸 막고, 탭이 멈추면 PC 가 저절로 이어받는다.
+    if WHO == 'PC' and '--force' not in sys.argv:
+        m = tab_alive_min()
+        if m <= 120:
+            return
+        log('탭 %s분째 소식 없음 — PC 가 대신 중계' % (int(m) if m < 1e8 else '?'))
     try:
         relay_rise()
     except Exception as e:

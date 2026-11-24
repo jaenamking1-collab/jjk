@@ -1,6 +1,6 @@
 @echo off
 rem Registers tools\tiger_relay.py in Task Scheduler: every day 09:05-18:05, hourly.
-rem The script only opens the Mirae (TIGER) site when other issuers already posted a newer notice.
+rem Backup only: the home tablet (tools/tab_loop.sh) relays 08-22h. The PC run does nothing while the tablet is alive (2h).
 rem Keep this file ASCII + CRLF: cmd mis-parses UTF-8 Korean and LF line endings (2026-10-29).
 set "PYW="
 for /f "delims=" %%p in ('where pythonw 2^>nul') do if not defined PYW set "PYW=%%p"
