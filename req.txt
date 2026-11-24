@@ -1,3 +1,4 @@
 # 집 탭에게 대신 열어 달라는 주소 목록 — tools/tabget.py 가 쓴다. 형식: 아이디 주소 [Referer]
 # 결과는 out/<아이디>, out/<아이디>.txt (tools/tab_fetch.py). 공개 브랜치다 — 개인 자료 주소 금지.
 1124222114zja https://kbam.co.kr/support/notice/category/1
+1124223142jpg https://kbam.co.kr/support/notice/category/1
