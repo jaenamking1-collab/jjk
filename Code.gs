@@ -2862,7 +2862,7 @@ function _seibroDistItems(co) {
 // ⚠️ SEIBRO 는 지급이 지난 회차를 일부만 남긴다(10/29: 10/15 기준 TIGER 10건, 뉴스엔 44건).
 // 그래서 회차마다 뉴스 쪽이 같은 기준일로 더 많이 갖고 있으면 그 회차는 뉴스 것을 쓴다.
 // 그래도 분배율이 없으면 네이버 ETF 목록의 NAV 로 계산한다(운용사 표는 기준일 전 기준가라 소수점 둘째 자리가 다를 수 있다).
-// PC 중계 파일(tools/tiger_relay.py 가 집·학교 PC 에서 하루 2회 올림). 사흘 넘게 묵었으면 안 쓴다.
+// 중계 파일(tools/tiger_relay.py — 주로 집 갤럭시탭이 매시, PC 는 예비). 나이로 버리지 않는다(_tigerRelayPc 주석).
 // 공개 저장소의 공개 공지 목록일 뿐이라 비밀값이 없다. raw 는 몇 분 캐시되니 30분 캐시면 충분하다.
 // 2026-11-05: KIND(거래소 공시) 중계 Worker 도 합친다 — PC 가 꺼져 있어도 새 회차가 들어온다.
 // 같은 회차(월·월중/월말)는 PC 중계(미래에셋 원본 제목·주소)를 먼저 쓰고, 빠진 회차만 KIND 것으로 채운다.
@@ -2977,8 +2977,10 @@ function _tigerRelayPub(m, cyc) {
 }
 
 function _fetchDistTigerSeibro(force, siteErr) {
-  let items = _seibroDistItems('미래에셋').filter(it => /^TIGER/.test(it.name));
-  if (!items.length) return { items: [] };
+  // 예탁결제원이 0건·실패여도 여기서 끝내지 않는다 — 아래에서 집 탭 중계(미래에셋 원본)·거래소 공시로 채운다(2026-11-24).
+  // 예전엔 바로 빈 손으로 돌아가 뉴스로 떨어졌다(11/20 새벽: 기준일·분배락일 빈 칸).
+  let items = [];
+  try { items = _seibroDistItems('미래에셋').filter(it => /^TIGER/.test(it.name)); } catch(e) { console.log('TIGER 예탁결제원 실패 — 중계로 채움: ' + e); }
   let st = null;
   try { st = fetchDist_smarttoday(force)['tiger']; } catch(e) {}
   const md = s => { const m = String(s || '').match(/(\d{1,2})\D+(\d{1,2})/); return m ? Number(m[1]) + '/' + Number(m[2]) : ''; };
@@ -3036,6 +3038,7 @@ function _fetchDistTigerSeibro(force, siteErr) {
         sched: { '공시일': md(kr.pub.slice(5)), '기준일': md(kr.record.slice(5)), '지급일': md(kr.pay.slice(5)) }, _std: kr.std })));
     });
   } catch(e) { console.log('TIGER 거래소 공시 보충 실패: ' + e); }
+  if (!items.length) return { items: [] };
   const byT = {};
   stItems.forEach(x => { byT[x.ticker] = x; });
   // 분배캐시의 지난 저장분(사이트·뉴스로 읽던 때)에서 같은 종목·같은 기준일의 공시일·분배율을 잇는다 —

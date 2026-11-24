@@ -1,5 +1,5 @@
-# TIGER 공지 목록 중계 — 집·학교 PC 의 작업 스케줄러가 평일 9~18시 1시간마다 깨운다(tiger_relay_setup.bat).
-# 깨워도 대부분은 서버만 보고 끝난다: 다른 운용사 공지가 TIGER 보다 앞설 때만 미래에셋을 연다(need_fetch).
+# TIGER 공지 목록 중계 — 집 갤럭시탭(tools/tab_loop.sh, 매일 8~22시 매시)이 주로 돌고, 집·학교 PC 작업 스케줄러(tiger_relay_setup.bat)는 예비.
+# need_fetch 는 이제 안 쓴다(매번 미래에셋을 연다, 2026-11-24). 함수는 진단용으로 남겨 둔다.
 #
 # 왜: 미래에셋 사이트가 2026-10-27 저녁부터 구글 서버(Apps Script) 요청을 403 으로 막는다.
 # 금액·날짜는 예탁결제원(SEIBRO)으로 받지만 공시일과 공지 제목·링크는 미래에셋에만 있다.
@@ -17,6 +17,7 @@ VIEW = 'https://investments.miraeasset.com/tigeretf/ko/customer/notice/view.do?d
 KST = timezone(timedelta(hours=9))
 PLUS_DIR = os.path.join(REPO, 'plus_relay')
 PLUS_RAW = 'https://raw.githubusercontent.com/jaenamking1-collab/jjk/main/plus_relay/'
+WHO = '탭' if 'com.termux' in os.environ.get('PREFIX', '') else 'PC'   # 커밋 이름에 어디서 올렸는지
 
 
 def log(msg):
@@ -192,7 +193,7 @@ def relay_plus(force=False):
     g = lambda *a: subprocess.run(['git', '-C', REPO] + list(a), capture_output=True, text=True)
     g('pull', '-q', '--rebase', '--autostash')
     g('add', '-A', 'plus_relay')
-    r = g('commit', '-qm', 'PLUS 공지 사본(PC) — 최신 ' + rows[0][1][:50])
+    r = g('commit', '-qm', 'PLUS 공지 사본(%s) — 최신 ' % WHO + rows[0][1][:50])
     p = g('push', '-q')
     log('PLUS 사본 올림 %d개, 최신 %s · commit %s · push %s' % (len(files), rows[0][1][:40], r.returncode, p.returncode or 'ok'))
 
@@ -232,7 +233,7 @@ def relay_rise():
     g = lambda *a: subprocess.run(['git', '-C', REPO] + list(a), capture_output=True, text=True)
     g('pull', '-q', '--rebase', '--autostash')
     g('add', '-A', 'rise_relay')
-    r = g('commit', '-qm', 'RISE 공지 사본(탭) — 최신 ' + rows[0][2] + ' ' + rows[0][1][:40])
+    r = g('commit', '-qm', 'RISE 공지 사본(%s) — 최신 ' % WHO + rows[0][2] + ' ' + rows[0][1][:40])
     p = g('push', '-q')
     log('RISE 사본 올림 %d개, 최신 %s · commit %s · push %s' % (len(files), rows[0][1][:40], r.returncode, p.returncode or 'ok'))
 
@@ -246,11 +247,9 @@ def main():
         relay_plus('--force' in sys.argv)
     except Exception as e:
         log('PLUS 사본 실패: %s' % e)
-    if '--force' not in sys.argv:
-        go, why = need_fetch()
-        if not go:
-            return   # 1시간마다 도니 '할 일 없음'은 로그에 안 남긴다
-        log(why + ' — 미래에셋 확인')
+    # 예전엔 need_fetch 로 '다른 운용사가 먼저 공지했을 때만' 미래에셋을 열었다(PC 가 자주 꺼지던 때의 절약).
+    # 그래서 TIGER 가 제일 먼저 공지하면 한 시간 넘게 늦었다. 탭이 늘 켜져 있으니 매번 연다(2026-11-24).
+    # 목록 1번 + 본문 몇 번이고, 바뀐 게 없으면 커밋하지 않는다.
     items = fetch_list()
     if not items:
         log('목록 0건 — 올리지 않음')
@@ -274,9 +273,28 @@ def main():
     g = lambda *a: subprocess.run(['git', '-C', REPO] + list(a), capture_output=True, text=True)
     g('pull', '-q', '--rebase', '--autostash')
     g('add', 'tiger_notices.json')
-    r = g('commit', '-qm', 'TIGER 공지 중계(PC) — 최신 %s %s' % (items[0]['date'], items[0]['title'][:30]))
+    r = g('commit', '-qm', 'TIGER 공지 중계(%s) — 최신 %s %s' % (WHO, items[0]['date'], items[0]['title'][:30]))
     p = g('push', '-q')
     log('올림 %d건, 최신 %s · commit %s · push %s' % (len(items), items[0]['date'], r.returncode, p.returncode or 'ok'))
+
+
+def upgrade_tab_loop():
+    """탭에서 옛 tab_loop.sh(한 번 읽고 계속 돌아 고친 내용이 안 먹는 판)가 부른 거면, 새 루프를 띄우고 옛 루프를 끈다.
+    새 루프는 TAB_LOOP_SELFEXEC=1 을 넘기고 매시간 자기 파일을 다시 읽으니 이 일은 한 번만 일어난다(2026-11-24)."""
+    if WHO != '탭' or os.environ.get('TAB_LOOP_SELFEXEC'):
+        return
+    import signal
+    parent = os.getppid()
+    try:
+        cmd = open('/proc/%d/cmdline' % parent, 'rb').read()
+    except Exception:
+        return
+    if b'tab_loop.sh' not in cmd:
+        return
+    subprocess.Popen(['sh', os.path.join(REPO, 'tools', 'tab_loop.sh')], cwd=REPO, start_new_session=True,
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    os.kill(parent, signal.SIGTERM)
+    log('옛 탭 루프(%d) → 새 루프로 갈아탐' % parent)
 
 
 if __name__ == '__main__':
@@ -285,3 +303,8 @@ if __name__ == '__main__':
     except Exception as e:
         log('실패: %s' % e)
         raise
+    finally:
+        try:
+            upgrade_tab_loop()
+        except Exception as e:
+            log('탭 루프 갈아타기 실패: %s' % e)
