@@ -22,6 +22,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           R="${{ github.repository }}"
+          # GitHub 예약 실행은 몇 시간씩 늦게 돌기도 한다(2026-11-25: 22:40 몫이 다음날 07:44 에 돌아, 탭이 원래 쉬는 밤 시간을 '553분 멈춤'으로 오보). 감시 시간 밖이면 그냥 끝낸다.
+          kh=$(TZ=Asia/Seoul date +%H | sed 's/^0//')
+          if [ "${{ github.event_name }}" = schedule ] && { [ "$kh" -lt 10 ] || [ "$kh" -gt 22 ]; }; then echo "KST ${kh}시 — 감시 시간(10~22시) 밖, 건너뜀"; exit 0; fi
           last=$(date -d "$(gh api "repos/$R/commits?path=tab_alive.txt&per_page=1" --jq '.[0].commit.committer.date')" +%s)
           age=$(( ($(date +%s) - ${last:-0}) / 60 ))
           echo "tab_alive.txt 마지막 갱신 ${age}분 전"
