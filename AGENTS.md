@@ -100,14 +100,14 @@ Codex 앱은 긴 링크를 화면에 `앞부분…뒷부분` 으로 **줄여 보
 
 ## What this is
 
-A single-file personal dividend-portfolio tracker (`portfolio.html`) for two people (재남 / 은경) holding mostly monthly-distribution Korean ETFs across several brokerage accounts. It tracks holdings, valuations, and monthly dividend income, and visualizes progress toward a goal (₩10,000,000/month in distributions by 2029-02-28).
+A single-file personal dividend-portfolio tracker (`portfolio.html`) for two people holding mostly monthly-distribution Korean ETFs across several brokerage accounts. It tracks holdings, valuations, and monthly dividend income, and visualizes progress toward a monthly-distribution goal. (이름·목표 금액·기한은 공개하지 않는다 — 비공개 메모 `~/claude-memory/jjk/개인맥락.md`.)
 
 There is **no build system, package manager, test suite, or lint config**. The frontend — HTML, CSS (`<style>`), and JS (`<script>`) — lives in `portfolio.html` (one large file). Open the file in a browser to run it; there is nothing to compile. The backend lives in `Code.gs` (Google Apps Script).
 
 ## Working in this repo
 
 - **PDF·워드·파워포인트·엑셀은 읽기 전에 마크다운으로 바꾼다**(2026-10-06 사용자 결정 — 토큰 절약). `python -m markitdown 파일.pdf -o 파일.md` 로 바꾼 뒤(⚠️ `>` 금지 — 윈도우 PowerShell 은 `>` 로 받으면 UTF-16 으로 저장하고 한글이 cp949 를 거쳐 깨질 수 있다. `-o` 는 UTF-8 로 바로 쓴다) `.md` 를 읽는다. PDF 를 그대로 읽으면 쪽마다 이미지+글자로 두 번 읽혀 토큰이 이중으로 든다. **차트·그림이 핵심인 문서만** 원본을 본다. `python -c "import markitdown"` 가 실패하면 **묻지 말고** `python -m pip install --user "markitdown[all]"` 로 설치한다(파이썬 3.10↑, 원격 컨테이너 약 10초). 학교·집 PC 모두 처음 쓸 때 그 세션이 설치한다.
-- **한글(HWP·HWPX) 문서는 `kordoc` 으로 읽고 쓴다**(2026-10-07 사용자 결정 — 정보부장 문서 작성용). 읽기 `kordoc 문서.hwp -o 문서.md`, 새로 쓰기 `kordoc generate 초안.md --preset 보고서 -o 보고서.hwpx`, 기안문 `kordoc fill --template gian -j 값.json -o 기안문.hwpx`. 결과는 `.hwpx`(한글 2014↑). `kordoc --version` 이 실패하면 **묻지 말고** `npm i -g kordoc` 로 설치한다(Node 필요 — 원격·학교·집 모두 그 세션이 설치). ⛔ 학생 개인정보가 든 문서는 이 공개 저장소에 올리지 않는다.
+- **한글(HWP·HWPX) 문서는 `kordoc` 으로 읽고 쓴다**(2026-10-07 사용자 결정 — 업무 문서 작성용). 읽기 `kordoc 문서.hwp -o 문서.md`, 새로 쓰기 `kordoc generate 초안.md --preset 보고서 -o 보고서.hwpx`, 기안문 `kordoc fill --template gian -j 값.json -o 기안문.hwpx`. 결과는 `.hwpx`(한글 2014↑). `kordoc --version` 이 실패하면 **묻지 말고** `npm i -g kordoc` 로 설치한다(Node 필요 — 원격·학교·집 모두 그 세션이 설치). ⛔ 학생 개인정보가 든 문서는 이 공개 저장소에 올리지 않는다.
 
 - **Editing**: The file is large with inline styles and one big script block. Use Grep to locate a function/section by line before editing rather than reading the whole file. Function definitions are plain `function name()` / `async function name()` at column 0, so `^(async )?function <name>` finds them fast. 파일 읽기 도구의 `allow_large`(큰 파일 통째 읽기, 2026-10 추가)는 **쓰지 않는다** — `portfolio.html` 7천여 줄을 통째로 읽으면 토큰이 크게 든다(사용자 토큰 절약 원칙). 정말 통째로 봐야 하면 먼저 묻는다.
 - **Preview**: Just open `portfolio.html` in a browser (the launch preview panel also renders it). No dev server.
