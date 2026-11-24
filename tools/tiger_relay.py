@@ -238,6 +238,28 @@ def relay_rise():
     log('RISE 사본 올림 %d개, 최신 %s · commit %s · push %s' % (len(files), rows[0][1][:40], r.returncode, p.returncode or 'ok'))
 
 
+def relay_fundnav():
+    """IRP 펀드 기준가(FunETF)를 받아 fund_nav.txt 로 올린다. FunETF 가 구글 서버(2026-09-30)에 이어
+    GitHub 서버까지 403 으로 막았다(2026-11-24) — 국내 집 인터넷인 탭이 받는다. 올리면 fund_nav.yml 이
+    그 파일로 서버(updateFundNav)에 반영한다. 기준가는 공개 정보(그 작업 로그에도 원래 찍혔다)."""
+    r = subprocess.run([sys.executable, os.path.join('.github', 'scripts', 'fundnav.py')], cwd=REPO,
+                       capture_output=True, text=True, timeout=300)
+    line = r.stdout.strip()
+    if r.returncode or not re.fullmatch(r'K5\w+:\d{8}:[\d.]+(,K5\w+:\d{8}:[\d.]+)*', line):
+        log('펀드 기준가 받기 실패: ' + (r.stderr.strip()[-200:] or line[:100]))
+        return
+    p = os.path.join(REPO, 'fund_nav.txt')
+    if os.path.exists(p) and open(p, encoding='utf-8').read().strip() == line:
+        return
+    open(p, 'w', encoding='utf-8', newline='\n').write(line + '\n')
+    g = lambda *a: subprocess.run(['git', '-C', REPO] + list(a), capture_output=True, text=True)
+    g('pull', '-q', '--rebase', '--autostash')
+    g('add', 'fund_nav.txt')
+    c = g('commit', '-qm', 'IRP 펀드 기준가(%s) — %s' % (WHO, line.split(':')[1]))
+    ps = g('push', '-q')
+    log('펀드 기준가 올림 %s · commit %s · push %s' % (line.split(':')[1], c.returncode, ps.returncode or 'ok'))
+
+
 def tab_alive_min():
     """탭이 마지막으로 '살아있음'을 올린 뒤 몇 분 지났나(모르면 큰 수)."""
     try:
@@ -264,6 +286,10 @@ def main():
         relay_plus('--force' in sys.argv)
     except Exception as e:
         log('PLUS 사본 실패: %s' % e)
+    try:
+        relay_fundnav()
+    except Exception as e:
+        log('펀드 기준가 실패: %s' % e)
     # 예전엔 need_fetch 로 '다른 운용사가 먼저 공지했을 때만' 미래에셋을 열었다(PC 가 자주 꺼지던 때의 절약).
     # 그래서 TIGER 가 제일 먼저 공지하면 한 시간 넘게 늦었다. 탭이 늘 켜져 있으니 매번 연다(2026-11-24).
     # 목록 1번 + 본문 몇 번이고, 바뀐 게 없으면 커밋하지 않는다.

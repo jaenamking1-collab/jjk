@@ -1,9 +1,14 @@
 # IRP 펀드 기준가를 매일 FunETF 에서 받아 주식상황 G열에 반영한다(Code.gs updateFundNav).
 # 왜 Actions 인가: FunETF 가 Apps Script(구글 서버)를 403 으로 막는다(2026-09-30 확인).
 # 같은 기준일은 두 번 반영하지 않으므로 두 번 돌거나 재시도해도 안전하다.
+# 2026-11-24: FunETF 가 GitHub 서버도 403 으로 막는다 → 집 갤럭시탭(tools/tiger_relay.py relay_fundnav)이
+#   받아 fund_nav.txt 로 올리고, 그 푸시가 이 작업을 깨운다. 여기서 직접 받기가 실패하면 그 파일을 쓴다.
 name: fund_nav
 
 on:
+  push:
+    branches: [main]
+    paths: [fund_nav.txt]
   schedule:
     - cron: '30 1 * * 1-5'   # 평일 10:30 KST
     - cron: '30 6 * * 1-5'   # 평일 15:30 KST (아침에 기준가가 늦게 나온 날 따라잡기)
@@ -16,7 +21,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: 기준가 받기
         id: nav
-        run: echo "arg=$(python3 .github/scripts/fundnav.py)" >> "$GITHUB_OUTPUT"
+        run: |
+          arg=$(python3 .github/scripts/fundnav.py || true)
+          if [ -z "$arg" ] && [ -s fund_nav.txt ]; then arg=$(head -1 fund_nav.txt); echo "FunETF 직접 실패 → 탭이 올린 fund_nav.txt 사용"; fi
+          if [ -z "$arg" ]; then echo "::error::기준가를 못 받음(FunETF 403, fund_nav.txt 없음)"; exit 1; fi
+          echo "arg=$arg" >> "$GITHUB_OUTPUT"
       - name: updateFundNav 호출
         env:
           ARG: ${{ steps.nav.outputs.arg }}
