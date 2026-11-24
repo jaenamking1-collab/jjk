@@ -1,5 +1,6 @@
 // 시세: 기존 시세 위젯(tools/ticker.pyw)의 종목 목록을 읽기만 하고, 같은 곳에서 받는다
-// (국내 6자리·코스피/코스닥 = 네이버, 나머지 = 야후). 총평가 금액은 다루지 않는다.
+// (국내 6자리·코스피/코스닥 = 네이버, 나머지 = 야후). 교환비율 줄(A/B)과 맨 아래 총평가(휴대폰 시세와 같은 중계)도 보인다.
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -358,8 +359,14 @@ fn config() -> Vec<(String, String, usize)> {
 }
 
 fn fetch(c: &HttpClient, gecko: &mut Gecko, bithumb_off: &mut Option<Instant>) -> Vec<Quote> {
-    // 설정에 이름이 없으면(심볼만 적혀 있으면) 받은 곳의 이름을 쓴다
-    let want: Vec<(Src, String, Option<String>, usize)> = config().into_iter().filter_map(|(sym, name, grp)| source(&sym).map(|(s, key)| (s, key, (name != sym).then_some(name), grp))).collect();
+    // 교환비율 줄("XRP-KRW/KAIA-KRW")은 두 코인을 다 받아 나눈다
+    let cfg = config();
+    let mut want: Vec<(Src, String)> = Vec::new();
+    for (s, key) in cfg.iter().flat_map(|c| c.0.split('/')).filter_map(source) {
+        if !want.iter().any(|w| w.1 == key) {
+            want.push((s, key));
+        }
+    }
     let keys = |src: Src| want.iter().filter(|w| w.0 == src).map(|w| w.1.clone()).collect::<Vec<_>>();
     let mut got: Vec<Got> = Vec::new();
     for (src, kind, dec) in [(Src::Stock, "stock", 0), (Src::Index, "index", 2)] {
@@ -404,8 +411,44 @@ fn fetch(c: &HttpClient, gecko: &mut Gecko, bithumb_off: &mut Option<Instant>) -
             got.extend(parse_yahoo(&b));
         }
     }
-    // 설정에 적힌 순서대로. 못 받은 종목은 빠진다.
-    want.iter().filter_map(|(_, key, name, grp)| got.iter().find(|g| &g.0 == key).map(|g| Quote { name: short(name.as_ref().unwrap_or(&g.3)), price: g.1.clone(), pct: g.2, group: *grp })).collect()
+    assemble(&cfg, &got)
+}
+
+/// 설정에 적힌 순서대로. 못 받은 종목은 빠진다. 이름이 없으면(심볼만 적혀 있으면) 받은 곳의 이름을 쓴다.
+fn assemble(cfg: &[(String, String, usize)], got: &[Got]) -> Vec<Quote> {
+    let find = |k: &str| got.iter().find(|g| g.0 == k);
+    let val = |s: &str| s.replace(',', "").parse::<f64>().ok();
+    cfg.iter()
+        .filter_map(|(sym, name, grp)| {
+            if let Some((a, b)) = sym.split_once('/') {
+                // 1 A = 몇 B. 등락은 두 코인 등락에서(위젯은 30일 구간 위치를 보이지만 노치는 오늘 등락만)
+                let (x, y) = (find(&source(a)?.1)?, find(&source(b)?.1)?);
+                let (pa, pb) = (val(&x.1)?, val(&y.1)?.max(f64::MIN_POSITIVE));
+                let pct = ((1.0 + x.2 / 100.0) / (1.0 + y.2 / 100.0) - 1.0) * 100.0;
+                return Some(Quote { name: name.clone(), price: commas(pa / pb, 2), pct, group: *grp });
+            }
+            let g = find(&source(sym)?.1)?;
+            Some(Quote { name: short(if name != sym { name } else { &g.3 }), price: g.1.clone(), pct: g.2, group: *grp })
+        })
+        .collect()
+}
+
+/// 총평가 코드: 내 PC 는 claude-memory/ticker/phone_code.txt(위젯과 같다), 없는 PC 는 시세 종목 창에 넣은 코드.
+fn total_code() -> Option<String> {
+    let f = PathBuf::from(std::env::var("USERPROFILE").unwrap_or_default()).join("claude-memory/ticker/phone_code.txt");
+    let c = std::fs::read_to_string(f).ok().map(|s| s.trim().to_string()).or_else(|| {
+        let v: Value = std::fs::read_to_string(config_path()).ok().and_then(|s| serde_json::from_str(&s).ok())?;
+        v["code"].as_str().map(str::to_string)
+    })?;
+    is_code(&c).then_some(c)
+}
+
+/// 중계의 총평가(휴대폰 시세·위젯과 같은 값) → 맨 아래 한 줄. 예수금은 빠진 평가금이다.
+pub fn parse_total(body: &str) -> Option<(String, f64)> {
+    let v: Value = serde_json::from_str(body).ok()?;
+    let t = &v["total"];
+    let won = t["value"].as_f64().filter(|x| *x > 0.0)?;
+    Some((format!("{:.2}억", won / 1e8), t["pct"].as_f64().unwrap_or(0.0)))
 }
 
 pub fn spawn(out: Arc<Mutex<Quotes>>) {
@@ -420,13 +463,27 @@ pub fn spawn(out: Arc<Mutex<Quotes>>) {
         let Ok(c) = client() else { return };
         let (mut gecko, mut bithumb_off) = (Gecko::default(), None);
         let mut synced: Option<Instant> = None;
+        let mut total: (Option<Instant>, Option<(String, f64)>) = (None, None);
         loop {
             // 코드로 집 목록 따라가기: 켤 때·설정 저장 때·한 시간마다
             if synced.map_or(true, |t| t.elapsed() > Duration::from_secs(3600)) {
                 sync_by_code(&c);
                 synced = Some(Instant::now());
             }
-            let list = fetch(&c, &mut gecko, &mut bithumb_off);
+            let mut list = fetch(&c, &mut gecko, &mut bithumb_off);
+            // 총평가는 2분마다(위젯과 같다). 못 받으면 직전 값
+            if total.0.map_or(true, |t| t.elapsed() > Duration::from_secs(120)) {
+                total.0 = Some(Instant::now());
+                if let Some(code) = total_code() {
+                    if let Some(t) = get(&c, &format!("{RELAY}?total={code}")).ok().and_then(|b| parse_total(&b)) {
+                        total.1 = Some(t);
+                    }
+                }
+            }
+            if let (Some((v, pct)), false) = (&total.1, list.is_empty()) {
+                let group = list.iter().map(|q| q.group).max().unwrap_or(0) + 1;
+                list.push(Quote { name: "총평가".into(), price: v.clone(), pct: *pct, group });
+            }
             out.lock().unwrap().tried = crate::hhmm();
             if !list.is_empty() {
                 let mut o = out.lock().unwrap();
@@ -531,6 +588,18 @@ XRP-KRW/KAIA-KRW=XRP당 카이아 @49,50,v41
                 assert!(py.contains(&format!("(\"{label}\", [\"{row}\"])")), "위젯에 없는 지수 버튼: {label} {row}");
             }
         }
+    }
+
+    #[test]
+    fn ratio_and_total() {
+        let cfg = vec![("XRP-KRW".to_string(), "XRP".to_string(), 0), ("XRP-KRW/KAIA-KRW".to_string(), "XRP당 카이아".to_string(), 0)];
+        let got: Vec<Got> = vec![("XRP-KRW".into(), "3,300".into(), 2.0, "XRP".into()), ("KAIA-KRW".into(), "66.00".into(), 1.0, "KAIA".into())];
+        let q = assemble(&cfg, &got);
+        assert_eq!((q.len(), q[1].price.as_str()), (2, "50.00"));
+        assert!((q[1].pct - 0.990099).abs() < 1e-4);
+        assert!(assemble(&cfg, &got[..1]).len() == 1, "한쪽을 못 받으면 비율 줄은 빠진다");
+        assert_eq!(parse_total(r#"{"total":{"value":123456789,"pct":-0.5}}"#), Some(("1.23억".into(), -0.5)));
+        assert_eq!(parse_total(r#"{"total":{}}"#), None);
     }
 
     #[test]
