@@ -2694,7 +2694,8 @@ function fetchDist_rise() {
   // 대체 순서: KB 사이트 → RISE 네이버 블로그(riseetf, 공지 당일 올라온다) → SEIBRO(공시 다음 날 이후에야 뜬다).
   // KB 가 막혀 있으면 _riseGet 이 집 탭 사본(rise_relay/)을 대신 읽는다(2026-11-24). 사본도 없거나 묵었으면 블로그로.
   const site = _fetchDistRiseSite();
-  if (site.items && site.items.length) return site;
+  // 탭 사본에서 일정(기준일)을 못 읽은 종목이 있으면 블로그로 — 날짜 빈 칸·오독을 공개 페이지에 내보내지 않는다.
+  if (site.items && site.items.length && site.items.every(it => (it.sched || {})['기준일'])) return site;
   try {
     const blog = _riseBlogItems();
     if (blog.items.length) {
@@ -3209,7 +3210,9 @@ function _fetchDistRiseSite() {
         if (im) {
           const id = entry.url.split('/').pop();
           const o = plusOcrSched(ocrImageText(_riseViaTab ? 'https://raw.githubusercontent.com/jaenamking1-collab/jjk/main/rise_relay/img_' + id + '.png' : 'https://kbam.co.kr' + im[1]));
-          ['분배락일', '기준일', '지급일'].forEach(k => { if (o && o[k]) sched[k] = o[k]; });
+          // 셋 다 1~12월로 제대로 읽혔을 때만 쓴다(2026-11-24 첫 시험: 기준일 '26월 11일'로 오독).
+          const ok = o && ['분배락일', '기준일', '지급일'].every(k => { const m = String(o[k] || '').match(/^(\d{1,2})월/); return m && +m[1] >= 1 && +m[1] <= 12; });
+          if (ok) ['분배락일', '기준일', '지급일'].forEach(k => { sched[k] = o[k]; });
         }
       }
       // 표: [종목명, 코드, 좌당예상분배금, 좌당과세분배금, 분배율]
@@ -3221,7 +3224,7 @@ function _fetchDistRiseSite() {
         const ti = cols.findIndex(c => /^[0-9A-Z]{6}$/.test(c));
         if (ti < 0) continue;
         const ticker = cols[ti];
-        const name = (cols[ti-1] || cols[0] || '').replace(/\s*ETF\s*$/,'').trim();
+        const name = (cols[ti-1] || cols[0] || '').replace(/&amp;/g, '&').replace(/\s*ETF\s*$/,'').trim();
         // ⛔ 분배율 칸은 '0.23%' 처럼 %가 붙어 오는 행이 있다. 예전엔 %붙은 칸을 숫자로 안 쳐서
         // 분배금 하나만 남았고, 그게 그대로 분배율이 돼 '271%'·'236%'가 떴다
         // (2026-09-28 금융채액티브·중기우량회사채 — 원문은 271원 0.27%, 236원 0.23%).
