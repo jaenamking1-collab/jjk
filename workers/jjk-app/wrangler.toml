@@ -1,0 +1,7 @@
+# 앱 페이지를 계정명 없는 주소로 — https://jjk-app.distributionjn.workers.dev/m.html
+# 옛 github.io 주소에서 정해진 파일만 받아 그대로 넘긴다(푸시하면 자동 반영, 따로 배포할 것 없음).
+# 배포(worker.js 를 바꿨을 때만): 이 폴더에서 npx wrangler deploy
+name = "jjk-app"
+main = "worker.js"
+compatibility_date = "2026-11-01"
+workers_dev = true
