@@ -2500,6 +2500,18 @@ function plusOcrSched(ocrText) {
   return { '분배락일': f(ds[1]), '기준일': f(ds[2]), '지급일': f(ds[3]) };
 }
 
+// RISE 공지 그림 일정: '11/13(금) 분배금 지급 기준일' 처럼 날짜 바로 뒤에 라벨이 붙는다. 요일이 'a' 로 읽히는 일이 있어(11/13(a))
+// PLUS 용 plusOcrSched(요일 글자 필수)는 못 쓴다 — 라벨로 찾고 요일 칸은 아무 글자나 받는다. 못 읽으면 null(2026-11-24).
+function riseOcrSched(ocrText) {
+  const t = String(ocrText || '').replace(/\s+/g, ' ');
+  const map = { '분배락당일': '분배락일', '분배금지급기준일': '기준일', '분배금지급일': '지급일' }, out = {};
+  for (const m of t.matchAll(/(\d{1,2})\/(\d{1,2})\s*\([^)]{1,3}\)\s*(분배락\s*전일|분배락\s*당일|분배금\s*지급\s*기준일|분배금\s*지급일)/g)) {
+    const k = map[m[3].replace(/\s+/g, '')], mo = +m[1], d = +m[2];
+    if (k && mo >= 1 && mo <= 12 && d >= 1 && d <= 31) out[k] = mo + '월 ' + d + '일';
+  }
+  return out['기준일'] && out['지급일'] && out['분배락일'] ? out : null;
+}
+
 // 한화(plusetf.co.kr)가 구글 서버에서 주소조차 안 열릴 때(2026-11-09~11: 'Address unavailable', 11/10 월중 공지를 놓침)
 // 집·학교 PC 가 올려 둔 사본(tools/tiger_relay.py relay_plus → plus_relay/)을 읽는다. 목록·공지 그림 원본 그대로라 파서는 같다.
 function _plusMirrorGet(file) {
@@ -3204,15 +3216,14 @@ function _fetchDistRiseSite() {
       if (baseM) sched['기준일'] = parseInt(baseM[1]) + '월 ' + parseInt(baseM[2]) + '일';
       if (payM) sched['지급일'] = parseInt(payM[1]) + '월 ' + parseInt(payM[2]) + '일';
       // 지금 KB 공지는 일정을 글이 아니라 **그림**(11/13(금) 분배금 지급 기준일 …)에만 싣는다 — PLUS 그림과 같은 모양이라
-      // plusOcrSched(요일 붙은 날짜 넷 = 분배락전일·분배락일·기준일·지급일)로 읽는다(2026-11-24).
+      // riseOcrSched(라벨 붙은 날짜)로 읽는다(2026-11-24).
       if (!sched['기준일']) {
         const im = html.match(/tiny-content[\s\S]*?<img[^>]+src="(\/media\/[^"]+)"/);
         if (im) {
           const id = entry.url.split('/').pop();
-          const o = plusOcrSched(ocrImageText(_riseViaTab ? 'https://raw.githubusercontent.com/jaenamking1-collab/jjk/main/rise_relay/img_' + id + '.png' : 'https://kbam.co.kr' + im[1]));
-          // 셋 다 1~12월로 제대로 읽혔을 때만 쓴다(2026-11-24 첫 시험: 기준일 '26월 11일'로 오독).
-          const ok = o && ['분배락일', '기준일', '지급일'].every(k => { const m = String(o[k] || '').match(/^(\d{1,2})월/); return m && +m[1] >= 1 && +m[1] <= 12; });
-          if (ok) ['분배락일', '기준일', '지급일'].forEach(k => { sched[k] = o[k]; });
+          const o = riseOcrSched(ocrImageText(_riseViaTab ? 'https://raw.githubusercontent.com/jaenamking1-collab/jjk/main/rise_relay/img_' + id + '.png' : 'https://kbam.co.kr' + im[1]));
+          // 셋 다 라벨로 읽혔을 때만 쓴다(2026-11-24 첫 시험: PLUS 용 파서가 기준일을 '26월 11일'로 오독). 못 읽으면 블로그로 넘어간다.
+          if (o) ['분배락일', '기준일', '지급일'].forEach(k => { sched[k] = o[k]; });
         }
       }
       // 표: [종목명, 코드, 좌당예상분배금, 좌당과세분배금, 분배율]
