@@ -2857,7 +2857,7 @@ function _riseParsePost(logNo) {
   if (std) sched['기준일'] = md(std);
   if (pay) sched['지급일'] = md(pay);
   const seg = (txt.split(/분배율\s*\(%\)/)[1] || '').split(/\*\s*분배율|태그 취소|공감/)[0];
-  const items = [], re = /(RISE\s.+?)\s([0-9][0-9A-Z]{5})\s([\d,]+)(?:\s[\d,]+)?(?:\s(\d{1,3}\.\d{1,2}))?(?=\sRISE\s|\s*\*|\s*$)/g;
+  const items = [], re = /(RISE\s.+?)\s([0-9][0-9A-Z]{5})\s([\d,]+)(?:\s[\d,]+)?(?:\s(\d{1,3}\.\d{1,2})%?)?(?=\sRISE\s|\s*\*|\s*$)/g;   // 2026-11-25 글부터 분배율에 '%' 가 붙어 0건 → 달력에서 빠졌다
   let m;
   while ((m = re.exec(seg)) !== null)
     items.push({ name: m[1].trim(), ticker: m[2], amount: Number(m[3].replace(/,/g, '')), rate: m[4] ? Number(m[4]) : null });
