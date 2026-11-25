@@ -103,10 +103,10 @@ export const LEGEND = [
   '커넥터 = 연결된 지메일·캘린더 같은 도구',
 ]
 let where: Where | undefined
-const WHERE_PANE = 'jjk-where'
 
 function paint($: { ui: { status: (t?: string) => unknown } }) {
-  const parts = [deployPending ? '⚠ 배포 뒤 resetAllTriggers 안 함' : '', usageText, turnText, cacheLabel(lastReplyAt, nowMs)].filter(Boolean)
+  // 작업 환경은 오른쪽 칸 대신 대화창 아래 상태줄 맨 앞에(2026-11-25 사용자: 오른쪽 칸이 자리를 차지해 읽기 불편)
+  const parts = [where ? where.name : '', deployPending ? '⚠ 배포 뒤 resetAllTriggers 안 함' : '', usageText, turnText, cacheLabel(lastReplyAt, nowMs)].filter(Boolean)
   $.ui.status(parts.length ? parts.join(' · ') : undefined)
 }
 
@@ -165,7 +165,9 @@ export const register: Register = on => {
         host = r.stdout
       }
       where = whereIs(host, info.isHosted ? 'linux' : info.platform)
-      void $.ui.open({ id: WHERE_PANE, title: '📍 지금 작업 환경' })
+      // 첫 질문 전까지 입력창 위 띠에 한 줄 설명(오른쪽 칸은 안 연다)
+      bandLines.push('📍 ' + where.name + ' — ' + where.lines.join(' · '))
+      paint($)
     } catch {
       // 못 알아내면 칸을 띄우지 않는다
     }
@@ -214,24 +216,6 @@ export const register: Register = on => {
       warned[name] = step
     }
     return next(e)
-  })
-
-  on('ui.render', { component: 'Pane', requestId: WHERE_PANE }, ($, e) => {
-    const { Box, Text } = $.ui.resolve(e)
-    const w = where ?? { name: '알아보는 중…', lines: [] }
-    return (
-      <Box flexDirection="column">
-        <Text bold>{w.name}</Text>
-        {w.lines.map((l, i) => (
-          <Text key={'w' + i}>{'· ' + l}</Text>
-        ))}
-        <Text> </Text>
-        <Text dimColor>앱 오른쪽 '환경' 칸 뜻</Text>
-        {LEGEND.map((l, i) => (
-          <Text key={'l' + i} dimColor>{'· ' + l}</Text>
-        ))}
-      </Box>
-    )
   })
 
   on('ui.render', { component: 'AbovePrompt' }, ($, e, next) => {
