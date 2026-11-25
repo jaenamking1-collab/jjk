@@ -7241,12 +7241,12 @@ function ppCalcAt(y) {
 // ── ISA·일반 월 배당 예측: 지금 평가금액에서 시작해 퇴직 전까진 (추가 매수 + 배당 전부 재투자), 퇴직 후엔 배당을 꺼내 씀 ──
 // y: null = 퇴직 시점, 올해 이하 = 지금 속도, 퇴직 연도 = 퇴직 월, 그 밖 = 그해 1월.
 function ppRetireYM() { const [a,b] = String(ppCfg.retire||'2029-03').split('-').map(Number); return [a||2029, b||3]; }
-function ppBaseAt(k, y) {
+function ppBaseAt(k, y, wantVal) {
   const a = (ppAuto.byBase||{})[k]; if (!a) return 0;
   const now = new Date(), nY = now.getFullYear(), nM = now.getMonth()+1;
   const [rY, rM] = ppRetireYM();
   let tY, tM;
-  if (y == null) { tY = rY; tM = rM; } else if (y <= nY) return a.avg; else if (y === rY) { tY = rY; tM = rM; } else { tY = y; tM = 1; }
+  if (y == null) { tY = rY; tM = rM; } else if (y <= nY) return wantVal ? a.val : a.avg; else if (y === rY) { tY = rY; tM = rM; } else { tY = y; tM = 1; }
   const g = ppCfg.grow || {}, add = ppNum((g.add||{})[k]), pm = Math.pow(1 + ppNum(g.priceYr)/100, 1/12) - 1;
   let V = a.val, Y = nY, M = nM;
   while (Y < tY || (Y === tY && M < tM)) {
@@ -7255,7 +7255,7 @@ function ppBaseAt(k, y) {
     V *= (1 + pm);
     if (++M > 12) { M = 1; Y++; }
   }
-  return Math.round(V * a.yld);
+  return Math.round(wantVal ? V : V * a.yld);
 }
 function ppSetGrow(key, v) { if (!ppCfg.grow) ppCfg.grow = { add:{}, priceYr:0 }; if (key === 'priceYr') ppCfg.grow.priceYr = ppNum(v); else { ppCfg.grow.add = ppCfg.grow.add || {}; ppCfg.grow.add[key] = ppNum(v); } ppSave(); renderPensionPlan(); }
 
@@ -7409,13 +7409,15 @@ function ppRenderFunds() {
   const bt = ppAuto.byType || { ISA:0, '일반':0, '연금저축':0, IRP:0 };
 
   const autoDefs = [
-    { key:'연금저축', label:'연금저축 (안세공)', avail: retireY, hint:'원금 무세금 인출' },
-    { key:'ISA',    label:'ISA',            avail: retireY, hint:'' },
-    { key:'일반',    label:'일반계좌',        avail: retireY, hint:'' },
+    { key:'연금저축', label:'연금저축 (안세공)', avail: retireY, hint:'원금 무세금 인출 · 지금 평가금액' },
+    { key:'ISA',    label:'ISA',            avail: retireY, hint:'퇴직 시점 예상' },
+    { key:'일반',    label:'일반계좌',        avail: retireY, hint:'퇴직 시점 예상' },
     { key:'IRP',    label:'IRP (세공)',      avail: bY ? bY+55 : 9999,  hint: bY ? '55세 전 인출 시 16.5%' : '출생연도를 넣으면 55세 연도 계산' },
   ];
   const rows = [];
-  autoDefs.forEach(d => rows.push({ name:d.label, amount:Math.round(bt[d.key]||0), avail:d.avail, tax:ppNum(ft[d.key]), hint:d.hint, kind:'auto', key:d.key }));
+  // ISA·일반은 퇴직 시점 예상 평가금액(추가 매수·배당 재투자 반영), 연금저축·IRP 는 지금 평가금액
+  const atRetire = t => PP_OWNERS.reduce((s,o) => s + ppBaseAt(o+'_'+t, null, true), 0);
+  autoDefs.forEach(d => rows.push({ name:d.label, amount:Math.round((d.key==='ISA'||d.key==='일반') ? atRetire(d.key) : (bt[d.key]||0)), avail:d.avail, tax:ppNum(ft[d.key]), hint:d.hint, kind:'auto', key:d.key }));
   (ppCfg.funds||[]).forEach(f => rows.push({ name:f.name, amount:ppNum(f.amount), avail:parseInt(f.availYear)||retireY, tax:ppNum(f.taxRate), hint:f.memo||'', kind:'fund', id:f.id }));
 
   let now=0, later=0;
@@ -7453,7 +7455,7 @@ function ppRenderFunds() {
     </div>
     <div style="display:flex;justify-content:flex-end;margin-bottom:6px"><button class="btn btn-ghost btn-sm" onclick="ppAddFund()">➕ 자금원 추가 (퇴직금·사학공제·예금 등)</button></div>
     <div style="overflow-x:auto"><table style="width:100%"><thead><tr><th style="text-align:left">자금원</th><th style="text-align:right">금액</th><th style="text-align:center">출금가능</th><th style="text-align:right">세율</th><th style="text-align:right">세후 금액</th><th style="border:none;background:transparent"></th></tr></thead><tbody>${rowHtml}</tbody></table></div>
-    <div style="font-size:11px;color:var(--text3);margin-top:8px">평가금액은 보유종목 현재가로 자동. 세율은 <b>목돈 인출</b> 기준(배당세는 매년 이미 원천징수라 원금 인출엔 추가세 대부분 0). 안세공(연금저축)·ISA·일반계좌 원금은 무세금 인출, IRP(세공)만 55세 전 인출 시 16.5%.</div>
+    <div style="font-size:11px;color:var(--text3);margin-top:8px">ISA·일반은 ${(ppCfg.retire||'2029-03').replace('-','년 ')}월 예상 평가금액(지금 평가금액 + 퇴직 전 월 추가 매수 + 배당 재투자 + 연 가격 변화), 연금저축·IRP 는 지금 평가금액. 세율은 <b>목돈 인출</b> 기준(배당세는 매년 이미 원천징수라 원금 인출엔 추가세 대부분 0). 안세공(연금저축)·ISA·일반계좌 원금은 무세금 인출, IRP(세공)만 55세 전 인출 시 16.5%.</div>
   </div>`;
 }
 function ppSetBirthYear(v) { ppCfg.birthYear = parseInt(v)||null; ppSave(); renderPensionPlan(); }
