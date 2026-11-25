@@ -79,7 +79,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "b=$(git rev-parse --abbrev-ref HEAD 2>/dev/null); if [ \"$b\" != \"main\" ]; then exit 0; fi; if [ -e .git/MERGE_HEAD ] || [ -d .git/rebase-merge ] || [ -d .git/rebase-apply ]; then exit 0; fi; r=\"\"; if [ -n \"$(git status --porcelain)\" ]; then n=$(git status --porcelain | wc -l | tr -d ' '); git add -A && git commit -m \"auto-rescue $(date +%Y-%m-%d_%H:%M:%S) 이전 세션 미커밋\" >/dev/null 2>&1 && git push origin main >/dev/null 2>&1 && r=\"$n\"; fi; git pull --ff-only origin main >/dev/null 2>&1; if [ -n \"$r\" ]; then printf '{\"systemMessage\":\"⚠️ 이전 세션이 남긴 미커밋 파일 %s개를 자동으로 커밋·푸시했습니다.\"}' \"$r\"; fi; exit 0",
+            "command": "b=$(git rev-parse --abbrev-ref HEAD 2>/dev/null); if [ \"$b\" != \"main\" ]; then exit 0; fi; if [ -e .git/MERGE_HEAD ] || [ -d .git/rebase-merge ] || [ -d .git/rebase-apply ]; then exit 0; fi; r=\"\"; if [ -n \"$(git status --porcelain)\" ]; then n=$(git status --porcelain | wc -l | tr -d ' '); git add -A; p=python; command -v python >/dev/null 2>&1 || p=python3; g=$(\"$p\" .claude/hooks/public-guard.py staged); if [ $? -eq 1 ]; then printf '%s' \"$g\"; exit 0; fi; git commit -m \"auto-rescue $(date +%Y-%m-%d_%H:%M:%S) 이전 세션 미커밋\" >/dev/null 2>&1 && git push origin main >/dev/null 2>&1 && r=\"$n\"; fi; git pull --ff-only origin main >/dev/null 2>&1; if [ -n \"$r\" ]; then printf '{\"systemMessage\":\"⚠️ 이전 세션이 남긴 미커밋 파일 %s개를 자동으로 커밋·푸시했습니다.\"}' \"$r\"; fi; exit 0",
             "timeout": 60,
             "statusMessage": "다른 PC 작업 동기화 중"
           },
@@ -109,7 +109,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "b=$(git rev-parse --abbrev-ref HEAD 2>/dev/null); if [ \"$b\" != \"main\" ]; then exit 0; fi; if [ -e .git/MERGE_HEAD ] || [ -d .git/rebase-merge ] || [ -d .git/rebase-apply ]; then exit 0; fi; if [ -n \"$(git status --porcelain)\" ]; then git add -A && git commit -m \"auto-sync $(date +%Y-%m-%d_%H:%M:%S)\" >/dev/null 2>&1; fi; git push -q origin main >/dev/null 2>&1 && exit 0; git pull --rebase -q origin main >/dev/null 2>&1 || git rebase --abort >/dev/null 2>&1; git push -q origin main >/dev/null 2>&1 && exit 0; n=$(git rev-list --count origin/main..HEAD 2>/dev/null); printf '{\"systemMessage\":\"⚠️ 푸시가 막혔습니다. 안 올라간 커밋 %s개가 이 기기에만 있습니다 — 다른 곳에서는 안 보입니다.\"}' \"$n\"; exit 0",
+            "command": "b=$(git rev-parse --abbrev-ref HEAD 2>/dev/null); if [ \"$b\" != \"main\" ]; then exit 0; fi; if [ -e .git/MERGE_HEAD ] || [ -d .git/rebase-merge ] || [ -d .git/rebase-apply ]; then exit 0; fi; if [ -n \"$(git status --porcelain)\" ]; then git add -A; p=python; command -v python >/dev/null 2>&1 || p=python3; \"$p\" .claude/hooks/public-guard.py staged; [ $? -eq 1 ] && exit 0; git commit -m \"auto-sync $(date +%Y-%m-%d_%H:%M:%S)\" >/dev/null 2>&1; fi; git push -q origin main >/dev/null 2>&1 && exit 0; git pull --rebase -q origin main >/dev/null 2>&1 || git rebase --abort >/dev/null 2>&1; git push -q origin main >/dev/null 2>&1 && exit 0; n=$(git rev-list --count origin/main..HEAD 2>/dev/null); printf '{\"systemMessage\":\"⚠️ 푸시가 막혔습니다. 안 올라간 커밋 %s개가 이 기기에만 있습니다 — 다른 곳에서는 안 보입니다.\"}' \"$n\"; exit 0",
             "timeout": 45,
             "statusMessage": "커밋·푸시 동기화 중"
           },
@@ -136,6 +136,18 @@
             "command": "p=python; command -v python >/dev/null 2>&1 || p=python3; \"$p\" \"${USERPROFILE:-$HOME}/claude-memory/hooks/index_transcripts.py\" save final 2>/dev/null; h=\"${USERPROFILE:-$HOME}\"; r=\"$h/claude-memory\"; [ -d \"$r/.git\" ] || exit 0; if [ -n \"$(git -C \"$r\" status --porcelain)\" ]; then git -C \"$r\" add -A && git -C \"$r\" commit -qm \"transcript $(date +%Y-%m-%d_%H:%M:%S)\" >/dev/null 2>&1; fi; git -C \"$r\" push -q origin main >/dev/null 2>&1 && exit 0; git -C \"$r\" pull --rebase -q origin main >/dev/null 2>&1 || git -C \"$r\" rebase --abort >/dev/null 2>&1; git -C \"$r\" push -q origin main >/dev/null 2>&1 && exit 0; n=$(git -C \"$r\" rev-list --count origin/main..HEAD 2>/dev/null); printf '{\"systemMessage\":\"⚠️ 푸시가 막혔습니다. 안 올라간 커밋 %s개가 이 기기에만 있습니다 — 대화 기록이 안 올라갑니다.\"}' \"$n\"; exit 0",
             "timeout": 90,
             "statusMessage": "대화 기록 마무리 저장 중"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/public-guard.py\"; [ -f \"$f\" ] || exit 0; p=python; command -v python >/dev/null 2>&1 || p=python3; \"$p\" \"$f\" pretool",
+            "timeout": 30
           }
         ]
       }
