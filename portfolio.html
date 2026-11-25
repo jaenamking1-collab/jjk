@@ -877,7 +877,10 @@ window.addEventListener('load', () => api({ action: 'hitCounter' }).then(d => {
         </label>
       </div>
       <div id="pp-years" style="overflow-x:auto"></div>
-      <div style="font-size:11px;color:var(--text3);margin-top:8px">개시년도가 비어 있으면 지금부터 포함. 퇴직 전에 쓸 수 있는 건 ISA·일반계좌 분배금뿐이므로 연금 행에는 개시년도(55세/60세 도달 연도 등)를 넣어서 확인.</div>
+      <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);margin-top:8px">ISA·일반 연 가격 변화
+        <input type="text" inputmode="decimal" id="pp-price-yr" onchange="ppSetGrow('priceYr',this.value)" style="padding:4px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;width:52px;text-align:right">%
+        <span style="font-size:11px;color:var(--text3)">(0 = 평가금액 유지. 커버드콜은 분배하면서 가격이 조금씩 빠지니 -3 ~ -5 로 보수적으로 볼 수 있음)</span></div>
+      <div style="font-size:11px;color:var(--text3);margin-top:6px">ISA·일반: 올해는 지금 속도, 이후는 그해 1월(퇴직 연도는 퇴직 월) 예상. 퇴직 전까지 월 추가 매수 + 배당 전부 재투자, 퇴직 후엔 배당을 꺼내 쓰는 것으로 계산.<br>개시년도가 비어 있으면 지금부터 포함. 퇴직 전에 쓸 수 있는 건 ISA·일반계좌 분배금뿐이므로 연금 행에는 개시년도(55세/60세 도달 연도 등)를 넣어서 확인.</div>
     </div>
   </div>
 
@@ -7100,18 +7103,28 @@ async function loadPensionPlan() {
   }
   // 교직원공제회 분할급여(퇴직생활급여) — 금액은 공개 소스에 쓰지 않는다. 앱에서 입력 → 서버 설정에 저장.
   if (!ppCfg.ktcu) ppCfg.ktcu = { balance:0, rate:5, monthly:0, start:(ppCfg.retire||'2029-03') };
+  // 퇴직 전 추가 매수(월, 계좌 묶음별) + 연 가격 변화율. 배당은 퇴직 전까지 전부 재투자, 퇴직 후엔 꺼내 쓴다.
+  if (!ppCfg.grow) ppCfg.grow = { add:{}, priceYr:0 };
   document.getElementById('pp-years').innerHTML = '<div class="loading"><span class="spinner"></span>불러오는 중...</div>';
 
   const year = new Date().getFullYear();
-  const [holdings, divs, divsPrev, sheet] = await Promise.all([
+  const [holdings, divs, divsPrev, sheet, plog] = await Promise.all([
     api({ action:'getHoldings' }).catch(()=>[]),
     api({ action:'getDividends', year }).catch(()=>[]),
     api({ action:'getDividends', year: year-1 }).catch(()=>[]),
-    fetchPriceItems()
+    fetchPriceItems(),
+    api({ action:'getPortfolioLog' }).catch(()=>null)
   ]);
-  // ISA·일반 월 평균은 '최근 5개월'(이번 달 제외, 해 넘김 포함) — 연초엔 적게 사서 올해 평균이 낮게 나온다(2026-11-25 사용자).
-  const PP_RECENT_N = 5, nowD = new Date(), recentKeys = [];
+  // ISA·일반 월 배당은 '지금 속도' = 현재 평가금액 × 월 분배율. 분배율 = 최근 3개월(이번 달 제외) 배당 ÷ 같은 달 평균 평가금액.
+  // 과거 몇 개월 평균은 그때 보유량 기준이라 계속 사 모으는 동안 늘 낮게 나온다(2026-11-25 사용자와 정함).
+  const PP_RECENT_N = 3, nowD = new Date(), recentKeys = [];
   for (let i = 1; i <= PP_RECENT_N; i++) { const d = new Date(nowD.getFullYear(), nowD.getMonth() - i, 1); recentKeys.push(d.getFullYear() + '-' + (d.getMonth()+1)); }
+  const logVal = {}; // 'accName|YYYY-M' → [평가금액...]
+  ((plog && plog.items) || []).forEach(it => {
+    const d = new Date(it.date); if (isNaN(d) || !it.value) return;
+    const key = it.account_name + '|' + d.getFullYear() + '-' + (d.getMonth()+1);
+    (logVal[key] = logVal[key] || []).push(it.value);
+  });
   const er = state.exchangeRate || 1400;
   const priceMap = {};
   ((sheet && sheet.items) || []).forEach(it => {
@@ -7159,15 +7172,21 @@ async function loadPensionPlan() {
       byAccount[accId] = filled ? Math.round(arr.reduce((a,b)=>a+b,0) / filled * 12) : 0;
     }
   }
-  const recentBase = {}; PP_BASE_KEYS.forEach(k => recentBase[k] = 0);
+  const recentBase = {}, recentVal = {}; PP_BASE_KEYS.forEach(k => { recentBase[k] = 0; recentVal[k] = 0; });
   Object.keys(recentAcc).forEach(accId => {
     const t = accType[accId];
     if (t === 'ISA' || t === '일반') recentBase[`${ppOwnerOf(accName[accId])}_${t}`] += recentAcc[accId];
   });
+  (state.accounts||[]).forEach(a => { // 같은 3개월의 월평균 평가금액 합
+    const t = accType[a.id]; if (t !== 'ISA' && t !== '일반') return;
+    recentKeys.forEach(ym => { const arr = logVal[(a.name||'') + '|' + ym]; if (arr && arr.length) recentVal[`${ppOwnerOf(a.name)}_${t}`] += arr.reduce((x,y)=>x+y,0) / arr.length; });
+  });
   const byBase = {};
   PP_BASE_KEYS.forEach(k => {
     const arr = baseMonths[k], sum = arr.reduce((a,b)=>a+b,0);
-    byBase[k] = { sum: Math.round(sum), avg: Math.round(recentBase[k] / PP_RECENT_N), months: PP_RECENT_N, val: Math.round(baseVal[k]) };
+    // 평가금액 기록이 없으면(초기) 최근 3개월 단순 평균으로 대신한다
+    const yld = recentVal[k] > 0 ? recentBase[k] / recentVal[k] : (baseVal[k] > 0 ? recentBase[k] / PP_RECENT_N / baseVal[k] : 0);
+    byBase[k] = { sum: Math.round(sum), avg: Math.round(baseVal[k] * yld), yld, months: PP_RECENT_N, val: Math.round(baseVal[k]) };
   });
   // 계좌 유형별 평가액 합계(목돈 출금용) — ISA·일반·연금저축·IRP
   const byType = { ISA:0, '일반':0, '연금저축':0, IRP:0 };
@@ -7201,7 +7220,7 @@ function ppCalcAt(y) {
   const r = {};
   PP_OWNERS.forEach(o => r[o] = { base:0, pensionM:0, others:0, limitAnnual:0, total:0 });
   PP_BASE_KEYS.forEach(k => {
-    r[k.split('_')[0]].base += ppAuto.byBase[k] ? ppAuto.byBase[k].avg : 0;
+    r[k.split('_')[0]].base += ppBaseAt(k, y);
   });
   ppCfg.pension.forEach(p => {
     if (y != null && !ppActive(p.startYear, y)) return;
@@ -7218,6 +7237,27 @@ function ppCalcAt(y) {
   r.total = r['재남'].total + r['은경'].total;
   return r;
 }
+
+// ── ISA·일반 월 배당 예측: 지금 평가금액에서 시작해 퇴직 전까진 (추가 매수 + 배당 전부 재투자), 퇴직 후엔 배당을 꺼내 씀 ──
+// y: null = 퇴직 시점, 올해 이하 = 지금 속도, 퇴직 연도 = 퇴직 월, 그 밖 = 그해 1월.
+function ppRetireYM() { const [a,b] = String(ppCfg.retire||'2029-03').split('-').map(Number); return [a||2029, b||3]; }
+function ppBaseAt(k, y) {
+  const a = (ppAuto.byBase||{})[k]; if (!a) return 0;
+  const now = new Date(), nY = now.getFullYear(), nM = now.getMonth()+1;
+  const [rY, rM] = ppRetireYM();
+  let tY, tM;
+  if (y == null) { tY = rY; tM = rM; } else if (y <= nY) return a.avg; else if (y === rY) { tY = rY; tM = rM; } else { tY = y; tM = 1; }
+  const g = ppCfg.grow || {}, add = ppNum((g.add||{})[k]), pm = Math.pow(1 + ppNum(g.priceYr)/100, 1/12) - 1;
+  let V = a.val, Y = nY, M = nM;
+  while (Y < tY || (Y === tY && M < tM)) {
+    const before = Y < rY || (Y === rY && M < rM);
+    if (before) V += add + V * a.yld; // 퇴직 전: 월급·생활비 남는 돈 추가 매수 + 배당 재투자
+    V *= (1 + pm);
+    if (++M > 12) { M = 1; Y++; }
+  }
+  return Math.round(V * a.yld);
+}
+function ppSetGrow(key, v) { if (!ppCfg.grow) ppCfg.grow = { add:{}, priceYr:0 }; if (key === 'priceYr') ppCfg.grow.priceYr = ppNum(v); else { ppCfg.grow.add = ppCfg.grow.add || {}; ppCfg.grow.add[key] = ppNum(v); } ppSave(); renderPensionPlan(); }
 
 // ── 교직원공제회 분할급여(퇴직생활급여): 잔액이 연복리로 불면서 매달 정액 인출 ──
 // 이자는 직장공제회 초과반환금 → 무조건 분리과세, 건보 산정 제외(공제회 안내, 2026-11 확인).
@@ -7280,7 +7320,7 @@ function ppRenderOwnerCol(owner, thisYear, full) {
     const a = ppAuto.byBase[k] || { sum:0, avg:0, months:0, val:0 };
     const label = (ppCfg.baseNames||{})[k] || (t === '일반' ? '일반계좌' : t);
     return `<tr><td><input type="text" class="pp-plain" value="${ppEsc(label)}" onchange="ppSetBaseName('${k}',this.value)" title="비우면 기본 이름으로 복귀" style="text-align:left;font-weight:600"></td>
-      <td style="text-align:right;font-family:var(--mono);font-weight:700;color:var(--green)">${ppFmt(a.avg)} <span style="font-size:10px;font-weight:400">(최근 ${a.months}개월)</span></td>
+      <td style="text-align:right;font-family:var(--mono);font-weight:700;color:var(--green)">${ppFmt(a.avg)} <span style="font-size:10px;font-weight:400">(월 ${((a.yld||0)*100).toFixed(2)}%)</span></td>
       <td style="text-align:right;font-family:var(--mono);color:var(--text)">${ppFmt(a.sum)}</td>
       <td style="text-align:right;font-family:var(--mono);color:var(--text)">${ppFmt(a.val||0)}</td>
       <td style="border:none;background:transparent"></td><td style="border:none;background:transparent"></td></tr>`;
@@ -7338,8 +7378,12 @@ function ppRenderOwnerCol(owner, thisYear, full) {
         <span style="font-size:12px;color:var(--text3)">전체 개시 후 월 <b style="font-family:var(--mono);color:var(--green)">${ppFmt(full[owner].total)}</b></span>
       </div>
 
-      <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:6px">💰 ISA·일반계좌 <span style="font-weight:400;font-size:10px;color:var(--text3)">(월 평균 = 이번 달 뺀 최근 5개월 · 연간 합계 = ${thisYear}년)</span></div>
-      <div style="overflow-x:auto"><table style="table-layout:fixed;width:100%"><thead><tr><th style="width:20%">계좌명</th><th style="text-align:right;width:21%">월 배당금(평균)</th><th style="text-align:right;width:21%">연간 합계</th><th style="text-align:right;width:21%">평가금액</th><th style="width:9%;border:none;background:transparent"></th><th style="width:8%;border:none;background:transparent"></th></tr></thead><tbody>${baseRows}</tbody></table></div>
+      <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:6px">💰 ISA·일반계좌 <span style="font-weight:400;font-size:10px;color:var(--text3)">(월 배당 = 지금 평가금액 × 월 분배율[이번 달 뺀 최근 3개월] · 연간 합계 = ${thisYear}년)</span></div>
+      <div style="overflow-x:auto"><table style="table-layout:fixed;width:100%"><thead><tr><th style="width:20%">계좌명</th><th style="text-align:right;width:21%">월 배당(지금 속도)</th><th style="text-align:right;width:21%">연간 합계</th><th style="text-align:right;width:21%">평가금액</th><th style="width:9%;border:none;background:transparent"></th><th style="width:8%;border:none;background:transparent"></th></tr></thead><tbody>${baseRows}</tbody></table></div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;font-size:11px;color:var(--text2);margin-top:6px">퇴직 전 월 추가 매수
+        ${['ISA','일반'].map(t => `<label>${t === '일반' ? '일반계좌' : t} <input type="text" inputmode="numeric" value="${ppFmtIn(((ppCfg.grow||{}).add||{})[owner+'_'+t])}" placeholder="0" onchange="ppSetGrow('${owner}_${t}',this.value)" style="${PP_INPUT};width:90px"> 원</label>`).join('')}
+        <span style="color:var(--text3)">→ 퇴직 시점 월 <b style="font-family:var(--mono);color:var(--accent2)">${ppFmt(ppBaseAt(owner+'_ISA', null) + ppBaseAt(owner+'_일반', null))}</b></span>
+      </div>
 
       <div style="display:flex;justify-content:space-between;align-items:center;margin:14px 0 6px">
         <span style="font-size:12px;font-weight:700;color:var(--text2)">🏛 연금계좌 (연금저축·IRP·우체국)</span>
@@ -7428,6 +7472,7 @@ function renderPensionPlan() {
   document.getElementById('pp-col-ek').innerHTML = ppRenderOwnerCol('은경', thisYear, full);
   document.getElementById('pp-funds').innerHTML = ppRenderFunds();
   document.getElementById('pp-ktcu').innerHTML = ppRenderKtcu();
+  document.getElementById('pp-price-yr').value = ppNum((ppCfg.grow||{}).priceYr);
   document.getElementById('pp-sahak').value = ppFmtIn(ppCfg.sahak);
 
   // ② 연도별 표 (재남/은경 분리)
