@@ -7412,7 +7412,7 @@ function ppRenderFunds() {
     { key:'연금저축', label:'연금저축 (안세공)', avail: retireY, hint:'원금 무세금 인출' },
     { key:'ISA',    label:'ISA',            avail: retireY, hint:'' },
     { key:'일반',    label:'일반계좌',        avail: retireY, hint:'' },
-    { key:'IRP',    label:'IRP (세공)',      avail: bY+55,  hint:'55세 전 인출 시 16.5%' },
+    { key:'IRP',    label:'IRP (세공)',      avail: bY ? bY+55 : 9999,  hint: bY ? '55세 전 인출 시 16.5%' : '출생연도를 넣으면 55세 연도 계산' },
   ];
   const rows = [];
   autoDefs.forEach(d => rows.push({ name:d.label, amount:Math.round(bt[d.key]||0), avail:d.avail, tax:ppNum(ft[d.key]), hint:d.hint, kind:'auto', key:d.key }));
@@ -7430,7 +7430,7 @@ function ppRenderFunds() {
       ? `<td style="text-align:right;font-family:var(--mono)">${ppFmt(r.amount)}</td>`
       : `<td style="text-align:right"><input type="text" class="pp-plain" inputmode="numeric" value="${ppFmtIn(r.amount)}" onchange="ppSetFund('${r.id}','amount',this.value)"></td>`;
     const availCell = r.kind==='auto'
-      ? `<td style="text-align:center">${r.avail} <span style="font-size:10px;color:var(--text3)">(${ppAge(r.avail)}세)</span></td>`
+      ? `<td style="text-align:center">${r.avail === 9999 ? "-" : r.avail + ` <span style="font-size:10px;color:var(--text3)">(${ppAge(r.avail)}세)</span>`}</td>`
       : `<td style="text-align:center"><input type="number" class="pp-plain" min="2025" max="2100" value="${ppEsc(r.avail)}" onchange="ppSetFund('${r.id}','availYear',this.value)" style="text-align:center;width:66px"> <span style="font-size:10px;color:var(--text3)">(${ppAge(r.avail)}세)</span></td>`;
     const taxCell = r.kind==='auto'
       ? `<td style="text-align:right"><input type="text" class="pp-plain" inputmode="decimal" value="${r.tax}" onchange="ppSetFundTax('${r.key}',this.value)" style="width:48px">%</td>`
