@@ -251,6 +251,7 @@ sap-cds-mcp
 sap-fiori-mcp-server
 sap-hana-cli
 sap-mdk-server
+sap-ux-fiori-tools
 save-to-spotify
 scandit-sdk
 security-guidance
@@ -286,6 +287,7 @@ tavily
 teamcity-cli
 telegram
 terraform
+theme-examples
 togetherai-skills
 twilio-developer-kit
 typescript-lsp

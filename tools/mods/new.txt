@@ -1,0 +1,2 @@
+sap-ux-fiori-tools — MCP server and skills for SAP Fiori development. Build, modify, and test SAP Fiori Elements applications with AI assistance.
+theme-examples — An example plugin to read, copy and change: thirty-eight animated backdrops behind the chat in the Claude desktop app, with frosted-glass panels, one per projec
