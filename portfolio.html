@@ -7321,9 +7321,9 @@ function ppRenderOwnerCol(owner, thisYear, full) {
     const label = (ppCfg.baseNames||{})[k] || (t === '일반' ? '일반계좌' : t);
     return `<tr><td><input type="text" class="pp-plain" value="${ppEsc(label)}" onchange="ppSetBaseName('${k}',this.value)" title="비우면 기본 이름으로 복귀" style="text-align:left;font-weight:600"></td>
       <td style="text-align:right;font-family:var(--mono);font-weight:700;color:var(--green)">${ppFmt(a.avg)} <span style="font-size:10px;font-weight:400">(월 ${((a.yld||0)*100).toFixed(2)}%)</span></td>
+      <td style="text-align:right;font-family:var(--mono);font-weight:700;color:var(--accent2)">${ppFmt(ppBaseAt(k, null))}</td>
       <td style="text-align:right;font-family:var(--mono);color:var(--text)">${ppFmt(a.sum)}</td>
-      <td style="text-align:right;font-family:var(--mono);color:var(--text)">${ppFmt(a.val||0)}</td>
-      <td style="border:none;background:transparent"></td><td style="border:none;background:transparent"></td></tr>`;
+      <td style="text-align:right;font-family:var(--mono);color:var(--text)">${ppFmt(a.val||0)}</td></tr>`;
   }).join('');
 
   // 연금계좌 한도 바
@@ -7379,7 +7379,7 @@ function ppRenderOwnerCol(owner, thisYear, full) {
       </div>
 
       <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:6px">💰 ISA·일반계좌 <span style="font-weight:400;font-size:10px;color:var(--text3)">(월 배당 = 지금 평가금액 × 월 분배율[이번 달 뺀 최근 3개월] · 연간 합계 = ${thisYear}년)</span></div>
-      <div style="overflow-x:auto"><table style="table-layout:fixed;width:100%"><thead><tr><th style="width:20%">계좌명</th><th style="text-align:right;width:21%">월 배당(지금 속도)</th><th style="text-align:right;width:21%">연간 합계</th><th style="text-align:right;width:21%">평가금액</th><th style="width:9%;border:none;background:transparent"></th><th style="width:8%;border:none;background:transparent"></th></tr></thead><tbody>${baseRows}</tbody></table></div>
+      <div style="overflow-x:auto"><table style="table-layout:fixed;width:100%"><thead><tr><th style="width:16%">계좌명</th><th style="text-align:right;width:22%">월 배당(지금 속도)</th><th style="text-align:right;width:20%">퇴직 시점 월 <span style="font-weight:400;font-size:10px">(${(ppCfg.retire||'2029-03').replace('-','.')})</span></th><th style="text-align:right;width:21%">연간 합계</th><th style="text-align:right;width:21%">평가금액</th></tr></thead><tbody>${baseRows}</tbody></table></div>
       <div style="display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;font-size:11px;color:var(--text2);margin-top:6px">퇴직 전 월 추가 매수
         ${['ISA','일반'].map(t => `<label>${t === '일반' ? '일반계좌' : t} <input type="text" inputmode="numeric" value="${ppFmtIn(((ppCfg.grow||{}).add||{})[owner+'_'+t])}" placeholder="0" onchange="ppSetGrow('${owner}_${t}',this.value)" style="${PP_INPUT};width:90px"> 원</label>`).join('')}
         <span style="color:var(--text3)">→ 퇴직 시점 월 <b style="font-family:var(--mono);color:var(--accent2)">${ppFmt(ppBaseAt(owner+'_ISA', null) + ppBaseAt(owner+'_일반', null))}</b></span>
