@@ -58,7 +58,7 @@ function _unauthorized() {
 //    필요할 수 있어 실패할 수 있다. 실패하면 종전대로 편집기에서 ▶ 눌러야 한다.
 const MAINT_ALLOW = [
   '_diagPortfolioLog', 'onRelayPush', '_diagTriggers', '_diagDeviation', '_diagDistAlert', '_diagNoticeLag', '_diagOcr', '_diagOcrText',
-  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_probeTiger', '_probeTigerKind', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', '_addExtDepSheet', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp', '_syncDivRates', '_fillPastDivFromApp', 'setKrwCost', 'aptRefresh', '_molitKeyOnce', '_diagApt', '_aptHistory', '_aptGeoBackfill', '_exaoneKeyOnce', '_exaoneTest', '_exaoneNoticeTest', '_exaoneTigerTest', '_exaoneFallbackTest', '_tigerAiFill', '_deleteNoticeEvents', '_tgReadBack', '_testMail'
+  '_testNoticeWindow', 'rebuildPortfolioLogDay', 'resetAllTriggers', 'seedLastNotices', '_probeTiger', '_probeTigerKind', '_testKakaoLink', 'clearDistCache', '_diagAssetSheet', 'pushTrendData', 'fixAssetSheet', 'markInputCells', 'clearOldYellowCells', '_probePrice', '_fixSpyiPoison', '_diagDist', '_diagScorecard', 'importSheetBlocks', 'updateFundNav', 'fixIrpRows', 'importDividends', 'fixDivSheetIrp', '_healImportData', 'buildPerfScores', '_diagSheetBreak', '_fillRowFormulas', '_backfillIrp', 'sendKakaoMemo', '_diagScoreRoll', '_diagScoreWeek', '_diagAccDay', '_diagPlTotal', '_diagDivColors', '_diagPensionStart', 'restoreDivCycleColors', 'applyDivFixes', 'autoFillIrpDivs', '_diagSnapSlots', '_diagDivRate', 'fillMissingDivCycles', 'fixWeeklyYieldFormula', 'hideSoldDivRows', '_diagIrpPrices', '_probeSeibro', '_diagTaxRates', 'refreshKodexTax', '_diagTaxFormula', '_diagExtDeposits', '_addExtDepSheet', 'checkDistNotices', '_noticeVsData', '_diagMaturityAlertTo', 'fixDivSheetTotals', '_divSheetVsApp', '_syncDivRates', '_fillPastDivFromApp', 'setKrwCost', 'aptRefresh', '_molitKeyOnce', '_diagApt', '_aptHistory', '_aptGeoBackfill', '_exaoneKeyOnce', '_exaoneTest', '_exaoneNoticeTest', '_exaoneTigerTest', '_exaoneFallbackTest', '_tigerAiFill', '_deleteNoticeEvents', '_tgReadBack', '_testMail'
 ];
 
 function runMaint(name, arg) {
@@ -507,6 +507,22 @@ function getDividends(year, account_id) {
 function getPensionPlan() {
   const s = PropertiesService.getScriptProperties().getProperty('PENSION_PLAN');
   return { success: true, cfg: s ? JSON.parse(s) : null };
+}
+// 연금플랜 개시년도 점검(maint 용). Actions 로그는 공개라 이름·금액은 찍지 않고 '구분·개시년도' 개수만 센다.
+function _diagPensionStart() {
+  const s = PropertiesService.getScriptProperties().getProperty('PENSION_PLAN');
+  if (!s) { console.log('PENSION_PLAN 없음'); return { success: false }; }
+  const c = JSON.parse(s), out = {};
+  const tally = (label, list) => {
+    const m = {};
+    (list || []).forEach(x => { const k = (x.owner || '재남') === '재남' ? 'A' : 'B'; const y = x.startYear ? String(x.startYear) : '비어있음(지금부터 포함)'; m[k + ' ' + y] = (m[k + ' ' + y] || 0) + 1; });
+    out[label] = m;
+  };
+  tally('연금계좌', c.pension); tally('기타연금', c.others);
+  out['퇴직'] = c.retire || '-'; out['출생연도 입력'] = c.birthYear ? '있음' : '없음';
+  out['공제회 시작'] = (c.ktcu && c.ktcu.start) || '-';
+  console.log(JSON.stringify(out));
+  return { success: true, result: out };
 }
 function savePensionPlan(cfg) {
   if (!cfg || typeof cfg !== 'object') return { success: false, error: 'cfg 없음' };
