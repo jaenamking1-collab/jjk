@@ -7501,8 +7501,9 @@ function renderPensionPlan() {
 
   // 요약 카드
   document.getElementById('pp-now').textContent = ppFmt(ppCalcAt(thisYear).total);
-  document.getElementById('pp-retire-amt').textContent = ppFmt(ppCalcAt(retireYear).total);
-  document.getElementById('pp-retire-sub').textContent = (ppCfg.retire||'2029-03').replace('-','년 ') + '월 기준';
+  const rc = ppCalcAt(retireYear), rs = k => rc['재남'][k] + rc['은경'][k];
+  document.getElementById('pp-retire-amt').textContent = ppFmt(rc.total);
+  document.getElementById('pp-retire-sub').textContent = (ppCfg.retire||'2029-03').replace('-','년 ') + '월 기준 · ISA·일반 ' + ppFmt(rs('base')) + '(추가 매수 포함) + 연금 ' + ppFmt(rs('pensionM')) + ' + 공제회·기타 ' + ppFmt(rs('others'));
   document.getElementById('pp-full').textContent = ppFmt(full.total);
   PP_OWNERS.forEach((o,i) => {
     const el = document.getElementById(i === 0 ? 'pp-limit-jn' : 'pp-limit-ek');
