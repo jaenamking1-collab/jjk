@@ -2861,6 +2861,18 @@ function _riseParsePost(logNo) {
   let m;
   while ((m = re.exec(seg)) !== null)
     items.push({ name: m[1].trim(), ticker: m[2], amount: Number(m[3].replace(/,/g, '')), rate: m[4] ? Number(m[4]) : null });
+  // 느슨한 2차 읽기(2026-11-25): 위 엄격한 모양이 어긋나 0건이면(11월 말 글은 분배율에 '%' 가 붙어 0건이었다)
+  // 'RISE 이름 종목코드 금액' 덩어리만 보고, 분배율은 그 덩어리 안 첫 소수로 읽는다. 표 머리글 문구가 바뀌어도 '종목코드' 뒤부터 본다.
+  if (!items.length) {
+    const after = txt.split(/종목\s*코드/)[1] || seg;
+    after.split(/\*|태그 취소|공감/)[0].split(/(?=RISE\s)/).forEach(ch => {
+      const mm = ch.match(/^(RISE\s.+?)\s([0-9][0-9A-Z]{5})\s([\d,]+)\b(.*)$/);
+      if (!mm) return;
+      const r = (mm[4].match(/(\d{1,3}\.\d{1,2})/) || [])[1];
+      items.push({ name: mm[1].trim(), ticker: mm[2], amount: Number(mm[3].replace(/,/g, '')), rate: r ? Number(r) : null });
+    });
+    if (items.length) console.log('RISE 블로그 글 느슨한 읽기로 ' + items.length + '건 — 표기 바뀜, 엄격 파서 점검');
+  }
   return { std, sched, items };
 }
 
