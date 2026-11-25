@@ -7241,13 +7241,13 @@ function ppCalcAt(y) {
 // ── ISA·일반 월 배당 예측: 지금 평가금액에서 시작해 퇴직 전까진 (추가 매수 + 배당 전부 재투자), 퇴직 후엔 배당을 꺼내 씀 ──
 // y: null = 퇴직 시점, 올해 이하 = 지금 속도, 퇴직 연도 = 퇴직 월, 그 밖 = 그해 1월.
 function ppRetireYM() { const [a,b] = String(ppCfg.retire||'2029-03').split('-').map(Number); return [a||2029, b||3]; }
-function ppBaseAt(k, y, wantVal) {
+function ppBaseAt(k, y, wantVal, noAdd) {
   const a = (ppAuto.byBase||{})[k]; if (!a) return 0;
   const now = new Date(), nY = now.getFullYear(), nM = now.getMonth()+1;
   const [rY, rM] = ppRetireYM();
   let tY, tM;
   if (y == null) { tY = rY; tM = rM; } else if (y <= nY) return wantVal ? a.val : a.avg; else if (y === rY) { tY = rY; tM = rM; } else { tY = y; tM = 1; }
-  const g = ppCfg.grow || {}, add = ppNum((g.add||{})[k]), pm = Math.pow(1 + ppNum(g.priceYr)/100, 1/12) - 1;
+  const g = ppCfg.grow || {}, add = noAdd ? 0 : ppNum((g.add||{})[k]), pm = Math.pow(1 + ppNum(g.priceYr)/100, 1/12) - 1;
   let V = a.val, Y = nY, M = nM;
   while (Y < tY || (Y === tY && M < tM)) {
     const before = Y < rY || (Y === rY && M < rM);
@@ -7321,7 +7321,7 @@ function ppRenderOwnerCol(owner, thisYear, full) {
     const label = (ppCfg.baseNames||{})[k] || (t === '일반' ? '일반계좌' : t);
     return `<tr><td><input type="text" class="pp-plain" value="${ppEsc(label)}" onchange="ppSetBaseName('${k}',this.value)" title="비우면 기본 이름으로 복귀" style="text-align:left;font-weight:600"></td>
       <td style="text-align:right;font-family:var(--mono);font-weight:700;color:var(--green)">${ppFmt(a.avg)} <span style="font-size:10px;font-weight:400">(월 ${((a.yld||0)*100).toFixed(2)}%)</span></td>
-      <td style="text-align:right;font-family:var(--mono);font-weight:700;color:var(--accent2)">${ppFmt(ppBaseAt(k, null))}</td>
+      <td style="text-align:right;font-family:var(--mono);font-weight:700;color:var(--accent2)">${ppFmt(ppBaseAt(k, null))}<div style="font-size:10px;font-weight:400;color:var(--text3)">추가 매수 없이 ${ppFmt(ppBaseAt(k, null, false, true))}</div></td>
       <td style="text-align:right;font-family:var(--mono);color:var(--text)">${ppFmt(a.sum)}</td>
       <td style="text-align:right;font-family:var(--mono);color:var(--text)">${ppFmt(a.val||0)}</td></tr>`;
   }).join('');
@@ -7382,7 +7382,7 @@ function ppRenderOwnerCol(owner, thisYear, full) {
       <div style="overflow-x:auto"><table style="table-layout:fixed;width:100%"><thead><tr><th style="width:16%">계좌명</th><th style="text-align:right;width:22%">월 배당(지금 속도)</th><th style="text-align:right;width:20%">퇴직 시점 월 <span style="font-weight:400;font-size:10px">(${(ppCfg.retire||'2029-03').replace('-','.')})</span></th><th style="text-align:right;width:21%">연간 합계</th><th style="text-align:right;width:21%">평가금액</th></tr></thead><tbody>${baseRows}</tbody></table></div>
       <div style="display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;font-size:11px;color:var(--text2);margin-top:6px">퇴직 전 월 추가 매수
         ${['ISA','일반'].map(t => `<label>${t === '일반' ? '일반계좌' : t} <input type="text" inputmode="numeric" value="${ppFmtIn(((ppCfg.grow||{}).add||{})[owner+'_'+t])}" placeholder="0" onchange="ppSetGrow('${owner}_${t}',this.value)" style="${PP_INPUT};width:90px"> 원</label>`).join('')}
-        <span style="color:var(--text3)">→ 퇴직 시점 월 <b style="font-family:var(--mono);color:var(--accent2)">${ppFmt(ppBaseAt(owner+'_ISA', null) + ppBaseAt(owner+'_일반', null))}</b></span>
+        <span style="color:var(--text3)">월 배당 비교: 지금 <b style="font-family:var(--mono);color:var(--green)">${ppFmt((((ppAuto.byBase||{})[owner+'_ISA']||{}).avg||0) + (((ppAuto.byBase||{})[owner+'_일반']||{}).avg||0))}</b> → 퇴직 시점 추가 매수 없이 <b style="font-family:var(--mono)">${ppFmt(ppBaseAt(owner+'_ISA', null, false, true) + ppBaseAt(owner+'_일반', null, false, true))}</b> / 넣을 경우 <b style="font-family:var(--mono);color:var(--accent2)">${ppFmt(ppBaseAt(owner+'_ISA', null) + ppBaseAt(owner+'_일반', null))}</b></span>
       </div>
 
       <div style="display:flex;justify-content:space-between;align-items:center;margin:14px 0 6px">
