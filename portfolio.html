@@ -7251,13 +7251,14 @@ function ppBaseAt(k, y, wantVal, noAdd) {
   let V = a.val, Y = nY, M = nM;
   while (Y < tY || (Y === tY && M < tM)) {
     const before = Y < rY || (Y === rY && M < rM);
-    if (before) V += add + V * a.yld; // 퇴직 전: 월급·생활비 남는 돈 추가 매수 + 배당 재투자
+    const [uY, uM] = String((g.until||{})[k] || '9999-12').split('-').map(Number); // 추가 매수 끝나는 달(비면 퇴직까지)
+    if (before) V += (Y < uY || (Y === uY && M <= uM) ? add : 0) + V * a.yld; // 퇴직 전: 월급·생활비 남는 돈 추가 매수 + 배당 재투자
     V *= (1 + pm);
     if (++M > 12) { M = 1; Y++; }
   }
   return Math.round(wantVal ? V : V * a.yld);
 }
-function ppSetGrow(key, v) { if (!ppCfg.grow) ppCfg.grow = { add:{}, priceYr:0 }; if (key === 'priceYr') ppCfg.grow.priceYr = ppNum(v); else { ppCfg.grow.add = ppCfg.grow.add || {}; ppCfg.grow.add[key] = ppNum(v); } ppSave(); renderPensionPlan(); }
+function ppSetGrow(key, v) { if (!ppCfg.grow) ppCfg.grow = { add:{}, priceYr:0 }; if (key === 'priceYr') ppCfg.grow.priceYr = ppNum(v); else if (key.endsWith(':until')) { ppCfg.grow.until = ppCfg.grow.until || {}; ppCfg.grow.until[key.slice(0,-6)] = v || ''; } else { ppCfg.grow.add = ppCfg.grow.add || {}; ppCfg.grow.add[key] = ppNum(v); } ppSave(); renderPensionPlan(); }
 
 // ── 교직원공제회 분할급여(퇴직생활급여): 잔액이 연복리로 불면서 매달 정액 인출 ──
 // 이자는 직장공제회 초과반환금 → 무조건 분리과세, 건보 산정 제외(공제회 안내, 2026-11 확인).
@@ -7381,7 +7382,7 @@ function ppRenderOwnerCol(owner, thisYear, full) {
       <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:6px">💰 ISA·일반계좌 <span style="font-weight:400;font-size:10px;color:var(--text3)">(월 배당 = 지금 평가금액 × 월 분배율[이번 달 뺀 최근 3개월] · 연간 합계 = ${thisYear}년)</span></div>
       <div style="overflow-x:auto"><table style="table-layout:fixed;width:100%"><thead><tr><th style="width:16%">계좌명</th><th style="text-align:right;width:22%">월 배당(지금 속도)</th><th style="text-align:right;width:20%">퇴직 시점 월 <span style="font-weight:400;font-size:10px">(${(ppCfg.retire||'2029-03').replace('-','.')})</span></th><th style="text-align:right;width:21%">연간 합계</th><th style="text-align:right;width:21%">평가금액</th></tr></thead><tbody>${baseRows}</tbody></table></div>
       <div style="display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;font-size:11px;color:var(--text2);margin-top:6px">퇴직 전 월 추가 매수
-        ${['ISA','일반'].map(t => `<label>${t === '일반' ? '일반계좌' : t} <input type="text" inputmode="numeric" value="${ppFmtIn(((ppCfg.grow||{}).add||{})[owner+'_'+t])}" placeholder="0" onchange="ppSetGrow('${owner}_${t}',this.value)" style="${PP_INPUT};width:90px"> 원</label>`).join('')}
+        ${['ISA','일반'].map(t => `<label>${t === '일반' ? '일반계좌' : t} <input type="text" inputmode="numeric" value="${ppFmtIn(((ppCfg.grow||{}).add||{})[owner+'_'+t])}" placeholder="0" onchange="ppSetGrow('${owner}_${t}',this.value)" style="${PP_INPUT};width:90px"> 원 <input type="month" value="${ppEsc(((ppCfg.grow||{}).until||{})[owner+'_'+t]||'')}" title="이 달까지 넣음 · 비우면 퇴직까지" onchange="ppSetGrow('${owner}_${t}:until',this.value)" style="${PP_INPUT};width:118px;text-align:left">까지</label>`).join('')}
         <span style="color:var(--text3)">월 배당 비교: 지금 <b style="font-family:var(--mono);color:var(--green)">${ppFmt((((ppAuto.byBase||{})[owner+'_ISA']||{}).avg||0) + (((ppAuto.byBase||{})[owner+'_일반']||{}).avg||0))}</b> → 퇴직 시점 추가 매수 없이 <b style="font-family:var(--mono)">${ppFmt(ppBaseAt(owner+'_ISA', null, false, true) + ppBaseAt(owner+'_일반', null, false, true))}</b> / 넣을 경우 <b style="font-family:var(--mono);color:var(--accent2)">${ppFmt(ppBaseAt(owner+'_ISA', null) + ppBaseAt(owner+'_일반', null))}</b></span>
       </div>
 
