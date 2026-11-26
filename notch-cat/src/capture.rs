@@ -79,8 +79,15 @@ fn rect(a: (i32, i32), b: (i32, i32)) -> (i32, i32, i32, i32) {
     (a.0.min(b.0), a.1.min(b.1), a.0.max(b.0), a.1.max(b.1))
 }
 
-/// BGRA 에서 사각형만 잘라 낸다
+/// 사각형을 그림(w×h) 안으로 자른다 — 다른 모니터까지 끌면 좌표가 밖으로 나간다
+fn clip(r: (i32, i32, i32, i32), w: i32, h: i32) -> (i32, i32, i32, i32) {
+    let (l, t) = (r.0.clamp(0, w), r.1.clamp(0, h));
+    (l, t, r.2.clamp(l, w), r.3.clamp(t, h))
+}
+
+/// BGRA 에서 사각형만 잘라 낸다(그림 밖은 잘림)
 pub fn crop(px: &[u8], w: i32, r: (i32, i32, i32, i32)) -> Vec<u8> {
+    let r = clip(r, w, px.len() as i32 / 4 / w.max(1));
     let mut out = Vec::with_capacity(((r.2 - r.0) * (r.3 - r.1) * 4) as usize);
     for y in r.1..r.3 {
         let s = ((y * w + r.0) * 4) as usize;
@@ -95,7 +102,7 @@ unsafe fn finish(hw: HWND, take: bool) {
     let _ = DestroyWindow(hw);
     let Some(st) = st else { return };
     let shot = st.a.filter(|_| take).and_then(|a| {
-        let r = rect(a, st.b);
+        let r = clip(rect(a, st.b), st.w, st.h);
         (r.2 - r.0 > 3 && r.3 - r.1 > 3).then(|| (crop(&st.px, st.w, r), (r.2 - r.0) as u32, (r.3 - r.1) as u32))
     });
     *DONE.lock().unwrap() = shot;
@@ -192,5 +199,13 @@ mod tests {
         let px: Vec<u8> = (0..12u8).flat_map(|i| [i, i, i, 255]).collect();
         let c = crop(&px, 4, rect((3, 2), (1, 0))); // 거꾸로 끌어도 같다
         assert_eq!(c.chunks(4).map(|p| p[0]).collect::<Vec<_>>(), vec![1, 2, 5, 6]);
+    }
+
+    #[test]
+    fn crop_outside_monitor_is_clipped() {
+        // 다른 모니터까지 끌면 좌표가 그림 밖으로 나간다 → 잘라서 안쪽만
+        let px: Vec<u8> = (0..12u8).flat_map(|i| [i, i, i, 255]).collect();
+        let c = crop(&px, 4, rect((-5, -5), (2, 9)));
+        assert_eq!(c.chunks(4).map(|p| p[0]).collect::<Vec<_>>(), vec![0, 1, 4, 5, 8, 9]);
     }
 }

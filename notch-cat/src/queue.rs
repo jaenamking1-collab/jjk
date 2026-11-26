@@ -252,16 +252,17 @@ pub fn spawn(now: Arc<Mutex<Now>>, q: Arc<Mutex<Queue>>) {
             let by_app = ps.iter().filter(|p| mine(p)).find_map(|p| p.paths.first().map(|f| (f.clone(), p.exe.clone())));
             let exe = ps.iter().find(|p| mine(p)).map(|p| p.exe.clone()).unwrap_or_default();
             let found = by_title.or(by_app).or_else(|| search(&title, &known).map(|f| (f, exe.clone())));
+            // 폴더 읽기(디스크)는 잠그기 전에 — 잠근 채 읽으면 화면이 그동안 기다린다
+            let listed = found.as_ref().map(|(f, _)| folder_list(f, &title));
             let mut g = q.lock().unwrap();
-            match found {
-                Some((f, ex)) => {
+            match found.zip(listed) {
+                Some(((f, ex), (items, dir))) => {
                     if let Some(d) = f.parent() {
                         if !known.iter().any(|k| k == d) {
                             known.insert(0, d.to_path_buf());
                             known.truncate(5);
                         }
                     }
-                    let (items, dir) = folder_list(&f, &title);
                     crate::log(&format!("다음 곡: '{title}' → {} 폴더 다음 {}곡 (재생기 {app})", dir, items.len()));
                     g.local = items;
                     g.local_dir = dir;
@@ -281,13 +282,13 @@ pub fn spawn(now: Arc<Mutex<Now>>, q: Arc<Mutex<Queue>>) {
 
 /// 내 음악 곡을 같은 재생기로 연다(재생기를 모르거나 스토어 앱이면 윈도우 기본 프로그램으로).
 pub fn play_local(path: &str, exe: &str) {
-    let r = if !exe.is_empty() && !exe.contains("WindowsApps") && Path::new(exe).is_file() {
-        std::process::Command::new(exe).arg(path).spawn().map(|_| ())
+    if !exe.is_empty() && !exe.contains("WindowsApps") && Path::new(exe).is_file() {
+        if let Err(e) = std::process::Command::new(exe).arg(path).spawn() {
+            crate::log(&format!("WARN 다음 곡 열기 실패: {e}"));
+        }
     } else {
-        std::process::Command::new("cmd").args(["/c", "start", "", path]).creation_flags(NO_WINDOW).spawn().map(|_| ())
-    };
-    if let Err(e) = r {
-        crate::log(&format!("WARN 다음 곡 열기 실패: {e}"));
+        // cmd /c start 는 파일 이름의 & 등을 명령으로 읽는다 → 셸로 바로 연다
+        unsafe { crate::shelf::open(path) };
     }
 }
 

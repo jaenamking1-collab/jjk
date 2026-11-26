@@ -21,6 +21,8 @@ pub struct Xfer {
     pub served: u32,           // 휴대폰이 받아 간 횟수
     pub relay: Option<(String, Vec<Vec<bool>>)>, // 인터넷 중계 방 주소·QR(열렸으면)
     rids: Vec<(PathBuf, u64)>, // 중계소에 올린 파일 → 그쪽 번호
+    sent: Vec<PathBuf>,        // 중계소로 올리기 시작한 파일(두 번 안 올리게)
+    local: bool,               // '같은 와이파이'를 골랐다 → 중계소에 올리지 않는다
     rkey: String,
     me: State,
     dir: PathBuf,
@@ -36,14 +38,26 @@ impl Xfer {
             let p = PathBuf::from(p);
             if p.is_file() && !self.out.contains(&p) {
                 self.out.insert(0, p.clone());
-                if !self.rkey.is_empty() && p.metadata().map_or(0, |m| m.len()) <= RELAY_LIMIT {
-                    let key = self.rkey.clone();
-                    let st = self.me.clone();
-                    std::thread::spawn(move || relay_put(&key, &p, st));
-                }
+                self.put(p);
             }
         }
         self.until = Instant::now() + IDLE;
+    }
+    /// QR 고르기: local = '같은 와이파이'. 인터넷으로 바꾸면 아직 안 올린 파일을 올린다.
+    pub fn set_local(&mut self, local: bool) {
+        self.local = local;
+        for p in self.out.clone() {
+            self.put(p);
+        }
+    }
+    fn put(&mut self, p: PathBuf) {
+        if self.local || self.rkey.is_empty() || self.sent.contains(&p) || p.metadata().map_or(0, |m| m.len()) > RELAY_LIMIT {
+            return;
+        }
+        self.sent.push(p.clone());
+        let key = self.rkey.clone();
+        let st = self.me.clone();
+        std::thread::spawn(move || relay_put(&key, &p, st));
     }
     /// 내놓은 파일 k 를 뺀다(중계소에 올린 것도 지운다)
     pub fn remove(&mut self, k: usize) {
@@ -51,6 +65,7 @@ impl Xfer {
             return;
         }
         let p = self.out.remove(k);
+        self.sent.retain(|q| q != &p);
         if let Some(i) = self.rids.iter().position(|r| r.0 == p) {
             let (_, id) = self.rids.remove(i);
             let key = self.rkey.clone();
@@ -99,16 +114,23 @@ pub fn safe_name(raw: &str) -> String {
 }
 
 /// 같은 이름이 있으면 '이름 (1).확장자' 꼴로 비켜 간다
+/// (받는 중인 임시 파일 이름까지 비어 있어야 한다 — 같은 이름 둘을 동시에 받을 때 겹치지 않게)
 fn unique(dir: &Path, name: &str) -> PathBuf {
+    let free = |p: &PathBuf| !p.exists() && !part_of(p).exists();
     let p = dir.join(name);
-    if !p.exists() {
+    if free(&p) {
         return p;
     }
     let (stem, ext) = match name.rfind('.') {
         Some(i) if i > 0 => (&name[..i], &name[i..]),
         _ => (name, ""),
     };
-    (1..).map(|k| dir.join(format!("{stem} ({k}){ext}"))).find(|p| !p.exists()).unwrap()
+    (1..).map(|k| dir.join(format!("{stem} ({k}){ext}"))).find(free).unwrap()
+}
+
+/// 받는 중일 때 쓰는 임시 파일
+fn part_of(dest: &Path) -> PathBuf {
+    dest.with_file_name(format!("{}.받는중", dest.file_name().unwrap_or_default().to_string_lossy()))
 }
 
 fn reply(c: &mut TcpStream, code: &str, ctype: &str, body: &[u8]) {
@@ -123,6 +145,7 @@ fn json_str(s: &str) -> String {
 
 fn handle(mut c: TcpStream, key: &str, st: &State) {
     let _ = c.set_read_timeout(Some(Duration::from_secs(30)));
+    let _ = c.set_write_timeout(Some(Duration::from_secs(60))); // 받는 쪽이 멈춰도 일하는 줄이 영영 남지 않게
     // 머리(헤더)를 다 읽는다
     let mut buf = Vec::new();
     let mut chunk = [0u8; 4096];
@@ -187,8 +210,9 @@ fn handle(mut c: TcpStream, key: &str, st: &State) {
             let dir = st.lock().unwrap().as_ref().map(|x| x.dir.clone()).unwrap_or_else(downloads);
             let _ = std::fs::create_dir_all(&dir);
             let dest = unique(&dir, &name);
-            let part = dest.with_file_name(format!("{}.받는중", dest.file_name().unwrap().to_string_lossy()));
-            let Ok(mut f) = std::fs::File::create(&part) else { return reply(&mut c, "500 Internal Server Error", "text/plain", b"") };
+            let part = part_of(&dest);
+            // create_new: 아주 짧은 틈에 같은 이름이 또 와도 남의 임시 파일을 덮지 않는다
+            let Ok(mut f) = std::fs::OpenOptions::new().write(true).create_new(true).open(&part) else { return reply(&mut c, "500 Internal Server Error", "text/plain", b"") };
             rest.truncate(len as usize);
             let mut done = rest.len() as u64;
             let mut ok = f.write_all(&rest).is_ok();
@@ -235,9 +259,9 @@ pub fn start(lan: bool, relay: bool, dir: PathBuf, st: State) -> std::io::Result
     let key = crate::gcal::random(6);
     let url = format!("http://{ip}:{port}/{key}");
     let stop = Arc::new(AtomicBool::new(false));
-    let keep = st.lock().unwrap().take().map(|x| x.out.clone()).unwrap_or_default(); // 다시 열어도 내놓은 파일은 그대로
+    let (keep, local) = st.lock().unwrap().take().map(|x| (x.out.clone(), x.local)).unwrap_or_default(); // 다시 열어도 내놓은 파일은 그대로
     let rkey = if relay { crate::gcal::random(16).replace(['.', '~'], "_") } else { String::new() };
-    *st.lock().unwrap() = Some(Xfer { qr: crate::send::qr(&url), url, until: Instant::now() + IDLE, out: vec![], got: vec![], busy: None, served: 0, relay: None, rids: vec![], rkey: rkey.clone(), me: st.clone(), dir, stop: stop.clone() });
+    *st.lock().unwrap() = Some(Xfer { qr: crate::send::qr(&url), url, until: Instant::now() + IDLE, out: vec![], got: vec![], busy: None, served: 0, relay: None, rids: vec![], sent: vec![], local, rkey: rkey.clone(), me: st.clone(), dir, stop: stop.clone() });
     if relay {
         let (st, stop) = (st.clone(), stop.clone());
         std::thread::spawn(move || relay_loop(rkey, st, stop));
@@ -277,6 +301,9 @@ pub fn relay_base() -> String {
 fn curl(args: &[&str]) -> Option<(u16, String)> {
     use std::os::windows::process::CommandExt;
     let o = std::process::Command::new("curl.exe").args(["-s", "-m", "900", "-w", "\n%{http_code}"]).args(args).creation_flags(0x0800_0000).output().ok()?;
+    if !o.status.success() {
+        return None; // 도중에 끊김·시간 초과(상태 코드가 200 이어도 받은 파일은 반쪽이다)
+    }
     let t = String::from_utf8_lossy(&o.stdout).into_owned();
     let (body, code) = t.rsplit_once('\n')?;
     Some((code.trim().parse().ok()?, body.to_string()))
@@ -323,7 +350,7 @@ fn relay_loop(key: String, st: State, stop: Arc<AtomicBool>) {
                 }) else { return };
                 let _ = std::fs::create_dir_all(&dir);
                 let dest = unique(&dir, &name);
-                let part = dest.with_file_name(format!("{}.받는중", dest.file_name().unwrap().to_string_lossy()));
+                let part = part_of(&dest);
                 let ok = curl(&["-o", &part.display().to_string(), &format!("{url}/take/{id}")]).is_some_and(|r| r.0 == 200) && std::fs::rename(&part, &dest).is_ok();
                 if let Some(x) = st.lock().unwrap().as_mut() {
                     x.busy = None;

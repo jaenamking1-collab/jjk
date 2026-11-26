@@ -3067,6 +3067,7 @@ impl App {
         }
         // 그림 미리보기를 읽어 둔다(한 번만)
         let ids: Vec<u64> = self.clip.recent.iter().chain(&self.clip.pinned).filter(|i| i.img.is_some()).map(|i| i.id).collect();
+        self.clip_bmp.retain(|k, _| ids.contains(k)); // 지운 항목(비우기·고정 해제)의 그림은 버린다
         for id in ids {
             if !self.clip_bmp.contains_key(&id) {
                 if let Some(b) = std::fs::read(clip::thumb_path(id)).ok().and_then(|b| self.g.bitmap(&b).ok()) {
@@ -3560,6 +3561,9 @@ impl App {
         match xfer::start(lan, relay, xfer::downloads(), self.xfer.clone()) {
             Ok(()) => {
                 self.xfer_fail = None;
+                if let Some(x) = self.xfer.lock().unwrap().as_mut() {
+                    x.set_local(!self.xfer_net);
+                }
                 log("xfer: 창구 열림");
                 if let Ok(f) = std::env::var("NOTCH_CAT_XFEROUT") {
                     if let Some(x) = self.xfer.lock().unwrap().as_mut() {
@@ -4691,6 +4695,9 @@ impl App {
             }
             Hit::XferMode(net) => {
                 self.xfer_net = net;
+                if let Some(x) = self.xfer.lock().unwrap().as_mut() {
+                    x.set_local(!net); // 와이파이를 고르면 중계소에 올리지 않는다
+                }
                 return self.tick();
             }
             Hit::XferFolder => {
@@ -4991,7 +4998,13 @@ impl App {
 }
 
 /// 트레이에 띄울 고양이 얼굴. 실행 파일에 넣어 둔 ico 에서 32px 그림을 꺼낸다.
+/// 한 번만 만들어 돌려 쓴다(설정창을 열 때마다 새로 만들면 핸들이 샌다).
 unsafe fn cat_icon() -> HICON {
+    static ICON: std::sync::OnceLock<isize> = std::sync::OnceLock::new();
+    HICON(*ICON.get_or_init(|| make_cat_icon().0 as isize) as _)
+}
+
+unsafe fn make_cat_icon() -> HICON {
     const ICO: &[u8] = include_bytes!("../assets/cat.ico");
     let n = u16::from_le_bytes([ICO[4], ICO[5]]) as usize;
     for e in (0..n).map(|i| &ICO[6 + 16 * i..22 + 16 * i]) {
@@ -5023,18 +5036,14 @@ unsafe fn tray(hwnd: HWND, add: bool) {
 
 unsafe fn run() -> Result<()> {
     let _one = CreateMutexW(None, true, w!("notch-cat-single"))?;
-    if GetLastError() == ERROR_ALREADY_EXISTS {
-        // 이미 켜져 있으면 그걸 닫고 내가 대신 뜬다(새로 받은 판을 실행하면 그대로 바뀌게)
+    // 이미 켜져 있으면 그걸 닫고 내가 대신 뜬다(새로 받은 판을 실행하면 그대로 바뀌게).
+    // 닫기는 내 창·그래픽이 뜬 뒤에 한다 — 새 판이 뜨다 죽으면 지금 것이 그대로 남아 되돌린다(update.rs).
+    let old = if GetLastError() == ERROR_ALREADY_EXISTS {
         let Ok(old) = FindWindowW(w!("NotchCat"), None) else { return Ok(()) };
-        let _ = PostMessageW(old, WM_CLOSE, WPARAM(0), LPARAM(0));
-        for _ in 0..40 {
-            std::thread::sleep(Duration::from_millis(100));
-            if !IsWindow(old).as_bool() {
-                break;
-            }
-        }
-        log("replaced the running copy");
-    }
+        Some(old)
+    } else {
+        None
+    };
     trim_log();
     log(&format!("start {VERSION}"));
     let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -5076,6 +5085,16 @@ unsafe fn run() -> Result<()> {
         None,
     )?;
     let g = Gfx::new(hwnd, wpx as u32, hpx as u32, 96.0 * scale)?;
+    if let Some(old) = old {
+        let _ = PostMessageW(old, WM_CLOSE, WPARAM(0), LPARAM(0));
+        for _ in 0..40 {
+            std::thread::sleep(Duration::from_millis(100));
+            if !IsWindow(old).as_bool() {
+                break;
+            }
+        }
+        log("replaced the running copy");
+    }
     let now = Arc::new(Mutex::new(Now::default()));
     let lyr = Arc::new(Mutex::new(Lyr::default()));
     let tx = media::spawn(now.clone(), lyr.clone());

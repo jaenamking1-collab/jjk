@@ -185,8 +185,8 @@ impl Gecko {
             return;
         }
         let list = ids.iter().map(|g| g.1).collect::<Vec<_>>().join(",");
-        let Ok(tick) = get(c, &format!("https://api.coingecko.com/api/v3/exchanges/bithumb/tickers?coin_ids={list}")) else { return };
-        let Ok(now) = get(c, &format!("https://api.coingecko.com/api/v3/simple/price?vs_currencies=krw&ids={list}")) else { return };
+        let Ok(tick) = get(c, &format!("https://api.coingecko.com/api/v3/exchanges/bithumb/tickers?coin_ids={list}")) else { return self.vals.clear() }; // 못 받으면 묵은 값 대신 다음 길(야후)
+        let Ok(now) = get(c, &format!("https://api.coingecko.com/api/v3/simple/price?vs_currencies=krw&ids={list}")) else { return self.vals.clear() };
         let now: Value = serde_json::from_str(&now).unwrap_or_default();
         let (prices, day) = (parse_gecko_bithumb(&tick), kst_midnight());
         let mut vals = Vec::new();
@@ -202,9 +202,7 @@ impl Gecko {
                 vals.push((format!("{base}-KRW"), coin_text(p.1), (n / m.1 - 1.0) * 100.0, base.to_string()));
             }
         }
-        if !vals.is_empty() {
-            self.vals = vals;
-        }
+        self.vals = vals;
     }
 }
 
@@ -252,7 +250,13 @@ fn own_list() -> bool {
 
 /// 목록 파일에 코드를 적는다(다른 값은 그대로).
 pub fn save_code(path: &std::path::Path, code: &str) -> std::result::Result<(), String> {
-    let mut v = std::fs::read_to_string(path).ok().and_then(|s| serde_json::from_str::<Value>(&s).ok()).filter(Value::is_object).unwrap_or_else(|| serde_json::json!({}));
+    // 파일이 있는데 못 읽으면 덮어쓰지 않는다(종목 목록이 통째로 날아간다)
+    let mut v = match std::fs::read_to_string(path) {
+        Ok(s) if s.trim().is_empty() => serde_json::json!({}),
+        Ok(s) => serde_json::from_str::<Value>(&s).ok().filter(Value::is_object).ok_or("목록 파일을 못 읽어 저장하지 않았습니다")?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => serde_json::json!({}),
+        Err(e) => return Err(format!("목록 파일을 못 읽음: {e}")),
+    };
     v["code"] = code.into();
     if let Some(d) = path.parent() {
         let _ = std::fs::create_dir_all(d);

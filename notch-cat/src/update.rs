@@ -80,15 +80,29 @@ fn check(c: &HttpClient, exe: &std::path::Path, notes: &Arc<Mutex<crate::notif::
         n.icon = None;
     }
     std::thread::sleep(Duration::from_secs(4)); // 알림을 보여 줄 틈
-    unsafe {
-        windows::Win32::UI::Shell::ShellExecuteW(None, &HSTRING::from("open"), &HSTRING::from(exe.as_os_str()), None, None, windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL);
+    let r = unsafe { windows::Win32::UI::Shell::ShellExecuteW(None, &HSTRING::from("open"), &HSTRING::from(exe.as_os_str()), None, None, windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL) };
+    // 새 판은 창·그래픽이 뜬 뒤에 나를 닫는다. 1분이 지나도 내가 살아 있으면 새 판이 못 뜬 것 → 옛 판으로 되돌린다.
+    if r.0 as isize > 32 {
+        std::thread::sleep(Duration::from_secs(60));
     }
+    let bad = exe.with_file_name("NotchCat.bad.exe");
+    let _ = std::fs::remove_file(&bad);
+    if std::fs::rename(exe, &bad).is_ok() && std::fs::rename(&old, exe).is_ok() {
+        crate::log(&format!("update: 새 판이 안 떠서 되돌림 (실행 결과 {})", r.0 as isize));
+    } else {
+        crate::log("update: 새 판이 안 떴고 되돌리기도 실패");
+    }
+    let mut n = notes.lock().unwrap();
+    n.ver += 1;
+    n.title = "새 판이 안 떠서 그대로 둡니다".into();
+    n.body = "다음 판이 나오면 다시 바꿉니다".into();
     Some(())
 }
 
 pub fn spawn(notes: Arc<Mutex<crate::notif::Note>>) {
     let Some(exe) = installed() else { return };
     let _ = std::fs::remove_file(exe.with_file_name("NotchCat.old.exe")); // 지난번에 바꾸고 남은 것
+    let _ = std::fs::remove_file(exe.with_file_name("NotchCat.bad.exe"));
     std::thread::spawn(move || {
         let Ok(c) = crate::quotes::fresh_client() else { return };
         if let Ok(h) = c.DefaultRequestHeaders() {

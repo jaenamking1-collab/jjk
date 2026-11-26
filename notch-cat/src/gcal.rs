@@ -412,7 +412,7 @@ pub fn spawn(out: Arc<Mutex<Cal>>) -> mpsc::Sender<Cmd> {
     std::thread::spawn(move || {
         // 비밀번호가 틀려도 윈도우가 따로 로그인 창을 띄우지 않게
         let Ok(c) = windows::Web::Http::Filters::HttpBaseProtocolFilter::new().and_then(|f| { f.SetAllowUI(false)?; HttpClient::Create(&f) }) else { return };
-        let mut tokens: Vec<Option<(String, Instant)>> = Vec::new();
+        let mut tokens: std::collections::HashMap<String, (String, Instant)> = Default::default(); // 계정(이메일) → 열쇠. 번호로 두면 다시 연결해 순서가 바뀔 때 남의 열쇠를 쓴다
         let mut cmd: Option<Cmd> = Some(Cmd::Refresh);
         let mut seen_counts = (usize::MAX, 0);
         let mut later: Vec<Cmd> = Vec::new(); // 로그인을 기다리는 동안 들어온 다른 명령
@@ -481,7 +481,6 @@ pub fn spawn(out: Arc<Mutex<Cal>>) -> mpsc::Sender<Cmd> {
                 _ => {}
             }
             // 받기: 지난달 1일부터 6주 뒤까지
-            tokens.resize(accts.len(), None);
             let (now, _) = today();
             let (y, m, _) = ymd(now);
             let from = days(y, m, 1) - 35;
@@ -518,8 +517,8 @@ pub fn spawn(out: Arc<Mutex<Cal>>) -> mpsc::Sender<Cmd> {
                 let mut got: Option<(String, Value)> = None;
                 let mut gone = false;
                 for attempt in 0..2 {
-                    let fresh = if attempt == 0 { tokens[ai].as_ref().filter(|t| t.1.elapsed() < Duration::from_secs(3000)).map(|t| t.0.clone()) } else { None };
-                    let tok = match fresh.or_else(|| access(&c, &id, &secret, refresh).inspect(|t| tokens[ai] = Some((t.clone(), Instant::now())))) {
+                    let fresh = if attempt == 0 { tokens.get(email).filter(|t| t.1.elapsed() < Duration::from_secs(3000)).map(|t| t.0.clone()) } else { None };
+                    let tok = match fresh.or_else(|| access(&c, &id, &secret, refresh).inspect(|t| { tokens.insert(email.clone(), (t.clone(), Instant::now())); })) {
                         Some(t) => t,
                         None => {
                             gone = true;
@@ -533,7 +532,7 @@ pub fn spawn(out: Arc<Mutex<Cal>>) -> mpsc::Sender<Cmd> {
                         }
                         r => {
                             crate::log(&format!("gcal: 캘린더 목록 실패 {}", r.map(|x| x.0.to_string()).unwrap_or_else(|e| e.to_string())));
-                            tokens[ai] = None; // 열쇠를 버리고 새로 받아 한 번 더
+                            tokens.remove(email); // 열쇠를 버리고 새로 받아 한 번 더
                         }
                     }
                 }
@@ -557,12 +556,24 @@ pub fn spawn(out: Arc<Mutex<Cal>>) -> mpsc::Sender<Cmd> {
                         "https://www.googleapis.com/calendar/v3/calendars/{}/events?singleEvents=true&orderBy=startTime&maxResults=250&timeZone=Asia%2FSeoul&timeMin={}&timeMax={}",
                         enc(&info.id), enc(&rfc3339(from, 0)), enc(&rfc3339(to, 0))
                     );
-                    match send(&c, "GET", &u, Some(&tok), None) {
-                        Ok((200, b)) => events.extend(parse_events(&b, info.color)),
-                        r => {
-                            crate::log(&format!("gcal: 일정 받기 실패 {}", r.map(|x| x.0.to_string()).unwrap_or_else(|e| e.to_string())));
-                            failed = true;
-                            note = "일정을 못 받았습니다. 곧 다시 받습니다".into();
+                    // 한 번에 250개까지라 넘으면 다음 쪽(nextPageToken)을 이어 받는다
+                    let mut page = String::new();
+                    for _ in 0..20 {
+                        let pu = if page.is_empty() { u.clone() } else { format!("{u}&pageToken={}", enc(&page)) };
+                        match send(&c, "GET", &pu, Some(&tok), None) {
+                            Ok((200, b)) => {
+                                events.extend(parse_events(&b, info.color));
+                                page = serde_json::from_str::<Value>(&b).ok().and_then(|v| v["nextPageToken"].as_str().map(String::from)).unwrap_or_default();
+                                if page.is_empty() {
+                                    break;
+                                }
+                            }
+                            r => {
+                                crate::log(&format!("gcal: 일정 받기 실패 {}", r.map(|x| x.0.to_string()).unwrap_or_else(|e| e.to_string())));
+                                failed = true;
+                                note = "일정을 못 받았습니다. 곧 다시 받습니다".into();
+                                break;
+                            }
                         }
                     }
                     cals.push(info);

@@ -320,11 +320,16 @@ unsafe fn put(format: u32, bytes: &[u8]) -> bool {
     let Ok(g) = GlobalAlloc(GMEM_MOVEABLE, bytes.len()) else { return false };
     let p = GlobalLock(g) as *mut u8;
     if p.is_null() {
+        let _ = windows::Win32::Foundation::GlobalFree(g);
         return false;
     }
     std::ptr::copy_nonoverlapping(bytes.as_ptr(), p, bytes.len());
     let _ = GlobalUnlock(g);
-    SetClipboardData(format, HANDLE(g.0)).is_ok()
+    // 성공하면 메모리는 윈도우 것, 실패하면 내가 돌려준다
+    SetClipboardData(format, HANDLE(g.0)).is_ok() || {
+        let _ = windows::Win32::Foundation::GlobalFree(g);
+        false
+    }
 }
 
 /// 항목을 클립보드에 다시 넣는다(붙여 넣기는 Ctrl+V)

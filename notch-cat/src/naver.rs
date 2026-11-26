@@ -239,8 +239,8 @@ fn untext(s: &str) -> String {
 /// 일정 COLOR(이름이나 #rrggbb) → 색. 모르는 이름이면 None(캘린더 색 그대로).
 fn css_color(v: &str) -> Option<(f32, f32, f32)> {
     let v = v.trim().to_ascii_lowercase();
-    if v.starts_with('#') && v.len() >= 7 {
-        return Some(gcal::hex_color(&v[..7]));
+    if v.starts_with('#') {
+        return v.get(..7).map(gcal::hex_color); // 글자 경계가 아니면(한글 등) None → 캘린더 색
     }
     Some(match v.as_str() {
         "orangered" | "tomato" | "darkorange" | "orange" | "coral" => (0.96, 0.32, 0.12),
@@ -288,7 +288,9 @@ fn expand(rule: &str, d0: i64, from: i64, to: i64, ex: &[i64]) -> Vec<i64> {
         }
         true
     };
-    'outer: for k in 0..2000i64 {
+    // 매일 되풀이(횟수 제한 없음)는 from 근처부터 센다 — 0부터 세면 2,000일(약 5년) 넘은 일정이 사라진다
+    let k0 = if freq == "DAILY" && count.is_none() { ((from - d0) / iv - 1).max(0) } else { 0 };
+    'outer: for k in k0..k0 + 2000 {
         let mut days: Vec<i64> = Vec::new();
         match freq {
             "DAILY" => days.push(d0 + k * iv),
@@ -375,6 +377,10 @@ pub fn parse_ics(ics: &str, color: (f32, f32, f32), from: i64, to: i64) -> Vec<E
     for b in &blocks {
         let get = |k: &str| b.iter().find(|p| p.0 == k).map(|p| p.2.as_str());
         if get("STATUS") == Some("CANCELLED") {
+            // 취소된 회차도 '옮김'으로 적어 둬야 되풀이로 만든 그날이 빠진다
+            if let Some(r) = get("RECURRENCE-ID").and_then(dt) {
+                moved.push((get("UID").unwrap_or("").to_string(), r.0));
+            }
             continue;
         }
         let Some((d0, s0)) = get("DTSTART").and_then(dt) else { continue };
@@ -463,6 +469,19 @@ mod tests {
         assert_eq!(expand("FREQ=MONTHLY;BYDAY=2TU;COUNT=3", d(11, 10), from, to, &[]), vec![d(11, 10), d(12, 8)]);
         assert_eq!(expand("FREQ=YEARLY", gcal::days(2020, 11, 20), from, to, &[]), vec![d(11, 20)]);
         assert_eq!(dur("PT1H30M"), 90);
+    }
+
+    #[test]
+    fn codex_edge_cases() {
+        let d = |y, m, d| gcal::days(y, m, d);
+        // 한글이 섞인 색 이름에서 멈추지 않는다
+        assert_eq!(css_color("#ab가나"), None);
+        // 5년 넘게 매일 되풀이도 이번 달에 보인다
+        assert_eq!(expand("FREQ=DAILY", d(2018, 1, 1), d(2026, 11, 1), d(2026, 11, 3), &[]), vec![d(2026, 11, 1), d(2026, 11, 2), d(2026, 11, 3)]);
+        // 되풀이 중 한 회차를 취소(STATUS:CANCELLED)하면 그날은 빠진다
+        let ics = "BEGIN:VEVENT\r\nUID:c\r\nDTSTART;VALUE=DATE:20261101\r\nDTEND;VALUE=DATE:20261102\r\nRRULE:FREQ=DAILY;COUNT=3\r\nSUMMARY:x\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:c\r\nRECURRENCE-ID;VALUE=DATE:20261102\r\nDTSTART;VALUE=DATE:20261102\r\nSTATUS:CANCELLED\r\nEND:VEVENT";
+        let ev = parse_ics(ics, (0.0, 0.0, 0.0), d(2026, 10, 1), d(2026, 12, 31));
+        assert_eq!(ev.iter().map(|e| e.day).collect::<Vec<_>>(), vec![d(2026, 11, 1), d(2026, 11, 3)]);
     }
 
     #[test]

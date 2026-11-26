@@ -298,6 +298,9 @@ impl Grab {
     unsafe fn take(&self) -> Vec<u8> {
         let _ = BitBlt(self.mem, 0, 0, self.w, self.h, self.scr, self.x, self.y, SRCCOPY);
         let _ = GdiFlush();
+        if self.bits.is_null() {
+            return vec![0; (self.w * self.h * 4) as usize]; // 그림 메모리를 못 만들었다(너무 큼 등) → 검은 장
+        }
         std::slice::from_raw_parts(self.bits, (self.w * self.h * 4) as usize).to_vec()
     }
 }

@@ -54,6 +54,7 @@ pub fn disposition(name: &str) -> String {
 
 fn serve(mut c: TcpStream, key: &str, path: &Path, name: &str) -> bool {
     let _ = c.set_read_timeout(Some(Duration::from_secs(5)));
+    let _ = c.set_write_timeout(Some(Duration::from_secs(60))); // 받는 쪽이 멈춰도 일하는 줄이 영영 남지 않게
     let mut buf = [0u8; 2048];
     let n = c.read(&mut buf).unwrap_or(0);
     let req = String::from_utf8_lossy(&buf[..n]);
