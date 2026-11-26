@@ -266,6 +266,16 @@ impl Gfx {
         rt.CreateBitmapFromWicBitmap(&conv, None)
     }
 
+    /// BGRA 점(알파 255) → 그림. 영상 장면처럼 자주 바뀌는 것은 PNG 를 거치지 않는다.
+    pub unsafe fn bitmap_bgra(&self, px: &[u8], w: u32, h: u32) -> Result<ID2D1Bitmap> {
+        if px.len() < (w * h * 4) as usize {
+            return Err(windows::core::Error::empty());
+        }
+        let wic = self.wic.CreateBitmapFromMemory(w, h, &GUID_WICPixelFormat32bppPBGRA, w * 4, &px[..(w * h * 4) as usize])?;
+        let rt: ID2D1RenderTarget = self.dc.cast()?;
+        rt.CreateBitmapFromWicBitmap(&wic, None)
+    }
+
     /// 윈도우 그림(HBITMAP, 탐색기 미리보기·아이콘) → 그릴 수 있는 그림. 받은 HBITMAP 은 지운다.
     pub unsafe fn bitmap_hbitmap(&self, hb: windows::Win32::Graphics::Gdi::HBITMAP) -> Result<ID2D1Bitmap> {
         let wb = self.wic.CreateBitmapFromHBITMAP(hb, None, WICBitmapUsePremultipliedAlpha);
