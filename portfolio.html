@@ -7078,11 +7078,14 @@ function ppSave() {
   localStorage.setItem('jjk_pension_plan', JSON.stringify(ppCfg));
   // 서버(토큰 필요)에도 남긴다 — 다른 PC 에서도 같은 설정. apiPost 는 대시보드 캐시를 비우므로 직접 보낸다.
   clearTimeout(_ppSaveT);
+  const seq = ++_ppSeq;
   _ppSaveT = setTimeout(() => {
     fetch(API + '?token=' + encodeURIComponent(APP_TOKEN), { method:'POST',
-      body: JSON.stringify({ action:'savePensionPlan', cfg: ppCfg, token: APP_TOKEN }) }).catch(() => {});
+      body: JSON.stringify({ action:'savePensionPlan', cfg: ppCfg, token: APP_TOKEN }) })
+      .then(r => r.json()).then(j => { if (j && j.success) _ppSaved = seq; }).catch(() => {});
   }, 800);
 }
+let _ppSeq = 0, _ppSaved = 0; // 다르면 아직 서버에 안 올라간 수정이 이 화면에 있다
 function ppEsc(s) { return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
 function ppNum(v) { const n = parseFloat(String(v).replace(/,/g,'')); return isFinite(n) ? n : 0; }
 function ppFmt(n) { return Math.round(n).toLocaleString(); }
@@ -7092,9 +7095,21 @@ function ppAnnualOf(p) { return p.annual == null ? (p.accountId != null ? (ppAut
 const PP_INPUT = 'padding:4px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;text-align:right;font-family:var(--mono)';
 
 async function loadPensionPlan() {
-  if (!ppCfg) {
-    // 서버 설정이 먼저다. 서버가 비어 있으면(처음) 이 브라우저 localStorage 값을 쓰고, 아래 ppSave 가 서버로 올린다.
-    try { const r = await api({ action:'getPensionPlan' }); if (r && r.cfg) ppCfg = r.cfg; } catch(e) {}
+  if (!ppCfg || _ppSeq === _ppSaved) {
+    // 서버 설정이 원본이다. 탭을 열 때마다 다시 읽는다(열어 둔 화면의 묵은 값이 다른 기기의 수정을 덮지 않게).
+    // ⛔ 못 읽으면 아무것도 저장하지 않고 멈춘다 — 예전엔 기본값·묵은 값이 서버를 덮었다(2026-11-26).
+    let r = null;
+    document.getElementById('pp-years').innerHTML = '<div class="loading"><span class="spinner"></span>불러오는 중...</div>';
+    try { r = await api({ action:'getPensionPlan' }); } catch(e) {}
+    if (!r || !r.success) {
+      ppCfg = null;
+      ['pp-col-jn','pp-col-ek','pp-funds','pp-ktcu'].forEach(id => document.getElementById(id).innerHTML = '');
+      ['pp-now','pp-retire-amt','pp-retire-sub','pp-full'].forEach(id => document.getElementById(id).textContent = '-');
+      document.getElementById('pp-years').innerHTML = '<div style="padding:12px;color:var(--red);font-weight:700">⚠️ 저장해 둔 연금 설정을 서버에서 못 읽었습니다. 입력값은 그대로 있고, 아무것도 바꾸지 않았습니다. <button class="btn btn-ghost btn-sm" onclick="loadPensionPlan()">다시 불러오기</button></div>';
+      return;
+    }
+    // 서버가 비어 있으면(처음) 이 브라우저 localStorage 값을 쓰고, 아래 ppSave 가 서버로 올린다.
+    ppCfg = r.cfg;
     if (!ppCfg) try { ppCfg = JSON.parse(localStorage.getItem('jjk_pension_plan') || 'null'); } catch(e) {}
     ppCfg = ppMigrateCfg(ppCfg) || ppDefaultCfg();
     if (!ppCfg.pensionRemoved) ppCfg.pensionRemoved = [];
