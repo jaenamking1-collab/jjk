@@ -7074,7 +7074,14 @@ function ppMigrateCfg(c) { // v1(우체국 별도 섹션) / v2(재남·은경 �
   return d;
 }
 let _ppSaveT = null;
+let ppReadFailed = false, _ppWarned = false;
+function ppWarnReadFailed() {
+  if (_ppWarned) return; _ppWarned = true;
+  alert('연금플랜 설정을 서버에서 못 읽었습니다. 서버 설정을 지키려고 이번 화면의 변경은 저장하지 않습니다. 새로고침 후 다시 열어 주세요.');
+}
 function ppSave() {
+  // 서버 설정을 못 읽은 상태(통신·인증 실패)면 서버에 쓰지 않는다 — 기본값·옛 브라우저 값이 서버 설정을 덮던 문제(2026-11-26 점검 11)
+  if (ppReadFailed) { ppWarnReadFailed(); return; }
   localStorage.setItem('jjk_pension_plan', JSON.stringify(ppCfg));
   // 서버(토큰 필요)에도 남긴다 — 다른 PC 에서도 같은 설정. apiPost 는 대시보드 캐시를 비우므로 직접 보낸다.
   clearTimeout(_ppSaveT);
@@ -7092,9 +7099,12 @@ function ppAnnualOf(p) { return p.annual == null ? (p.accountId != null ? (ppAut
 const PP_INPUT = 'padding:4px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;text-align:right;font-family:var(--mono)';
 
 async function loadPensionPlan() {
-  if (!ppCfg) {
+  if (!ppCfg || ppReadFailed) {
+    ppCfg = null;
     // 서버 설정이 먼저다. 서버가 비어 있으면(처음) 이 브라우저 localStorage 값을 쓰고, 아래 ppSave 가 서버로 올린다.
-    try { const r = await api({ action:'getPensionPlan' }); if (r && r.cfg) ppCfg = r.cfg; } catch(e) {}
+    ppReadFailed = true;
+    try { const r = await api({ action:'getPensionPlan' }); if (r && r.success) { ppReadFailed = false; if (r.cfg) ppCfg = r.cfg; } } catch(e) {}
+    if (ppReadFailed) ppWarnReadFailed();
     if (!ppCfg) try { ppCfg = JSON.parse(localStorage.getItem('jjk_pension_plan') || 'null'); } catch(e) {}
     ppCfg = ppMigrateCfg(ppCfg) || ppDefaultCfg();
     if (!ppCfg.pensionRemoved) ppCfg.pensionRemoved = [];
@@ -7205,12 +7215,7 @@ async function loadPensionPlan() {
     ppCfg.pension.push({ id:'p'+Date.now()+Math.random().toString(36).slice(2,6), owner:ppOwnerOf(a.name), accountId:a.id, name:a.name,
       tax: t === 'IRP' ? '세공' : '안세공', annual: t === 'IRP' ? 0 : null, startYear:'' });
   });
-  // 사학연금(재남·퇴직연금 방식) 공식 예상액 1회 시드 — 퇴직수당 목돈 + 월 퇴직연금(실수령). 삭제하면 재생성 안 함.
-  if (!ppCfg.sahakSeeded) {
-    ppCfg.funds.push({ id:'f-sahak-tw', name:'사학연금 퇴직수당', amount:70582690, availYear:2029, taxRate:0, memo:'실수령' });
-    ppCfg.others.push({ id:'o-sahak-pen', owner:'재남', title:'사학 퇴직연금', monthly:2502710, startYear:'2040' });
-    ppCfg.sahakSeeded = true;
-  }
+  // 사학연금 예상액 시드는 지웠다 — 공개 소스에 개인 금액이 들어 있었다(2026-11-26 점검 09). 금액은 앱 입력 → 서버 설정에만 둔다.
   ppSave();
   renderPensionPlan();
 }

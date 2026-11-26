@@ -916,8 +916,9 @@ function applyBoot(b, prices) {
   D.rate = b.rate || 1447;
   D.accounts = b.accounts || [];
   D.holdings = b.holdings || [];
-  D.divs     = b.dividends || [];
   D.divsAll  = b.divsAll || [];
+  // 서버는 dividends 를 안 보낸다(divsAll 만) → 계좌 배당이 늘 0원이던 문제(2026-11-26 점검 05). PC 와 같이 올해분을 뽑는다.
+  D.divs     = b.dividends || D.divsAll.filter(d => String(d.year) === String(new Date().getFullYear()));
   // 시세를 하나도 못 받았으면 스냅샷에서 읽어 둔 지난 시세를 그대로 둔다. 빈 맵이면 전 종목이
   // 평단가로 잡혀 평가금액 = 총매입이 되고, 그게 스냅샷까지 덮어쓴다(2026-09-28 신고).
   if (prices && Object.keys(prices).length) D.priceMap = prices;

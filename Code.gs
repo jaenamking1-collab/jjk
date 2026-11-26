@@ -20,7 +20,8 @@ const AUTH_WINDOW_SEC = 600;    // 오답을 세는 기간
 function _authOk(action, token) {
   if (PUBLIC_ACTIONS.indexOf(action) !== -1) return true;
   const secret = PropertiesService.getScriptProperties().getProperty('APP_TOKEN');
-  if (!secret) return true;           // 미설정 시 허용(하위호환)
+  // 비밀값이 비면(새 배포·토큰 교체 중) 개인 요청을 막는다. 예전엔 허용이라 그 틈에 조회·쓰기가 다 열렸다(2026-11-26 점검 01).
+  if (!secret) { console.log('APP_TOKEN 미설정 — 개인 요청 거부: ' + action); return false; }
   const cache = CacheService.getScriptCache();
   if (cache.get('authLock')) return false;
   if (token === secret) { cache.removeAll(['authFail', 'authLastBad']); return true; }
@@ -4322,10 +4323,29 @@ function flushKakaoPending() {
   let queue = [];
   try { queue = JSON.parse(props.getProperty('KAKAO_PENDING') || '[]'); } catch(e) {}
   if (!queue.length) return true;
-  const msg = ('📢 ETF 분배 알림\n' + queue.join('\n')).slice(0, 200);
-  let ok = false;
-  try { ok = sendKakaoMemo(msg); } catch(e) { console.log('flushKakaoPending', e); }
-  if (ok) props.deleteProperty('KAKAO_PENDING');
+  // 200자에 맞게 여러 통으로 나눠 보내고, 보낸 항목만 지운다. 예전엔 앞 200자만 보내고 대기열을 통째로
+  // 지워 뒤쪽 공지가 사라졌다(2026-11-26 점검 30). 보내는 사이 새로 쌓인 항목은 뒤에 붙으므로 앞에서 sent 개만 뺀다.
+  const HEAD = '📢 ETF 분배 알림\n', MAX = 200;
+  let sent = 0, ok = true;
+  while (sent < queue.length && ok) {
+    let msg = HEAD, n = 0;
+    while (sent + n < queue.length) {
+      const line = String(queue[sent + n]);
+      const next = msg + (n ? '\n' : '') + line;
+      if (n && next.length > MAX) break;
+      msg = next.slice(0, MAX); n++;        // 한 줄이 200자를 넘으면 그 줄만 잘라 보낸다
+      if (msg.length >= MAX) break;
+    }
+    try { ok = sendKakaoMemo(msg); } catch(e) { ok = false; console.log('flushKakaoPending', e); }
+    if (ok) sent += n;
+  }
+  if (sent) {
+    let now = [];
+    try { now = JSON.parse(props.getProperty('KAKAO_PENDING') || '[]'); } catch(e) {}
+    const rest = now.slice(sent);
+    if (rest.length) props.setProperty('KAKAO_PENDING', JSON.stringify(rest));
+    else props.deleteProperty('KAKAO_PENDING');
+  }
   return ok;
 }
 
