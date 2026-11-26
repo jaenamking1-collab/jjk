@@ -3646,9 +3646,18 @@ function _kiwoomNoticeOcr(apiItems, names) {
     const text = imgs.map((b, i) => _ocrBytes(Utilities.base64Decode(b), 'ocr_kw_' + n.no + '_' + i)).join('\n');
     if (!text) { console.log('KIWOOM OCR: 글자 0 (' + _ocrDbg + ')'); return null; }
     const flat = text.replace(/\s+/g, ' ');
-    const buy = (flat.match(/대상자\s*[:：]?\s*\d{4}\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/) || []);
-    const pay = (flat.match(/지급\s*예정일\s*[:：]?\s*\d{4}\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/) || []);
-    if (!buy[1] || !pay[1]) { console.log('KIWOOM OCR: 날짜 못 찾음 — ' + flat.slice(0, 200)); return null; }
+    let buy = (flat.match(/대상자\s*[:：]?\s*\d{4}\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/) || []);
+    let pay = (flat.match(/지급\s*예정일\s*[:：]?\s*\d{4}\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/) || []);
+    // 2026-11-26 그림이 '일자·구분·내용' 일정표로 바뀌어 '대상자:' 줄을 못 찾았다(달력에 11월 월말이 안 뜸).
+    // 지급일은 제목 '(2026년 12월 02일 지급 예정)'에, 매수기준일은 표의 첫 날짜(= 공지일 이후 가장 이른 날짜)로 잡는다.
+    if (!pay[1]) pay = (n.title.match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일\s*지급/) || []);
+    if (!buy[1]) {
+      const ds = [...flat.matchAll(/\d{4}\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/g)]
+        .map(m => ({ m: m, d: new Date(noticeDay.getFullYear(), +m[1] - 1, +m[2]) }))
+        .filter(x => x.d >= noticeDay && x.d - noticeDay <= 7 * 864e5).sort((a, b) => a.d - b.d);
+      if (ds.length) buy = ds[0].m;
+    }
+    if (!buy[1] || !pay[1]) { console.log('KIWOOM OCR: 날짜 못 찾음 — ' + flat.slice(0, 600)); return null; }
     const nb = d => { const x = new Date(d); do { x.setDate(x.getDate() + 1); } while (_isOffDay(x)); return x; };
     const buyD = new Date(noticeDay.getFullYear(), +buy[1] - 1, +buy[2]), lockD = nb(buyD), baseD = nb(lockD);
     const lab = d => (d.getMonth() + 1) + '월 ' + d.getDate() + '일';
