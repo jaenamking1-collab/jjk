@@ -3070,7 +3070,7 @@ impl App {
         self.clip_bmp.retain(|k, _| ids.contains(k)); // 지운 항목(비우기·고정 해제)의 그림은 버린다
         for id in ids {
             if !self.clip_bmp.contains_key(&id) {
-                if let Some(b) = std::fs::read(clip::thumb_path(id)).ok().and_then(|b| self.g.bitmap(&b).ok()) {
+                if let Some(b) = clip::read(&clip::thumb_path(id)).and_then(|b| self.g.bitmap(&b).ok()) {
                     self.clip_bmp.insert(id, b);
                 }
             }
@@ -3222,7 +3222,7 @@ impl App {
         // 그림을 눌렀으면 아래로 원본이 크게 펼쳐진다
         if let Some(it) = self.clip_open.and_then(|(pin, k)| if pin { self.clip.pinned.get(k) } else { self.clip.recent.get(k) }).cloned() {
             if self.clip_full.as_ref().map(|f| f.0) != Some(it.id) {
-                self.clip_full = std::fs::read(clip::png_path(it.id)).ok().and_then(|b| self.g.bitmap(&b).ok()).map(|b| (it.id, b));
+                self.clip_full = clip::read(&clip::png_path(it.id)).and_then(|b| self.g.bitmap(&b).ok()).map(|b| (it.id, b));
             }
             let g = &self.g;
             let (py, ph, pw) = (fy + 28.0, self.clip_prev_h(), w - 48.0 - 120.0); // 편집 중엔 작게(편집판이 아래로 나온다)
@@ -4576,7 +4576,7 @@ impl App {
                 let it = self.clip_open.and_then(|(pin, k)| if pin { self.clip.pinned.get(k) } else { self.clip.recent.get(k) }).cloned();
                 if let Some(it) = it {
                     if hit == Hit::ClipEdit {
-                        match std::fs::read(clip::png_path(it.id)).ok().and_then(|b| clip::png_to_bgra(&b)) {
+                        match clip::read(&clip::png_path(it.id)).and_then(|b| clip::png_to_bgra(&b)) {
                             Some((px, w, h)) => {
                                 let _ = editor::open(self.hwnd, px, w, h);
                                 self.ed_pop();
@@ -5436,7 +5436,7 @@ unsafe fn run() -> Result<()> {
                                     let d = std::env::temp_dir().join("notch-cat");
                                     let _ = std::fs::create_dir_all(&d);
                                     let f = d.join(format!("클립보드 그림 {}.png", it.at.replace(':', "")));
-                                    std::fs::copy(clip::png_path(it.id), &f).ok().map(|_| f)
+                                    clip::read(&clip::png_path(it.id)).and_then(|b| std::fs::write(&f, b).ok()).map(|_| f)
                                 }),
                                 _ => None,
                             };
@@ -5563,8 +5563,8 @@ unsafe fn run() -> Result<()> {
                         let (added, gone) = app.clip.add(it);
                         if app.clip.recent.first().is_some_and(|r| r.id == id) {
                             if let Some((png, thumb)) = imgs {
-                                let _ = std::fs::write(clip::png_path(id), png);
-                                let _ = std::fs::write(clip::thumb_path(id), thumb);
+                                clip::write(&clip::png_path(id), &png);
+                                clip::write(&clip::thumb_path(id), &thumb);
                             }
                         }
                         clip::forget(&gone);

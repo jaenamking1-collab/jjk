@@ -1,13 +1,15 @@
 //! 클립보드 쪽: 복사한 것(글자·그림)을 최근 10개까지 자동으로, ☆ 로 고정한 것은 10개까지 따로 남긴다.
 //! %APPDATA%\notch-cat\clip\ 에 index.json 과 그림(PNG, 미리보기 PNG)으로 저장해 껐다 켜도 남는다.
+//! 파일 내용은 윈도우 암호화(DPAPI)로 잠근다(2026-11-26) — 읽고 쓸 때는 반드시 read/write 를 거친다.
 //! 비밀번호 관리 프로그램이 "기록하지 말라" 표시를 붙인 복사는 받아 적지 않는다.
 
 use serde_json::{json, Value};
 use std::hash::{Hash, Hasher};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use windows::core::{Interface, PCWSTR};
-use windows::Win32::Foundation::{HANDLE, HGLOBAL, HWND};
+use windows::Win32::Foundation::{LocalFree, HANDLE, HGLOBAL, HLOCAL, HWND};
+use windows::Win32::Security::Cryptography::{CryptProtectData, CryptUnprotectData, CRYPT_INTEGER_BLOB};
 use windows::Win32::Graphics::Imaging::*;
 use windows::Win32::System::Com::{CoCreateInstance, IStream, CLSCTX_INPROC_SERVER, STATFLAG_NONAME, STATSTG, STREAM_SEEK_SET};
 use windows::Win32::System::DataExchange::*;
@@ -72,16 +74,76 @@ fn item_from(v: &Value) -> Option<Item> {
     Some(Item { id: v["id"].as_u64()?, files: v["files"].as_bool().unwrap_or(false), text, img, key: v["key"].as_str()?.parse().ok()?, at: v["at"].as_str().unwrap_or("").into() })
 }
 
+/// 암호화한 파일 앞머리. 이게 없으면 옛 판이 남긴 평문이다.
+const SEAL: &[u8] = b"NCE1";
+
+/// 윈도우 암호화(DPAPI): 이 PC 의 이 사용자만 풀 수 있다. 같은 계정으로 도는 프로그램까지 막지는 못한다.
+fn dpapi(b: &[u8], protect: bool) -> Option<Vec<u8>> {
+    let input = CRYPT_INTEGER_BLOB { cbData: b.len() as u32, pbData: b.as_ptr() as *mut u8 };
+    let mut out = CRYPT_INTEGER_BLOB::default();
+    unsafe {
+        if protect {
+            CryptProtectData(&input, PCWSTR::null(), None, None, None, 0, &mut out).ok()?;
+        } else {
+            CryptUnprotectData(&input, None, None, None, None, 0, &mut out).ok()?;
+        }
+        let v = std::slice::from_raw_parts(out.pbData, out.cbData as usize).to_vec();
+        let _ = LocalFree(HLOCAL(out.pbData as _));
+        Some(v)
+    }
+}
+
+/// 클립보드 폴더의 파일 읽기(옛 평문은 그대로 돌려준다)
+pub fn read(p: &Path) -> Option<Vec<u8>> {
+    let raw = std::fs::read(p).ok()?;
+    match raw.strip_prefix(SEAL) {
+        Some(body) => dpapi(body, false),
+        None => Some(raw),
+    }
+}
+
+/// 암호화해서 쓰기. 암호화가 안 되면 아무것도 남기지 않는다. 쓰다 꺼져도 앞 파일이 남게 옆에 쓰고 바꿔 끼운다.
+pub fn write(p: &Path, plain: &[u8]) -> bool {
+    let Some(body) = dpapi(plain, true) else { return false };
+    let mut tmp = p.as_os_str().to_owned();
+    tmp.push(".tmp");
+    std::fs::write(&tmp, [SEAL, &body[..]].concat()).is_ok() && std::fs::rename(&tmp, p).is_ok()
+}
+
 impl Clip {
     pub fn load() -> Clip {
-        let v: Value = std::fs::read_to_string(dir().join("index.json")).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+        // 끌어 내릴 때 임시 폴더에 풀어 둔 그림은 남기지 않는다
+        for e in std::fs::read_dir(std::env::temp_dir().join("notch-cat")).into_iter().flatten().flatten() {
+            if e.file_name().to_string_lossy().starts_with("클립보드 그림 ") {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+        Clip::load_from(&dir())
+    }
+
+    fn load_from(d: &Path) -> Clip {
+        // 옛 판이 평문으로 남긴 것을 암호화한다
+        for e in std::fs::read_dir(d).into_iter().flatten().flatten() {
+            let p = e.path();
+            if let Ok(raw) = std::fs::read(&p) {
+                if !raw.starts_with(SEAL) {
+                    write(&p, &raw);
+                }
+            }
+        }
+        let index = d.join("index.json");
+        let v: Option<Value> = read(&index).and_then(|b| serde_json::from_slice(&b).ok());
+        if v.is_none() && index.exists() {
+            let _ = std::fs::rename(&index, d.join("index.json.bad")); // 못 읽은 목록은 덮어쓰지 않게 치워 둔다
+        }
+        let v = v.unwrap_or_default();
         let list = |k: &str, n: usize| v[k].as_array().into_iter().flatten().filter_map(item_from).take(n).collect();
         Clip { recent: list("recent", MAX), pinned: list("pinned", PIN_MAX) }
     }
 
     pub fn save(&self) {
         let v = json!({"recent": self.recent.iter().map(item_json).collect::<Vec<_>>(), "pinned": self.pinned.iter().map(item_json).collect::<Vec<_>>()});
-        let _ = std::fs::write(dir().join("index.json"), v.to_string());
+        write(&dir().join("index.json"), v.to_string().as_bytes());
     }
 
     /// 새로 복사한 것을 맨 앞에. 고정에 이미 있으면 넣지 않고(고정한 걸 꺼내 쓴 것), 최근에 있으면 맨 앞으로 옮긴다.
@@ -349,7 +411,7 @@ pub unsafe fn restore(hwnd: HWND, it: &Item) -> bool {
         let w: Vec<u8> = t.encode_utf16().chain([0]).flat_map(|c| c.to_le_bytes()).collect();
         vec![(CF_UNICODETEXT, w)]
     } else {
-        let Ok(png) = std::fs::read(png_path(it.id)) else { return false };
+        let Some(png) = read(&png_path(it.id)) else { return false };
         let Ok(dib) = png_to_dib(&png) else { return false };
         vec![(CF_DIB, dib), (fmt("PNG"), png)]
     };
@@ -479,6 +541,31 @@ mod tests {
         assert_eq!(c.pinned.len(), PIN_MAX); // 고정은 PIN_MAX 개까지
         assert!(c.unpin(0).is_some());
         assert_eq!(c.pinned.len(), PIN_MAX - 1);
+    }
+
+    #[test]
+    fn files_are_encrypted_and_old_ones_converted() {
+        let d = std::env::temp_dir().join(format!("notch-clip-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        // 옛 판이 남긴 평문 목록과 그림
+        let old = json!({"recent": [item_json(&t(1, "비밀 글"))], "pinned": []}).to_string();
+        std::fs::write(d.join("index.json"), &old).unwrap();
+        std::fs::write(d.join("1.png"), b"PNGDATA").unwrap();
+        assert_eq!(Clip::load_from(&d).recent[0].text.as_deref(), Some("비밀 글"));
+        for (name, plain) in [("index.json", old.as_bytes()), ("1.png", &b"PNGDATA"[..])] {
+            let disk = std::fs::read(d.join(name)).unwrap();
+            assert!(disk.starts_with(SEAL) && !disk.windows(plain.len()).any(|w| w == plain));
+            assert_eq!(read(&d.join(name)).as_deref(), Some(plain));
+        }
+        // 두 번 읽어도 그대로(이중 암호화 안 함)
+        assert_eq!(Clip::load_from(&d).recent.len(), 1);
+        // 풀 수 없는 목록은 덮어쓰지 않게 옆으로 치운다
+        let broken = [SEAL, &b"junk"[..]].concat();
+        std::fs::write(d.join("index.json"), &broken).unwrap();
+        assert!(Clip::load_from(&d).recent.is_empty());
+        assert_eq!(std::fs::read(d.join("index.json.bad")).unwrap(), broken);
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
