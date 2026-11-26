@@ -9,6 +9,8 @@
 - 편집기 상태 확인: `NOTCH_CAT_EDDUMP=<파일>` 이면 편집 창이 그릴 때마다 상태(도구·글자 칸·단추 위치·되돌리기 수·글자 인식 선택)를 json 으로 적는다. `NOTCH_CAT_CLIPOPEN=<숫자>` 는 그 칸을 펼친다.
 - 구글 비밀값을 붙여 넣으면 끝 줄바꿈이 따라 들어갈 수 있다 → `gcal::client()` 가 trim 한다(invalid_client 의 원인이었다).
 - 새 판 스스로 받기(update.rs, 2026-11-17): 설치본은 켜고 1분 뒤·6시간마다 릴리스 지문과 비교해 스스로 바꾼다. 시험판은 이름을 NotchTest.exe 로 하거나 NOTCH_CAT_* 변수를 주면 건너뛴다 — NotchCat.exe 이름으로 target 밖에서 켜면 릴리스 판으로 바뀐다.
+  - ⚠️ 학교 망은 release-assets.githubusercontent.com 연결을 끊는다(2026-11-26) → 학교 PC 에선 스스로 받기가 안 된다(log.txt 에 "update: 받기 연결 실패"). 지문 확인은 실제 설치본 `%LOCALAPPDATA%\NotchCat\NotchCat.exe`(PowerShell Get-FileHash)로. 내 셸에서 보이는 `%APPDATA%\notch-cat\log.txt` 는 Claude 앱 가상 사본일 수 있다 — 진짜 기록은 explorer.exe 로 띄운 .bat 에서 복사해 본다.
+- src/*.rs 는 줄끝(LF·CRLF)이 섞여 있다 → `sed -i`·파이썬 텍스트 모드로 고치면 파일 전체가 바뀐 것처럼 된다. Edit 도구나 바이트 단위로 고친다.
 - 파일 전송 쪽(xfer.rs, 쪽 번호 8, 2026-11-23): 쪽을 펼치면 와이파이 창구를 열고 QR 을 띄운다. 휴대폰 웹 화면에서 올린 파일은 `%USERPROFILE%\Downloads`, 이 쪽에 끌어다 놓은 파일은 휴대폰에서 받기. 10분 쉬면 닫힘. 시험은 `NOTCH_CAT_PAGE=8 NOTCH_CAT_XFERLOCAL=1`(이 PC 안에서만 열어 방화벽을 안 건드림).
   - 인터넷 중계(2026-11-23): `workers/notch-drop`(Cloudflare Worker + Durable Object, 배포는 그 폴더에서 `wrangler deploy`). 노치가 방을 열고(`/open`) 3초마다 `/inbox` 를 받아 간다. 파일 하나 95MB, 방 합 300MB, 1시간 쉬면 방째 삭제. 주소는 `NOTCH_CAT_RELAY` 로 바꿀 수 있다(집 서버로 옮길 때). 시험: `NOTCH_CAT_RELAY=<주소> NOTCH_CAT_XFEROUT=<파일>`. 휴대폰 화면 HTML 은 xfer.rs 와 worker.js 두 곳에 있다 — 고치면 둘 다.
 - 실행도구모음 쪽(launch.rs, 쪽 번호 9, 2026-11-24): '＋ 등록'(파일 창, 여러 개, 바로가기는 .lnk 그대로) → 칸을 누르면 실행, ✕ 는 목록에서만 빼기. 목록 `%APPDATA%\notch-cat\launch.json`, 21개까지. 끌어다 놓기는 선반 몫이라 안 받는다. 시험 `NOTCH_CAT_PAGE=9 NOTCH_CAT_LAUNCH=<경로;경로>`.
