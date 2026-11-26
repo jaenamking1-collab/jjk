@@ -1805,10 +1805,14 @@ function _noticeVsData() {
     let st = {}; try { st = JSON.parse(props.getProperty(key) || '{}'); } catch (e) {}
     if (st.tag !== tag) st = { tag: tag, since: now.toISOString() };
     const mins = (now - new Date(st.since)) / 60000;
-    gaps.push(s + ' ' + tag + '(' + Math.round(mins) + '분)');
+    // 파서가 남긴 '막힌 곳'(_stageLog) — 없으면 그 운용사 파서는 아직 단계 기록을 안 한다는 뜻(지금 HANARO·KIWOOM).
+    const stage = props.getProperty('distStage_' + s) || '';
+    gaps.push(s + ' ' + tag + '(' + Math.round(mins) + '분)' + (stage ? ' [' + stage + ']' : ''));
     if (mins >= 60 && !st.sent) {
       lines.push('⚠️ ' + s.toUpperCase() + ' 게시판엔 ' + tag + ' 분배금 공지가 있는데 앱 데이터는 '
-        + (dataPub ? Utilities.formatDate(dataPub, 'Asia/Seoul', 'MM/dd') + ' 회차' : '없음') + ' — ' + Math.round(mins) + '분째 못 읽음. Claude 에게 "공지 못 읽는다"고 말해 주세요.');
+        + (dataPub ? Utilities.formatDate(dataPub, 'Asia/Seoul', 'MM/dd') + ' 회차' : '없음') + ' — ' + Math.round(mins) + '분째 못 읽음.'
+        + (stage ? ' 막힌 곳: ' + stage + '.' : ' 막힌 곳: 기록 없음(파서 단계 기록 미적용 운용사).')
+        + ' Claude 에게 "공지 못 읽는다"고 말해 주세요.');
       st.sent = true;
     }
     props.setProperty(key, JSON.stringify(st));
@@ -3461,6 +3465,15 @@ function fetchDist_sol() {
   }
 }
 
+// ── 파서가 '어디서 막혔는지' 남긴다(2026-11-26 사용자: 바뀐 게 발견되면 원인·대책이 바로 보이게).
+// msg 가 있으면 기록(로그+속성 distStage_<src>), 빈 문자열이면 정상으로 지운다. _noticeVsData 알림이 이 한 줄을 붙인다.
+function _stageLog(src, msg) {
+  if (msg) console.log(msg);
+  try { const p = PropertiesService.getScriptProperties(), k = 'distStage_' + src;
+    if (msg) p.setProperty(k, Utilities.formatDate(new Date(), 'Asia/Seoul', 'MM-dd HH:mm') + ' ' + String(msg).split(' — ')[0].slice(0, 160));
+    else p.deleteProperty(k); } catch (e) {}
+}
+
 // ===== HANARO · KIWOOM (2026-10-01 추가 — 공개 페이지 방문자 요청) =====
 // '9월 30일 (수)' / '2026.09.30' / '20260930' → '9월 30일'
 function _mdLabel(s) {
@@ -3491,11 +3504,15 @@ function fetchDist_hanaro() {
   try {
     // 제목이 '…월 말 분배금 공지'만이 아니다 — 2026-11-26 'HANARO ETF 11월 말 분배금 안내 (지급 예정일 12월 2일)'이
     // 이 거르기에서 빠져 10월 글을 계속 읽었다(공개 화면 '공지는 있는데 일정·종목 없음'). 'N월'+'분배금'이면 받고 사건 공지만 뺀다.
-    const notices = _hanaroNotices().filter(n => /분배금/.test(n.title) && /\d{1,2}\s*월/.test(n.title)
+    const all = _hanaroNotices();
+    const notices = all.filter(n => /분배금/.test(n.title) && /\d{1,2}\s*월/.test(n.title)
       && !/변경|정정|중단|해지|청산|상장폐지|합병|분할|병합|전환|사전\s*안내/.test(n.title));
-    if (!notices.length) return { items: [], error: 'HANARO: 분배금 공지 목록 0건' };
+    if (!notices.length) { _stageLog('hanaro', 'HANARO 제목 거르기에서 전부 빠짐 — 최신: ' + ((all[0] || {}).title || '목록 0건')); return { items: [], error: 'HANARO: 분배금 공지 목록 0건' }; }
     // 최신 글이 0건이면 표기가 바뀐 것 — 한 달 전 글로 조용히 대신하지 않도록 1건만 본다(SOL 2026-09-28 교훈).
     const n = notices[0];
+    // 고른 글보다 새 '분배' 글이 거르기에서 빠졌으면 제목 모양이 또 바뀐 신호다(막힌 곳으로 남긴다).
+    const newer = all.find(x => /분배/.test(x.title) && x.date > n.date && !/변경|정정|중단|해지/.test(x.title));
+    _stageLog('hanaro', newer ? 'HANARO 최신 분배 글이 제목 거르기에서 빠짐: ' + newer.title : '');
     const html = UrlFetchApp.fetch(HANARO_BASE + '/customer/notice/' + n.id,
       { headers: { 'User-Agent': 'Mozilla/5.0' }, muteHttpExceptions: true }).getContentText('UTF-8');
     const body = html.slice(Math.max(0, html.indexOf('fr-view')));
@@ -3518,7 +3535,7 @@ function fetchDist_hanaro() {
       console.log('HANARO 분배 글 파싱 0건 — 표기 변경 의심: ' + n.title);
       // 표기가 바뀌어 파서가 못 읽으면 엑사원이 본문을 대신 읽는다(2026-11-09, 대조 16/16). 같은 글은 6시간 캐시.
       const ai = _exaoneDistCached('hanaro_' + n.id, () => _hanaroNoticeText(n.id), '월 ');
-      if (!ai) return { items: [], error: 'HANARO: 공지 본문 파싱 0건 (' + n.title + ')' };
+      if (!ai) { _stageLog('hanaro', 'HANARO 본문 표 0건 + 엑사원 대체도 실패: ' + n.title); return { items: [], error: 'HANARO: 공지 본문 파싱 0건 (' + n.title + ')' }; }
       ai.items.forEach(it => items.push(it));
       Object.assign(sched, ai.schedule);
     }
@@ -3722,7 +3739,7 @@ function _kiwoomNoticeOcr(apiItems, names) {
     const noticeDay = new Date(+nd[1], +nd[2] - 1, +nd[3]);
     const md = t => { const m = String(t || '').match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/); return m ? new Date(noticeDay.getFullYear(), +m[1] - 1, +m[2]) : null; };
     const newestApi = (apiItems || []).map(it => md((it.sched || {})['공시일'])).filter(Boolean).sort((a, b) => b - a)[0];
-    if (newestApi && newestApi >= noticeDay) return null;          // API 가 이미 이 공지 회차를 갖고 있다
+    if (newestApi && newestApi >= noticeDay) { _stageLog('kiwoom', ''); return null; }        // API 가 이미 이 공지 회차를 갖고 있다
     const page = UrlFetchApp.fetch(KIWOOM_BASE + '/service/notice/KO05020102T?noticeNo=' + n.no, KIWOOM_OPT).getContentText('UTF-8');
     const imgs = [...page.matchAll(/src="data:image\/[a-z]+;base64,([^"]+)"/g)].map(m => m[1]);
     // 2026-11-26 공지는 base64 그림이 일정표 1장뿐이었다 — 종목표가 주소로 건 그림일 수 있어 그것도 읽는다.
@@ -3730,7 +3747,7 @@ function _kiwoomNoticeOcr(apiItems, names) {
       .filter(u => /\/upload\//i.test(u))   // 본문 첨부 그림만(페이스북 추적·배너 그림 제외)
       .map(u => /^https?:/.test(u) ? u : KIWOOM_BASE + (u.charAt(0) === '/' ? '' : '/') + u);
     console.log('KIWOOM 공지 그림: base64 ' + imgs.length + ' · 주소 ' + urlImgs.length + (urlImgs.length ? ' (' + urlImgs.slice(0, 4).join(' , ') + ')' : ''));
-    if (!imgs.length && !urlImgs.length) { console.log('KIWOOM OCR: 공지 그림 없음 ' + n.no); return null; }
+    if (!imgs.length && !urlImgs.length) { _stageLog('kiwoom', 'KIWOOM OCR: 공지 그림 없음 ' + n.no); return null; }
     // 투명 PNG 는 흰 바탕으로 편 뒤 읽는다(_pngOnWhite) — 2026-11-26 종목표 그림이 투명 바탕+검은 글씨라
     // Vision 엔 검은 바탕에 검은 글씨로 보여 흰 제목 62자만 읽혔다.
     const text = imgs.map((b, i) => _ocrBytes(_pngOnWhite(Utilities.base64Decode(b)), 'ocr_kww_' + n.no + '_' + i))
@@ -3740,7 +3757,7 @@ function _kiwoomNoticeOcr(apiItems, names) {
           + ' — ' + String(t || '').replace(/\s+/g, ' ').slice(0, 300));
         return t || ''; } catch (e) { console.log('KIWOOM 첨부 그림 실패 ' + e); return ''; } }))
       .join('\n');
-    if (!text) { console.log('KIWOOM OCR: 글자 0 (' + _ocrDbg + ')'); return null; }
+    if (!text) { _stageLog('kiwoom', 'KIWOOM OCR: 글자 0 (' + _ocrDbg + ')'); return null; }
     const flat = text.replace(/\s+/g, ' ');
     let buy = (flat.match(/대상자\s*[:：]?\s*\d{4}\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/) || []);
     let pay = (flat.match(/지급\s*예정일\s*[:：]?\s*\d{4}\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/) || []);
@@ -3753,7 +3770,7 @@ function _kiwoomNoticeOcr(apiItems, names) {
         .filter(x => x.d >= noticeDay && x.d - noticeDay <= 7 * 864e5).sort((a, b) => a.d - b.d);
       if (ds.length) buy = ds[0].m;
     }
-    if (!buy[1] || !pay[1]) { console.log('KIWOOM OCR: 날짜 못 찾음 — ' + flat.slice(0, 600)); return null; }
+    if (!buy[1] || !pay[1]) { _stageLog('kiwoom', 'KIWOOM OCR: 날짜 못 찾음 — ' + flat.slice(0, 600)); return null; }
     const nb = d => { const x = new Date(d); do { x.setDate(x.getDate() + 1); } while (_isOffDay(x)); return x; };
     const buyD = new Date(noticeDay.getFullYear(), +buy[1] - 1, +buy[2]), lockD = nb(buyD), baseD = nb(lockD);
     const lab = d => (d.getMonth() + 1) + '월 ' + d.getDate() + '일';
@@ -3789,14 +3806,14 @@ function _kiwoomNoticeOcr(apiItems, names) {
                                cycle: cycle, sched: Object.assign({}, sched), ocr: true });
       });
       console.log('KIWOOM 공지 글 표: tr ' + ((page.match(/<tr/g) || []).length) + ' · 그림 ' + imgs.length + ' · 첨부 ' + ((page.match(/\.(xlsx?|pdf|hwp)\b/gi) || []).length) + ' · 종목 ' + tItems.length);
-      if (tItems.length) { console.log('KIWOOM 공지 표: ' + n.title + ' → ' + tItems.length + '종목 ' + JSON.stringify(sched)); return { items: tItems, sched: sched, cycle: cycle }; }
+      if (tItems.length) { _stageLog('kiwoom', ''); console.log('KIWOOM 공지 표: ' + n.title + ' → ' + tItems.length + '종목 ' + JSON.stringify(sched)); return { items: tItems, sched: sched, cycle: cycle }; }
     }
-    if (!codes.length || codes.length !== amts.length) { console.log('KIWOOM OCR: 종목 ' + codes.length + ' · 금액 ' + amts.length + ' 개수 안 맞음 — ' + flat.slice(0, 400)); return null; }
+    if (!codes.length || codes.length !== amts.length) { _stageLog('kiwoom', 'KIWOOM OCR: 종목 ' + codes.length + ' · 금액 ' + amts.length + ' 개수 안 맞음 — ' + flat.slice(0, 400)); return null; }
     const items = codes.map((c, i) => ({ name: names[c], ticker: c, amount: amts[i], rate: rates.length === codes.length ? rates[i] : null,
                                          cycle: cycle, sched: Object.assign({}, sched), ocr: true }));
-    console.log('KIWOOM OCR: ' + n.title + ' → ' + items.length + '종목 ' + JSON.stringify(sched));
+    _stageLog('kiwoom', ''); console.log('KIWOOM OCR: ' + n.title + ' → ' + items.length + '종목 ' + JSON.stringify(sched));
     return { items: items, sched: sched, cycle: cycle };
-  } catch (e) { console.log('KIWOOM OCR 실패 ' + e); return null; }
+  } catch (e) { _stageLog('kiwoom', 'KIWOOM OCR 실패 ' + e); return null; }
 }
 
 // ===== 알림 엔진 =====
