@@ -1203,8 +1203,10 @@ function getDistribution(source, force) {
     if (source === 'kodex') {
       result = fetchDist_kodex();
       if (!result || !result.items || !result.items.length) {
+        const kErr = result && result.error;
         const all = fetchDist_smarttoday(force);
         result = all[source] || { items: [], error: 'KODEX 양쪽 실패' };
+        _stageFb('kodex', kErr, result, '뉴스');
       } else {
         try {
           const all = fetchDist_smarttoday(force);
@@ -1224,19 +1226,20 @@ function getDistribution(source, force) {
         const siteErr = (result && result.error) || 'TIGER 자사 파서 empty';
         let seiErr = '';
         try { result = _fetchDistTigerSeibro(force, siteErr); } catch(e) { seiErr = String(e && e.stack || e).slice(0, 300); console.log('TIGER SEIBRO 실패: ' + seiErr); result = null; }
-        if (result && result.items && result.items.length) return finishDist(source, result, cache, cacheKey);
+        if (result && result.items && result.items.length) { _stageFb('tiger', siteErr, result, '예탁결제원'); return finishDist(source, result, cache, cacheKey); }
         if (!seiErr) seiErr = '예탁결제원 TIGER 0건';
         // 예탁결제원이 잠깐 안 될 때(2026-11-20 새벽 5시) 뉴스로 내려가면 기준일·분배락일이 빠진 채 캐시에 굳어
         // 공개 페이지 칸이 비었다. 같은 회차를 이미 예탁결제원·운용사 자료로 받아 뒀으면 그걸 그대로 쓴다.
         try {
           const sc = readDistCache(source);
           if (sc && sc.payload && (sc.payload.items || []).length && sc.cycleKey === currentCycleKey() && sc.payload._fallback !== 'news') {
-            console.log('TIGER 예탁결제원 실패(' + seiErr + ') — 같은 회차 저장분 유지');
+            _stageLog('tiger', 'TIGER 자사 파서 실패(' + String(siteErr).slice(0, 60) + ') · 예탁결제원 실패(' + String(seiErr).slice(0, 40) + ') → 같은 회차 저장분 유지');
             return attachDistHistory(source, sc.payload);
           }
         } catch(e) {}
         const all = fetchDist_smarttoday(force);
         result = all[source] || { items: [], error: 'TIGER 양쪽 실패' };
+        _stageFb('tiger', String(siteErr).slice(0, 50) + ' · 예탁결제원 ' + String(seiErr).slice(0, 25), result, '뉴스');
         // 뉴스로 내려간 이유를 응답에 남긴다(2026-11-20: 이유 없이 뉴스로 떨어져 기준일·분배락일 칸이 비었다)
         if (result.items && result.items.length) { result._fallback = 'news'; result._siteError = siteErr; result._seibroError = seiErr; }
       }
@@ -1245,16 +1248,20 @@ function getDistribution(source, force) {
     if (source === 'ace') {
       result = fetchDist_ace();
       if (!result || !result.items || !result.items.length) {
+        const aErr = result && result.error;
         const all = fetchDist_smarttoday(force);
         result = all[source] || { items: [], error: 'ACE 양쪽 실패' };
+        _stageFb('ace', aErr, result, '뉴스');
       }
       return finishDist(source, result, cache, cacheKey);
     }
     if (source === 'rise') {
       result = fetchDist_rise();
       if (!result || !result.items || !result.items.length) {
+        const rErr = result && result.error;
         const all = fetchDist_smarttoday(force);
         result = all[source] || { items: [], error: 'RISE 양쪽 실패' };
+        _stageFb('rise', rErr, result, '뉴스');
       }
       return finishDist(source, result, cache, cacheKey);
     }
@@ -1264,6 +1271,7 @@ function getDistribution(source, force) {
         const plusErr = (result && result.error) || 'PLUS 자사 파서 empty';
         const all = fetchDist_smarttoday(force);
         result = all[source] || { items: [], error: 'PLUS 양쪽 실패' };
+        _stageFb('plus', plusErr, result, '뉴스');
         result._plusErr = plusErr; // 자사(OCR) 파서 실패 사유 보존 → API 응답으로 진단
       }
       return finishDist(source, result, cache, cacheKey);
@@ -1805,13 +1813,13 @@ function _noticeVsData() {
     let st = {}; try { st = JSON.parse(props.getProperty(key) || '{}'); } catch (e) {}
     if (st.tag !== tag) st = { tag: tag, since: now.toISOString() };
     const mins = (now - new Date(st.since)) / 60000;
-    // 파서가 남긴 '막힌 곳'(_stageLog) — 없으면 그 운용사 파서는 아직 단계 기록을 안 한다는 뜻(지금 HANARO·KIWOOM).
+    // 파서가 남긴 '막힌 곳'(_stageLog) — 2026-11-26 부터 8곳 전부 기록한다. 없으면 마지막 실행이 정상 완료됐다는 뜻.
     const stage = props.getProperty('distStage_' + s) || '';
     gaps.push(s + ' ' + tag + '(' + Math.round(mins) + '분)' + (stage ? ' [' + stage + ']' : ''));
     if (mins >= 60 && !st.sent) {
       lines.push('⚠️ ' + s.toUpperCase() + ' 게시판엔 ' + tag + ' 분배금 공지가 있는데 앱 데이터는 '
         + (dataPub ? Utilities.formatDate(dataPub, 'Asia/Seoul', 'MM/dd') + ' 회차' : '없음') + ' — ' + Math.round(mins) + '분째 못 읽음.'
-        + (stage ? ' 막힌 곳: ' + stage + '.' : ' 막힌 곳: 기록 없음(파서 단계 기록 미적용 운용사).')
+        + (stage ? ' 막힌 곳: ' + stage + '.' : ' 막힌 곳: 기록 없음(파서는 마지막 실행에서 정상 완료 — 비교 기준·캐시 쪽 확인).')
         + ' Claude 에게 "공지 못 읽는다"고 말해 주세요.');
       st.sent = true;
     }
@@ -2095,7 +2103,11 @@ function fetchDist_kodex() {
         usedNo[best.no + '@' + t.idx] = true;
       }
     });
-    if (!entries.length) return fetchDist_kodex_api(); // 공지 파싱 실패 → 기존 API 방식 폴백
+    if (!entries.length) return _kodexApiFb('공지 목록에서 (NN월_월중/월말배당) 제목 0건'); // 공지 파싱 실패 → 기존 API 방식 폴백
+    // 고른 글보다 앞(=더 새)에 '(NN.N월_…)' 제목이 있는데 월중/월말배당 꼴이 아니면 제목 거르기에서 빠진 것이다.
+    let warn = '';
+    const loose = listHtml.match(/\(\s*(?:'|&#39;|&apos;)?\s*\d{2}\.\d{1,2}월_[^)<]{1,15}\)/);
+    if (loose && titlePos.length && loose.index < titlePos[0].idx) warn = 'KODEX 최신 분배 글이 제목 거르기에서 빠짐: ' + loose[0];
 
     // 회차별 최신 글 1건씩 (목록은 최신순이라 먼저 등장한 것이 최신).
     // 전체 최신월로 거르면 새 월중 공지가 뜨는 순간 지난 월말 일정이 통째로
@@ -2214,18 +2226,22 @@ function fetchDist_kodex() {
     };
 
     let items = [];
-    if (midE) { try { items = items.concat(parseNoticeTable(midE.no, '월중')); } catch(e) {} }
-    if (endE) { try { items = items.concat(parseNoticeTable(endE.no, '월말')); } catch(e) {} }
+    [[midE, '월중'], [endE, '월말']].forEach(([e, c]) => {
+      if (!e) return;
+      try { const r = parseNoticeTable(e.no, c); items = items.concat(r); if (!r.length && !warn) warn = 'KODEX ' + c + ' 공지 본문 표 0건 (no=' + e.no + ')'; }
+      catch(ex) { if (!warn) warn = 'KODEX ' + c + ' 공지 본문 읽기 실패 (no=' + e.no + ') ' + ex; }
+    });
 
-    if (!items.length) return fetchDist_kodex_api(); // 표 파싱 0건 → API 폴백
+    if (!items.length) return _kodexApiFb('공지 본문 표 0건' + (warn ? ' (' + warn + ')' : '')); // 표 파싱 0건 → API 폴백
 
     // ── 4) 대표 일정(schedule): 월중 글 기준일/지급일을 대표로 (API 보강) ──
     const repItem = items.find(it => it.cycle === '월중' && it.sched['기준일']) || items.find(it => it.sched['기준일']);
     const schedule = repItem ? { '기준일': repItem.sched['기준일'], '지급일': repItem.sched['지급일'] } : {};
 
+    _stageLog('kodex', warn);
     return { success: true, items, schedule, title: 'KODEX 분배금 (공지글 파싱)' };
   } catch(e) {
-    try { return fetchDist_kodex_api(); } catch(e2) { return { items: [], error: 'KODEX: ' + e.toString() }; }
+    try { return _kodexApiFb('공지 파싱 오류 ' + e); } catch(e2) { return _distErr('kodex', 'KODEX: ' + e.toString()); }
   }
 }
 
@@ -2279,7 +2295,8 @@ function fetchDist_tiger() {
     });
     const listHtml = listRes.getContentText('UTF-8');
     const allKeys = [...listHtml.matchAll(/'detailsKey',\s*'(\d+)'/g)].map(m => m[1]);
-    if (!allKeys.length) return { items: [], error: 'TIGER: detailsKey 파싱 실패' };
+    if (!allKeys.length) return _distErr('tiger', 'TIGER: 공지 목록 0건 (detailsKey 파싱 실패)');
+    let warn = '';
 
     // 분배금 글들의 본문에서 공시일(월/일) 파싱 → 최신 월의 월중/월말 가르기
     // TIGER 컨벤션: 월중 공시 ≈ 11일, 월말 공시 ≈ 26일 (같은 달 두 번)
@@ -2291,7 +2308,8 @@ function fetchDist_tiger() {
       if (!(html.includes('분배금') && (html.includes('분배율') || html.includes('좌당')))) continue;
       const text = html.replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' ').replace(/\s+/g,' ');
       const pubM = text.match(/(\d{1,2})\/(\d{1,2})\s*\([월화수목금토일]\)\s*분배금\s*공시일/);
-      if (!pubM) continue;
+      // 분배 글인데 공시일 꼴이 안 맞아 빠진 글이 고른 글보다 새면 남긴다(표기가 바뀐 것).
+      if (!pubM) { if (!found.length && !warn) warn = 'TIGER 최신 분배 글이 공시일 거르기에서 빠짐 (detailsKey=' + key + ')'; continue; }
       const pubMon = parseInt(pubM[1]), pubDay = parseInt(pubM[2]);
       // ⛔ 회차는 **기준일**의 '일'로 가른다(20일 이하=월중) — 달력·다른 운용사와 같은 규칙.
       // 예전엔 본문 전체에서 처음 걸린 '분배금 공시일'로 갈랐는데, 9월말 글(기준 9/30·지급 10/2)이
@@ -2303,7 +2321,7 @@ function fetchDist_tiger() {
       found.push({ key, pubMon, pubDay, cycle });
       if (found.length >= 8) break;
     }
-    if (!found.length) return { items: [], error: 'TIGER: 분배금 공지 미발견' };
+    if (!found.length) return _distErr('tiger', 'TIGER: 분배금 공지 미발견' + (warn ? ' (' + warn + ')' : ''));
 
     // 회차별 최신 글 1건씩 (목록 최신순) — 새 월중이 떠도 지난 월말 일정 유지
     const midE = found.find(f => f.cycle === '월중');
@@ -2314,17 +2332,20 @@ function fetchDist_tiger() {
     if (midE) {
       const r = fetchDist_tiger_detail(midE.key, '월중');
       items = items.concat(r.items);
+      if (!r.items.length && !warn) warn = 'TIGER 월중 공지 본문 표 0건 (detailsKey=' + midE.key + ')';
       if (Object.keys(r.schedule).length) schedule = r.schedule; // 월중 일정을 대표로
     }
     if (endE) {
       const r = fetchDist_tiger_detail(endE.key, '월말');
       items = items.concat(r.items);
+      if (!r.items.length && !warn) warn = 'TIGER 월말 공지 본문 표 0건 (detailsKey=' + endE.key + ')';
       if (!Object.keys(schedule).length && Object.keys(r.schedule).length) schedule = r.schedule;
     }
-    if (!items.length) return { items: [], error: 'TIGER: 표 파싱 0건' };
+    if (!items.length) return _distErr('tiger', 'TIGER: 표 파싱 0건' + (warn ? ' (' + warn + ')' : ''));
+    _stageLog('tiger', warn);
     return { success: true, items, schedule, title: 'TIGER 분배금 (자사 공지 파싱)' };
   } catch(e) {
-    return { items: [], error: 'TIGER: ' + e.toString() };
+    return _distErr('tiger', 'TIGER: ' + e.toString());
   }
 }
 
@@ -2380,7 +2401,7 @@ function fetchDist_ace() {
   try {
     const listJson = fetchAceApi('https://papi.aceetf.co.kr/api/notices?categoryNo=61&page=1&searchValue=');
     const notices = (listJson.data || []).filter(n => (n.title||'').includes('분배금'));
-    if (!notices.length) return { items: [], error: 'ACE: 분배금 공지 없음' };
+    if (!notices.length) return _distErr('ace', 'ACE: 분배금 공지 없음 — 목록 ' + (listJson.data || []).length + '건, 최신: ' + (((listJson.data || [])[0] || {}).title || ''));
 
     // regDate(게시일)로 월중/월말 가르기: 게시 20일 이후=월말, 이전=월중
     // 단발 비정기(국고채 등, 게시 5일경)는 제외 위해 월중은 11~16일만 인정
@@ -2389,11 +2410,13 @@ function fetchDist_ace() {
       if (!m) return null;
       return { id: n.id, title: n.title || '', y: parseInt(m[1]), mon: parseInt(m[2]), day: parseInt(m[3]) };
     }).filter(Boolean);
-    if (!parsed.length) return { items: [], error: 'ACE: 게시일 파싱 실패' };
+    if (!parsed.length) return _distErr('ace', 'ACE: 게시일 파싱 실패');
 
     // 회차별 최신 글 1건씩 (목록 최신순) — 새 월중이 떠도 지난 월말 일정 유지
     const midE = parsed.find(p => p.day >= 10 && p.day <= 16);
     const endE = parsed.find(p => p.day >= 20);
+    // 가장 새 분배 글이 게시일 거르기(월중 10~16일·월말 20일~)에서 빠졌으면 남긴다(비정기 분배 글일 수도 있다).
+    let warn = (parsed[0] !== midE && parsed[0] !== endE) ? 'ACE 최신 분배 글이 게시일 거르기에서 빠짐(비정기일 수 있음): ' + parsed[0].title : '';
 
     // 영업일 계산은 위 공용 lastBizDay·nextBizDay를 쓴다(주말 + 공휴일 제외).
     const curYear = new Date().getFullYear();
@@ -2468,12 +2491,13 @@ function fetchDist_ace() {
     };
 
     let items = [], schedule = {};
-    if (midE) { const r = parseAceTable(midE, '월중'); items = items.concat(r); if (r[0]) schedule = r[0].sched; }
-    if (endE) { const r = parseAceTable(endE, '월말'); items = items.concat(r); if (!Object.keys(schedule).length && r[0]) schedule = r[0].sched; }
-    if (!items.length) return { items: [], error: 'ACE: 표 파싱 0건' };
+    if (midE) { const r = parseAceTable(midE, '월중'); items = items.concat(r); if (r[0]) schedule = r[0].sched; else if (!warn) warn = 'ACE 월중 공지 본문 표 0건: ' + midE.title; }
+    if (endE) { const r = parseAceTable(endE, '월말'); items = items.concat(r); if (!Object.keys(schedule).length && r[0]) schedule = r[0].sched; if (!r[0] && !warn) warn = 'ACE 월말 공지 본문 표 0건: ' + endE.title; }
+    if (!items.length) return _distErr('ace', 'ACE: 표 파싱 0건' + (warn ? ' (' + warn + ')' : ''));
+    _stageLog('ace', warn);
     return { success: true, items, schedule, title: 'ACE 분배금 (자사 공지 파싱)' };
   } catch(e) {
-    return { items: [], error: 'ACE: ' + e.toString() };
+    return _distErr('ace', 'ACE: ' + e.toString());
   }
 }
 
@@ -2603,6 +2627,7 @@ function fetchDist_plus() {
       if (!used || kr.std > used.std) used = { std: kr.std, sched: sched };
     });
     if (!used) return r;
+    _stageLog('plus', 'PLUS 자사 파서에 새 회차 없음(' + String(r.error || '사이트·사본 옛 회차').slice(0, 80) + ') → 거래소 공시 대체');
     return { success: true, items: items, schedule: used.sched, title: 'PLUS 분배금 (거래소 공시 — 한화 사이트·PC 사본에 새 회차 없음)',
              _fallback: 'kind', _siteError: r.error || '', _usedOcr: !!r._usedOcr };
   } catch (e) { console.log('PLUS 거래소 공시 보충 실패: ' + e); return r; }
@@ -2651,7 +2676,10 @@ function _fetchDistPlusSite() {
         pubMon: dateM ? parseInt(dateM[2]) : 0, pubDay: dateM ? parseInt(dateM[3]) : 0 });
     }
     const dated = cands.filter(c => c.cycle && c.mon);
-    if (!dated.length) return { items: [], error: 'PLUS: 월중/월말 공지 미발견' };
+    if (!dated.length) return _distErr('plus', 'PLUS: 월중/월말 공지 미발견 (목록 분배금 글 ' + cands.length + '건' + (cands[0] ? ', 최신: ' + cands[0].title : '') + ')');
+    // 가장 새 분배 글이 월중/월말 거르기에서 빠졌으면(제목 표기 변경) 남긴다.
+    const whys = {};
+    let warn = cands[0] !== dated[0] ? 'PLUS 최신 분배 글이 제목 거르기에서 빠짐: ' + cands[0].title : '';
     // 회차별 최신 글 1건씩 (목록 최신순) — 새 월중이 떠도 지난 월말 일정 유지
     const midE = dated.find(c => c.cycle === '월중');
     const endE = dated.find(c => c.cycle === '월말');
@@ -2715,21 +2743,25 @@ function _fetchDistPlusSite() {
       if (usedOcr) sched['_ocr'] = true;
       dbg += ' outFinal=' + out.length;
       out.forEach(it => { it.sched = { ...sched }; });
-      return { items: out, schedule: sched, usedOcr, dbg };
+      // 0건이면 어디서 막혔나: 본문에 표·그림이 없음 / 그림은 있는데 OCR 글자 0 / 글자는 읽었는데 종목 0
+      const why = out.length ? '' : (!/ img=\d/.test(dbg) ? '본문 표·그림 0' : (!usedOcr ? 'OCR 글자 0' : 'OCR 종목 0'));
+      return { items: out, schedule: sched, usedOcr, dbg, why };
     };
 
     let items = [], schedule = {}, anyOcr = false, dbgs = [];
     // 회차별로 격리: 한쪽이 타임아웃/파싱 실패해도 나머지 회차는 살린다.
-    if (midE) { try { const r = parsePlusNotice(midE); items = items.concat(r.items); if (Object.keys(r.schedule).length) schedule = r.schedule; if (r.usedOcr) anyOcr = true; dbgs.push('월중 ' + r.dbg); } catch(e) { dbgs.push('월중 EXC ' + e); } }
-    if (endE) { try { const r = parsePlusNotice(endE); items = items.concat(r.items); if (!Object.keys(schedule).length && Object.keys(r.schedule).length) schedule = r.schedule; if (r.usedOcr) anyOcr = true; dbgs.push('월말 ' + r.dbg); } catch(e) { dbgs.push('월말 EXC ' + e); } }
+    if (midE) { try { const r = parsePlusNotice(midE); items = items.concat(r.items); if (Object.keys(r.schedule).length) schedule = r.schedule; if (r.usedOcr) anyOcr = true; dbgs.push('월중 ' + r.dbg); whys['월중'] = r.why; } catch(e) { dbgs.push('월중 EXC ' + e); whys['월중'] = '공지 읽기 실패 ' + e; } }
+    if (endE) { try { const r = parsePlusNotice(endE); items = items.concat(r.items); if (!Object.keys(schedule).length && Object.keys(r.schedule).length) schedule = r.schedule; if (r.usedOcr) anyOcr = true; dbgs.push('월말 ' + r.dbg); whys['월말'] = r.why; } catch(e) { dbgs.push('월말 EXC ' + e); whys['월말'] = '공지 읽기 실패 ' + e; } }
     // ⛔ 한 회차만 0건이어도 밝힌다. 예전엔 **전부** 0건일 때만 에러였어서, 9/23 월말 글이 0건으로
     // 파싱돼도 월중이 살아 있으니 아무 경고 없이 월말만 사라졌다(2026-09-28 달력 PLUS? 의 원인).
     const cycN = c => items.filter(it => it.cycle === c).length;
-    if ((midE && !cycN('월중')) || (endE && !cycN('월말'))) console.log('PLUS 회차 누락 — ' + dbgs.join(' || '));
-    if (!items.length) return { items: [], error: 'PLUS: 종목 파싱 0건 || ' + dbgs.join(' || ') };
+    const miss = [[midE, '월중'], [endE, '월말']].filter(([e, c]) => e && !cycN(c)).map(([e, c]) => c + ' ' + (whys[c] || '0건') + ' (n=' + e.n + ')');
+    if (miss.length) { console.log('PLUS 회차 누락 — ' + dbgs.join(' || ')); if (!warn) warn = 'PLUS 회차 누락: ' + miss.join(' / '); }
+    if (!items.length) { _stageLog('plus', 'PLUS: 종목 파싱 0건: ' + miss.join(' / ')); return { items: [], error: 'PLUS: 종목 파싱 0건 || ' + dbgs.join(' || ') }; }
+    _stageLog('plus', warn);
     return { success: true, items, schedule, title: 'PLUS 분배금 (자사 공지 파싱)' + (anyOcr ? ' [OCR]' : ''), _usedOcr: anyOcr };
   } catch(e) {
-    return { items: [], error: 'PLUS: ' + e.toString() };
+    return _distErr('plus', 'PLUS: ' + e.toString());
   }
 }
 
@@ -2741,19 +2773,24 @@ function fetchDist_rise() {
   // KB 가 막혀 있으면 _riseGet 이 집 탭 사본(rise_relay/)을 대신 읽는다(2026-11-24). 사본도 없거나 묵었으면 블로그로.
   const site = _fetchDistRiseSite();
   // 탭 사본에서 일정(기준일)을 못 읽은 종목이 있으면 블로그로 — 날짜 빈 칸·오독을 공개 페이지에 내보내지 않는다.
-  if (site.items && site.items.length && site.items.every(it => (it.sched || {})['기준일'])) return site;
+  if (site.items && site.items.length && site.items.every(it => (it.sched || {})['기준일'])) { _stageLog('rise', ''); return site; }
+  const siteErr = site.error || (site.items && site.items.length ? '기준일 빈 종목 있음' : '0건');
+  let blogWhy = '';
   try {
     const blog = _riseBlogItems();
+    blogWhy = blog.why || '';
     if (blog.items.length) {
+      _stageFb('rise', siteErr, blog, '블로그');
       _riseFillNotice(blog.items);
       const latest = blog.items.reduce((a, b) => (b._std > a._std ? b : a));
       blog.items.forEach(it => delete it._std);
       return { success: true, items: blog.items, schedule: latest.sched, title: 'RISE 분배금 (네이버 블로그 — KB 사이트 접속 실패)',
                _fallback: 'blog', _siteError: site.error || '' };
     }
-  } catch (e) { console.log('RISE 블로그 실패: ' + e); }
+  } catch (e) { console.log('RISE 블로그 실패: ' + e); blogWhy = '블로그 오류 ' + e; }
   try {
     const items = _seibroDistItems('케이비');
+    _stageFb('rise', String(siteErr).slice(0, 40) + ' · ' + (blogWhy || '블로그 0건').slice(0, 35), { items }, '예탁결제원');
     if (!items.length) return site;
     const latest = items.reduce((a, b) => (b._std > a._std ? b : a));
     items.forEach(it => delete it._std);
@@ -2761,7 +2798,7 @@ function fetchDist_rise() {
     return { success: true, items, schedule: latest.sched, title: 'RISE 분배금 (예탁결제원 SEIBRO — KB 사이트 접속 실패)',
              _fallback: 'seibro', _siteError: site.error || '' };
   } catch (e) {
-    return { items: [], error: (site.error || 'RISE') + ' / SEIBRO: ' + e };
+    return _distErr('rise', (site.error || 'RISE') + ' / ' + (blogWhy || '블로그 0건') + ' / SEIBRO: ' + e);
   }
 }
 
@@ -2806,7 +2843,7 @@ function _riseFillNotice(items) {
 // ('… 490590 188 188 1.29') — 금액 다음 정수 하나는 건너뛴다. 최신 4건에서 월중·월말 각 1건.
 function _riseBlogItems() {
   const res = UrlFetchApp.fetch('https://rss.blog.naver.com/riseetf.xml', { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } });
-  if (res.getResponseCode() !== 200) return { items: [] };
+  if (res.getResponseCode() !== 200) return { items: [], why: '블로그 RSS 응답 ' + res.getResponseCode() };
   const posts = [];
   String(res.getContentText('UTF-8')).split('<item>').slice(1).forEach(c => {
     const t = (c.match(/<title>\s*(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?\s*<\/title>/) || [])[1] || '';
@@ -2815,16 +2852,17 @@ function _riseBlogItems() {
     if (l && d && /분배금/.test(t)) posts.push({ title: t, logNo: l, post: Utilities.formatDate(new Date(d), 'Asia/Seoul', 'yyyyMMdd') });
   });
   const out = [], seen = {};
+  let why = posts.length ? '' : '블로그 분배금 글 0건';
   for (let i = 0; i < posts.length && i < 4; i++) {
     if (seen['월중'] && seen['월말']) break;
     const p = _riseParsePost(posts[i].logNo);
-    if (!p || !p.items.length || !p.std) { console.log('RISE 블로그 글 파싱 0건 — 표기 변경 의심: ' + posts[i].title); continue; }
+    if (!p || !p.items.length || !p.std) { console.log('RISE 블로그 글 파싱 0건 — 표기 변경 의심: ' + posts[i].title); if (!why) why = '블로그 글 파싱 0건: ' + posts[i].title; continue; }
     const cyc = Number(p.std.slice(6, 8)) <= 20 ? '월중' : '월말';
     if (seen[cyc]) continue;
     seen[cyc] = 1;
     p.items.forEach(it => out.push(Object.assign(it, { cycle: cyc, sched: Object.assign({}, p.sched), _std: p.std, _post: posts[i].post })));
   }
-  return { items: out };
+  return { items: out, why };
 }
 
 // RISE 블로그 글 목록 → _riseNotices 와 같은 모양({title, date:'yyyy.MM.dd', url}).
@@ -3424,9 +3462,14 @@ function _solCycle(sched, title) {
 // 최신 분배금 글을 최신순으로 훑어 월중·월말 본문을 각각 파싱한다(제목 표기에 기대지 않는다).
 function fetchDist_sol() {
   try {
-    const notices = _solNotices()
+    const raw = _solNotices();
+    const notices = raw
       .filter(n => n.logNo && /분배금/.test(n.title) && !/이벤트/.test(n.title))
       .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    if (!notices.length) return _distErr('sol', 'SOL: 블로그 분배금 글 0건 (목록 ' + raw.length + '건)');
+    // 고른 글보다 새 '분배' 글이 거르기(분배금·이벤트 제외)에서 빠졌으면 남긴다.
+    const newer = raw.filter(n => /분배/.test(n.title || '') && notices.indexOf(n) < 0 && String(n.date) > String(notices[0].date))[0];
+    let warn = newer ? 'SOL 최신 분배 글이 제목 거르기에서 빠짐: ' + newer.title : '';
     const found = {};                          // '월중'|'월말' → {sched, items}
     // 글마다 본문을 1회 fetch한다. 6개사 force 합계가 트리거 6분 한도에 가까우므로(WORKLOG 90: 실측 213초)
     // 최신 4건까지만 보고, 두 회차가 다 차면 즉시 멈춘다. 보통 2건이면 끝난다.
@@ -3434,7 +3477,7 @@ function fetchDist_sol() {
       if (found['월중'] && found['월말']) break;
       const p = _solParsePost(notices[i].logNo);
       // 0건 글을 조용히 넘기면 **한 달 전 글**이 그 회차 자리를 차지한다(2026-09-28: 9월말 글 0건 → 8월말 글이 월말로 쓰였다).
-      if (!p || !p.items.length) { console.log('SOL 분배 글 파싱 0건 — 표기 변경 의심: ' + notices[i].title); continue; }
+      if (!p || !p.items.length) { console.log('SOL 분배 글 파싱 0건 — 표기 변경 의심: ' + notices[i].title); if (!warn) warn = 'SOL 블로그 글 본문 파싱 0건: ' + notices[i].title; continue; }
       const cyc = _solCycle(p.sched, notices[i].title);
       if (!cyc || found[cyc]) continue;        // 최신순이므로 같은 회차는 첫 글(=정정 공지가 이긴다)만 쓴다
       // SOL 본문의 '분배금 공시일'은 분배율 계산용 종가 날짜(=기준일)다. 표의 '공시'는 공지 올린 날이라 글 날짜를 쓴다
@@ -3444,9 +3487,11 @@ function fetchDist_sol() {
       found[cyc] = p;
     }
     // 한쪽이라도 못 채우면 실제 제목을 로그에 남긴다 — SOL 표기가 또 바뀌었을 때 이것만 보면 바로 안다.
-    if (!found['월중'] || !found['월말'])
+    if (!found['월중'] || !found['월말']) {
       console.log('SOL 회차 미확보 — 월중 ' + (found['월중'] ? 'O' : 'X') + ' / 월말 ' + (found['월말'] ? 'O' : 'X')
         + ' | 최근 제목: ' + notices.slice(0, 4).map(n => n.title).join(' / '));
+      if (!warn) warn = 'SOL 회차 미확보: 월중 ' + (found['월중'] ? 'O' : 'X') + ' / 월말 ' + (found['월말'] ? 'O' : 'X') + ' (최근 4글 안)';
+    }
     const items = [];
     let schedule = {};
     ['월중', '월말'].forEach(cyc => {
@@ -3458,10 +3503,11 @@ function fetchDist_sol() {
       }));
       if (cyc === '월중' || !Object.keys(schedule).length) schedule = p.sched;
     });
-    if (!items.length) return { items: [], error: 'SOL: 블로그 공지 파싱 0건' };
+    if (!items.length) return _distErr('sol', 'SOL: 블로그 공지 파싱 0건' + (warn ? ' (' + warn + ')' : ''));
+    _stageLog('sol', warn);
     return { success: true, items, schedule, title: 'SOL 월배당 분배금 (블로그 공지)', _source: 'blog' };
   } catch(e) {
-    return { items: [], error: 'SOL: ' + e.toString() };
+    return _distErr('sol', 'SOL: ' + e.toString());
   }
 }
 
@@ -3472,6 +3518,18 @@ function _stageLog(src, msg) {
   try { const p = PropertiesService.getScriptProperties(), k = 'distStage_' + src;
     if (msg) p.setProperty(k, Utilities.formatDate(new Date(), 'Asia/Seoul', 'MM-dd HH:mm') + ' ' + String(msg).split(' — ')[0].slice(0, 160));
     else p.deleteProperty(k); } catch (e) {}
+}
+// 실패 반환 한 줄: 막힌 곳을 남기고 { items: [], error } 를 돌려준다(KODEX·TIGER·ACE·PLUS·RISE·SOL 파서 공용).
+function _distErr(src, msg) { _stageLog(src, msg); return { items: [], error: msg }; }
+// 자사 파서가 비어 다른 자료(뉴스·예탁결제원·블로그)로 갔을 때: '자사 파서 실패(이유) → ○○ 대체' / '→ ○○도 실패'.
+function _stageFb(src, siteErr, r, via) {
+  _stageLog(src, src.toUpperCase() + ' 자사 파서 실패(' + String(siteErr || '0건').slice(0, 80) + ') → ' + via + ((r && (r.items || []).length) ? ' 대체' : '도 실패'));
+}
+// KODEX 공지 파싱 실패 → 자사 API 로 대체하고 그 사실을 남긴다.
+function _kodexApiFb(why) {
+  const r = fetchDist_kodex_api();
+  _stageLog('kodex', 'KODEX ' + why + ((r.items || []).length ? ' → 자사 API 대체' : ' → 자사 API 도 실패: ' + (r.error || '')));
+  return r;
 }
 
 // ===== HANARO · KIWOOM (2026-10-01 추가 — 공개 페이지 방문자 요청) =====
