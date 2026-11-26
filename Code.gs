@@ -3623,6 +3623,89 @@ function fetchDist_kiwoom() {
   }
 }
 
+// ── 투명 PNG → 흰 바탕 회색조 BMP ── Vision 은 투명 칸을 검정으로 본다(검은 글씨가 사라짐, 2026-11-26 KIWOOM 종목표).
+// GAS 엔 그림 라이브러리가 없어 PNG 를 직접 푼다(8비트 RGBA·RGB·회색·팔레트). 투명이 없거나 못 푸는 형식이면 원본 그대로.
+function _inflateRaw(src, start) {
+  const out = []; let pos = start, bit = 0, cnt = 0;
+  const bits = n => { let v = 0; for (let i = 0; i < n; i++) { if (!cnt) { bit = src[pos++]; cnt = 8; } v |= (bit & 1) << i; bit >>= 1; cnt--; } return v; };
+  const LB = [3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258], LE = [0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0];
+  const DB = [1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577], DE = [0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13];
+  const build = lens => { const c = new Array(16).fill(0), o = new Array(16).fill(0), sym = []; lens.forEach(l => c[l]++); c[0] = 0;
+    for (let i = 1; i < 16; i++) o[i] = o[i - 1] + c[i - 1]; lens.forEach((l, s) => { if (l) sym[o[l]++] = s; }); return { c, sym }; };
+  const dec = h => { let code = 0, first = 0, idx = 0; for (let l = 1; l < 16; l++) { code |= bits(1); const k = h.c[l];
+    if (code - k < first) return h.sym[idx + code - first]; idx += k; first += k; first <<= 1; code <<= 1; } throw new Error('bad code'); };
+  let fin = 0;
+  while (!fin) {
+    fin = bits(1); const type = bits(2);
+    if (type === 0) { cnt = 0; const len = src[pos] | (src[pos + 1] << 8); pos += 4; for (let i = 0; i < len; i++) out.push(src[pos++]); continue; }
+    let lit, dist;
+    if (type === 1) { const l = []; for (let i = 0; i < 288; i++) l[i] = i < 144 ? 8 : i < 256 ? 9 : i < 280 ? 7 : 8; lit = build(l); dist = build(new Array(30).fill(5)); }
+    else {
+      const hl = bits(5) + 257, hd = bits(5) + 1, hc = bits(4) + 4, ord = [16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15], cl = new Array(19).fill(0);
+      for (let i = 0; i < hc; i++) cl[ord[i]] = bits(3);
+      const ch = build(cl), ls = [];
+      while (ls.length < hl + hd) { const s = dec(ch);
+        if (s < 16) ls.push(s); else if (s === 16) { const p = ls[ls.length - 1], r = 3 + bits(2); for (let i = 0; i < r; i++) ls.push(p); }
+        else { const r = s === 17 ? 3 + bits(3) : 11 + bits(7); for (let i = 0; i < r; i++) ls.push(0); } }
+      lit = build(ls.slice(0, hl)); dist = build(ls.slice(hl));
+    }
+    for (;;) { const s = dec(lit); if (s < 256) { out.push(s); continue; } if (s === 256) break;
+      const len = LB[s - 257] + bits(LE[s - 257]), dsy = dec(dist), d = DB[dsy] + bits(DE[dsy]);
+      for (let i = 0, b = out.length - d; i < len; i++) out.push(out[b + i]); }
+  }
+  return out;
+}
+function _pngOnWhite(bytes) {
+  try {
+    const u = bytes.map(b => b & 255);
+    if (u[0] !== 137 || u[1] !== 80) return bytes;                          // PNG 아님
+    const be = i => ((u[i] << 24) >>> 0) + (u[i + 1] << 16) + (u[i + 2] << 8) + u[i + 3];
+    let p = 8, w = 0, h = 0, depth = 0, ct = 0, inter = 0, pal = [], trns = [], idat = [];
+    while (p < u.length) { const len = be(p), t = String.fromCharCode(u[p + 4], u[p + 5], u[p + 6], u[p + 7]), d = p + 8;
+      if (t === 'IHDR') { w = be(d); h = be(d + 4); depth = u[d + 8]; ct = u[d + 9]; inter = u[d + 12]; }
+      else if (t === 'PLTE') pal = u.slice(d, d + len); else if (t === 'tRNS') trns = u.slice(d, d + len);
+      else if (t === 'IDAT') for (let i = 0; i < len; i++) idat.push(u[d + i]); else if (t === 'IEND') break;
+      p = d + len + 4; }
+    const ch = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }[ct];
+    if (depth !== 8 || !ch || (ct !== 4 && ct !== 6 && !trns.length)) return bytes;   // 투명 없음·못 푸는 형식
+    const raw = _inflateRaw(idat, 2), gray = new Uint8Array(w * h);
+    // 인터레이스(Adam7)면 7번에 나눠 담긴다(2026-11-26 KIWOOM 그림이 그랬다). 아니면 한 번에 전체.
+    const passes = inter ? [[0,0,8,8],[4,0,8,8],[0,4,4,8],[2,0,4,4],[0,2,2,4],[1,0,2,2],[0,1,1,2]] : [[0,0,1,1]];
+    let rp = 0;
+    passes.forEach(([x0, y0, dx, dy]) => {
+    const pw = Math.ceil((w - x0) / dx), ph = Math.ceil((h - y0) / dy);
+    if (pw <= 0 || ph <= 0) return;
+    const stride = pw * ch;
+    let prev = new Array(stride).fill(0);
+    for (let py = 0; py < ph; py++) {
+      const f = raw[rp], row = raw.slice(rp + 1, rp + 1 + stride); rp += stride + 1;
+      const y = y0 + py * dy;
+      for (let i = 0; i < stride; i++) { const a = i >= ch ? row[i - ch] : 0, b = prev[i], c = i >= ch ? prev[i - ch] : 0;
+        let pr = 0; if (f === 1) pr = a; else if (f === 2) pr = b; else if (f === 3) pr = (a + b) >> 1;
+        else if (f === 4) { const q = a + b - c, pa = Math.abs(q - a), pb = Math.abs(q - b), pc = Math.abs(q - c); pr = pa <= pb && pa <= pc ? a : pb <= pc ? b : c; }
+        row[i] = (row[i] + pr) & 255; }
+      for (let px = 0; px < pw; px++) { const o = px * ch, x = x0 + px * dx; let r, g, bl, al = 255;
+        if (ct === 6) { r = row[o]; g = row[o + 1]; bl = row[o + 2]; al = row[o + 3]; }
+        else if (ct === 2) { r = row[o]; g = row[o + 1]; bl = row[o + 2]; }
+        else if (ct === 4) { r = g = bl = row[o]; al = row[o + 1]; }
+        else if (ct === 0) { r = g = bl = row[o]; }
+        else { const k = row[o]; r = pal[k * 3]; g = pal[k * 3 + 1]; bl = pal[k * 3 + 2]; al = k < trns.length ? trns[k] : 255; }
+        const v = (r * 299 + g * 587 + bl * 114) / 1000;
+        gray[y * w + x] = Math.round(255 - al * (255 - v) / 255); }
+      prev = row;
+    }
+    });
+    // 8비트 회색조 BMP(팔레트 256색) — 압축·체크섬이 없어 만들기 쉽고 Vision 이 읽는다.
+    const rs = (w + 3) & ~3, off = 54 + 1024, size = off + rs * h, out = new Array(size).fill(0);
+    const le = (i, v, n) => { for (let k = 0; k < n; k++) out[i + k] = (v >>> (8 * k)) & 255; };
+    out[0] = 66; out[1] = 77; le(2, size, 4); le(10, off, 4); le(14, 40, 4); le(18, w, 4); le(22, h, 4); le(26, 1, 2); le(28, 8, 2);
+    le(34, rs * h, 4); le(46, 256, 4);
+    for (let i = 0; i < 256; i++) { out[54 + i * 4] = out[55 + i * 4] = out[56 + i * 4] = i; }
+    for (let y = 0; y < h; y++) { const dst = off + (h - 1 - y) * rs; for (let x = 0; x < w; x++) out[dst + x] = gray[y * w + x]; }
+    return out.map(b => b > 127 ? b - 256 : b);
+  } catch (e) { console.log('PNG 펴기 실패 ' + e); return bytes; }
+}
+
 // KIWOOM 최신 '분배금 지급 안내' 공지가 종목 API 보다 새로우면 본문 그림 2장을 OCR 한다.
 // 그림 ①: '대상자: 2026년 10월 13일 … 매수한 투자자' · '분배금 지급 예정일: 2026년 10월 19일' · 종목코드/주당분배금/분배율 표.
 // 분배락 = 매수기준일 다음 영업일, 기준일 = 그다음 영업일(키움 일정 그림과 같다, 2026-10-13 확인).
@@ -3648,9 +3731,11 @@ function _kiwoomNoticeOcr(apiItems, names) {
       .map(u => /^https?:/.test(u) ? u : KIWOOM_BASE + (u.charAt(0) === '/' ? '' : '/') + u);
     console.log('KIWOOM 공지 그림: base64 ' + imgs.length + ' · 주소 ' + urlImgs.length + (urlImgs.length ? ' (' + urlImgs.slice(0, 4).join(' , ') + ')' : ''));
     if (!imgs.length && !urlImgs.length) { console.log('KIWOOM OCR: 공지 그림 없음 ' + n.no); return null; }
-    const text = imgs.map((b, i) => _ocrBytes(Utilities.base64Decode(b), 'ocr_kw_' + n.no + '_' + i))
+    // 투명 PNG 는 흰 바탕으로 편 뒤 읽는다(_pngOnWhite) — 2026-11-26 종목표 그림이 투명 바탕+검은 글씨라
+    // Vision 엔 검은 바탕에 검은 글씨로 보여 흰 제목 62자만 읽혔다.
+    const text = imgs.map((b, i) => _ocrBytes(_pngOnWhite(Utilities.base64Decode(b)), 'ocr_kww_' + n.no + '_' + i))
       .concat(urlImgs.slice(0, 4).map((u, i) => { try { const r = UrlFetchApp.fetch(u, KIWOOM_OPT);
-        const t = r.getResponseCode() === 200 ? _ocrBytes(r.getBlob().getBytes(), 'ocr_kwu_' + n.no + '_' + i) : '';
+        const t = r.getResponseCode() === 200 ? _ocrBytes(_pngOnWhite(r.getBlob().getBytes()), 'ocr_kwuw_' + n.no + '_' + i) : '';
         console.log('KIWOOM 첨부 그림 ' + i + ': HTTP ' + r.getResponseCode() + ' · ' + r.getBlob().getBytes().length + 'B · 글자 ' + String(t || '').length
           + ' — ' + String(t || '').replace(/\s+/g, ' ').slice(0, 300));
         return t || ''; } catch (e) { console.log('KIWOOM 첨부 그림 실패 ' + e); return ''; } }))
