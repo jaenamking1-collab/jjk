@@ -3669,6 +3669,20 @@ function _kiwoomNoticeOcr(apiItems, names) {
                     .filter(Boolean).sort((a, b) => a.at - b.at).map(x => x.c);
     const amts = [...flat.matchAll(/([\d,]+)\s*원/g)].map(m => Number(m[1].replace(/,/g, '')));
     const rates = [...flat.matchAll(/(\d+\.\d+)\s*%/g)].map(m => parseFloat(m[1]));
+    // 2026-11-26 공지는 그림이 일정표뿐이라 종목·금액이 글(HTML 표)로 있을 수 있다 — 그 표를 먼저 본다.
+    if (!codes.length) {
+      const tItems = [];
+      (page.match(/<tr[^>]*>[\s\S]*?<\/tr>/g) || []).forEach(tr => {
+        const c = _rowCells(tr), ci = c.findIndex(x => names[x.trim()]);
+        if (ci < 0) return;
+        const nums = c.slice(ci + 1).map(x => x.replace(/[,원\s]/g, '')).filter(x => /^\d+(\.\d+)?%?$/.test(x));
+        const amt = nums.find(x => /^\d+$/.test(x)), rt = nums.find(x => /\./.test(x));
+        if (amt) tItems.push({ name: names[c[ci].trim()], ticker: c[ci].trim(), amount: Number(amt), rate: rt ? parseFloat(rt) : null,
+                               cycle: cycle, sched: Object.assign({}, sched), ocr: true });
+      });
+      console.log('KIWOOM 공지 글 표: tr ' + ((page.match(/<tr/g) || []).length) + ' · 그림 ' + imgs.length + ' · 첨부 ' + ((page.match(/\.(xlsx?|pdf|hwp)\b/gi) || []).length) + ' · 종목 ' + tItems.length);
+      if (tItems.length) { console.log('KIWOOM 공지 표: ' + n.title + ' → ' + tItems.length + '종목 ' + JSON.stringify(sched)); return { items: tItems, sched: sched, cycle: cycle }; }
+    }
     if (!codes.length || codes.length !== amts.length) { console.log('KIWOOM OCR: 종목 ' + codes.length + ' · 금액 ' + amts.length + ' 개수 안 맞음 — ' + flat.slice(0, 400)); return null; }
     const items = codes.map((c, i) => ({ name: names[c], ticker: c, amount: amts[i], rate: rates.length === codes.length ? rates[i] : null,
                                          cycle: cycle, sched: Object.assign({}, sched), ocr: true }));
