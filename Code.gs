@@ -3644,13 +3644,16 @@ function _kiwoomNoticeOcr(apiItems, names) {
     const imgs = [...page.matchAll(/src="data:image\/[a-z]+;base64,([^"]+)"/g)].map(m => m[1]);
     // 2026-11-26 공지는 base64 그림이 일정표 1장뿐이었다 — 종목표가 주소로 건 그림일 수 있어 그것도 읽는다.
     const urlImgs = [...page.matchAll(/<img[^>]+src="(?!data:)([^"]+)"/gi)].map(m => m[1].replace(/&amp;/g, '&'))
-      .filter(u => !/logo|icon|btn|common|header|footer|gnb|\.svg|\.gif/i.test(u))
+      .filter(u => /\/upload\//i.test(u))   // 본문 첨부 그림만(페이스북 추적·배너 그림 제외)
       .map(u => /^https?:/.test(u) ? u : KIWOOM_BASE + (u.charAt(0) === '/' ? '' : '/') + u);
     console.log('KIWOOM 공지 그림: base64 ' + imgs.length + ' · 주소 ' + urlImgs.length + (urlImgs.length ? ' (' + urlImgs.slice(0, 4).join(' , ') + ')' : ''));
     if (!imgs.length && !urlImgs.length) { console.log('KIWOOM OCR: 공지 그림 없음 ' + n.no); return null; }
     const text = imgs.map((b, i) => _ocrBytes(Utilities.base64Decode(b), 'ocr_kw_' + n.no + '_' + i))
       .concat(urlImgs.slice(0, 4).map((u, i) => { try { const r = UrlFetchApp.fetch(u, KIWOOM_OPT);
-        return r.getResponseCode() === 200 ? _ocrBytes(r.getBlob().getBytes(), 'ocr_kwu_' + n.no + '_' + i) : ''; } catch (e) { return ''; } }))
+        const t = r.getResponseCode() === 200 ? _ocrBytes(r.getBlob().getBytes(), 'ocr_kwu_' + n.no + '_' + i) : '';
+        console.log('KIWOOM 첨부 그림 ' + i + ': HTTP ' + r.getResponseCode() + ' · ' + r.getBlob().getBytes().length + 'B · 글자 ' + String(t || '').length
+          + ' — ' + String(t || '').replace(/\s+/g, ' ').slice(0, 300));
+        return t || ''; } catch (e) { console.log('KIWOOM 첨부 그림 실패 ' + e); return ''; } }))
       .join('\n');
     if (!text) { console.log('KIWOOM OCR: 글자 0 (' + _ocrDbg + ')'); return null; }
     const flat = text.replace(/\s+/g, ' ');
