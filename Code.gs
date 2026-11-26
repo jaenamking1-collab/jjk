@@ -3761,9 +3761,18 @@ function _kiwoomNoticeOcr(apiItems, names) {
     const cycle = baseD.getDate() <= 20 ? '월중' : '월말';
     // 종목코드는 키움 목록에 있는 것만, OCR 이 0↔O·1↔I 를 헷갈려도 찾게(2026-10-13 첫 실행: 3개 중 1개를 놓쳤다). 글 순서대로.
     const fuzzy = c => new RegExp('(^|[^0-9A-Z])' + c.split('').map(ch => ch === '0' ? '[0OoQD]' : ch === '1' ? '[1Il|]' : ch === 'O' ? '[0O]' : ch).join('') + '(?![0-9A-Z])');
-    const codes = Object.keys(names).map(c => { const m = flat.match(fuzzy(c)); return m ? { c, at: m.index } : null; })
+    let codes = Object.keys(names).map(c => { const m = flat.match(fuzzy(c)); return m ? { c, at: m.index } : null; })
                     .filter(Boolean).sort((a, b) => a.at - b.at).map(x => x.c);
     const amts = [...flat.matchAll(/([\d,]+)\s*원/g)].map(m => Number(m[1].replace(/,/g, '')));
+    // 키움 '분배금 정보' 목록에 아직 없는 새 종목이 표에 있으면 개수가 어긋난다(2026-11-26 13 vs 14).
+    // 그땐 표('종목코드' 뒤)의 6자리 코드를 글 순서대로 직접 읽는다 — OCR 이 0 을 O·Q·D 로 읽은 것은 바로잡는다.
+    if (codes.length !== amts.length && flat.indexOf('종목코드') >= 0) {
+      const fix = s => s.split('').map((ch, i) => i !== 4 && /[OQD]/.test(ch) ? '0' : ch).join('');   // 글자는 다섯째 자리에만 온다(0198A0)
+      const direct = [...flat.slice(flat.indexOf('종목코드')).matchAll(/(?<![0-9A-Za-z])([0-9OQD][0-9A-Z]{4}[0-9O])(?![0-9A-Za-z])/g)]
+        .map(m => fix(m[1])).filter((c, i, a) => /\d/.test(c.slice(1)) && a.indexOf(c) === i);
+      console.log('KIWOOM 표 코드 직접 읽기: ' + direct.length + '개 (목록 대조 ' + codes.length + ') ' + direct.join(','));
+      if (direct.length === amts.length) { direct.forEach(c => { if (!names[c]) names[c] = 'KIWOOM ' + c; }); codes = direct; }
+    }
     const rates = [...flat.matchAll(/(\d+\.\d+)\s*%/g)].map(m => parseFloat(m[1]));
     // 2026-11-26 공지는 그림이 일정표뿐이라 종목·금액이 글(HTML 표)로 있을 수 있다 — 그 표를 먼저 본다.
     if (!codes.length) {
