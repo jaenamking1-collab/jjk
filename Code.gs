@@ -3768,7 +3768,9 @@ function _kiwoomNoticeOcr(apiItems, names) {
     // 그땐 표('종목코드' 뒤)의 6자리 코드를 글 순서대로 직접 읽는다 — OCR 이 0 을 O·Q·D 로 읽은 것은 바로잡는다.
     if (codes.length !== amts.length && flat.indexOf('종목코드') >= 0) {
       const fix = s => s.split('').map((ch, i) => i !== 4 && /[OQD]/.test(ch) ? '0' : ch).join('');   // 글자는 다섯째 자리에만 온다(0198A0)
-      const direct = [...flat.slice(flat.indexOf('종목코드')).matchAll(/(?<![0-9A-Za-z])([0-9OQD][0-9A-Z]{4}[0-9O])(?![0-9A-Za-z])/g)]
+      // OCR 이 코드를 둘로 쪼갠다('471460' → '47 1460', 2026-11-26) — 합쳐서 6자리가 되면 붙인다.
+      const tbl = flat.slice(flat.indexOf('종목코드')).replace(/(?<![0-9A-Za-z.])(\d{1,5}) (\d{1,5})(?![0-9A-Za-z원%.])/g, (m, a, b) => a.length + b.length === 6 ? a + b : m);
+      const direct = [...tbl.matchAll(/(?<![0-9A-Za-z])([0-9OQD][0-9A-Z]{4}[0-9O])(?![0-9A-Za-z])/g)]
         .map(m => fix(m[1])).filter((c, i, a) => /\d/.test(c.slice(1)) && a.indexOf(c) === i);
       console.log('KIWOOM 표 코드 직접 읽기: ' + direct.length + '개 (목록 대조 ' + codes.length + ') ' + direct.join(',')
         + ' | 표 글: ' + flat.slice(flat.indexOf('종목코드'), flat.indexOf('종목코드') + 900));
