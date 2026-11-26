@@ -3489,7 +3489,10 @@ function _hanaroNotices() {
 }
 function fetchDist_hanaro() {
   try {
-    const notices = _hanaroNotices().filter(n => /분배금\s*공지/.test(n.title));
+    // 제목이 '…월 말 분배금 공지'만이 아니다 — 2026-11-26 'HANARO ETF 11월 말 분배금 안내 (지급 예정일 12월 2일)'이
+    // 이 거르기에서 빠져 10월 글을 계속 읽었다(공개 화면 '공지는 있는데 일정·종목 없음'). 'N월'+'분배금'이면 받고 사건 공지만 뺀다.
+    const notices = _hanaroNotices().filter(n => /분배금/.test(n.title) && /\d{1,2}\s*월/.test(n.title)
+      && !/변경|정정|중단|해지|청산|상장폐지|합병|분할|병합|전환|사전\s*안내/.test(n.title));
     if (!notices.length) return { items: [], error: 'HANARO: 분배금 공지 목록 0건' };
     // 최신 글이 0건이면 표기가 바뀐 것 — 한 달 전 글로 조용히 대신하지 않도록 1건만 본다(SOL 2026-09-28 교훈).
     const n = notices[0];
