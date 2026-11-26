@@ -10,6 +10,7 @@ use windows::Storage::Streams::DataReader;
 use windows::Web::Http::HttpClient;
 
 const API: &str = "https://api.github.com/repos/jaenamking1-collab/jjk/releases/tags/notch";
+const MIRROR: &str = "https://jjk-app.distributionjn.workers.dev/NotchCat.exe"; // workers/jjk-app
 
 pub fn sha256(data: &[u8]) -> String {
     use windows::Win32::Security::Cryptography::{BCryptHash, BCRYPT_SHA256_ALG_HANDLE};
@@ -36,6 +37,19 @@ pub fn latest(json: &str) -> Option<(String, String)> {
     Some((a["digest"].as_str()?.strip_prefix("sha256:")?.to_lowercase(), a["browser_download_url"].as_str()?.to_string()))
 }
 
+/// 앞 주소부터 받아 지문이 맞는 것만 돌려준다(어느 길로 받든 지문은 GitHub 것과 대조). 실패는 기록에 남긴다.
+fn download(c: &HttpClient, urls: &[&str], want: &str) -> Option<Vec<u8>> {
+    for url in urls {
+        let host = url.split('/').nth(2).unwrap_or(url);
+        match bytes(c, url) {
+            Ok((200, data)) if sha256(&data) == want => return Some(data),
+            Ok((code, data)) => crate::log(&format!("update: 받기 실패 {host} {code} {}바이트", data.len())),
+            Err(e) => crate::log(&format!("update: 받기 연결 실패 {host} {}", e.message())),
+        }
+    }
+    None
+}
+
 /// 설치한 정식 판일 때만(손으로 빌드한 것·시험판은 건드리지 않는다).
 fn installed() -> Option<std::path::PathBuf> {
     let exe = std::env::current_exe().ok()?;
@@ -55,12 +69,8 @@ fn check(c: &HttpClient, exe: &std::path::Path, notes: &Arc<Mutex<crate::notif::
     if mine == want {
         return None;
     }
-    // 학교 망은 release-assets.githubusercontent.com 연결을 끊는다(2026-11-26) — 조용히 넘기지 말고 남긴다
-    let (code, data) = bytes(c, &url).inspect_err(|e| crate::log(&format!("update: 받기 연결 실패 {}", e.message()))).ok()?;
-    if code != 200 || sha256(&data) != want {
-        crate::log(&format!("update: 받기 실패 {code} {}바이트", data.len()));
-        return None;
-    }
+    // 학교 망은 release-assets.githubusercontent.com 연결을 끊는다(2026-11-26) → 안 되면 Cloudflare 중계로
+    let data = download(c, &[url.as_str(), MIRROR], &want)?;
     let new = exe.with_file_name("NotchCat.new.exe");
     let old = exe.with_file_name("NotchCat.old.exe");
     let _ = std::fs::remove_file(&old);
@@ -143,5 +153,8 @@ mod tests {
         let (_, data) = bytes(&c, &url).unwrap();
         assert_eq!(sha256(&data), want);
         println!("{} {}바이트", &want[..12], data.len());
+        // 첫 길이 막힌 학교 상황: 닿지 않는 주소 다음에 중계로 받아진다
+        let got = download(&c, &["https://127.0.0.1:9/NotchCat.exe", MIRROR], &want).expect("중계 받기");
+        assert_eq!(got.len(), data.len());
     }
 }
