@@ -55,7 +55,8 @@ fn check(c: &HttpClient, exe: &std::path::Path, notes: &Arc<Mutex<crate::notif::
     if mine == want {
         return None;
     }
-    let (code, data) = bytes(c, &url).ok()?;
+    // 학교 망은 release-assets.githubusercontent.com 연결을 끊는다(2026-11-26) — 조용히 넘기지 말고 남긴다
+    let (code, data) = bytes(c, &url).inspect_err(|e| crate::log(&format!("update: 받기 연결 실패 {}", e.message()))).ok()?;
     if code != 200 || sha256(&data) != want {
         crate::log(&format!("update: 받기 실패 {code} {}바이트", data.len()));
         return None;
