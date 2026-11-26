@@ -42,6 +42,11 @@ def over(windows, now):
     return [r for u, r in windows if u >= LIMIT and r > now]
 
 
+def under(windows):
+    """한도 아래로 내려온 구간(사용량 재설정 등) — 다시 끊을 수 있게 풀어 준다"""
+    return {r for u, r in windows if u < LIMIT}
+
+
 def recent_files(minutes=15):
     cut = time.time() - minutes * 60
     return [p for p in glob.glob(os.path.join(SESS, "**", "rollout-*.jsonl"), recursive=True)
@@ -49,10 +54,13 @@ def recent_files(minutes=15):
 
 
 def scan(now):
+    """(넘은 구간, 내려온 구간). 내려온 건 가장 최근 파일 기준으로만 본다(옛 파일의 낮은 값에 속지 않게)."""
+    files = sorted(recent_files(), key=os.path.getmtime)
     hits = set()
-    for p in recent_files():
+    for p in files:
         hits.update(over(read_limits(p), now))
-    return hits
+    low = under(read_limits(files[-1])) if files else set()
+    return hits - low, low
 
 
 def popup(msg):
@@ -65,11 +73,13 @@ def main():
     ctypes.windll.kernel32.CreateMutexW(None, False, "jjk_codex_guard")
     if ctypes.windll.kernel32.GetLastError() == 183:
         return
-    done = scan(time.time())          # 켜질 때 이미 넘은 구간은 건너뛴다
+    done = scan(time.time())[0]       # 켜질 때 이미 넘은 구간은 건너뛴다
     while True:
         time.sleep(POLL)
         now = time.time()
-        new = scan(now) - done
+        hits, low = scan(now)
+        done -= low                   # 사용량 재설정으로 내려오면 다시 지킨다
+        new = hits - done
         if not new:
             continue
         done |= new
@@ -94,6 +104,10 @@ def _test():
     assert over(w, now) == [2_000]
     assert over(w, 3_000) == []                        # 이미 재설정된 구간은 무시
     assert over([(89.9, 2_000)], now) == []
+    # 사용량 재설정: 같은 구간이 95 → 5 로 내려오면 풀리고, 다시 90을 넘으면 또 끊는다
+    done = {2_000}
+    done -= under([(5, 2_000)])
+    assert over([(91, 2_000)], now) == [2_000] and 2_000 not in done
     os.unlink(f.name)
     print("ok")
 
