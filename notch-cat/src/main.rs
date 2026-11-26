@@ -317,10 +317,15 @@ enum Ev {
     Comp(String),   // 일정 넣기: 조합 중인 한글(밑줄로 보인다)
     Blur,           // 일정 넣기: 다른 창을 눌러 자판을 잃었다
     Tab(i32),       // 노치 위에서 Tab(+1 다음 쪽) · Shift+Tab(-1 앞 쪽)
+    Space,          // 영상 자르기 쪽 위에서 스페이스(재생·일시정지)
 }
 
 /// 노치가 펼쳐져 있고 마우스가 그 위에 있다(일정 칸에 적는 중은 아니다) — 이때만 Tab 을 노치가 가져간다
 static TAB_OK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// 영상 자르기 쪽에 영상이 열려 있고 마우스가 노치 위에 있다 — 이때만 스페이스를 노치가 가져간다
+static SPACE_OK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static SPACE_DOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false); // 눌러 삼킨 스페이스(꾹 눌러도 한 번만)
 
 /// Tab 을 노치가 가져갈지: 가져가면 넘길 방향(+1 다음 · -1 앞)
 fn tab_dir(vk: u32, ok: bool, shift: bool) -> Option<i32> {
@@ -347,6 +352,19 @@ unsafe extern "system" fn kb_hook(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT 
                     let _ = PostMessageW(snap, WM_KEYDOWN, WPARAM(0x1B), LPARAM(0));
                 }
                 return LRESULT(1);
+            }
+        }
+        if k.vkCode == 0x20 {
+            use std::sync::atomic::Ordering::Relaxed;
+            if wp.0 as u32 == WM_KEYDOWN || wp.0 as u32 == WM_SYSKEYDOWN {
+                if SPACE_OK.load(Relaxed) {
+                    if !SPACE_DOWN.swap(true, Relaxed) {
+                        push(Ev::Space);
+                    }
+                    return LRESULT(1);
+                }
+            } else if SPACE_DOWN.swap(false, Relaxed) {
+                return LRESULT(1); // 눌림을 삼켰으면 뗌도 삼킨다
             }
         }
         let ok = TAB_OK.load(std::sync::atomic::Ordering::Relaxed);
@@ -736,6 +754,41 @@ struct TrimDoc {
     sel_end: bool, // 고른 손잡이가 끝인가
 }
 
+/// t 에서 within 초 안의 가장 가까운 장면 때
+fn near_mark(marks: &[f64], t: f64, within: f64) -> Option<f64> {
+    marks.iter().copied().filter(|m| (m - t).abs() <= within).min_by(|p, q| (p - t).abs().total_cmp(&(q - t).abs()))
+}
+
+/// 고른 손잡이를 정확히 t 로. 반대 손잡이를 넘어가면 반대쪽을 영상 끝(처음)으로 비켜 준다.
+fn move_handle(a: f64, b: f64, sel_end: bool, t: f64, dur: f64) -> (f64, f64) {
+    if sel_end {
+        let t = t.clamp(0.1_f64.min(dur), dur);
+        (if a <= t - 0.1 { a } else { 0.0 }, t)
+    } else {
+        let t = t.clamp(0.0, (dur - 0.1).max(0.0));
+        (t, if b >= t + 0.1 { b } else { dur })
+    }
+}
+
+#[cfg(test)]
+mod trim_handle_tests {
+    use super::{move_handle, near_mark};
+
+    #[test]
+    fn dot_moves_selected_handle_exactly() {
+        assert_eq!(move_handle(2.0, 8.0, false, 5.133, 10.0), (5.133, 8.0));
+        assert_eq!(move_handle(2.0, 8.0, true, 5.133, 10.0), (2.0, 5.133));
+        assert_eq!(move_handle(2.0, 5.0, false, 7.0, 10.0), (7.0, 10.0)); // 끝을 넘으면 끝은 영상 끝으로
+        assert_eq!(move_handle(5.0, 8.0, true, 3.0, 10.0), (0.0, 3.0));
+    }
+
+    #[test]
+    fn nearest_mark_within_reach() {
+        assert_eq!(near_mark(&[1.0, 2.0, 2.3], 2.2, 0.5), Some(2.3));
+        assert_eq!(near_mark(&[1.0], 2.2, 0.5), None);
+    }
+}
+
 /// 오른쪽 알림 물방울 내용
 struct Toast {
     title: String,
@@ -858,7 +911,8 @@ enum Hit {
     TrimSel(bool),    // 〃 손잡이 고르기(false 시작, true 끝)
     TrimNudge(bool, bool), // 〃 (끝인가, 늘리기인가) 1초씩
     TrimSave,         // 〃 잘라 저장
-    TrimPlay,         // 〃 재생·정지
+    TrimPlay,         // 〃 재생·일시정지
+    TrimDot(f32, f32), // 〃 장면 점 줄(왼쪽 x, 너비) — 누른 점의 때로
     TrimOther,        // 〃 다른 영상
     ClipCopyOpen,     // 펼친 그림 다시 복사
     ClipEdit,         // 펼친 그림 편집
@@ -959,6 +1013,7 @@ struct App {
     trim_recent: Vec<PathBuf>, // 최근 녹화(쪽을 열 때 읽는다)
     trim_bmp: Option<(f64, ID2D1Bitmap)>, // 고른 손잡이 자리 장면(때, 그림)
     trim_play: Option<trim::Player>,      // 미리보기 재생 중
+    trim_paused: Option<f64>,             // 〃 일시정지한 자리
     trim_scenes: Option<trim::Scenes>,    // 장면 바뀌는 곳 찾기
     trim_marks: (Vec<f64>, f64, bool),    // 〃 찾은 때, 훑은 데까지(초), 다 했나
     trim_job: Option<Arc<std::sync::atomic::AtomicU32>>, // 자르는 중(0…1000)
@@ -1039,8 +1094,12 @@ impl App {
         self.ticks += 1;
         // 영상 자르기: 쪽을 벗어나거나 다 틀었으면 재생을 멈추고, 장면 찾기가 나아가면 다시 그린다
         let shown = self.page == 7 && self.hover;
-        if self.trim_play.as_ref().is_some_and(|p| !shown || p.out.lock().unwrap().done) {
-            self.trim_stop();
+        if let Some(done) = self.trim_play.as_ref().map(|p| p.out.lock().unwrap().done) {
+            if done {
+                self.trim_stop();
+            } else if !shown {
+                self.trim_toggle(); // 쪽을 벗어나면 일시정지
+            }
         }
         if let Some(s) = &self.trim_scenes {
             let f = s.out.lock().unwrap();
@@ -3329,18 +3388,22 @@ impl App {
     /// 재생을 멈추고 고른 손잡이 장면으로 돌아간다
     fn trim_stop(&mut self) {
         self.trim_play = None;
+        self.trim_paused = None;
         self.trim_bmp = None;
         self.dirty = true;
     }
 
-    /// 시작~끝 구간을 미리 틀어 본다(소리 없음). 틀고 있으면 멈춘다.
+    /// 시작~끝 구간을 미리 틀어 본다. 틀고 있으면 그 자리에서 일시정지, 다시 부르면 이어서.
     fn trim_toggle(&mut self) {
-        if self.trim_play.is_some() {
-            return self.trim_stop();
+        self.dirty = true;
+        if let Some(p) = self.trim_play.take() {
+            self.trim_paused = Some(p.out.lock().unwrap().pos);
+            return;
         }
         if let Some(d) = &self.trim {
-            log("trim: 재생");
-            self.trim_play = Some(trim::play(&d.path, d.a, d.b));
+            let from = self.trim_paused.take().filter(|t| *t < d.b - 0.1).unwrap_or(d.a);
+            log(&format!("trim: 재생 {from:.1}"));
+            self.trim_play = Some(trim::play(&d.path, from, d.b));
         }
     }
 
@@ -3398,7 +3461,7 @@ impl App {
             }
             let g = &self.g;
             g.text("영상 자르기", &g.f_sub, l, 22.0, 300.0, FG, a, Align::Left);
-            g.para("영상을 고르고 시작·끝을 정하면 그 구간만 새 파일로 저장합니다.\n다시 굽지 않아 빠르고 화질이 그대로입니다(시작은 가까운 앞쪽 장면에 맞춰집니다).", &g.f_body, l, 54.0, r - l, FG, a * 0.6);
+            g.para("영상을 고르고 시작·끝을 정하면 그 구간만 새 파일로 저장합니다.\n앞부분을 자르면 고른 자리에서 정확히 시작하도록 다시 구워 저장합니다(조금 걸립니다).", &g.f_body, l, 54.0, r - l, FG, a * 0.6);
             pill(g, &mut hits, l, 104.0, "영상 고르기", 120.0, true, false, Hit::TrimPick);
             if !self.trim_recent.is_empty() {
                 g.text("최근 녹화", &g.f_tiny, l, 148.0, 200.0, FG, a * 0.5, Align::Left);
@@ -3422,18 +3485,17 @@ impl App {
         // 고른 손잡이 자리의 장면(바뀌었을 때만 다시 읽는다)
         let want = if sel_end { tb } else { ta };
         let playing = self.trim_play.as_ref().map(|p| {
-            let (frame, pos) = {
-                let mut o = p.out.lock().unwrap();
-                (o.frame.take(), o.pos)
-            };
-            (frame, pos)
+            let mut o = p.out.lock().unwrap();
+            (o.frame.take(), o.pos, o.silent)
         });
-        let head = playing.as_ref().map(|p| p.1);
-        if let Some((frame, pos)) = playing {
+        let running = playing.is_some();
+        let silent = playing.as_ref().is_some_and(|p| p.2);
+        let head = playing.as_ref().map(|p| p.1).or(self.trim_paused);
+        if let Some((frame, pos, _)) = playing {
             if let Some(b) = frame.and_then(|(px, fw, fh)| self.g.bitmap_bgra(&px, fw, fh).ok()) {
                 self.trim_bmp = Some((pos, b));
             }
-        } else if self.trim_bmp.as_ref().map_or(true, |(t, _)| (t - want).abs() > 0.05) {
+        } else if self.trim_paused.is_none() && self.trim_bmp.as_ref().map_or(true, |(t, _)| (t - want).abs() > 0.05) {
             let bmp = trim::frame_at(&path, want).and_then(|(px, fw, fh)| self.g.bitmap_bgra(&px, fw, fh).ok());
             self.trim_bmp = bmp.map(|b| (want, b));
         }
@@ -3453,7 +3515,8 @@ impl App {
             g.image(bmp, px0 + (pw - dw) / 2.0, py0 + (ph - dh) / 2.0, dw, dh, a);
         }
         let under = match head {
-            Some(t) => format!("재생 중 · {} (소리 없음)", ts(t)),
+            Some(t) if running => format!("재생 중 · {}{}", ts(t), if silent { " (소리 없음)" } else { "" }),
+            Some(t) => format!("일시정지 · {}", ts(t)),
             None => format!("{} 장면 · {}", if sel_end { "끝" } else { "시작" }, ts(want)),
         };
         g.text(&under, &g.f_tiny, px0, py0 + ph + 4.0, pw, FG, a * 0.5, Align::Left);
@@ -3467,7 +3530,7 @@ impl App {
         }
         g.text(&format!("남는 길이 {} / 전체 {}", ts(tb - ta), ts(dur)), &g.f_bar, cx, py0 + 88.0, r - cx, FG, a * 0.7, Align::Left);
         let busy = self.trim_job.is_some();
-        pill(g, &mut hits, cx, py0 + 116.0, if head.is_some() { "■ 정지" } else { "▶ 재생" }, 120.0, false, head.is_some(), Hit::TrimPlay);
+        pill(g, &mut hits, cx, py0 + 116.0, if running { "⏸ 일시정지" } else { "▶ 재생" }, 120.0, false, running, Hit::TrimPlay);
         pill(g, &mut hits, cx + 128.0, py0 + 116.0, if busy { "자르는 중…" } else { "잘라 저장" }, 120.0, true, false, Hit::TrimSave);
         let (marks, upto, found) = &self.trim_marks;
         let note = if !found {
@@ -3475,7 +3538,7 @@ impl App {
         } else if marks.is_empty() {
             "장면이 바뀌는 곳 없음".to_string()
         } else {
-            format!("장면 바뀜 {}곳 · 흰 점 가까이 누르면 딱 맞춤", marks.len())
+            format!("장면 {}곳 · 아래 점을 누르면 이동 · 스페이스 재생", marks.len())
         };
         g.text(&note, &g.f_tiny, px0 + pw + 22.0, py0 + ph + 4.0, r - cx, FG, a * 0.5, Align::Left);
         // 아래: 시간 막대(남길 구간 강조, 누르면 고른 손잡이를 그 자리로)
@@ -3487,15 +3550,21 @@ impl App {
             let on = sel_end == end;
             g.rrect(k(t) - 3.0, by, 6.0, 24.0, 3.0, if on { LIME } else { FG }, a * if on { 1.0 } else { 0.7 });
         }
+        // 점 줄: 마우스에 가장 가까운 점을 키워 어디로 갈지 보여 준다
+        let dots = [bx - 8.0, by + 21.0, bx + bw + 8.0, by + 40.0];
+        let aim = over(dots).then(|| near_mark(marks, ((mx - bx) / bw) as f64 * dur, 10.0 / bw as f64 * dur)).flatten();
         for &t in marks {
-            g.rrect(k(t) - 1.0, by + 3.0, 2.0, 18.0, 1.0, FG, a * 0.55);
-            g.rrect(k(t) - 2.5, by + 22.0, 5.0, 5.0, 2.5, FG, a * 0.9);
+            let hot = aim == Some(t);
+            let s = if hot { 13.0 } else { 8.0 };
+            g.rrect(k(t) - 1.0, by + 3.0, 2.0, 18.0, 1.0, if hot { LIME } else { FG }, a * if hot { 1.0 } else { 0.55 });
+            g.rrect(k(t) - s / 2.0, by + 29.0 - s / 2.0, s, s, s / 2.0, if hot { LIME } else { FG }, a * 0.95);
         }
+        hits.push((dots, Hit::TrimDot(bx, bw))); // 시간 막대보다 먼저 넣어야 겹친 곳에서 점이 이긴다
         if let Some(t) = head {
             g.rrect(k(t) - 1.5, by - 2.0, 3.0, 28.0, 1.5, FG, a);
         }
         let bar = [bx, by - 6.0, bx + bw, by + 30.0];
-        if over(bar) {
+        if over(bar) && !over(dots) {
             g.rrect(mx - 1.0, by + 2.0, 2.0, 20.0, 1.0, FG, a * 0.5);
         }
         hits.push((bar, Hit::TrimBar(bx, bw)));
@@ -4637,6 +4706,18 @@ impl App {
                 }
                 return self.tick();
             }
+            Hit::TrimDot(x0, bw) => {
+                let (mx, _) = self.mouse;
+                let Some(dur) = self.trim.as_ref().map(|d| d.dur) else { return };
+                let at = ((mx - x0) / bw) as f64 * dur;
+                // 점이 없는 곳을 눌렀으면 시간 막대를 누른 것으로
+                let t = near_mark(&self.trim_marks.0, at, 10.0 / bw as f64 * dur).unwrap_or(at.clamp(0.0, dur));
+                self.trim_stop();
+                if let Some(d) = self.trim.as_mut() {
+                    (d.a, d.b) = move_handle(d.a, d.b, d.sel_end, t, d.dur);
+                }
+                return self.tick();
+            }
             Hit::TrimBar(x0, bw) => {
                 let (mx, _) = self.mouse;
                 self.trim_stop();
@@ -4644,7 +4725,7 @@ impl App {
                     let t = (((mx - x0) / bw).clamp(0.0, 1.0) as f64) * d.dur;
                     // 장면 바뀌는 곳에서 6점 안을 누르면 그 자리에 딱 맞춘다
                     let near = 6.0 / bw.max(1.0) as f64 * d.dur;
-                    let t = self.trim_marks.0.iter().copied().filter(|m| (m - t).abs() <= near).min_by(|p, q| (p - t).abs().total_cmp(&(q - t).abs())).unwrap_or(t);
+                    let t = near_mark(&self.trim_marks.0, t, near).unwrap_or(t);
                     if d.sel_end { d.b = t.max(d.a + 0.5).min(d.dur) } else { d.a = t.min(d.b - 0.5).max(0.0) }
                 }
                 return self.tick();
@@ -4981,7 +5062,7 @@ impl App {
             Hit::Line(t) => Cmd::Seek(t as i64),
             Hit::Shuffle => Cmd::Shuffle,
             Hit::Repeat => Cmd::Repeat,
-            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::AiLogin(_) | Hit::AiOpen(_) | Hit::AiGuideClose | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSchool | Hit::EntSave | Hit::EntClose | Hit::SetOpen(_) | Hit::SetClose | Hit::SetChip(_) | Hit::SetOpt(_) | Hit::ClipItem(..) | Hit::ClipPin(_) | Hit::ClipUnpin(_) | Hit::ClipClear | Hit::ClipPage(_) | Hit::ShelfItem(_) | Hit::ShelfDel(_) | Hit::ShelfSend(_) | Hit::SendClose | Hit::XferGot(_) | Hit::XferOut(_) | Hit::XferFolder | Hit::XferMode(_) | Hit::LaunchRun(_) | Hit::LaunchDel(_) | Hit::LaunchAdd | Hit::Snap | Hit::Rec | Hit::ClipCopyOpen | Hit::ClipEdit | Hit::ClipFold | Hit::TrimPick | Hit::TrimRecent(_) | Hit::TrimBar(..) | Hit::TrimSel(_) | Hit::TrimNudge(..) | Hit::TrimSave | Hit::TrimPlay | Hit::TrimOther => return,
+            Hit::Page(_) | Hit::Layout | Hit::CalNav(_) | Hit::CalDay(_) | Hit::CalEv(..) | Hit::CalAdd | Hit::CalLogin | Hit::CalNaver | Hit::CalAcct | Hit::AiLogin(_) | Hit::AiOpen(_) | Hit::AiGuideClose | Hit::NaverOpen | Hit::NaverInput | Hit::NaverClose | Hit::Queue | Hit::QItem(_) | Hit::EntField | Hit::EntDay(_) | Hit::EntTime(_) | Hit::EntCal | Hit::EntAcct(_) | Hit::EntSeg(_) | Hit::EntSchool | Hit::EntSave | Hit::EntClose | Hit::SetOpen(_) | Hit::SetClose | Hit::SetChip(_) | Hit::SetOpt(_) | Hit::ClipItem(..) | Hit::ClipPin(_) | Hit::ClipUnpin(_) | Hit::ClipClear | Hit::ClipPage(_) | Hit::ShelfItem(_) | Hit::ShelfDel(_) | Hit::ShelfSend(_) | Hit::SendClose | Hit::XferGot(_) | Hit::XferOut(_) | Hit::XferFolder | Hit::XferMode(_) | Hit::LaunchRun(_) | Hit::LaunchDel(_) | Hit::LaunchAdd | Hit::Snap | Hit::Rec | Hit::ClipCopyOpen | Hit::ClipEdit | Hit::ClipFold | Hit::TrimPick | Hit::TrimRecent(_) | Hit::TrimBar(..) | Hit::TrimSel(_) | Hit::TrimNudge(..) | Hit::TrimSave | Hit::TrimPlay | Hit::TrimDot(..) | Hit::TrimOther => return,
         };
         let _ = self.tx.send(cmd);
     }
@@ -5281,6 +5362,7 @@ unsafe fn run() -> Result<()> {
         trim_recent: Vec::new(),
         trim_bmp: None,
         trim_play: None,
+        trim_paused: None,
         trim_scenes: None,
         trim_marks: (Vec::new(), 0.0, false),
         trim_job: None,
@@ -5761,6 +5843,10 @@ unsafe fn run() -> Result<()> {
                 Ev::Char(c) => app.ent_char(c),
                 Ev::Key(k) => app.ent_key(k),
                 Ev::Tab(d) => app.turn(d),
+                Ev::Space => {
+                    app.trim_toggle();
+                    app.tick()
+                }
                 Ev::Text(t) => {
                     if let Some(e) = app.ent.as_mut() {
                         e.seg = None; // 한글을 치면 제목 칸으로
@@ -5832,6 +5918,7 @@ unsafe fn run() -> Result<()> {
         }
         shelf::ON.store(menu::enabled(&app.cfg.pages).contains(&6), std::sync::atomic::Ordering::Relaxed);
         TAB_OK.store(app.hover && !TYPING.with(|t| t.get()), std::sync::atomic::Ordering::Relaxed);
+        SPACE_OK.store(app.hover && app.page == 7 && app.trim.is_some() && !TYPING.with(|t| t.get()), std::sync::atomic::Ordering::Relaxed);
         let anim = app.animating();
         if anim || app.dirty {
             let dt = if was_anim { last.elapsed().as_secs_f32() } else { 1.0 / 60.0 };
