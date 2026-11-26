@@ -97,7 +97,7 @@
           },
           {
             "type": "command",
-            "command": "[ -f tools/ensure_codex_guard.sh ] && bash tools/ensure_codex_guard.sh; [ -f tools/ensure_jjk_guard.sh ] && bash tools/ensure_jjk_guard.sh; exit 0",
+            "command": "[ -f tools/ensure_jjk_guard.sh ] && bash tools/ensure_jjk_guard.sh; exit 0",
             "timeout": 90,
             "statusMessage": "jjk-guard 모드 확인 중"
           }
