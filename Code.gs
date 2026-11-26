@@ -3770,7 +3770,8 @@ function _kiwoomNoticeOcr(apiItems, names) {
       const fix = s => s.split('').map((ch, i) => i !== 4 && /[OQD]/.test(ch) ? '0' : ch).join('');   // 글자는 다섯째 자리에만 온다(0198A0)
       const direct = [...flat.slice(flat.indexOf('종목코드')).matchAll(/(?<![0-9A-Za-z])([0-9OQD][0-9A-Z]{4}[0-9O])(?![0-9A-Za-z])/g)]
         .map(m => fix(m[1])).filter((c, i, a) => /\d/.test(c.slice(1)) && a.indexOf(c) === i);
-      console.log('KIWOOM 표 코드 직접 읽기: ' + direct.length + '개 (목록 대조 ' + codes.length + ') ' + direct.join(','));
+      console.log('KIWOOM 표 코드 직접 읽기: ' + direct.length + '개 (목록 대조 ' + codes.length + ') ' + direct.join(',')
+        + ' | 표 글: ' + flat.slice(flat.indexOf('종목코드'), flat.indexOf('종목코드') + 900));
       if (direct.length === amts.length) { direct.forEach(c => { if (!names[c]) names[c] = 'KIWOOM ' + c; }); codes = direct; }
     }
     const rates = [...flat.matchAll(/(\d+\.\d+)\s*%/g)].map(m => parseFloat(m[1]));
