@@ -3642,8 +3642,16 @@ function _kiwoomNoticeOcr(apiItems, names) {
     if (newestApi && newestApi >= noticeDay) return null;          // API 가 이미 이 공지 회차를 갖고 있다
     const page = UrlFetchApp.fetch(KIWOOM_BASE + '/service/notice/KO05020102T?noticeNo=' + n.no, KIWOOM_OPT).getContentText('UTF-8');
     const imgs = [...page.matchAll(/src="data:image\/[a-z]+;base64,([^"]+)"/g)].map(m => m[1]);
-    if (!imgs.length) { console.log('KIWOOM OCR: 공지 그림 없음 ' + n.no); return null; }
-    const text = imgs.map((b, i) => _ocrBytes(Utilities.base64Decode(b), 'ocr_kw_' + n.no + '_' + i)).join('\n');
+    // 2026-11-26 공지는 base64 그림이 일정표 1장뿐이었다 — 종목표가 주소로 건 그림일 수 있어 그것도 읽는다.
+    const urlImgs = [...page.matchAll(/<img[^>]+src="(?!data:)([^"]+)"/gi)].map(m => m[1].replace(/&amp;/g, '&'))
+      .filter(u => !/logo|icon|btn|common|header|footer|gnb|\.svg|\.gif/i.test(u))
+      .map(u => /^https?:/.test(u) ? u : KIWOOM_BASE + (u.charAt(0) === '/' ? '' : '/') + u);
+    console.log('KIWOOM 공지 그림: base64 ' + imgs.length + ' · 주소 ' + urlImgs.length + (urlImgs.length ? ' (' + urlImgs.slice(0, 4).join(' , ') + ')' : ''));
+    if (!imgs.length && !urlImgs.length) { console.log('KIWOOM OCR: 공지 그림 없음 ' + n.no); return null; }
+    const text = imgs.map((b, i) => _ocrBytes(Utilities.base64Decode(b), 'ocr_kw_' + n.no + '_' + i))
+      .concat(urlImgs.slice(0, 4).map((u, i) => { try { const r = UrlFetchApp.fetch(u, KIWOOM_OPT);
+        return r.getResponseCode() === 200 ? _ocrBytes(r.getBlob().getBytes(), 'ocr_kwu_' + n.no + '_' + i) : ''; } catch (e) { return ''; } }))
+      .join('\n');
     if (!text) { console.log('KIWOOM OCR: 글자 0 (' + _ocrDbg + ')'); return null; }
     const flat = text.replace(/\s+/g, ' ');
     let buy = (flat.match(/대상자\s*[:：]?\s*\d{4}\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/) || []);
