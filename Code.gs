@@ -6168,7 +6168,7 @@ function _exaoneTigerTest(key) {
 }
 // 대체 읽기 경로 그대로(캐시·일정 형식 맞춤까지) 시험 — 실제 저장·복구로그는 건드리지 않는다.
 function _exaoneFallbackTest() {
-  const h = fetchDist_hanaro(), n = _hanaroNotices().filter(x => /분배금\s*공지/.test(x.title))[0];
+  const h = fetchDist_hanaro(), n = _hanaroNotices().filter(x => /분배금/.test(x.title) && /\d{1,2}\s*월/.test(x.title) && !/변경|정정|중단|해지|청산|상장폐지|합병|분할|병합|전환|사전\s*안내/.test(x.title))[0];
   CacheService.getScriptCache().removeAll(['exa_test_hanaro', 'exa_test_tiger']);
   const a = _exaoneDistCached('test_hanaro', () => _hanaroNoticeText(n.id), '월 ');
   console.log('HANARO 파서 일정 ' + JSON.stringify(h.schedule) + ' · ' + h.items.length + '종목');
@@ -6182,7 +6182,7 @@ function _exaoneFallbackTest() {
 // 엑사원이 HANARO 최신 분배금 공지 본문에서 뽑은 값 ↔ 지금 파서(fetchDist_hanaro) 값 대조. 공개 공지라 금액을 로그에 남겨도 된다.
 function _exaoneNoticeTest() {
   const ref = fetchDist_hanaro();
-  const n = _hanaroNotices().filter(x => /분배금\s*공지/.test(x.title))[0];
+  const n = _hanaroNotices().filter(x => /분배금/.test(x.title) && /\d{1,2}\s*월/.test(x.title) && !/변경|정정|중단|해지|청산|상장폐지|합병|분할|병합|전환|사전\s*안내/.test(x.title))[0];
   if (!n) { console.log('HANARO 분배금 공지 없음'); return; }
   const text = _hanaroNoticeText(n.id);
   console.log('공지: ' + n.title + ' (' + n.date + ') · 본문 ' + text.length + '자 · 지금 파서 ' + (ref.items || []).length + '종목');
