@@ -562,7 +562,10 @@ public class MainActivity extends Activity {
     /** 이름도 제조사도 없는 블루투스 신호: 비콘·가전·주소를 바꾸는 기기 조각이 대부분이라 기본은 숨김 */
     static boolean noise(Dev d) { return !d.wifi && !d.named && maker(d.manu) == null; }
 
-    boolean isAlert(Dev d, long now) { return rawAlert(d, now) && (showUnknown || !noise(d)); }
+    /** 이름 없는 신호라도 아주 가깝고(약 2m 안) 30초 넘게 머물면 책상 위 기기일 수 있어 경고한다 */
+    static boolean closeAndStaying(Dev d, long now) { return d.ema >= -62 && now - d.firstSeen >= 30_000; }
+
+    boolean isAlert(Dev d, long now) { return rawAlert(d, now) && (showUnknown || !noise(d) || closeAndStaying(d, now)); }
 
     /** 같은 이름(또는 같은 제조사의 이름 없는 기기)은 한 줄로 묶는다 */
     static String groupKey(Dev d) {
@@ -902,7 +905,7 @@ public class MainActivity extends Activity {
         List<Dev> alerts = new ArrayList<>();
         int baseSeen = 0, hidden = 0;
         for (Dev d : devs.values()) {
-            if (!showUnknown && noise(d) && rawAlert(d, now)) hidden++;
+            if (!showUnknown && noise(d) && rawAlert(d, now) && !closeAndStaying(d, now)) hidden++;
             if (isAlert(d, now)) { alerts.add(d); logAlert(d, now); }
             else if (baseline.contains(d.key) && now - d.lastSeen < GONE_MS) baseSeen++;
         }
