@@ -107,8 +107,95 @@ public class MainActivity extends Activity {
 
     int loc() { return grade * 100 + room; }
 
+    // 학년·반이 아닌 곳(교무실·과학실 등): 학년 자리에 9, 위치 코드 = 900 + 순번
+    static final ArrayList<String> places = new ArrayList<>();
+
     static String roomName(int code) {
+        if (code >= 900) { int i = code - 901; return i >= 0 && i < places.size() ? places.get(i) : "장소 " + (i + 1); }
         return code >= 100 ? (code / 100) + "학년 " + (code % 100) + "반" : code + "반";
+    }
+
+    void loadPlaces() {
+        places.clear();
+        try {
+            org.json.JSONArray a = new org.json.JSONArray(prefs.getString("places", "[]"));
+            for (int i = 0; i < a.length(); i++) places.add(a.getString(i));
+        } catch (Exception ignored) { }
+    }
+
+    void savePlaces() { prefs.edit().putString("places", new org.json.JSONArray(places).toString()).apply(); }
+
+    int placeCode(String name) {
+        name = name.trim();
+        int i = places.indexOf(name);
+        if (i < 0) { places.add(name); savePlaces(); i = places.size() - 1; }
+        return 901 + i;
+    }
+
+    void choose(int code) {
+        grade = code / 100; room = code % 100;
+        prefs.edit().putInt("grade", grade).putInt("room", room).apply();
+        render(System.currentTimeMillis());
+    }
+
+    /** 학년 버튼 1·2·3 + '기타 장소' */
+    void addGradeButtons(LinearLayout row, Button[] arr) {
+        for (int gi = 0; gi < 4; gi++) {
+            final int gg = gi + 1;
+            arr[gi] = btn(gi < 3 ? gg + "학년" : "기타 장소", NAVY, WHITE);
+            arr[gi].setTextSize(gi < 3 ? 16 : 14);
+            arr[gi].setOnClickListener(v -> { if (gg <= 3) choose(gg * 100 + 1); else pickPlace(); });
+            row.addView(arr[gi], weighted(dp(46), gi == 0 ? 0 : dp(6)));
+        }
+    }
+
+    void styleGradeButtons(Button[] arr) {
+        for (int i = 0; i < 4; i++) {
+            boolean on = i < 3 ? grade == i + 1 : grade == 9;
+            styleBtn(arr[i], on ? WHITE : NAVY, on ? NAVY : WHITE);
+        }
+    }
+
+    void pickPlace() {
+        String[] items = new String[places.size() + 1];
+        for (int i = 0; i < places.size(); i++) items[i] = places.get(i);
+        items[places.size()] = "+ 새 장소 추가 (교무실, 과학실 등)";
+        new AlertDialog.Builder(this).setTitle("어느 곳인가요?")
+                .setItems(items, (d, w) -> { if (w < places.size()) choose(901 + w); else askPlaceName(code -> choose(code)); })
+                .show();
+    }
+
+    interface CodeCb { void on(int code); }
+
+    /** 이름을 받아 위치 코드로: "2학년 3반"·"2-3"이면 반, 아니면 장소 */
+    void askPlaceName(CodeCb cb) {
+        android.widget.EditText et = new android.widget.EditText(this);
+        et.setHint("예: 교무실, 2학년 3반, 2-3");
+        et.setSingleLine(true);
+        new AlertDialog.Builder(this).setTitle("곳 이름").setView(et)
+                .setPositiveButton("확인", (d, w) -> {
+                    String s = et.getText().toString().trim();
+                    if (s.isEmpty()) return;
+                    java.util.regex.Matcher m = java.util.regex.Pattern.compile("^([1-3])\\s*(?:학년|-)\\s*(\\d{1,2})\\s*반?$").matcher(s);
+                    if (m.find()) cb.on(Integer.parseInt(m.group(1)) * 100 + Integer.parseInt(m.group(2)));
+                    else cb.on(placeCode(s));
+                })
+                .setNegativeButton("취소", null).show();
+    }
+
+    /** 잘못된 곳에 저장된 기준을 맞는 곳으로 옮긴다(이미 있으면 합친다) */
+    void moveRoom(int from, int to) {
+        if (from == to) return;
+        RoomBase src = rooms.remove(from);
+        if (src == null) return;
+        RoomBase dst = roomOf(to);
+        dst.keys.addAll(src.keys);
+        dst.fp.putAll(src.fp);
+        dst.t = Math.max(dst.t, src.t);
+        rebuildBaseline();
+        saveRooms();
+        toast(roomLabel(from) + " → " + roomLabel(to) + " 로 옮겼습니다.");
+        render(System.currentTimeMillis());
     }
     long lastWifiScanOk = 0, lastWifiResult = 0, bleStartedAt = 0;
     boolean wifiThrottled = false;
@@ -130,7 +217,7 @@ public class MainActivity extends Activity {
     LinearLayout list;
     Button btnBase, btnWatch, btnRange, btnSound, btnAck, btnPatrol, btnUpdate;
     LinearLayout patrolBox;
-    final Button[] gradeBtns = new Button[3];
+    final Button[] gradeBtns = new Button[4];
     Button btnMeasure;
     TextView roomText, topText;
     Button tabWifi, tabBle, tabAll;
@@ -152,6 +239,7 @@ public class MainActivity extends Activity {
         room = prefs.getInt("room", 1);
         grade = prefs.getInt("grade", 1);
         loadLog();
+        loadPlaces();
         loadRooms();
         wifi = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
         vib = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
@@ -636,7 +724,7 @@ public class MainActivity extends Activity {
         buzz(new long[]{0, 80});
         if (sound && tone != null) tone.startTone(ToneGenerator.TONE_PROP_ACK, 150);
         toast(roomName(loc()) + " 앞 측정 끝 (신호 " + n + "개). 다음 반으로 넘어갑니다.");
-        setRoom(room + 1);
+        if (grade != 9) setRoom(room + 1); else render(System.currentTimeMillis());
     }
 
     /** 순회 판정: 가장 센 교실과 두 번째 교실의 차이로 '확실/가능성 높음/애매'를 붙인다 */
@@ -821,7 +909,12 @@ public class MainActivity extends Activity {
      */
     static String nameKey(Dev d) {
         if (d.name == null) return null;
-        if (d.wifi) return d.name.equals("(이름 숨김)") ? null : "S:" + d.name;
+        if (d.wifi) {
+            if (d.name.equals("(이름 숨김)")) return null;
+            // 임의 주소(휴대폰 핫스팟)는 이름 열쇠를 따로 둔다.
+            // 학생이 핫스팟 이름을 학교 와이파이와 똑같이 지어도, 학교 공유기(고유 주소) 이름과는 맞지 않아 경고가 뜬다.
+            return (isRandomMac(d) ? "SR:" : "S:") + d.name;
+        }
         return d.named ? "N:" + d.name : null;
     }
 
@@ -838,6 +931,10 @@ public class MainActivity extends Activity {
             if ((b0 & 0x02) != 0) return null; // 임의 주소(휴대폰 핫스팟 등)는 제외
         } catch (Exception e) { return null; }
         return "O:" + mac.substring(0, 8);
+    }
+
+    static boolean isRandomMac(Dev d) {
+        try { return (Integer.parseInt(d.key.substring(2, 4), 16) & 0x02) != 0; } catch (Exception e) { return false; }
     }
 
     void addBase(Dev d) {
@@ -905,6 +1002,7 @@ public class MainActivity extends Activity {
         o.put("baseSeen", new org.json.JSONObject(prefs.getString("baseSeen", "{}")));
         o.put("log", new org.json.JSONArray(prefs.getString("log", "[]")));
         o.put("watchStart", watchStart);
+        o.put("places", new org.json.JSONArray(places));
         org.json.JSONObject s = new org.json.JSONObject();
         s.put("patrol", patrol); s.put("wide", wide); s.put("sound", sound); s.put("grade", grade); s.put("room", room);
         o.put("settings", s);
@@ -963,7 +1061,11 @@ public class MainActivity extends Activity {
                 while (it.hasNext()) {
                     String code = it.next();
                     org.json.JSONObject r = rs.getJSONObject(code);
-                    RoomBase rb = roomOf(Integer.parseInt(code));
+                    int c = Integer.parseInt(code);
+                    // 장소(교무실 등)는 순번이 태블릿마다 다를 수 있어 이름으로 다시 맞춘다
+                    org.json.JSONArray pl = o.optJSONArray("places");
+                    if (c >= 901 && pl != null && c - 901 < pl.length()) c = placeCode(pl.getString(c - 901));
+                    RoomBase rb = roomOf(c);
                     rb.t = Math.max(rb.t, r.optLong("t"));
                     org.json.JSONArray ka = r.optJSONArray("k");
                     if (ka != null) for (int i = 0; i < ka.length(); i++) rb.keys.add(ka.getString(i));
@@ -1026,8 +1128,10 @@ public class MainActivity extends Activity {
     void saveLog() {
         try {
             org.json.JSONArray a = new org.json.JSONArray();
-            for (Rec r : log.values()) {
+            for (Map.Entry<String, Rec> en : log.entrySet()) {
+                Rec r = en.getValue();
                 org.json.JSONObject o = new org.json.JSONObject();
+                o.put("g", en.getKey());
                 o.put("n", r.name); o.put("k", r.kind); o.put("w", r.wifi); o.put("p", r.phone); o.put("i", r.ignored);
                 o.put("f", r.first); o.put("l", r.last); o.put("pk", r.peak); o.put("r", r.room);
                 a.put(o);
@@ -1046,8 +1150,11 @@ public class MainActivity extends Activity {
                 r.name = o.optString("n"); r.kind = o.optString("k"); r.wifi = o.optBoolean("w"); r.phone = o.optBoolean("p");
                 r.ignored = o.optBoolean("i"); r.first = o.optLong("f"); r.last = o.optLong("l");
                 r.peak = o.optDouble("pk", -999); r.room = o.optInt("r", -1);
-                log.put((r.wifi ? "W" : "B") + i, r);
+                // 0.15 이전 기록의 반 정보는 실제로 재지 않고 '선택된 반'이 들어간 것이라 한 번 비운다
+                if (!prefs.getBoolean("logRoomFix1", false)) r.room = -1;
+                log.put(o.optString("g", (r.wifi ? "W" : "B") + i), r);
             }
+            if (!prefs.getBoolean("logRoomFix1", false)) { prefs.edit().putBoolean("logRoomFix1", true).apply(); saveLog(); }
         } catch (Exception ignored) { }
     }
 
@@ -1156,7 +1263,7 @@ public class MainActivity extends Activity {
     }
 
     void setRoom(int r) {
-        room = Math.max(1, Math.min(30, r));
+        room = Math.max(1, Math.min(grade == 9 ? Math.max(1, places.size()) : 30, r));
         prefs.edit().putInt("room", room).apply();
         render(System.currentTimeMillis());
     }
@@ -1294,9 +1401,8 @@ public class MainActivity extends Activity {
         btnRange.setVisibility(patrol ? View.GONE : View.VISIBLE);
         patrolBox.setVisibility(patrol ? View.VISIBLE : View.GONE);
         if (patrol) {
-            roomText.setText(roomName(loc()) + " 앞");
-            for (int g = 0; g < 3; g++)
-                styleBtn(gradeBtns[g], grade == g + 1 ? WHITE : NAVY, grade == g + 1 ? NAVY : WHITE);
+            roomText.setText(roomName(loc()) + (grade == 9 ? "" : " 앞"));
+            styleGradeButtons(gradeBtns);
             if (measuring) {
                 btnMeasure.setText("재는 중 " + (now - measureStart) / 1000 + "초 · 가만히 서 계세요 (5~15초)");
                 btnMeasure.setEnabled(false);
@@ -1522,7 +1628,7 @@ public class MainActivity extends Activity {
     TextView baseHead, baseRoomText, logText;
     Button btnSurvey;
     final Button[] pageBtns = new Button[3];
-    final Button[] gradeBtns2 = new Button[3];
+    final Button[] gradeBtns2 = new Button[4];
     int page = 0; // 0 감시, 1 기준, 2 기록
 
     void setPage(int p) {
@@ -1658,7 +1764,7 @@ public class MainActivity extends Activity {
         saveRooms();
         buzz(new long[]{0, 80});
         toast(roomName(surveyCode) + " 기준 " + n + "개 저장" + (patrol ? ". 다음 반으로 넘어갑니다." : "."));
-        if (patrol) setRoom(room + 1); else render(now);
+        if (patrol && grade != 9) setRoom(room + 1); else render(now);
     }
 
     void removeRoom(int code) {
@@ -1680,8 +1786,8 @@ public class MainActivity extends Activity {
 
     void renderBasePane(long now) {
         baseHead.setText("누적 기준: 신호 " + baseCount() + "개 · " + rooms.size() + "곳\n30일 동안 한 번도 안 잡힌 항목은 자동으로 지워집니다.");
-        baseRoomText.setText(roomName(loc()) + (patrol ? " 앞" : " 교실"));
-        for (int i = 0; i < 3; i++) styleBtn(gradeBtns2[i], grade == i + 1 ? WHITE : NAVY, grade == i + 1 ? NAVY : WHITE);
+        baseRoomText.setText(roomName(loc()) + (grade == 9 ? "" : patrol ? " 앞" : " 교실"));
+        styleGradeButtons(gradeBtns2);
         if (surveying) {
             btnSurvey.setText("재는 중 " + Math.max(1, (surveyEnd - now + 999) / 1000) + "초 · 가만히 서 계세요");
             btnSurvey.setEnabled(false);
@@ -1714,6 +1820,14 @@ public class MainActivity extends Activity {
                 again.setOnClickListener(v -> { grade = code / 100; room = code % 100;
                     prefs.edit().putInt("grade", grade).putInt("room", room).apply(); startSurvey(true); });
                 r.addView(again, new LinearLayout.LayoutParams(-2, dp(40)));
+            }
+            if (code != ROOM_IGNORED) {
+                Button mvB = btn("곳 바꾸기", NAVY, SKY);
+                mvB.setTextSize(13);
+                mvB.setOnClickListener(v -> askPlaceName(to -> moveRoom(code, to)));
+                LinearLayout.LayoutParams mlp2 = new LinearLayout.LayoutParams(-2, dp(40));
+                mlp2.leftMargin = dp(8);
+                r.addView(mvB, mlp2);
             }
             Button del = btn("지우기", NAVY, ORANGE);
             del.setTextSize(13);
@@ -1902,17 +2016,7 @@ public class MainActivity extends Activity {
         sr.addView(snext, new LinearLayout.LayoutParams(dp(64), dp(64)));
         sbox.addView(sr);
         LinearLayout sg = new LinearLayout(this);
-        for (int gi = 0; gi < 3; gi++) {
-            final int gg = gi + 1;
-            gradeBtns2[gi] = btn(gg + "학년", NAVY, WHITE);
-            gradeBtns2[gi].setTextSize(16);
-            gradeBtns2[gi].setOnClickListener(v -> {
-                grade = gg; room = 1;
-                prefs.edit().putInt("grade", grade).putInt("room", room).apply();
-                render(System.currentTimeMillis());
-            });
-            sg.addView(gradeBtns2[gi], weighted(dp(46), gi == 0 ? 0 : dp(8)));
-        }
+        addGradeButtons(sg, gradeBtns2);
         LinearLayout.LayoutParams sglp = new LinearLayout.LayoutParams(-1, -2);
         sglp.topMargin = dp(8);
         sbox.addView(sg, sglp);
@@ -2003,17 +2107,7 @@ public class MainActivity extends Activity {
         rr.addView(next, new LinearLayout.LayoutParams(dp(64), dp(64)));
         patrolBox.addView(rr);
         LinearLayout gr = new LinearLayout(this);
-        for (int gi = 0; gi < 3; gi++) {
-            final int gg = gi + 1;
-            gradeBtns[gi] = btn(gg + "학년", NAVY, WHITE);
-            gradeBtns[gi].setTextSize(16);
-            gradeBtns[gi].setOnClickListener(v -> {
-                grade = gg; room = 1;
-                prefs.edit().putInt("grade", grade).putInt("room", room).apply();
-                render(System.currentTimeMillis());
-            });
-            gr.addView(gradeBtns[gi], weighted(dp(46), gi == 0 ? 0 : dp(8)));
-        }
+        addGradeButtons(gr, gradeBtns);
         LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(-1, -2);
         glp.topMargin = dp(8);
         patrolBox.addView(gr, glp);
