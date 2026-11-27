@@ -1,0 +1,6 @@
+url: https://kbam.co.kr/support/notice/855
+at: 2026-11-27 10:38:49
+status: 200
+type: text/html; charset=utf-8
+final: https://kbam.co.kr/support/notice/855
+bytes: 82603
