@@ -99,7 +99,14 @@ public class MainActivity extends Activity {
     boolean wide = false, sound = false;
     String findKey = null;
     boolean patrol = false;   // 복도 순회 모드
-    int room = 1;             // 순회: 지금 서 있는 교실 번호
+    int room = 1;             // 순회: 지금 서 있는 반 번호
+    int grade = 1;            // 순회: 학년 (위치 코드 = 학년×100 + 반)
+
+    int loc() { return grade * 100 + room; }
+
+    static String roomName(int code) {
+        return code >= 100 ? (code / 100) + "학년 " + (code % 100) + "반" : code + "반";
+    }
     long lastWifiScanOk = 0, lastWifiResult = 0, bleStartedAt = 0;
     boolean wifiThrottled = false;
 
@@ -120,6 +127,7 @@ public class MainActivity extends Activity {
     LinearLayout list;
     Button btnBase, btnWatch, btnRange, btnSound, btnAck, btnPatrol, btnUpdate;
     LinearLayout patrolBox;
+    final Button[] gradeBtns = new Button[3];
     Button btnMeasure;
     TextView roomText, topText;
     Button tabWifi, tabBle, tabAll;
@@ -139,6 +147,7 @@ public class MainActivity extends Activity {
         sound = prefs.getBoolean("sound", false);
         patrol = prefs.getBoolean("patrol", true); // 주로 복도 순회로 쓴다(사용자)
         room = prefs.getInt("room", 1);
+        grade = prefs.getInt("grade", 1);
         loadLog();
         wifi = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
         vib = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
@@ -535,8 +544,12 @@ public class MainActivity extends Activity {
         while (d.hist.size() > 40) d.hist.remove(0);
         if (mode == MODE_BASELINE) addBase(d);
         if (patrol && mode == MODE_WATCH) {
-            Double p = d.roomPeak.get(room);
-            if (p == null || d.ema > p) d.roomPeak.put(room, d.ema);
+            Double p = d.roomPeak.get(loc());
+            if (p == null || d.ema > p) d.roomPeak.put(loc(), d.ema);
+        }
+        if (dirScanning && d.key.equals(findKey)) {
+            int b = ((int) (azimuth / 30)) % 12;
+            binSum[b] += rssi; binN[b]++;
         }
         if (measuring) {
             ArrayList<Integer> l = mbuf.get(d.key);
@@ -547,9 +560,20 @@ public class MainActivity extends Activity {
 
     // ───────────────────────── 순회: 멈춰서 재기 ─────────────────────────
 
-    static final int MEASURE_MS = 8000;
+    // 고정 시간 대신 '충분히 모이면' 끝낸다: 최소 5초, 최대 15초.
+    // 블루투스는 1초에 여러 번 와서 금방 15개가 차고, 와이파이는 4초마다 1번이라 3번 모이려면 12초쯤 걸린다.
+    static final int MEASURE_MS = 15000, MEASURE_MIN_MS = 5000;
     boolean measuring = false;
-    long measureEnd = 0;
+    long measureEnd = 0, measureStart = 0;
+
+    boolean enoughSamples(long now) {
+        for (Dev d : devs.values()) {
+            if (!isAlert(d, now)) continue;
+            ArrayList<Integer> l = mbuf.get(d.key);
+            if (l == null || l.size() < (d.wifi ? 3 : 15)) return false;
+        }
+        return true;
+    }
     final Map<String, ArrayList<Integer>> mbuf = new HashMap<>();
 
     void startMeasure() {
@@ -557,12 +581,13 @@ public class MainActivity extends Activity {
         if (measuring) return;
         mbuf.clear();
         measuring = true;
-        measureEnd = System.currentTimeMillis() + MEASURE_MS;
+        measureStart = System.currentTimeMillis();
+        measureEnd = measureStart + MEASURE_MS;
         kickWifiScan();
         render(System.currentTimeMillis());
     }
 
-    /** 8초 동안 모은 값의 '가운데 값'(중앙값)을 그 교실 값으로 쓴다. 순간적으로 튀는 값에 덜 흔들린다. */
+    /** 재는 동안 모은 값의 '가운데 값'(중앙값)을 그 교실 값으로 쓴다. 순간적으로 튀는 값에 덜 흔들린다. */
     void finishMeasure() {
         measuring = false;
         int n = 0;
@@ -572,13 +597,13 @@ public class MainActivity extends Activity {
             if (d == null || l.isEmpty() || (!d.wifi && l.size() < 2)) continue;
             Collections.sort(l);
             double med = l.size() % 2 == 1 ? l.get(l.size() / 2) : (l.get(l.size() / 2 - 1) + l.get(l.size() / 2)) / 2.0;
-            d.roomMed.put(room, med);
+            d.roomMed.put(loc(), med);
             n++;
         }
         mbuf.clear();
         buzz(new long[]{0, 80});
         if (sound && tone != null) tone.startTone(ToneGenerator.TONE_PROP_ACK, 150);
-        toast(room + "반 앞 측정 끝 (신호 " + n + "개). 다음 교실로 넘어갑니다.");
+        toast(roomName(loc()) + " 앞 측정 끝 (신호 " + n + "개). 다음 반으로 넘어갑니다.");
         setRoom(room + 1);
     }
 
@@ -593,10 +618,10 @@ public class MainActivity extends Activity {
             else if (v > v2) { b2 = e.getKey(); v2 = v; }
         }
         String src = d.roomMed.isEmpty() ? " · 걸으며 본 값" : "";
-        if (b2 < 0) return "가장 센 곳: " + b1 + "반 앞 (옆 교실도 재야 확실해집니다)" + src;
+        if (b2 < 0) return "가장 센 곳: " + roomName(b1) + " 앞 (옆 반도 재야 확실해집니다)" + src;
         double diff = v1 - v2;
-        String c = diff >= 6 ? "확실" : diff >= 3 ? "가능성 높음" : "애매 · " + b1 + "반과 " + b2 + "반 다시 재기";
-        return "가장 센 곳: " + b1 + "반 앞 (" + c + ", " + b2 + "반보다 " + Math.round(diff) + "dB 셈)" + src;
+        String c = diff >= 6 ? "확실" : diff >= 3 ? "가능성 높음" : "애매 · " + roomName(b1) + "과 " + roomName(b2) + " 다시 재기";
+        return "가장 센 곳: " + roomName(b1) + " 앞 (" + c + ", " + roomName(b2) + "보다 " + Math.round(diff) + "dB 셈)" + src;
     }
 
     // ───────────────────────── 판단 ─────────────────────────
@@ -693,7 +718,7 @@ public class MainActivity extends Activity {
             if (ble != null && now - bleStartedAt > 20 * 60_000L) { stopBle(); startBle(); }
             if (ble == null && hasPerms() && tickN % 5 == 0) startBle();
             if (mode == MODE_BASELINE && now >= baselineEnd) finishBaseline();
-            if (measuring && now >= measureEnd) finishMeasure();
+            if (measuring && (now >= measureEnd || (now - measureStart >= MEASURE_MIN_MS && enoughSamples(now)))) finishMeasure();
             // 오래 안 보인 항목 정리
             devs.values().removeIf(d -> now - d.lastSeen > 10 * 60_000L);
             render(now);
@@ -856,7 +881,7 @@ public class MainActivity extends Activity {
         if (!byRoom.isEmpty()) {
             s.append("\n교실별(순회):\n");
             for (Map.Entry<Integer, Integer> e : byRoom.entrySet())
-                s.append(" · ").append(e.getKey()).append("반 앞 ").append(e.getValue()).append("개\n");
+                s.append(" · ").append(roomName(e.getKey())).append(" 앞 ").append(e.getValue()).append("개\n");
         }
         if (!log.isEmpty()) {
             s.append("\n처음 본 순서:\n");
@@ -864,7 +889,7 @@ public class MainActivity extends Activity {
             for (Rec r : log.values()) {
                 if (++n > 15) { s.append(" … 나머지는 파일에 있습니다\n"); break; }
                 s.append(" ").append(hm(r.first)).append(" ").append(r.wifi ? "[와이파이] " : "[블루투스] ").append(r.name)
-                        .append(r.room > 0 ? " · " + r.room + "반 앞" : "").append(r.ignored ? " (무시)" : "").append("\n");
+                        .append(r.room > 0 ? " · " + roomName(r.room) + " 앞" : "").append(r.ignored ? " (무시)" : "").append("\n");
             }
         }
         return s.toString();
@@ -882,7 +907,7 @@ public class MainActivity extends Activity {
                     .append(r.wifi ? "와이파이" : "블루투스").append(',')
                     .append(q(r.name)).append(',').append(q(r.kind)).append(',')
                     .append(Math.round(r.peak)).append(',')
-                    .append(r.room > 0 ? r.room + "반 앞" : "").append(',')
+                    .append(r.room > 0 ? roomName(r.room) + " 앞" : "").append(',')
                     .append(r.ignored ? "무시" : "").append('\n');
         }
         return s.toString();
@@ -941,6 +966,9 @@ public class MainActivity extends Activity {
     }
 
     void ignore(Dev d) {
+        // 한 줄로 묶인 기기(예: "삼성 기기 ×3")는 묶음 전체를 무시한다
+        String g = groupKey(d);
+        for (Dev o : devs.values()) if (groupKey(o).equals(g)) addBase(o);
         addBase(d);
         saveBaseline();
         Rec r = log.get(groupKey(d));
@@ -1041,13 +1069,15 @@ public class MainActivity extends Activity {
         btnRange.setVisibility(patrol ? View.GONE : View.VISIBLE);
         patrolBox.setVisibility(patrol ? View.VISIBLE : View.GONE);
         if (patrol) {
-            roomText.setText(room + "반 앞");
+            roomText.setText(roomName(loc()) + " 앞");
+            for (int g = 0; g < 3; g++)
+                styleBtn(gradeBtns[g], grade == g + 1 ? WHITE : NAVY, grade == g + 1 ? NAVY : WHITE);
             if (measuring) {
-                btnMeasure.setText("재는 중 " + Math.max(1, (measureEnd - now + 999) / 1000) + "초 · 가만히 서 계세요");
+                btnMeasure.setText("재는 중 " + (now - measureStart) / 1000 + "초 · 가만히 서 계세요 (5~15초)");
                 btnMeasure.setEnabled(false);
                 styleBtn(btnMeasure, LIME, NAVY);
             } else {
-                btnMeasure.setText("여기서 재기 (8초)");
+                btnMeasure.setText("여기서 재기");
                 btnMeasure.setEnabled(true);
                 styleBtn(btnMeasure, SKY, NAVY);
             }
@@ -1149,8 +1179,100 @@ public class MainActivity extends Activity {
         return r;
     }
 
+    // ───────────────────────── 가까이 찾기: 최고점 기억·방향 찾기 ─────────────────────────
+
+    double findPeak = -999;
+    android.hardware.SensorManager sm;
+    float azimuth = 0;
+    boolean dirScanning = false;
+    long dirEnd = 0;
+    final double[] binSum = new double[12];
+    final int[] binN = new int[12];
+    double bestAz = Double.NaN;
+    TextView arrow, dirText;
+    Button btnDir;
+    final float[] rotM = new float[9], ori = new float[3];
+
+    final android.hardware.SensorEventListener rotL = new android.hardware.SensorEventListener() {
+        @Override public void onSensorChanged(android.hardware.SensorEvent e) {
+            android.hardware.SensorManager.getRotationMatrixFromVector(rotM, e.values);
+            android.hardware.SensorManager.getOrientation(rotM, ori);
+            azimuth = (float) ((Math.toDegrees(ori[0]) + 360) % 360);
+            if (arrow != null && !Double.isNaN(bestAz)) arrow.setRotation((float) (bestAz - azimuth));
+        }
+        @Override public void onAccuracyChanged(android.hardware.Sensor s, int a) { }
+    };
+
+    android.hardware.Sensor rotSensor() {
+        if (sm == null) sm = (android.hardware.SensorManager) getSystemService(Context.SENSOR_SERVICE);
+        return sm == null ? null : sm.getDefaultSensor(android.hardware.Sensor.TYPE_ROTATION_VECTOR);
+    }
+
+    /** 몸이 등 뒤 신호를 가리는 것을 이용: 태블릿을 가슴 앞에 들고 한 바퀴 돌면 가장 센 쪽이 기기 방향 */
+    void startDir() {
+        if (rotSensor() == null) { toast("이 기기는 나침반 센서가 없어 방향 찾기를 할 수 없습니다."); return; }
+        java.util.Arrays.fill(binSum, 0); java.util.Arrays.fill(binN, 0);
+        bestAz = Double.NaN;
+        arrow.setVisibility(View.INVISIBLE);
+        dirScanning = true;
+        dirEnd = System.currentTimeMillis() + 12_000;
+        kickWifiScan();
+    }
+
+    void finishDir() {
+        dirScanning = false;
+        int covered = 0, best = -1; double bv = -999;
+        for (int i = 0; i < 12; i++) {
+            if (binN[i] == 0) continue;
+            covered++;
+            double avg = binSum[i] / binN[i];
+            if (avg > bv) { bv = avg; best = i; }
+        }
+        if (covered < 6 || best < 0) {
+            dirText.setText("한 바퀴를 다 돌지 못했거나 신호가 적었습니다. 더 천천히 다시 돌아 주세요.");
+            return;
+        }
+        bestAz = best * 30 + 15;
+        arrow.setVisibility(View.VISIBLE);
+        dirText.setText("화살표 쪽이 가장 셉니다. 그쪽으로 몇 걸음 간 뒤 다시 '방향 찾기'를 하세요.");
+        buzz(new long[]{0, 80, 60, 80});
+    }
+
+    /** 가까이에서는 0.5m 단위로 보여 준다(그래도 신호 세기 기반이라 대략값) */
+    static String fineDist(double m) {
+        if (m < 0.5) return "0.5m 안";
+        if (m < 3) return String.format(Locale.KOREA, "약 %.1fm", Math.round(m * 2) / 2.0);
+        return distText(m);
+    }
+
+    String peakLine(Dev d) {
+        if (d.ema > findPeak) findPeak = d.ema;
+        double gap = findPeak - d.ema;
+        return "최고 " + Math.round(findPeak) + " · 지금 " + Math.round(d.ema) + " dBm  →  "
+                + (gap <= 2 ? "가장 가까웠던 지점 근처입니다" : "최고점보다 " + Math.round(gap) + "dB 약함, 왔던 쪽으로 돌아가 보세요") + "\n";
+    }
+
+    final Runnable fastFind = new Runnable() {
+        @Override public void run() {
+            if (findKey == null) return;
+            long now = System.currentTimeMillis();
+            if (dirScanning && now >= dirEnd) finishDir();
+            renderFinder(now);
+            h.postDelayed(this, 300);
+        }
+    };
+
     void openFinder(String key) {
         findKey = key;
+        findPeak = -999;
+        bestAz = Double.NaN;
+        dirScanning = false;
+        if (arrow != null) arrow.setVisibility(View.INVISIBLE);
+        if (dirText != null) dirText.setText("의심 기기 쪽을 모르면: 태블릿을 화면이 위를 보게 가슴 앞에 평평하게 들고 '방향 찾기'를 누른 뒤 제자리에서 천천히 한 바퀴 도세요.");
+        android.hardware.Sensor rs = rotSensor();
+        if (rs != null) sm.registerListener(rotL, rs, android.hardware.SensorManager.SENSOR_DELAY_UI);
+        h.removeCallbacks(fastFind);
+        h.post(fastFind);
         acked.add(key);
         main.setVisibility(View.GONE);
         findView.setVisibility(View.VISIBLE);
@@ -1160,6 +1282,9 @@ public class MainActivity extends Activity {
 
     void closeFinder() {
         findKey = null;
+        dirScanning = false;
+        h.removeCallbacks(fastFind);
+        if (sm != null) sm.unregisterListener(rotL);
         findView.setVisibility(View.GONE);
         main.setVisibility(View.VISIBLE);
     }
@@ -1176,14 +1301,20 @@ public class MainActivity extends Activity {
             findTrend.setText(ago + "초째 안 보입니다. 핫스팟·블루투스를 껐을 수 있습니다.");
             findTrend.setTextColor(DIM);
         } else {
-            findDist.setText(distText(m));
+            findDist.setText(fineDist(m));
             findDist.setTextColor(m < 1.5 ? ORANGE : m < 4 ? LIME : WHITE);
             double tr = trend(d);
             if (tr >= 2.5) { findTrend.setText("▲ 가까워지는 중"); findTrend.setTextColor(LIME); }
             else if (tr <= -2.5) { findTrend.setText("▼ 멀어지는 중"); findTrend.setTextColor(ORANGE); }
             else { findTrend.setText("● 그대로"); findTrend.setTextColor(WHITE); }
         }
-        findRaw.setText(zone(m) + " · 신호 " + Math.round(d.ema) + " dBm · " + d.kind
+        if (btnDir != null) {
+            if (dirScanning) {
+                btnDir.setText("도는 중 " + Math.max(1, (dirEnd - now + 999) / 1000) + "초 · 천천히 한 바퀴");
+                btnDir.setEnabled(false);
+            } else { btnDir.setText("방향 찾기 (제자리에서 한 바퀴, 12초)"); btnDir.setEnabled(true); }
+        }
+        findRaw.setText(peakLine(d) + zone(m) +" · 신호 " + Math.round(d.ema) + " dBm · " + d.kind
                 + "\n태블릿을 들고 천천히 걸어 보세요. 숫자보다 ▲▼ 방향을 믿는 게 정확합니다."
                 + (d.wifi ? (Build.VERSION.SDK_INT == 28 || wifiThrottled
                         ? "\n와이파이는 30초마다 갱신됩니다. 블루투스보다 천천히 움직이세요."
@@ -1315,6 +1446,21 @@ public class MainActivity extends Activity {
         rr.addView(roomText, new LinearLayout.LayoutParams(0, -2, 1));
         rr.addView(next, new LinearLayout.LayoutParams(dp(64), dp(64)));
         patrolBox.addView(rr);
+        LinearLayout gr = new LinearLayout(this);
+        for (int gi = 0; gi < 3; gi++) {
+            final int gg = gi + 1;
+            gradeBtns[gi] = btn(gg + "학년", NAVY, WHITE);
+            gradeBtns[gi].setTextSize(16);
+            gradeBtns[gi].setOnClickListener(v -> {
+                grade = gg; room = 1;
+                prefs.edit().putInt("grade", grade).putInt("room", room).apply();
+                render(System.currentTimeMillis());
+            });
+            gr.addView(gradeBtns[gi], weighted(dp(46), gi == 0 ? 0 : dp(8)));
+        }
+        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(-1, -2);
+        glp.topMargin = dp(8);
+        patrolBox.addView(gr, glp);
         btnMeasure = btn("", SKY, NAVY);
         btnMeasure.setTextSize(20);
         btnMeasure.setOnClickListener(v -> startMeasure());
@@ -1389,6 +1535,18 @@ public class MainActivity extends Activity {
         findTrend = label("", 28, WHITE, true);
         findTrend.setGravity(Gravity.CENTER);
         findView.addView(findTrend, new LinearLayout.LayoutParams(-1, -2));
+        arrow = label("↑", 110, ORANGE, true);
+        arrow.setGravity(Gravity.CENTER);
+        arrow.setVisibility(View.INVISIBLE);
+        findView.addView(arrow, new LinearLayout.LayoutParams(-1, dp(150)));
+        dirText = label("", 14, WHITE, false);
+        dirText.setGravity(Gravity.CENTER);
+        findView.addView(dirText, new LinearLayout.LayoutParams(-1, -2));
+        btnDir = btn("방향 찾기 (제자리에서 한 바퀴, 12초)", SKY, NAVY);
+        btnDir.setOnClickListener(v -> startDir());
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(-1, dp(54));
+        dlp.topMargin = dp(8);
+        findView.addView(btnDir, dlp);
         FrameLayout bar = new FrameLayout(this);
         bar.setBackground(round(NAVY2, 12));
         LinearLayout.LayoutParams barLp = new LinearLayout.LayoutParams(-1, dp(28));
@@ -1426,8 +1584,10 @@ public class MainActivity extends Activity {
                         + "④ 괜찮은 기기면 '무시'를 누르면 다시 경고하지 않습니다.\n\n"
                         + "복도 순회 모드\n"
                         + "· 태블릿 한 대로 한 층을 살핍니다. 기준은 입실 전 복도 가운데에서 잡습니다.\n"
-                        + "· 교실 문 앞(가운데)에 멈춰 '여기서 재기'를 누르고 8초 가만히 서 있습니다. 끝나면 다음 교실로 자동으로 넘어갑니다.\n"
-                        + "· 새 기기마다 '가장 센 곳: ○반 앞 (확실/가능성 높음/애매)'이 뜹니다. 애매하면 그 두 교실 앞에서 다시 재세요.\n"
+                        + "· 교실 문 앞(가운데)에 멈춰 '여기서 재기'를 누르고 가만히 서 있습니다. 신호가 충분히 모이면(5~15초) 다음 반으로 자동으로 넘어갑니다.\n"
+                        + "· '무시'를 누른 기기는 목록에서 사라지고 다시 경고하지 않습니다(기록에는 '무시'로 남습니다). 새 기준을 잡으면 초기화됩니다.\n"
+                        + "· 층을 옮기면 위의 학년 버튼을 누르세요(1반부터 다시 셉니다).\n"
+                        + "· 새 기기마다 '가장 센 곳: ○학년 ○반 앞 (확실/가능성 높음/애매)'이 뜹니다. 애매하면 그 두 교실 앞에서 다시 재세요.\n"
                         + "· 매번 같은 높이·같은 방향으로 들고 재야 정확합니다(몸이 신호를 가립니다).\n"
                         + "· 한 바퀴 돈 뒤 가장 센 교실 감독에게 알려 주세요.\n\n"
                         + "알아 둘 점\n"
