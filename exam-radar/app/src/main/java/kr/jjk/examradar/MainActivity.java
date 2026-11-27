@@ -84,6 +84,8 @@ public class MainActivity extends Activity {
         boolean gone;             // 와이파이: 최근 검색에 두 번 연속 안 나옴(꺼짐)
         int miss;
         int lastLoc;              // 마지막으로 잡혔을 때 감독관이 서 있던 곳(순회)
+        String typeShort, typeLong; // 블루투스 기기 종류 짐작(휴대폰·이어폰·시계·TV 등)
+        int rank = 1;             // 3 휴대폰 · 2 개인 기기 · 1 모름 · 0 TV·비콘·PC 등
         int manu = -1;            // 블루투스 제조사 번호
         int rssi;
         int txPower = 127;        // 블루투스가 알려 주는 송신 세기(127 = 모름)
@@ -615,13 +617,106 @@ public class MainActivity extends Activity {
         if (nm != null && !nm.trim().isEmpty()) d.named = true;
         String maker = maker(manu);
         d.name = (nm != null && !nm.trim().isEmpty()) ? nm.trim() : (maker != null ? maker + " 기기" : "이름 없는 기기");
-        d.phoneLike = manu == 0x004C || manu == 0x0075 || manu == 0x00E0;
-        d.kind = "블루투스" + (maker != null ? " · " + maker : "");
+        classifyBle(d, rec, nm);
+        d.phoneLike = d.rank == 3;
+        d.kind = "블루투스 · " + (d.typeLong != null ? d.typeLong : maker != null ? maker + " 기기 (종류 모름)" : "종류 모름");
         int tx = r.getTxPower();
         if (tx != ScanResult.TX_POWER_NOT_PRESENT) d.txPower = tx;
         else if (rec != null && rec.getTxPowerLevel() != Integer.MIN_VALUE) d.txPower = rec.getTxPowerLevel();
         feed(d, r.getRssi(), now);
         if (fresh && mode == MODE_WATCH) absorbRotation(d);
+    }
+
+    // ───────────────────────── 블루투스 기기 종류 짐작 ─────────────────────────
+    // 우선순위(rank): 3 휴대폰 · 2 이어폰/시계/종류 있는 개인 기기 · 1 모름 · 0 TV·비콘·노트북 등(시험과 거리 먼 것)
+
+    static void setType(Dev d, String shortName, String longName, int rank) {
+        // 더 확실한(우선순위 높은) 단서가 이미 있으면 덮어쓰지 않는다
+        if (d.typeShort != null && d.rank > rank) return;
+        d.typeShort = shortName; d.typeLong = longName; d.rank = rank;
+    }
+
+    static int uuid16(android.os.ParcelUuid u) {
+        String s = u.getUuid().toString();
+        if (!s.endsWith("-0000-1000-8000-00805f9b34fb")) return -1;
+        try { return Integer.parseInt(s.substring(4, 8), 16); } catch (Exception e) { return -1; }
+    }
+
+    void classifyBle(Dev d, ScanRecord rec, String nm) {
+        if (rec == null) return;
+        // 1) 이름
+        if (nm != null) {
+            String n = nm.toLowerCase(Locale.ROOT);
+            if (n.matches(".*(buds|airpods|pods|earbud|earphone|headset|헤드셋|이어폰|wf-|wh-|tws|qcy|beats).*")) setType(d, "이어폰", "이어폰·헤드셋 (이름)", 2);
+            else if (n.matches(".*(watch|band|fit|워치|밴드|garmin|amazfit).*")) setType(d, "시계·밴드", "스마트워치·밴드 (이름)", 2);
+            else if (n.matches(".*(iphone|galaxy [asmz]|galaxy note|phone|폰|redmi|pixel|sm-[agsnf]).*")) setType(d, "휴대폰", "휴대폰 (이름)", 3);
+            else if (n.matches(".*(ipad|tab|macbook|laptop|desktop|-pc|노트북|book).*")) setType(d, "태블릿·PC", "태블릿·노트북 (이름)", 0);
+            else if (n.matches(".*(tv|\\[tv\\]|speaker|soundbar|스피커|jbl|projector|프로젝터|printer|프린터|chromecast).*")) setType(d, "TV·스피커", "TV·스피커·프린터 등 (이름)", 0);
+        }
+        // 2) 기기 겉모습 번호(Appearance) — 광고 원본에서 직접 읽는다
+        byte[] raw = rec.getBytes();
+        if (raw != null) {
+            int i = 0;
+            while (i < raw.length - 1) {
+                int len = raw[i] & 0xff;
+                if (len == 0 || i + len >= raw.length) break;
+                int type = raw[i + 1] & 0xff;
+                if (type == 0x19 && len >= 3) {
+                    int ap = (raw[i + 2] & 0xff) | ((raw[i + 3] & 0xff) << 8);
+                    int cat = ap >> 6;
+                    if (cat == 1) setType(d, "휴대폰", "휴대폰 (기기 표시)", 3);
+                    else if (cat == 3) setType(d, "시계·밴드", "시계 (기기 표시)", 2);
+                    else if (cat == 33) setType(d, "이어폰", "이어폰·헤드셋 (기기 표시)", 2);
+                    else if (cat == 2) setType(d, "태블릿·PC", "컴퓨터 (기기 표시)", 0);
+                    else if (cat == 5 || cat == 10) setType(d, "TV·스피커", "화면·미디어 기기 (기기 표시)", 0);
+                    else if (cat == 8 || cat == 9) setType(d, "태그", "분실방지 태그 (기기 표시)", 1);
+                    else if (cat == 15) setType(d, "입력기기", "키보드·마우스 등 (기기 표시)", 0);
+                }
+                i += len + 1;
+            }
+        }
+        // 3) 애플: 신호 유형(첫 바이트)으로 종류가 꽤 갈린다(공개 분석 자료 기준, 추정)
+        byte[] ap = rec.getManufacturerSpecificData(0x004C);
+        if (ap != null && ap.length >= 1) {
+            int i = 0;
+            while (i < ap.length) {
+                int t = ap[i] & 0xff;
+                if (t == 0x10 || t == 0x05 || t == 0x0F) setType(d, "휴대폰", "애플 휴대폰·패드 (켜져 있음, 추정)", 3);
+                else if (t == 0x07) setType(d, "이어폰", "에어팟 등 애플 이어폰 (추정)", 2);
+                else if (t == 0x0C) setType(d, "휴대폰", "애플 기기 (휴대폰·맥 사용 중, 추정)", 3);
+                else if (t == 0x12) setType(d, "태그", "애플 '나의 찾기' 신호 (에어태그 또는 주인과 떨어진 애플 기기)", 1);
+                else if (t == 0x09) setType(d, "TV·스피커", "애플 TV·스피커 (추정)", 0);
+                if (i + 1 >= ap.length) break;
+                i += 2 + (ap[i + 1] & 0xff);
+            }
+        }
+        // 4) 서비스 번호
+        List<android.os.ParcelUuid> us = new ArrayList<>();
+        if (rec.getServiceUuids() != null) us.addAll(rec.getServiceUuids());
+        if (rec.getServiceData() != null) us.addAll(rec.getServiceData().keySet());
+        for (android.os.ParcelUuid u : us) {
+            switch (uuid16(u)) {
+                case 0xFE2C: setType(d, "이어폰", "이어폰 등 (구글 빠른 연결 신호)", 2); break;
+                case 0xFD5A: case 0xFD69: setType(d, "삼성 기기", "삼성 휴대폰·이어폰·워치 중 하나 (내 디바이스 찾기 신호)", 2); break;
+                case 0xFEF3: case 0xFE9F: case 0xFCF1: setType(d, "안드로이드", "안드로이드 기기 추정 (구글 서비스 신호)", 2); break;
+                case 0xFD6F: setType(d, "휴대폰", "휴대폰 (접촉 확인 신호)", 3); break;
+                case 0xFEED: case 0xFEEC: setType(d, "태그", "분실방지 태그(Tile 등)", 1); break;
+                case 0xFE95: setType(d, "시계·밴드", "샤오미 기기(밴드 등) 추정", 2); break;
+                case 0x180D: setType(d, "시계·밴드", "심박 측정 기기(밴드·시계)", 2); break;
+                case 0xFEAA: setType(d, "비콘", "비콘(Eddystone)", 0); break;
+                default: break;
+            }
+        }
+        // 5) 제조사만 있을 때의 대략
+        int m = d.manu;
+        if (d.typeShort == null) {
+            if (m == 0x0006) setType(d, "태블릿·PC", "윈도우 PC·마우스 등 (마이크로소프트 신호)", 0);
+            else if (m == 0x00C4) setType(d, "TV·스피커", "LG 기기 (TV 등 추정)", 0);
+            else if (m == 0x0075) setType(d, "삼성 기기", "삼성 기기 (휴대폰·이어폰·워치·TV 중, 종류 모름)", 1);
+            else if (m == 0x004C) setType(d, "애플 기기", "애플 기기 (종류 모름)", 1);
+            else if (m == 0x0087) setType(d, "시계·밴드", "가민 시계 추정", 2);
+            else if (m == 0x0157 || m == 0x038F) setType(d, "시계·밴드", "샤오미 기기(밴드 등) 추정", 2);
+        }
     }
 
     static String maker(int id) {
@@ -789,7 +884,7 @@ public class MainActivity extends Activity {
     boolean healthy = true;      // 검색이 살아 있나
 
     /** 이름도 제조사도 없는 블루투스 신호: 비콘·가전·주소를 바꾸는 기기 조각이 대부분이라 기본은 숨김 */
-    static boolean noise(Dev d) { return !d.wifi && !d.named && maker(d.manu) == null; }
+    static boolean noise(Dev d) { return !d.wifi && !d.named && maker(d.manu) == null && d.typeShort == null; }
 
     /** 이름 없는 신호라도 아주 가깝고(약 2m 안) 30초 넘게 머물면 책상 위 기기일 수 있어 경고한다 */
     static boolean closeAndStaying(Dev d, long now) { return d.ema >= -62 && now - d.firstSeen >= 30_000; }
@@ -816,6 +911,7 @@ public class MainActivity extends Activity {
         String vk = vendorKey(d);
         if (vk != null && baseline.contains(vk)) return "학교 공유기와 같은 제조사 · 주소는 처음 봄";
         if (rotCand.contains(d.key)) return "주소가 바뀐 기준 기기일 수 있음(추정)";
+        if (!d.wifi && d.rank == 0 && !closeAndStaying(d, now)) return d.typeShort + "로 보임 · 시험과 거리 먼 기기일 가능성";
         if (noise(d) && !closeAndStaying(d, now)) return "이름·제조사 없음(TV·비콘·기기 조각 등)";
         return null;
     }
@@ -827,7 +923,7 @@ public class MainActivity extends Activity {
     static String groupKey(Dev d) {
         if (d.wifi) return d.key;
         if (d.named) return "N:" + d.name;
-        return "M:" + d.manu;
+        return "M:" + d.manu + ":" + d.typeShort; // 같은 애플이라도 휴대폰과 이어폰은 따로 보인다
     }
 
     /** 꺼진 기기: 와이파이는 최근 검색에 안 나오면, 블루투스는 8초 동안 소식이 없으면(평소 1초에 여러 번 옴) */
@@ -1408,7 +1504,11 @@ public class MainActivity extends Activity {
                 if (now - d.lastSeen < 5000) { baseSeen(d.key, now); }
             }
         }
-        alerts.sort((a, b) -> Double.compare(b.ema, a.ema));
+        // 휴대폰 → 이어폰·시계 → 나머지 순, 같은 종류 안에서는 센 순
+        alerts.sort((a, b) -> {
+            int ra = a.wifi ? (a.phoneLike ? 3 : 2) : a.rank, rb = b.wifi ? (b.phoneLike ? 3 : 2) : b.rank;
+            return ra != rb ? Integer.compare(rb, ra) : Double.compare(b.ema, a.ema);
+        });
         Map<String, Integer> gCount = new HashMap<>();
         List<Dev> shown = new ArrayList<>();
         for (Dev d : alerts) {
@@ -1449,7 +1549,9 @@ public class MainActivity extends Activity {
                         : "검색이 제대로 안 되고 있어 '새 신호 없음'을 믿으면 안 됩니다. 아래 상태줄을 보세요.");
                 stopFlash();
             } else {
-                status.setText("새 신호 " + shown.size() + "개");
+                int phones = 0;
+                for (Dev d : shown) if (d.phoneLike) phones++;
+                status.setText("새 신호 " + shown.size() + "개" + (phones > 0 ? " · 휴대폰 의심 " + phones : ""));
                 status.setTextColor(WHITE);
                 statusSub.setText(patrol ? "반 앞에 멈춰 '여기서 재기'를 누르면, 잰 곳 중 어디가 강한지 알려 드립니다."
                         : unacked > 0 ? "목록에서 눌러 거리를 보며 찾으세요." : "확인함. 새로 생기면 다시 깜빡입니다.");
@@ -1636,8 +1738,10 @@ public class MainActivity extends Activity {
         lp.bottomMargin = dp(10);
         r.setLayoutParams(lp);
 
-        TextView badge = label(d.wifi ? "와이파이" : "블루투스", 13, NAVY, true);
-        badge.setBackground(round(d.wifi ? SKY : LIME, 8));
+        // 한눈에 보이게: 블루투스는 종류(휴대폰·이어폰 등)를 이름표로
+        String bt = d.wifi ? (d.phoneLike ? "핫스팟" : "와이파이") : (d.typeShort != null ? d.typeShort : "블루투스");
+        TextView badge = label(bt, 13, NAVY, true);
+        badge.setBackground(round(d.phoneLike ? ORANGE : d.wifi ? SKY : LIME, 8));
         badge.setPadding(dp(8), dp(4), dp(8), dp(4));
         r.addView(badge);
 
