@@ -85,7 +85,8 @@ public class MainActivity extends Activity {
         int miss;
         int lastLoc;              // 마지막으로 잡혔을 때 감독관이 서 있던 곳(순회)
         String typeShort, typeLong; // 블루투스 기기 종류 짐작(휴대폰·이어폰·시계·TV 등)
-        int rank = 1;             // 3 휴대폰 · 2 개인 기기 · 1 모름 · 0 TV·비콘·PC 등
+        int rank = 1;             // (확인 우선순위) 3 휴대폰 가능성 · 2 개인 기기 · 1 모름 · 0 TV·비콘·PC 등
+        int cert = 0;             // (판별 확실도) 3 이름·기기 표시 · 2 신호 유형·서비스 번호 · 1 제조사만
         int manu = -1;            // 블루투스 제조사 번호
         int rssi;
         int txPower = 127;        // 블루투스가 알려 주는 송신 세기(127 = 모름)
@@ -94,6 +95,7 @@ public class MainActivity extends Activity {
         int hits;
         final ArrayList<double[]> hist = new ArrayList<>(); // [시각, ema]
         final ArrayList<long[]> raw = new ArrayList<>();    // [시각, 원본 세기] 최근 5초
+        final ArrayList<Long> seenSecs = new ArrayList<>(); // 실제로 잡힌 초(최근 60초)
         final HashMap<Integer, Double> roomPeak = new HashMap<>(); // 순회: 교실별 가장 센 세기
         final HashMap<Integer, Double> roomMed = new HashMap<>();  // 순회: 멈춰서 잰 교실별 중앙값
         final HashMap<Integer, Integer> roomCnt = new HashMap<>(); // 그 곳을 몇 번 쟀나
@@ -508,8 +510,15 @@ public class MainActivity extends Activity {
     }
 
     @SuppressWarnings("deprecation")
+    /** 검색 제한(2분 4번)이 걸린 기기는 언제나 30초 간격, 아니면 4초 */
+    long wifiGap() { return (Build.VERSION.SDK_INT == 28 || wifiThrottled) ? 30_000 : 4_000; }
+
     void kickWifiScan() {
         if (wifi == null) return;
+        long t = System.currentTimeMillis();
+        // 간격 안이면 새 검색을 요청하지 않고 결과만 읽는다(허용 횟수를 앞에서 다 써 버리지 않게)
+        if (t - lastKick < wifiGap()) { readWifi(); return; }
+        lastKick = t;
         try {
             boolean ok = wifi.startScan();
             if (ok) { lastWifiScanOk = System.currentTimeMillis(); wifiThrottled = false; }
@@ -639,10 +648,13 @@ public class MainActivity extends Activity {
     // ───────────────────────── 블루투스 기기 종류 짐작 ─────────────────────────
     // 우선순위(rank): 3 휴대폰 · 2 이어폰/시계/종류 있는 개인 기기 · 1 모름 · 0 TV·비콘·노트북 등(시험과 거리 먼 것)
 
+    // 판별 근거의 확실도(우선순위와 따로): 이름·기기 표시 3, 애플 신호 유형·서비스 번호 2, 제조사만 1
+    static int curCert = 1;
+
     static void setType(Dev d, String shortName, String longName, int rank) {
-        // 더 확실한(우선순위 높은) 단서가 이미 있으면 덮어쓰지 않는다
-        if (d.typeShort != null && d.rank > rank) return;
-        d.typeShort = shortName; d.typeLong = longName; d.rank = rank;
+        // 더 확실한 근거가 이미 있으면 덮어쓰지 않는다. 같은 확실도면 우선순위가 높은 쪽.
+        if (d.typeShort != null && (d.cert > curCert || (d.cert == curCert && d.rank > rank))) return;
+        d.typeShort = shortName; d.typeLong = longName; d.rank = rank; d.cert = curCert;
     }
 
     static int uuid16(android.os.ParcelUuid u) {
@@ -654,6 +666,7 @@ public class MainActivity extends Activity {
     void classifyBle(Dev d, ScanRecord rec, String nm) {
         if (rec == null) return;
         // 1) 이름
+        curCert = 3;
         if (nm != null) {
             String n = nm.toLowerCase(Locale.ROOT);
             if (n.matches(".*(buds|airpods|pods|earbud|earphone|headset|헤드셋|이어폰|wf-|wh-|tws|qcy|beats).*")) setType(d, "이어폰", "이어폰·헤드셋 (이름)", 2);
@@ -662,6 +675,7 @@ public class MainActivity extends Activity {
             else if (n.matches(".*(ipad|tab|macbook|laptop|desktop|-pc|노트북|book).*")) setType(d, "태블릿·PC", "태블릿·노트북 (이름)", 0);
             else if (n.matches(".*(tv|\\[tv\\]|speaker|soundbar|스피커|jbl|projector|프로젝터|printer|프린터|chromecast).*")) setType(d, "TV·스피커", "TV·스피커·프린터 등 (이름)", 0);
         }
+        curCert = 3;
         // 2) 기기 겉모습 번호(Appearance) — 광고 원본에서 직접 읽는다
         byte[] raw = rec.getBytes();
         if (raw != null) {
@@ -675,7 +689,8 @@ public class MainActivity extends Activity {
                     int cat = ap >> 6;
                     if (cat == 1) setType(d, "휴대폰", "휴대폰 (기기 표시)", 3);
                     else if (cat == 3) setType(d, "시계·밴드", "시계 (기기 표시)", 2);
-                    else if (cat == 33) setType(d, "이어폰", "이어폰·헤드셋 (기기 표시)", 2);
+                    else if (cat == 37) setType(d, "이어폰", "이어폰·헤드셋 (기기 표시)", 2);
+                    else if (cat == 33) setType(d, "오디오 기기", "오디오 기기 (스피커·수신기 등, 기기 표시)", 1);
                     else if (cat == 2) setType(d, "태블릿·PC", "컴퓨터 (기기 표시)", 0);
                     else if (cat == 5 || cat == 10) setType(d, "TV·스피커", "화면·미디어 기기 (기기 표시)", 0);
                     else if (cat == 8 || cat == 9) setType(d, "태그", "분실방지 태그 (기기 표시)", 1);
@@ -684,21 +699,23 @@ public class MainActivity extends Activity {
                 i += len + 1;
             }
         }
+        curCert = 2;
         // 3) 애플: 신호 유형(첫 바이트)으로 종류가 꽤 갈린다(공개 분석 자료 기준, 추정)
         byte[] ap = rec.getManufacturerSpecificData(0x004C);
         if (ap != null && ap.length >= 1) {
             int i = 0;
             while (i < ap.length) {
                 int t = ap[i] & 0xff;
-                if (t == 0x10 || t == 0x05 || t == 0x0F) setType(d, "휴대폰", "애플 휴대폰·패드 (켜져 있음, 추정)", 3);
+                if (t == 0x10 || t == 0x05 || t == 0x0F) setType(d, "애플 기기", "애플 기기 (아이폰·워치·패드·맥 중, 사용 중 신호)", 3);
                 else if (t == 0x07) setType(d, "이어폰", "에어팟 등 애플 이어폰 (추정)", 2);
-                else if (t == 0x0C) setType(d, "휴대폰", "애플 기기 (휴대폰·맥 사용 중, 추정)", 3);
+                else if (t == 0x0C) setType(d, "애플 기기", "애플 기기 (아이폰·맥 등, 이어받기 신호)", 3);
                 else if (t == 0x12) setType(d, "태그", "애플 '나의 찾기' 신호 (에어태그 또는 주인과 떨어진 애플 기기)", 1);
                 else if (t == 0x09) setType(d, "TV·스피커", "애플 TV·스피커 (추정)", 0);
                 if (i + 1 >= ap.length) break;
                 i += 2 + (ap[i + 1] & 0xff);
             }
         }
+        curCert = 2;
         // 4) 서비스 번호
         List<android.os.ParcelUuid> us = new ArrayList<>();
         if (rec.getServiceUuids() != null) us.addAll(rec.getServiceUuids());
@@ -707,15 +724,23 @@ public class MainActivity extends Activity {
             switch (uuid16(u)) {
                 case 0xFE2C: setType(d, "이어폰", "이어폰 등 (구글 빠른 연결 신호)", 2); break;
                 case 0xFD5A: case 0xFD69: setType(d, "삼성 기기", "삼성 휴대폰·이어폰·워치 중 하나 (내 디바이스 찾기 신호)", 2); break;
-                case 0xFEF3: case 0xFE9F: case 0xFCF1: setType(d, "안드로이드", "안드로이드 기기 추정 (구글 서비스 신호)", 2); break;
+                case 0xFEF3: case 0xFE9F: case 0xFCF1: setType(d, "구글 신호", "구글 서비스 신호 (기기 종류 모름)", 2); break;
                 case 0xFD6F: setType(d, "휴대폰", "휴대폰 (접촉 확인 신호)", 3); break;
                 case 0xFEED: case 0xFEEC: setType(d, "태그", "분실방지 태그(Tile 등)", 1); break;
                 case 0xFE95: setType(d, "시계·밴드", "샤오미 기기(밴드 등) 추정", 2); break;
                 case 0x180D: setType(d, "시계·밴드", "심박 측정 기기(밴드·시계)", 2); break;
-                case 0xFEAA: setType(d, "비콘", "비콘(Eddystone)", 0); break;
+                case 0xFEAA: {
+                    // 같은 번호라도 0x40·0x41 프레임은 구글 '내 기기 찾기'(분실물 찾기) 신호다
+                    byte[] sd = rec.getServiceData(u);
+                    int fr = sd != null && sd.length > 0 ? sd[0] & 0xff : -1;
+                    if (fr == 0x40 || fr == 0x41) setType(d, "찾기 신호", "구글 분실물 찾기 신호 (휴대폰·이어폰·태그 등)", 2);
+                    else setType(d, "비콘", "비콘(Eddystone)", 0);
+                    break;
+                }
                 default: break;
             }
         }
+        curCert = 1;
         // 5) 제조사만 있을 때의 대략
         int m = d.manu;
         if (d.typeShort == null) {
@@ -724,7 +749,7 @@ public class MainActivity extends Activity {
             else if (m == 0x0075) setType(d, "삼성 기기", "삼성 기기 (휴대폰·이어폰·워치·TV 중, 종류 모름)", 1);
             else if (m == 0x004C) setType(d, "애플 기기", "애플 기기 (종류 모름)", 1);
             else if (m == 0x0087) setType(d, "시계·밴드", "가민 시계 추정", 2);
-            else if (m == 0x0157 || m == 0x038F) setType(d, "시계·밴드", "샤오미 기기(밴드 등) 추정", 2);
+            else if (m == 0x0157 || m == 0x038F) setType(d, "시계·밴드", "샤오미·화미 기기(밴드 등) 추정", 2);
         }
     }
 
@@ -734,11 +759,12 @@ public class MainActivity extends Activity {
             case 0x0075: return "삼성";
             case 0x00E0: return "구글";
             case 0x0006: return "마이크로소프트";
-            case 0x038F: case 0x0157: return "샤오미";
+            case 0x038F: return "샤오미";
+            case 0x0157: return "화미(어메이즈핏)";
             case 0x0087: return "가민";
             case 0x0059: return "노르딕";
             case 0x012D: return "소니";
-            case 0x00D2: return "LG";
+            case 0x00C4: return "LG";
             default: return null;
         }
     }
@@ -762,7 +788,8 @@ public class MainActivity extends Activity {
             if (!Double.isNaN(o.ema) && Math.abs(o.ema - nd.rssi) <= 8) {
                 // 같은 기기라는 보장이 없으므로 기준에 넣지 않고, 이번 감시 동안만 '확인 필요'로 낮춘다
                 // 시작 때 정리한 기기가 주소를 바꾼 것이면 계속 빼 주고, 기준 기기면 '확인 필요'로만 낮춘다
-                if (sessionIgnored.contains(o.key)) sessionIgnored.add(nd.key); else rotCand.add(nd.key);
+                // 추정 연결로 면제를 이어 주지 않는다(다른 학생 기기가 흡수될 수 있음). '확인 필요'로만 낮춘다.
+                rotCand.add(nd.key);
                 return;
             }
         }
@@ -773,13 +800,16 @@ public class MainActivity extends Activity {
         // 찾는 중인 기기는 더 빨리 따라가게(반응 우선), 나머지는 차분하게(흔들림 줄이기)
         double a = 0.4;
         d.raw.add(new long[]{at, rssi});
+        long sec = at / 1000;
+        if (d.seenSecs.isEmpty() || d.seenSecs.get(d.seenSecs.size() - 1) != sec) d.seenSecs.add(sec);
+        while (!d.seenSecs.isEmpty() && d.seenSecs.get(0) < sec - 60) d.seenSecs.remove(0);
         while (!d.raw.isEmpty() && at - d.raw.get(0)[0] > 5000) d.raw.remove(0);
         d.ema = Double.isNaN(d.ema) ? rssi : d.ema * (1 - a) + rssi * a;
         d.lastSeen = Math.max(d.lastSeen, at);
         d.hits++;
         d.gone = false;
         d.miss = 0;
-        d.lastLoc = loc();
+        d.lastLoc = confirmedLoc;
         d.hist.add(new double[]{at, d.ema});
         while (d.hist.size() > 40) d.hist.remove(0);
         if (mode == MODE_BASELINE) addBase(d);
@@ -806,11 +836,14 @@ public class MainActivity extends Activity {
     // 블루투스는 1초에 여러 번 와서 금방 15개가 차고, 와이파이는 4초마다 1번이라 3번 모이려면 12초쯤 걸린다.
     static final int MEASURE_MS = 15000, MEASURE_MIN_MS = 5000;
     boolean measuring = false;
+    int measureLoc = 0, confirmedLoc = 0; // 재는 반(고정) / 감독관이 실제로 서 있다고 확인된 곳
     long measureEnd = 0, measureStart = 0;
 
     boolean enoughSamples(long now) {
         for (Dev d : devs.values()) {
             if (!isAlert(d, now)) continue;
+            // 검색 제한(30초 간격) 기기는 와이파이 새 값을 기다리지 않는다(어차피 보류 처리)
+            if (d.wifi && wifiGap() >= 30_000) continue;
             ArrayList<Integer> l = mbuf.get(d.key);
             if (l == null || l.size() < (d.wifi ? 3 : 15)) return false;
         }
@@ -823,6 +856,9 @@ public class MainActivity extends Activity {
         if (measuring) return;
         mbuf.clear();
         measuring = true;
+        // 누른 그 순간의 반으로 고정(재는 중에 ▶를 눌러도 결과는 이 반에 저장). 실제로 서 있는 곳도 이 반으로 확정.
+        measureLoc = loc();
+        confirmedLoc = measureLoc;
         measureStart = System.currentTimeMillis();
         measureEnd = measureStart + MEASURE_MS;
         kickWifiScan();
@@ -838,20 +874,20 @@ public class MainActivity extends Activity {
             ArrayList<Integer> l = e.getValue();
             if (d == null || l.isEmpty()) continue;
             // 와이파이는 새 값 2개, 블루투스는 5개가 안 되면 이 곳 판정을 보류한다
-            if (l.size() < (d.wifi ? 2 : 5)) { d.roomShort.add(loc()); continue; }
-            d.roomShort.remove(loc());
+            if (l.size() < (d.wifi ? 2 : 5)) { d.roomShort.add(measureLoc); continue; }
+            d.roomShort.remove(measureLoc);
             Collections.sort(l);
             double med = l.size() % 2 == 1 ? l.get(l.size() / 2) : (l.get(l.size() / 2 - 1) + l.get(l.size() / 2)) / 2.0;
-            d.roomMed.put(loc(), med);
-            Integer c = d.roomCnt.get(loc());
-            d.roomCnt.put(loc(), c == null ? 1 : c + 1);
+            d.roomMed.put(measureLoc, med);
+            Integer c = d.roomCnt.get(measureLoc);
+            d.roomCnt.put(measureLoc, c == null ? 1 : c + 1);
             n++;
         }
         mbuf.clear();
         buzz(new long[]{0, 80});
         if (sound && tone != null) tone.startTone(ToneGenerator.TONE_PROP_ACK, 150);
-        toast(roomName(loc()) + " 앞 측정 끝 (신호 " + n + "개). 다음 반으로 넘어갑니다.");
-        if (grade != 9) setRoom(room + 1); else render(System.currentTimeMillis());
+        toast(roomName(measureLoc) + " 앞 측정 끝 (신호 " + n + "개). 다음 잴 반으로 넘깁니다.");
+        if (grade != 9 && loc() == measureLoc) setRoom(room + 1); else render(System.currentTimeMillis());
     }
 
     /**
@@ -903,7 +939,7 @@ public class MainActivity extends Activity {
     static boolean noise(Dev d) { return !d.wifi && !d.named && maker(d.manu) == null && d.typeShort == null; }
 
     /** 이름 없는 신호라도 아주 가깝고(약 2m 안) 30초 넘게 머물면 책상 위 기기일 수 있어 경고한다 */
-    static boolean closeAndStaying(Dev d, long now) { return d.ema >= -62 && now - d.firstSeen >= 30_000; }
+    static boolean closeAndStaying(Dev d, long now) { return recentMed(d, now) >= -62 && secsIn(d, now, 30) >= 20; }
 
     // ── 세 칸 분류: 새 신호(경고) / 확인 필요(표시만) / 기준(안 보임) ──
     final HashSet<String> rotCand = new HashSet<>(); // 이번 감시 동안 '주소 바뀐 기준 기기 후보'
@@ -922,9 +958,7 @@ public class MainActivity extends Activity {
             }
             // 교실 무선 영상 공유기(NEXI)는 기본으로 뺀다(고유 주소일 때)
             if (isDisplaySharer(d)) return true;
-            // 기준 때 같은 이름과 같은 제조사의 공유기를 이미 봤다면 같은 학교 망으로 본다(두 단서가 함께 맞을 때만)
-            String vk = vendorKey(d);
-            if (baseline.contains("S:" + d.name) && vk != null && baseline.contains(vk)) return true;
+            // (이름+제조사가 기준과 같으면 자동 면제하던 규칙은 없앴다: 학생 공유기가 빠질 수 있음. 학교 망은 이름+번호 규칙으로)
         }
         RoomBase ig = rooms.get(ROOM_IGNORED);
         if (ig != null && ig.keys.contains(d.key)) return true; // 예전 버전에서 '무시'를 누른 것
@@ -948,8 +982,14 @@ public class MainActivity extends Activity {
         return null;
     }
 
-    boolean isAlert(Dev d, long now) { return rawAlert(d, now) && softReason(d, now) == null; }
-    boolean isCheck(Dev d, long now) { return rawAlert(d, now) && softReason(d, now) != null; }
+    boolean isAlert(Dev d, long now) {
+        if (!rawAlert(d, now)) return false;
+        if (softReason(d, now) == null) return true;
+        // 이름·제조사만 기준과 같아도, 휴대폰·이어폰·워치로 보이는 강한 신호(-70 이상)는 경고에서 빼지 않는다
+        boolean personal = d.wifi ? (d.phoneLike && !d.direct) : d.rank >= 2;
+        return personal && !isDisplaySharer(d) && recentMed(d, now) >= -70;
+    }
+    boolean isCheck(Dev d, long now) { return rawAlert(d, now) && !isAlert(d, now); }
 
     /** 같은 이름(또는 같은 제조사의 이름 없는 기기)은 한 줄로 묶는다 */
     static String groupKey(Dev d) {
@@ -969,7 +1009,8 @@ public class MainActivity extends Activity {
         if (isGone(d, now)) return false;
         if (d.wifi) return d.ema >= wifiLimit();
         // 블루투스는 3번 이상, 3초 이상 보이고 가까울 때만 (스쳐 가는 신호 거르기)
-        return d.hits >= 3 && now - d.firstSeen >= 3_000 && d.ema >= bleLimit();
+        // 최근 5초 중 서로 다른 3초 이상 잡히고(스치는 신호 거르기) 세기가 범위 안일 때
+        return secsIn(d, now, 5) >= 3 && recentMed(d, now) >= bleLimit();
     }
 
     /** 신호 세기로 대략 거리(m). 실내에서는 2~3배 오차가 흔하다. */
@@ -1034,8 +1075,8 @@ public class MainActivity extends Activity {
             // 안드로이드 9(또는 검색 제한이 켜진 기기)는 2분에 4번만 검색된다.
             // 4초마다 쏘면 앞 16초에 다 쓰고 1분 40초를 기다리게 되니 30초 간격으로 고르게 나눈다.
             // 기준 잡는 1분 동안은 15초 간격(4번)으로 나눠야 제한이 있어도 4번 모두 검색된다
-            long gap = (mode == MODE_BASELINE || surveying) ? 6_000 : (Build.VERSION.SDK_INT == 28 || wifiThrottled) ? 30_000 : 4_000;
-            if (now - lastKick >= gap) { lastKick = now; kickWifiScan(); }
+            // 검색 요청은 kickWifiScan 한 곳에서 간격을 지킨다(제한 걸린 기기는 언제나 30초)
+            if (now - lastKick >= wifiGap()) kickWifiScan();
             // 안드로이드는 30분 넘게 돈 블루투스 검색을 느리게 만든다 → 20분마다 다시 시작
             if (ble != null && now - bleStartedAt > 20 * 60_000L) { stopBle(); startBle(); }
             if (ble == null && hasPerms() && tickN % 5 == 0) startBle();
@@ -1045,6 +1086,7 @@ public class MainActivity extends Activity {
             if (measuring && (now >= measureEnd || (now - measureStart >= MEASURE_MIN_MS && enoughSamples(now)))) finishMeasure();
             // 오래 안 보인 항목 정리
             devs.values().removeIf(d -> now - d.lastSeen > 10 * 60_000L);
+            detect(now);
             render(now);
             h.postDelayed(this, 1000);
         }
@@ -1168,7 +1210,9 @@ public class MainActivity extends Activity {
 
     void beginWatch(boolean settle) {
         long now = System.currentTimeMillis();
-        log.clear(); rotCand.clear(); sessionIgnored.clear();
+        log.clear(); rotCand.clear(); sessionIgnored.clear(); ackedG.clear(); impSeen.clear();
+        // 새 감시에서는 반 판정 이력도 처음부터
+        for (Dev o : devs.values()) { o.roomMed.clear(); o.roomCnt.clear(); o.roomShort.clear(); o.roomPeak.clear(); }
         int n = 0;
         if (settle) for (Dev o : devs.values()) if (now - o.lastSeen < 20_000) { sessionIgnored.add(o.key); n++; }
         watchStart = now;
@@ -1494,7 +1538,7 @@ public class MainActivity extends Activity {
 
     void ackAll() {
         long now = System.currentTimeMillis();
-        for (Dev d : devs.values()) if (isAlert(d, now)) acked.add(d.key);
+        for (Dev d : devs.values()) if (isAlert(d, now)) { acked.add(d.key); ackedG.add(groupKey(d)); }
         stopFlash();
     }
 
@@ -1532,14 +1576,14 @@ public class MainActivity extends Activity {
 
     LinearLayout statusCard;
 
-    void render(long now) {
-        if (findKey != null) { renderFinder(now); return; }
-        if (page == 1) renderBasePane(now);
-        if (page == 2) logText.setText(summary());
-        List<Dev> alerts = new ArrayList<>();
-        int baseSeen = 0;
+    /**
+     * 탐지·기록은 화면과 상관없이 매초 돈다(찾기 화면에 있어도 다른 신호의 기록·사라짐 판정이 멈추지 않게).
+     * 찾기 화면에 있는 동안 새 '확인할 신호'가 생기면 진동 1번과 알림으로 알린다.
+     */
+    final HashSet<String> impSeen = new HashSet<>();
+
+    void detect(long now) {
         for (Dev d : devs.values()) {
-            // 기록에 오른 새 신호가 끊기면 '사라진 신호'로 남긴다
             if (mode == MODE_WATCH) {
                 Rec rr = log.get(groupKey(d));
                 if (rr != null) {
@@ -1549,12 +1593,28 @@ public class MainActivity extends Activity {
                     rr.cur = d;
                 }
             }
-            if (isAlert(d, now)) { alerts.add(d); logAlert(d, now); }
-            else if (baseline.contains(d.key) && now - d.lastSeen < GONE_MS) {
-                baseSeen++;
+            if (isAlert(d, now)) {
+                logAlert(d, now);
+                if (important(d, now) && impSeen.add(d.key) && findKey != null && !d.key.equals(findKey)) {
+                    buzz(new long[]{0, 120});
+                    toast("다른 확인할 신호가 생겼습니다: " + plainTitle(d));
+                }
+            } else if (baseline.contains(d.key) && now - d.lastSeen < 5000) {
                 // 기준 기기가 다시 보이면 '마지막으로 본 날'을 갱신해 30일 정리에서 살린다
-                if (now - d.lastSeen < 5000) { baseSeen(d.key, now); }
+                baseSeen(d.key, now);
             }
+        }
+    }
+
+    void render(long now) {
+        if (findKey != null) { renderFinder(now); return; }
+        if (page == 1) renderBasePane(now);
+        if (page == 2) logText.setText(summary());
+        List<Dev> alerts = new ArrayList<>();
+        int baseSeen = 0;
+        for (Dev d : devs.values()) {
+            if (isAlert(d, now)) alerts.add(d);
+            else if (baseline.contains(d.key) && now - d.lastSeen < GONE_MS) baseSeen++;
         }
         // '가까이 오래 있음' → 휴대폰 → 이어폰·시계 → 나머지 순, 같은 칸 안에서는 센 순
         alerts.sort((a, b) -> priorityCmp(a, b, now));
@@ -1572,12 +1632,15 @@ public class MainActivity extends Activity {
         HashSet<String> impG = new HashSet<>();
         for (Dev d : imp) impG.add(groupKey(d));
         int unacked = 0;
-        for (Dev d : alerts) if (impG.contains(groupKey(d)) && !acked.contains(d.key)) unacked++;
+        for (String g : impG) if (!ackedG.contains(g)) unacked++;
 
         // 검색 상태: 블루투스는 평소 1초에도 여러 번 들어온다. 와이파이는 제한 때문에 느리다.
         BluetoothAdapter adH = btAdapter();
         boolean btOn = adH != null && adH.isEnabled();
-        boolean bleOk = btOn && bleFail == 0 && now - lastBleResult < 20_000;
+        // 검색 실패·꺼짐만 '멈춤'으로 본다. 수신이 잠시 없는 건 조용한 곳일 수 있어 '최근 수신 없음'으로 따로 표시.
+        boolean bleRunning = btOn && bleFail == 0 && ble != null;
+        boolean bleQuiet = bleRunning && now - lastBleResult >= 20_000;
+        boolean bleOk = bleRunning;
         long wifiLimitMs = (Build.VERSION.SDK_INT == 28 || wifiThrottled) ? 90_000 : 30_000;
         boolean wifiOk = wifi != null && wifi.isWifiEnabled() && lastWifiFresh > 0 && now - lastWifiFresh < wifiLimitMs;
         healthy = bleOk && wifiOk;
@@ -1645,7 +1708,8 @@ public class MainActivity extends Activity {
         btnRange.setVisibility(patrol ? View.GONE : View.VISIBLE);
         patrolBox.setVisibility(patrol ? View.VISIBLE : View.GONE);
         if (patrol) {
-            roomText.setText(roomName(loc()) + (grade == 9 ? "" : " 앞"));
+            // 자동으로 넘긴 반은 '다음 잴 곳'일 뿐, 실제 위치는 재기를 눌러야 확정된다
+            roomText.setText((loc() != confirmedLoc ? "다음 잴 곳: " : "") + roomName(loc()) + (grade == 9 ? "" : " 앞"));
             styleGradeButtons(gradeBtns);
             if (measuring) {
                 btnMeasure.setText("재는 중 " + (now - measureStart) / 1000 + "초 · 가만히 서 계세요 (5~15초)");
@@ -1662,7 +1726,7 @@ public class MainActivity extends Activity {
             topText.setTextColor(DIM);
         }
 
-        baseInfo.setText("● 블루투스 " + (bleOk ? "정상" : !btOn ? "꺼짐" : "멈춤")
+        baseInfo.setText("● 블루투스 " + (!btOn ? "꺼짐" : bleFail != 0 ? "검색 실패(재시작 중)" : !bleRunning ? "멈춤" : bleQuiet ? "검색 중·최근 수신 없음" : "정상")
                 + "   ● 와이파이 " + (wifiOk ? "정상 (" + (now - lastWifiFresh) / 1000 + "초 전 갱신)" : wifi != null && !wifi.isWifiEnabled() ? "꺼짐" : "늦음")
                 + "   · 기준 " + baseCount() + "개");
         baseInfo.setTextColor(healthy ? LIME : ORANGE);
@@ -1683,8 +1747,7 @@ public class MainActivity extends Activity {
         styleBtn(tabBle, tab == 2 ? LIME : NAVY2, tab == 2 ? NAVY : LIME);
         styleBtn(tabAll, tab == 0 ? WHITE : NAVY2, tab == 0 ? NAVY : WHITE);
         if (imp.isEmpty()) list.addView(label("  확인할 신호가 없습니다.", 15, LIME, true));
-        if (tab != 2) for (Dev d : wl) list.addView(card(d, now));
-        if (tab != 1) for (Dev d : bl) list.addView(card(d, now));
+        syncCards(imp, now);
         // 그 밖의 새 신호: 멀거나 잠깐 잡힌 것(접어 둠)
         List<Dev> restT = new ArrayList<>();
         for (Dev d : rest) if (tab == 0 || (tab == 1) == d.wifi) restT.add(d);
@@ -1783,13 +1846,52 @@ public class MainActivity extends Activity {
     /** '확인할 신호': 가까이 오래 있음(★), 또는 휴대폰·이어폰·워치로 보이며 20초 넘게 머물고 어느 정도 센 것 */
     boolean important(Dev d, long now) {
         if (nearStay(d, now) || (!d.wifi && noise(d) && closeAndStaying(d, now))) return true;
+        if (!present(d, now)) return false;
+        double med = recentMed(d, now);
+        // 매우 강한 새 신호(약 1~2m)는 바로: 최근 5초 중 2초 이상 -65dBm 이상
+        if (!d.wifi && med >= -65 && secsIn(d, now, 5) >= 2) return true;
         boolean personal = d.wifi ? d.phoneLike : d.rank >= 2;
-        return personal && now - d.firstSeen >= 20_000 && d.ema >= (patrol ? -82 : -72);
+        // 휴대폰·이어폰·워치(로 보이는 것)는 -82부터, 종류 모르는 것은 -70부터(TV·비콘·PC 류는 제외)
+        if (personal) return med >= (patrol ? -82 : -75);
+        return !d.wifi && d.rank == 1 && med >= -70;
     }
 
     /** 먼저 볼 것: 약 3m 안(블루투스 -65·와이파이 -60dBm 이상)으로 1분 넘게 계속 잡힘 */
     static boolean nearStay(Dev d, long now) {
-        return d.ema >= (d.wifi ? -60 : -65) && now - d.firstSeen >= 60_000 && now - d.lastSeen < 10_000;
+        // '처음 본 뒤 흐른 시간'이 아니라 '최근 60초 중 실제로 잡힌 초'로 판단한다(사라졌다 돌아온 것과 구별)
+        return recentMed(d, now) >= (d.wifi ? -60 : -65) && stayLong(d, now) && now - d.lastSeen < 10_000;
+    }
+
+    /** 최근 win초 동안 실제로 잡힌 서로 다른 초의 수 */
+    static int secsIn(Dev d, long now, int win) {
+        long from = now / 1000 - win + 1;
+        int n = 0;
+        for (long s : d.seenSecs) if (s >= from) n++;
+        return n;
+    }
+
+    /** 지금 있다: 블루투스는 최근 5초 중 3초 이상 잡힘, 와이파이는 최근 검색에 나옴 */
+    boolean present(Dev d, long now) {
+        if (d.wifi) return !isGone(d, now);
+        return secsIn(d, now, 5) >= 3;
+    }
+
+    /** 오래 머묾: 블루투스는 최근 60초 중 30초 이상, 와이파이는 최근 60초 안 새 검색 3번 이상 */
+    static boolean stayLong(Dev d, long now) {
+        if (!d.wifi) return secsIn(d, now, 60) >= 30;
+        int n = 0;
+        for (double[] p : d.hist) if (now - p[0] <= 60_000) n++;
+        return n >= 3;
+    }
+
+    /** 최근 5초 원본 값의 중앙값(블루투스). 와이파이는 다듬은 값 */
+    static double recentMed(Dev d, long now) {
+        if (d.wifi) return d.ema;
+        ArrayList<Integer> v = new ArrayList<>();
+        for (long[] s : d.raw) if (now - s[0] <= 5000) v.add((int) s[1]);
+        if (v.isEmpty()) return d.ema;
+        Collections.sort(v);
+        return v.get(v.size() / 2);
     }
 
     static int prio(Dev d, long now) {
@@ -1809,7 +1911,7 @@ public class MainActivity extends Activity {
      */
     int goneKind(Dev d) {
         // 순회 중 마지막으로 잡힌 뒤 감독관이 다른 반으로 옮겼으면 거리 때문일 가능성이 크다
-        if (patrol && d.lastLoc != 0 && d.lastLoc != loc()) return 3;
+        if (patrol && d.lastLoc != 0 && confirmedLoc != 0 && d.lastLoc != confirmedLoc) return 3;
         double lim = d.wifi ? wifiLimit() : bleLimit();
         double last = d.ema;
         double prevMax = last;
@@ -1863,17 +1965,113 @@ public class MainActivity extends Activity {
         String extra = d.named ? " '" + d.name + "'" : d.typeShort != null && !base.contains(d.typeShort) ? "" : "";
         String maker = maker(d.manu);
         if (!d.named && maker != null && !base.contains(maker)) extra = " · " + maker;
-        if (!d.named && "안드로이드".equals(d.typeShort)) { base = "휴대폰·태블릿 의심"; extra = " · 안드로이드"; }
+        if (!d.named && "애플 기기".equals(d.typeShort)) { base = "애플 기기 (아이폰 가능성)"; extra = ""; }
+        if (!d.named && "구글 신호".equals(d.typeShort)) { base = "구글 서비스 신호 (안드로이드 기기 가능성)"; extra = ""; }
+        if (!d.named && "찾기 신호".equals(d.typeShort)) { base = "분실물 찾기 신호 (폰·이어폰·태그 중)"; extra = ""; }
         if (!d.named && "삼성 기기".equals(d.typeShort)) { base = "삼성 휴대폰·이어폰·워치 중 하나"; extra = ""; }
         return base + extra;
     }
 
     /** 거리에 맞춘 '할 일' 한 줄 */
     String todo(Dev d, double m) {
-        if (m < 2) return "할 일: 태블릿 바로 근처입니다. 주변 자리·가방을 보세요. 감독관 본인 기기면 '괜찮음'.";
-        if (m < 8) return "할 일: 같은 교실 안일 가능성이 큽니다. '찾기'를 눌러 숫자가 커지는 쪽으로 가세요.";
+        if (m < 2) return "할 일: 아주 가깝습니다. 주변 자리·가방을 보세요. 감독관 본인 기기면 '⋯'에서 이번만 무시.";
+        if (m < 8) return "할 일: '찾기'를 누르고, 같은 자세로 한 걸음씩 옮기며 멈춰서 숫자를 비교하세요.";
         return patrol ? "할 일: 멀리 있습니다. 반 앞마다 '여기서 재기'를 눌러 어느 반인지 먼저 찾으세요."
                 : "할 일: 멀리 있습니다(복도·옆 반일 수 있음). 가까워지면 다시 알려 드립니다.";
+    }
+
+    LinearLayout cardBox;
+    final HashSet<String> ackedG = new HashSet<>();           // '확인함'을 누른 묶음(깜빡임만 끔, 추적은 계속)
+    final java.util.LinkedHashMap<String, CardH> cards = new java.util.LinkedHashMap<>();
+
+    static class CardH {
+        LinearLayout root; TextView title, big, small, verdict, todo; Dev cur;
+    }
+
+    /** 카드 목록 맞추기: 없어진 것만 빼고, 새것은 아래에 붙이고, 나머지는 숫자만 바꾼다 */
+    void syncCards(List<Dev> imp, long now) {
+        HashMap<String, Dev> want = new java.util.LinkedHashMap<>();
+        for (Dev d : imp) want.put(groupKey(d), d);
+        java.util.Iterator<Map.Entry<String, CardH>> it = cards.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<String, CardH> e = it.next();
+            if (!want.containsKey(e.getKey())) { cardBox.removeView(e.getValue().root); it.remove(); }
+        }
+        for (Map.Entry<String, Dev> e : want.entrySet()) {
+            CardH h = cards.get(e.getKey());
+            if (h == null) { h = makeCard(e.getKey()); cards.put(e.getKey(), h); cardBox.addView(h.root); }
+            h.cur = e.getValue();
+            boolean vis = tab == 0 || (tab == 1) == h.cur.wifi;
+            h.root.setVisibility(vis ? View.VISIBLE : View.GONE);
+            updateCard(h, e.getKey(), now);
+        }
+    }
+
+    CardH makeCard(String gk) {
+        CardH h = new CardH();
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setPadding(dp(16), dp(14), dp(16), dp(14));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.bottomMargin = dp(12);
+        c.setLayoutParams(lp);
+        h.title = label("", 20, WHITE, true);
+        c.addView(h.title);
+        LinearLayout dl = new LinearLayout(this);
+        dl.setGravity(Gravity.BOTTOM);
+        h.big = label("", 34, WHITE, true);
+        dl.addView(h.big);
+        h.small = label("", 15, DIM, false);
+        h.small.setPadding(dp(10), 0, 0, dp(6));
+        dl.addView(h.small);
+        c.addView(dl);
+        h.verdict = label("", 15, SKY, true);
+        c.addView(h.verdict);
+        h.todo = label("", 15, WHITE, false);
+        h.todo.setPadding(0, dp(6), 0, dp(10));
+        c.addView(h.todo);
+        LinearLayout bs = new LinearLayout(this);
+        Button find = btn("찾기", LIME, NAVY);
+        find.setTextSize(17);
+        find.setOnClickListener(v -> { if (h.cur != null) openFinder(h.cur.key); });
+        Button ack = btn("확인함", NAVY, WHITE);
+        ack.setTextSize(15);
+        ack.setOnClickListener(v -> {
+            // 깜빡임만 끄고 계속 지켜본다(목록에서 빼지 않음)
+            ackedG.add(gk);
+            for (Dev o : devs.values()) if (groupKey(o).equals(gk)) acked.add(o.key);
+            stopFlash();
+            render(System.currentTimeMillis());
+        });
+        Button more = btn("⋯", NAVY, SKY);
+        more.setTextSize(18);
+        more.setOnClickListener(v -> { if (h.cur != null) handle(h.cur); });
+        bs.addView(find, weighted(dp(52), 0));
+        bs.addView(ack, weighted(dp(52), dp(8)));
+        LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(dp(56), dp(52));
+        mlp.leftMargin = dp(8);
+        bs.addView(more, mlp);
+        c.addView(bs);
+        h.root = c;
+        return h;
+    }
+
+    void updateCard(CardH h, String gk, long now) {
+        Dev d = h.cur;
+        double rssi = recentMed(d, now);
+        double m = metersOf(d, rssi);
+        int sc = score(rssi);
+        h.root.setBackground(round(NAVY2, 16, ackedG.contains(gk) ? SKY : ORANGE));
+        h.title.setText(plainTitle(d));
+        h.title.setTextColor(d.phoneLike ? ORANGE : WHITE);
+        // 큰 숫자는 신호 세기 점수(보정 안 된 거리는 작게, 참고용)
+        h.big.setText("신호 " + sc);
+        h.big.setTextColor(sc >= 70 ? ORANGE : sc >= 50 ? LIME : WHITE);
+        h.small.setText("거리 대략 " + fineDist(m) + (nearStay(d, now) ? " · ★ 최근 1분 중 " + secsIn(d, now, 60) + "초 잡힘" : ""));
+        String vd = patrol ? verdict(d) : null;
+        h.verdict.setVisibility(vd == null ? View.GONE : View.VISIBLE);
+        if (vd != null) { h.verdict.setText(vd); h.verdict.setTextColor(vd.contains("뚜렷") ? ORANGE : SKY); }
+        h.todo.setText(todo(d, m));
     }
 
     /** '확인할 신호' 카드: 무엇 / 얼마나 가까이 / 할 일 / [찾기] [괜찮음] */
@@ -2015,12 +2213,12 @@ public class MainActivity extends Activity {
         dirScanning = false;
         int covered = 0, best = -1; double bv = -999;
         for (int i = 0; i < 12; i++) {
-            if (binN[i] == 0) continue;
+            if (binN[i] < 3) continue; // 칸마다 3번 이상 잡혀야 센다
             covered++;
             double avg = binSum[i] / binN[i];
             if (avg > bv) { bv = avg; best = i; }
         }
-        if (covered < 6 || best < 0) {
+        if (covered < 10 || best < 0) { // 12칸 중 10칸 이상 채워야(실제로 한 바퀴 돈 것)
             dirText.setText("한 바퀴를 다 돌지 못했거나 신호가 적었습니다. 더 천천히 다시 돌아 주세요.");
             return;
         }
@@ -2079,6 +2277,7 @@ public class MainActivity extends Activity {
         findPeak = -999;
         findShow = Double.NaN;
         findTrack.clear();
+        findBucket = 0; findLastWifi = 0; findNote = "";
         bestAz = Double.NaN;
         prevAz = Double.NaN;
         dirScanning = false;
@@ -2170,6 +2369,19 @@ public class MainActivity extends Activity {
         render(System.currentTimeMillis());
     }
 
+    /**
+     * '이번만 무시'를 적용할 범위: 묶음 전체가 아니라 '이 기기'와 같은 자리·같은 세기(6dB 안)로 지금 함께 잡히는 주소만.
+     * 같은 제조사의 다른 학생 기기까지 지우지 않으려고.
+     */
+    List<Dev> sameSpot(Dev d, List<Dev> grp) {
+        long now = System.currentTimeMillis();
+        double ref = recentMed(d, now);
+        List<Dev> out = new ArrayList<>();
+        out.add(d);
+        for (Dev o : grp) if (o != d && now - o.lastSeen < 10_000 && Math.abs(recentMed(o, now) - ref) <= 6) out.add(o);
+        return out;
+    }
+
     /** '처리' 버튼: 학교 장비로 등록(계속 면제) / 이번만 무시 */
     void handle(Dev d) {
         String g = groupKey(d);
@@ -2213,13 +2425,13 @@ public class MainActivity extends Activity {
                         if (personal) new AlertDialog.Builder(this)
                                 .setTitle("개인 기기로 보입니다")
                                 .setMessage("휴대폰·이어폰·워치는 블루투스 주소가 15분쯤마다 바뀌어 학교 장비로 등록해도 곧 다시 뜹니다.\n'이번 시험에서만 무시'를 추천합니다.")
-                                .setPositiveButton("이번만 무시", (a, b) -> { for (Dev o : grp) sessionIgnored.add(o.key); render(System.currentTimeMillis()); })
+                                .setPositiveButton("이번만 무시", (a, b) -> { for (Dev o : sameSpot(d, grp)) sessionIgnored.add(o.key); render(System.currentTimeMillis()); })
                                 .setNeutralButton("그래도 등록", (a, b) -> askSchoolName(d, grp))
                                 .setNegativeButton("취소", null).show();
                         else askSchoolName(d, grp);
                     }
                     else if (w == 1) {
-                        for (Dev o : grp) sessionIgnored.add(o.key);
+                        for (Dev o : sameSpot(d, grp)) sessionIgnored.add(o.key);
                         Rec r = log.get(g);
                         if (r != null) { r.ignored = true; saveLog(); }
                         if (d.key.equals(findKey)) closeFinder();
@@ -2548,41 +2760,72 @@ public class MainActivity extends Activity {
      * 찾는 대상은 '주소 하나'가 아니라 '같은 묶음'(같은 이름, 또는 같은 제조사·종류의 이름 없는 기기)이다.
      * 주소를 자주 바꾸는 기기(구글·삼성 찾기 신호 등)를 따라가려고. 묶음 중 가장 최근에 들어온 주소를 대표로 쓴다.
      */
+    /**
+     * 찾는 대상은 '주소 하나'로 고정한다(묶음 전체를 섞으면 다른 기기를 따라갈 수 있음).
+     * 대상이 3초 넘게 끊겼고, 같은 묶음에서 그 직후(8초 안) 새 주소가 비슷한 세기(8dB 안)로 나타났을 때만 넘어간다.
+     */
     Dev findTarget() {
-        Dev best = devs.get(findKey);
-        if (best == null || findGroup == null) return best;
-        for (Dev o : devs.values())
-            if (groupKey(o).equals(findGroup) && o.lastSeen > best.lastSeen) best = o;
-        return best;
-    }
-
-    /** 묶음 전체의 최근 2초(모자라면 4초) 원본 값 상위 20% */
-    double stableGroup(Dev rep, long now) {
-        if (rep.wifi || findGroup == null) return rep.wifi ? rep.ema : stableRssi(rep, now);
-        ArrayList<Integer> v = new ArrayList<>();
-        for (int win : new int[]{2000, 4000}) {
-            v.clear();
-            for (Dev o : devs.values()) if (groupKey(o).equals(findGroup))
-                for (long[] s : o.raw) if (now - s[0] <= win) v.add((int) s[1]);
-            if (v.size() >= 3) break;
+        Dev t = devs.get(findKey);
+        if (t == null || t.wifi || findGroup == null) return t;
+        long now = System.currentTimeMillis();
+        if (now - t.lastSeen <= 3000 && findNote.startsWith("신호가 끊겼")) findNote = "";
+        if (now - t.lastSeen > 3000) {
+            Dev next = null;
+            for (Dev o : devs.values()) {
+                if (o == t || !groupKey(o).equals(findGroup)) continue;
+                long gap = o.firstSeen - t.lastSeen;
+                if (gap < 0 || gap > 8000 || now - o.lastSeen > 3000) continue;
+                if (!Double.isNaN(findShow) && Math.abs(recentMed(o, now) - findShow) > 8) continue;
+                if (next == null || o.firstSeen < next.firstSeen) next = o;
+            }
+            if (next != null) {
+                findKey = next.key;
+                findBucket = 0;
+                findNote = "주소가 바뀐 것 같아 따라갔습니다 (같은 기기인지는 추정)";
+                return next;
+            }
+            findNote = "신호가 끊겼습니다. 다시 잡히면 이어서 보여 드립니다.";
         }
-        if (v.isEmpty()) return rep.ema;
-        Collections.sort(v);
-        return v.get(Math.min(v.size() - 1, (int) Math.floor(v.size() * 0.8)));
+        return t;
     }
 
-    String findGroup = null;
+    String findGroup = null, findNote = "";
+    long findBucket = 0, findLastWifi = 0;
+
+    /**
+     * 다듬기: 0.5초 구간마다 원본 값의 중앙값 → 새 구간마다 0.5 비율로 이어 붙인다.
+     * 화면을 다시 그릴 때가 아니라 '새 관측 구간'이 생길 때만 앞으로 나아간다.
+     */
+    void updateFindFilter(Dev d, long now) {
+        if (d.wifi) {
+            if (d.lastSeen > findLastWifi) { findLastWifi = d.lastSeen; pushFind(d.ema, d.lastSeen); }
+            return;
+        }
+        long cur = now / 500;
+        long b0 = findBucket == 0 ? cur - 4 : findBucket + 1;
+        for (long b = b0; b < cur; b++) {
+            ArrayList<Integer> v = new ArrayList<>();
+            for (long[] s : d.raw) if (s[0] / 500 == b) v.add((int) s[1]);
+            if (v.isEmpty()) continue;
+            Collections.sort(v);
+            pushFind(v.get(v.size() / 2), (b + 1) * 500);
+        }
+        findBucket = cur - 1;
+    }
+
+    void pushFind(double v, long t) {
+        findShow = Double.isNaN(findShow) ? v : findShow * 0.5 + v * 0.5;
+        findTrack.add(new double[]{t, findShow});
+        while (!findTrack.isEmpty() && t - findTrack.get(0)[0] > 8000) findTrack.remove(0);
+    }
 
     void renderFinder(long now) {
         Dev d = findTarget();
         if (d == null) { closeFinder(); return; }
         findName.setText(plainTitle(d) + "\n신호 점수 (0~100, 클수록 가깝습니다)");
         long ago = (now - d.lastSeen) / 1000;
-        // 블루투스는 흔들림이 커서 '최근 2초 원본 값 중 위쪽(상위 20%)'을 쓰고, 화면 값은 한 번 더 천천히 따라가게 한다
-        double st = stableGroup(d, now);
-        findShow = Double.isNaN(findShow) ? st : findShow + Math.max(-3, Math.min(3, (st - findShow) * 0.35));
-        findTrack.add(new double[]{now, findShow});
-        while (!findTrack.isEmpty() && now - findTrack.get(0)[0] > 6000) findTrack.remove(0);
+        updateFindFilter(d, now);
+        if (Double.isNaN(findShow)) findShow = d.ema;
         double m = metersOf(d, findShow);
         if (isGone(d, now)) {
             findDist.setText("—");
@@ -2601,10 +2844,10 @@ public class MainActivity extends Activity {
                 if (hs < 2 || now - d.lastSeen > 15_000) dir = 9;
                 else { double df = d.hist.get(hs - 1)[1] - d.hist.get(hs - 2)[1]; dir = df >= 2 ? 1 : df <= -2 ? -1 : 0; }
             } else {
-                // 블루투스: 최근 1초 평균과 2~3초 전 평균을 비교(2dB 넘게 차이 날 때만 방향 표시)
-                double recent = avgTrack(now, 0, 1000), before = avgTrack(now, 2000, 3000);
+                // 블루투스: 최근 2초와 그 앞 2초를 비교(4dB 넘게 차이 날 때만 방향 표시, 작은 흔들림은 '그대로')
+                double recent = avgTrack(now, 0, 2000), before = avgTrack(now, 2000, 4000);
                 if (Double.isNaN(recent) || Double.isNaN(before)) dir = 0;
-                else { double df = recent - before; dir = df >= 2 ? 1 : df <= -2 ? -1 : 0; }
+                else { double df = recent - before; dir = df >= 4 ? 1 : df <= -4 ? -1 : 0; }
             }
             if (dir == 1) { findTrend.setText(dist + "▲ 가까워지는 중"); findTrend.setTextColor(LIME); }
             else if (dir == -1) { findTrend.setText(dist + "▼ 멀어지는 중"); findTrend.setTextColor(ORANGE); }
@@ -2621,8 +2864,8 @@ public class MainActivity extends Activity {
             }
             btnDir.setVisibility(d.wifi ? View.GONE : View.VISIBLE);
         }
-        findRaw.setText(peakLine(d) + zone(m) +" · 신호 " + Math.round(d.ema) + " dBm · " + d.kind
-                + "\n태블릿을 들고 천천히 걸어 보세요. 숫자보다 ▲▼ 방향을 믿는 게 정확합니다."
+        findRaw.setText((findNote.isEmpty() ? "" : findNote + "\n") + peakLine(d) + d.kind
+                + "\n같은 자세로 한 걸음 옮기고, 2~3초 멈춰서 숫자를 비교하세요. 커지는 쪽이 가까운 쪽입니다."
                 + (d.wifi ? (Build.VERSION.SDK_INT == 28 || wifiThrottled
                         ? "\n와이파이는 30초마다 갱신됩니다. 블루투스보다 천천히 움직이세요."
                         : "\n와이파이는 4초마다 갱신되어 조금 늦게 반응합니다.") : ""));
@@ -2927,9 +3170,16 @@ public class MainActivity extends Activity {
         View gapV = new View(this);
         main.addView(gapV, new LinearLayout.LayoutParams(1, dp(10)));
         ScrollView sv = new ScrollView(this);
+        LinearLayout listWrap = new LinearLayout(this);
+        listWrap.setOrientation(LinearLayout.VERTICAL);
+        // 확인할 신호 카드는 따로 두고 자리를 고정한다(매초 다시 만들지 않음 → 누르려던 버튼이 움직이지 않게)
+        cardBox = new LinearLayout(this);
+        cardBox.setOrientation(LinearLayout.VERTICAL);
+        listWrap.addView(cardBox);
         list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
-        sv.addView(list);
+        listWrap.addView(list);
+        sv.addView(listWrap);
         main.addView(sv, new LinearLayout.LayoutParams(-1, 0, 1));
 
         baseInfo = label("", 13, DIM, false);
@@ -3021,6 +3271,8 @@ public class MainActivity extends Activity {
                         + "· 아래 상태줄이 '정상'일 때만 '새 신호 없음'을 믿으세요. 전원·무선을 끈 기기, 비행기 모드 폰은 잡히지 않습니다.\n"
                         + "· 매번 같은 높이·같은 방향으로 들고 재야 정확합니다(몸이 신호를 가립니다).\n"
                         + "· 한 바퀴 돈 뒤 가장 센 교실 감독에게 알려 주세요.\n\n"
+                        + "감독관 폰\n"
+                        + "· 감독관 폰은 블루투스 주소를 계속 바꿔서 앱이 학생 기기와 확실히 구별할 수 없습니다. 감독 중에는 블루투스·핫스팟을 꺼 두는 것이 가장 확실합니다.\n\n"
                         + "알아 둘 점\n"
                         + "· 잡히는 것: 핫스팟을 켠 폰, 블루투스를 켠 폰·이어폰·스마트워치\n"
                         + "· 안 잡히는 것: 비행기 모드·전원을 끈 폰, 핫스팟 없이 LTE만 쓰는 폰\n"
