@@ -137,6 +137,7 @@ public class MainActivity extends Activity {
         sound = prefs.getBoolean("sound", false);
         patrol = prefs.getBoolean("patrol", false);
         room = prefs.getInt("room", 1);
+        loadLog();
         wifi = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
         vib = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
         try { tone = new ToneGenerator(AudioManager.STREAM_MUSIC, 80); } catch (Exception ignored) { }
@@ -274,6 +275,7 @@ public class MainActivity extends Activity {
         // 감시 중이면 화면이 켜져 있는 동안 계속 돈다. 앱을 벗어나면 검색을 멈춘다.
         stopScanning();
         h.removeCallbacks(tick);
+        saveLog();
     }
 
     @Override
@@ -529,7 +531,7 @@ public class MainActivity extends Activity {
         d.hits++;
         d.hist.add(new double[]{at, d.ema});
         while (d.hist.size() > 40) d.hist.remove(0);
-        if (mode == MODE_BASELINE) baseline.add(d.key);
+        if (mode == MODE_BASELINE) addBase(d);
         if (patrol && mode == MODE_WATCH) {
             Double p = d.roomPeak.get(room);
             if (p == null || d.ema > p) d.roomPeak.put(room, d.ema);
@@ -570,7 +572,7 @@ public class MainActivity extends Activity {
     }
 
     boolean rawAlert(Dev d, long now) {
-        if (mode != MODE_WATCH || baseline.contains(d.key)) return false;
+        if (mode != MODE_WATCH || inBase(d)) return false;
         if (now - d.lastSeen > GONE_MS) return false;
         if (d.wifi) return d.ema >= wifiLimit();
         // 블루투스는 3번 이상, 3초 이상 보이고 가까울 때만 (스쳐 가는 신호 거르기)
@@ -616,6 +618,7 @@ public class MainActivity extends Activity {
     final Runnable tick = new Runnable() {
         @Override public void run() {
             tickN++;
+            if (tickN % 15 == 0 && mode == MODE_WATCH) saveLog();
             long now = System.currentTimeMillis();
             // 안드로이드 9(또는 검색 제한이 켜진 기기)는 2분에 4번만 검색된다.
             // 4초마다 쏘면 앞 16초에 다 쓰고 1분 40초를 기다리게 되니 30초 간격으로 고르게 나눈다.
@@ -651,18 +654,187 @@ public class MainActivity extends Activity {
 
     void finishBaseline() {
         long now = System.currentTimeMillis();
-        for (Dev d : devs.values()) if (now - d.lastSeen < GONE_MS) baseline.add(d.key);
+        for (Dev d : devs.values()) if (now - d.lastSeen < GONE_MS) addBase(d);
         saveBaseline();
         mode = MODE_WATCH;
+        log.clear();
+        watchStart = now;
+        saveLog();
         buzz(new long[]{0, 120, 80, 120});
+    }
+
+    /**
+     * 주소와 함께 '이름'도 기준에 넣는다. 블루투스 주소는 15분쯤마다 바뀌지만
+     * 이름(예: "Galaxy Buds")은 그대로라, 이름 있는 기기는 주소가 바뀌어도 다시 경고하지 않는다.
+     */
+    static String nameKey(Dev d) {
+        if (d.name == null) return null;
+        if (d.wifi) return d.name.equals("(이름 숨김)") ? null : "S:" + d.name;
+        return d.named ? "N:" + d.name : null;
+    }
+
+    void addBase(Dev d) {
+        baseline.add(d.key);
+        String nk = nameKey(d);
+        if (nk != null) baseline.add(nk);
+    }
+
+    /** 기준 목록의 기기 수(이름 항목은 빼고 센다) */
+    int baseCount() { int n = 0; for (String k : baseline) if (k.startsWith("W:") || k.startsWith("B:")) n++; return n; }
+
+    boolean inBase(Dev d) {
+        if (baseline.contains(d.key)) return true;
+        String nk = nameKey(d);
+        return nk != null && baseline.contains(nk);
     }
 
     void toggleWatch() {
         if (mode == MODE_BASELINE) return;
-        if (mode == MODE_WATCH) { mode = MODE_IDLE; stopFlash(); return; }
+        if (mode == MODE_WATCH) { mode = MODE_IDLE; stopFlash(); saveLog(); return; }
         if (baseline.isEmpty()) { startBaseline(); return; }
         if (!hasPerms()) { askPermissions(); return; }
         mode = MODE_WATCH;
+        if (watchStart == 0) watchStart = System.currentTimeMillis();
+    }
+
+    // ───────────────────────── 기록·통계·내보내기 ─────────────────────────
+
+    static class Rec {
+        String name, kind; boolean wifi, phone, ignored;
+        long first, last; double peak = -999; int room = -1;
+    }
+    final java.util.LinkedHashMap<String, Rec> log = new java.util.LinkedHashMap<>();
+    long watchStart = 0;
+    static final int REQ_SAVE = 9;
+
+    void logAlert(Dev d, long now) {
+        String k = groupKey(d);
+        Rec r = log.get(k);
+        if (r == null) { r = new Rec(); r.first = now; log.put(k, r); }
+        r.name = d.name; r.kind = d.kind; r.wifi = d.wifi; r.phone = d.phoneLike;
+        r.last = Math.max(r.last, d.lastSeen);
+        if (d.ema > r.peak) r.peak = d.ema;
+        int br = bestRoom(d);
+        if (br > 0) r.room = br;
+    }
+
+    void saveLog() {
+        try {
+            org.json.JSONArray a = new org.json.JSONArray();
+            for (Rec r : log.values()) {
+                org.json.JSONObject o = new org.json.JSONObject();
+                o.put("n", r.name); o.put("k", r.kind); o.put("w", r.wifi); o.put("p", r.phone); o.put("i", r.ignored);
+                o.put("f", r.first); o.put("l", r.last); o.put("pk", r.peak); o.put("r", r.room);
+                a.put(o);
+            }
+            prefs.edit().putString("log", a.toString()).putLong("watchStart", watchStart).apply();
+        } catch (Exception ignored) { }
+    }
+
+    void loadLog() {
+        try {
+            watchStart = prefs.getLong("watchStart", 0);
+            org.json.JSONArray a = new org.json.JSONArray(prefs.getString("log", "[]"));
+            for (int i = 0; i < a.length(); i++) {
+                org.json.JSONObject o = a.getJSONObject(i);
+                Rec r = new Rec();
+                r.name = o.optString("n"); r.kind = o.optString("k"); r.wifi = o.optBoolean("w"); r.phone = o.optBoolean("p");
+                r.ignored = o.optBoolean("i"); r.first = o.optLong("f"); r.last = o.optLong("l");
+                r.peak = o.optDouble("pk", -999); r.room = o.optInt("r", -1);
+                log.put((r.wifi ? "W" : "B") + i, r);
+            }
+        } catch (Exception ignored) { }
+    }
+
+    static String hm(long t) { return new java.text.SimpleDateFormat("HH:mm", Locale.KOREA).format(new java.util.Date(t)); }
+
+    String summary() {
+        if (watchStart == 0) return "아직 감시 기록이 없습니다. 기준을 잡고 감시를 시작하면 기록됩니다.";
+        long end = System.currentTimeMillis();
+        int w = 0, b = 0, ph = 0, ig = 0;
+        Map<Integer, Integer> byRoom = new java.util.TreeMap<>();
+        for (Rec r : log.values()) {
+            if (r.wifi) w++; else b++;
+            if (r.phone) ph++;
+            if (r.ignored) ig++;
+            if (r.room > 0) byRoom.merge(r.room, 1, Integer::sum);
+        }
+        StringBuilder s = new StringBuilder();
+        s.append("감시 시간: ").append(hm(watchStart)).append(" ~ ").append(hm(end))
+                .append(" (").append((end - watchStart) / 60000).append("분)\n");
+        s.append("기준 기기: ").append(baseCount()).append("개\n\n");
+        s.append("새로 나타난 기기: ").append(log.size()).append("개\n");
+        s.append(" · 와이파이 핫스팟 ").append(w).append("개\n");
+        s.append(" · 블루투스 ").append(b).append("개\n");
+        s.append(" · 휴대폰 의심 ").append(ph).append("개\n");
+        s.append(" · '무시' 처리 ").append(ig).append("개\n");
+        if (!byRoom.isEmpty()) {
+            s.append("\n교실별(순회):\n");
+            for (Map.Entry<Integer, Integer> e : byRoom.entrySet())
+                s.append(" · ").append(e.getKey()).append("반 앞 ").append(e.getValue()).append("개\n");
+        }
+        if (!log.isEmpty()) {
+            s.append("\n처음 본 순서:\n");
+            int n = 0;
+            for (Rec r : log.values()) {
+                if (++n > 15) { s.append(" … 나머지는 파일에 있습니다\n"); break; }
+                s.append(" ").append(hm(r.first)).append(" ").append(r.wifi ? "[와이파이] " : "[블루투스] ").append(r.name)
+                        .append(r.room > 0 ? " · " + r.room + "반 앞" : "").append(r.ignored ? " (무시)" : "").append("\n");
+            }
+        }
+        return s.toString();
+    }
+
+    String csv() {
+        StringBuilder s = new StringBuilder("﻿");
+        s.append("번호,처음 본 시각,마지막 본 시각,머문 시간(분),종류,이름,설명,가장 센 세기(dBm),가장 셌던 곳,처리\n");
+        int n = 0;
+        java.text.SimpleDateFormat f = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.KOREA);
+        for (Rec r : log.values()) {
+            s.append(++n).append(',').append(f.format(new java.util.Date(r.first))).append(',')
+                    .append(f.format(new java.util.Date(r.last))).append(',')
+                    .append(Math.max(0, (r.last - r.first) / 60000)).append(',')
+                    .append(r.wifi ? "와이파이" : "블루투스").append(',')
+                    .append(q(r.name)).append(',').append(q(r.kind)).append(',')
+                    .append(Math.round(r.peak)).append(',')
+                    .append(r.room > 0 ? r.room + "반 앞" : "").append(',')
+                    .append(r.ignored ? "무시" : "").append('\n');
+        }
+        return s.toString();
+    }
+
+    static String q(String v) { return "\"" + (v == null ? "" : v.replace("\"", "\"\"")) + "\""; }
+
+    void showStats() {
+        saveLog();
+        new AlertDialog.Builder(this)
+                .setTitle("감시 기록")
+                .setMessage(summary())
+                .setPositiveButton("파일로 저장", (d, w) -> {
+                    Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                    i.addCategory(Intent.CATEGORY_OPENABLE);
+                    i.setType("text/csv");
+                    i.putExtra(Intent.EXTRA_TITLE, "시험감독기록_" + new java.text.SimpleDateFormat("yyyyMMdd_HHmm", Locale.KOREA).format(new java.util.Date()) + ".csv");
+                    try { startActivityForResult(i, REQ_SAVE); } catch (Exception e) { toast("파일 저장 화면을 열 수 없습니다."); }
+                })
+                .setNeutralButton("공유", (d, w) -> {
+                    Intent i = new Intent(Intent.ACTION_SEND);
+                    i.setType("text/plain");
+                    i.putExtra(Intent.EXTRA_SUBJECT, "시험감독 레이더 기록");
+                    i.putExtra(Intent.EXTRA_TEXT, summary());
+                    startActivity(Intent.createChooser(i, "기록 보내기"));
+                })
+                .setNegativeButton("닫기", null).show();
+    }
+
+    @Override
+    protected void onActivityResult(int code, int res, Intent data) {
+        super.onActivityResult(code, res, data);
+        if (code != REQ_SAVE || res != RESULT_OK || data == null || data.getData() == null) return;
+        try (OutputStream o = getContentResolver().openOutputStream(data.getData())) {
+            o.write(csv().getBytes("UTF-8"));
+            toast("저장했습니다. 엑셀에서 바로 열립니다.");
+        } catch (Exception e) { toast("저장하지 못했습니다."); }
     }
 
     void togglePatrol() {
@@ -684,8 +856,10 @@ public class MainActivity extends Activity {
     }
 
     void ignore(Dev d) {
-        baseline.add(d.key);
+        addBase(d);
         saveBaseline();
+        Rec r = log.get(groupKey(d));
+        if (r != null) { r.ignored = true; saveLog(); }
         if (d.key.equals(findKey)) closeFinder();
     }
 
@@ -728,7 +902,7 @@ public class MainActivity extends Activity {
         int baseSeen = 0, hidden = 0;
         for (Dev d : devs.values()) {
             if (!showUnknown && noise(d) && rawAlert(d, now)) hidden++;
-            if (isAlert(d, now)) alerts.add(d);
+            if (isAlert(d, now)) { alerts.add(d); logAlert(d, now); }
             else if (baseline.contains(d.key) && now - d.lastSeen < GONE_MS) baseSeen++;
         }
         alerts.sort((a, b) -> Double.compare(b.ema, a.ema));
@@ -746,7 +920,7 @@ public class MainActivity extends Activity {
             long left = Math.max(0, (baselineEnd - now + 999) / 1000);
             status.setText("기준 잡는 중 · " + left + "초");
             status.setTextColor(LIME);
-            statusSub.setText("지금 보이는 신호 " + baseline.size() + "개를 기억하고 있습니다. 태블릿을 교실 가운데쯤 두세요.");
+            statusSub.setText("지금 보이는 신호 " + baseCount() + "개를 기억하고 있습니다. 태블릿을 교실 가운데쯤 두세요.");
             stopFlash();
         } else if (mode == MODE_WATCH) {
             if (alerts.isEmpty()) {
@@ -792,10 +966,10 @@ public class MainActivity extends Activity {
             }
         }
 
-        baseInfo.setText("기준 기기 " + baseline.size() + "개 저장됨 · 지금 보이는 기준 기기 " + baseSeen + "개");
+        baseInfo.setText("기준 기기 " + baseCount() + "개 저장됨 · 지금 보이는 기준 기기 " + baseSeen + "개");
         String t = "";
         if (Build.VERSION.SDK_INT >= 29 && wifiThrottled && now - lastWifiScanOk > 40_000)
-            t = "와이파이 검색이 느립니다. 설정 → 개발자 옵션 → 'Wi-Fi 검색 제한'을 끄면 4초마다 갱신됩니다.";
+            t = "와이파이 검색이 느립니다. 설정 → 개발자 옵션 → 'Wi-Fi 스캔 쓰로틀링'(Wi-Fi 검색 제한)을 끄면 4초마다 갱신됩니다.";
         else if (lastWifiResult > 0 && now - lastWifiResult > 60_000)
             t = "1분 넘게 와이파이 결과가 없습니다. 와이파이 스위치와 위치가 켜져 있는지 보세요.";
         tip.setText(t);
@@ -1057,6 +1231,13 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams pblp = new LinearLayout.LayoutParams(-1, -2);
         pblp.topMargin = dp(12);
         main.addView(patrolBox, pblp);
+
+        Button stats = btn("감시 기록 보기 · 내보내기", NAVY2, LIME);
+        stats.setTextSize(14);
+        stats.setOnClickListener(v -> showStats());
+        LinearLayout.LayoutParams stlp = new LinearLayout.LayoutParams(-1, dp(46));
+        stlp.topMargin = dp(10);
+        main.addView(stats, stlp);
 
         tip = label("", 14, NAVY, false);
         tip.setBackground(round(LIME, 12));
