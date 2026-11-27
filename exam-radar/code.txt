@@ -949,6 +949,8 @@ public class MainActivity extends Activity {
         if (sessionIgnored.contains(d.key)) return true;          // 이번 시험에서만 무시
         RoomBase sc = rooms.get(ROOM_SCHOOL);
         if (sc != null && sc.keys.contains(d.key)) return true;  // 사람이 확인한 학교 장비
+        // 학생이 없는 시간에 서로 다른 2일 이상 같은 주소로 보인 기기 = 상시 기기(임의 주소 핫스팟도 포함)
+        if (baseline.contains(d.key) && daysOf(d.key) >= 2) return true;
         if (d.wifi && !isRandomMac(d)) {
             // 학교 와이파이 이름 전체 등록(고유 주소 공유기만. 임의 주소 핫스팟이 이름을 흉내 내면 계속 잡힌다)
             if (sc != null && sc.keys.contains("SN:" + d.name)) return true;
@@ -1247,6 +1249,7 @@ public class MainActivity extends Activity {
         o.put("at", System.currentTimeMillis());
         o.put("rooms", new org.json.JSONObject(prefs.getString("rooms", "{}")));
         o.put("baseSeen", new org.json.JSONObject(prefs.getString("baseSeen", "{}")));
+        o.put("baseDays", new org.json.JSONObject(prefs.getString("baseDays", "{}")));
         o.put("log", new org.json.JSONArray(prefs.getString("log", "[]")));
         o.put("watchStart", watchStart);
         o.put("places", new org.json.JSONArray(places));
@@ -1323,6 +1326,15 @@ public class MainActivity extends Activity {
             }
             org.json.JSONObject lbs = o.optJSONObject("labels");
             if (lbs != null) { java.util.Iterator<String> li = lbs.keys(); while (li.hasNext()) { String k = li.next(); labels.put(k, lbs.getString(k)); } saveLabels(); }
+            org.json.JSONObject bdj = o.optJSONObject("baseDays");
+            if (bdj != null) {
+                java.util.Iterator<String> di = bdj.keys();
+                while (di.hasNext()) {
+                    String k = di.next(); String[] p2 = bdj.getString(k).split(",");
+                    int[] mine = baseDays.get(k); int c = Integer.parseInt(p2[0]), last = Integer.parseInt(p2[1]);
+                    if (mine == null || c > mine[0]) baseDays.put(k, new int[]{c, last});
+                }
+            }
             org.json.JSONObject bs = o.optJSONObject("baseSeen");
             if (bs != null) { java.util.Iterator<String> it = bs.keys(); while (it.hasNext()) { String k = it.next(); Long t = baseSeen.get(k); long v = bs.getLong(k); if (t == null || v > t) baseSeen.put(k, v); } }
             org.json.JSONObject s = o.optJSONObject("settings");
@@ -1583,6 +1595,7 @@ public class MainActivity extends Activity {
     final HashSet<String> impSeen = new HashSet<>();
 
     void detect(long now) {
+        collectStep(now);
         for (Dev d : devs.values()) {
             if (mode == MODE_WATCH) {
                 Rec rr = log.get(groupKey(d));
@@ -2310,7 +2323,7 @@ public class MainActivity extends Activity {
     LinearLayout shell, basePane, logPane, roomList;
     ScrollView baseScroll, logScroll, mainScroll, findScroll;
     TextView baseHead, baseRoomText, logText;
-    Button btnSurvey;
+    Button btnSurvey, btnCollect;
     final Button[] pageBtns = new Button[3];
     final Button[] gradeBtns2 = new Button[4];
     int page = 0; // 0 감시, 1 기준, 2 기록
@@ -2330,7 +2343,57 @@ public class MainActivity extends Activity {
         final HashSet<String> keys = new HashSet<>();
         final HashMap<String, Double> fp = new HashMap<>();
     }
-    static final int ROOM_LEGACY = 0, ROOM_IGNORED = -1, ROOM_SCHOOL = -2;
+    static final int ROOM_LEGACY = 0, ROOM_IGNORED = -1, ROOM_SCHOOL = -2, ROOM_AUTO = -3;
+
+    // ── 여러 날 쌓기: 주소마다 '본 날 수'를 센다. 서로 다른 2일 이상 같은 주소면 '상시 기기'(교사·학교 기기)로 본다 ──
+    final HashMap<String, int[]> baseDays = new HashMap<>(); // 열쇠 → {본 날 수, 마지막 본 날}
+
+    static int today() {
+        java.util.Calendar c = java.util.Calendar.getInstance();
+        return c.get(java.util.Calendar.YEAR) * 1000 + c.get(java.util.Calendar.DAY_OF_YEAR);
+    }
+
+    void markDay(String k) {
+        int t = today();
+        int[] v = baseDays.get(k);
+        if (v == null) baseDays.put(k, new int[]{1, t});
+        else if (v[1] != t) { v[0]++; v[1] = t; }
+    }
+
+    int daysOf(String k) { int[] v = baseDays.get(k); return v == null ? 0 : v[0]; }
+
+    // 방과 후 자동 쌓기: 켜 두고 돌아다니면 보이는 신호가 기준에 계속 쌓인다(2시간 뒤 자동으로 꺼짐)
+    long collectUntil = 0;
+    boolean collecting() { return System.currentTimeMillis() < collectUntil && mode != MODE_WATCH; }
+
+    void collectStep(long now) {
+        if (!collecting()) return;
+        RoomBase rb = null;
+        for (Dev d : devs.values()) {
+            if (now - d.lastSeen > 3000) continue;
+            if (!d.wifi && secsIn(d, now, 5) < 2) continue; // 스치는 신호는 빼고
+            if (rb == null) rb = roomOf(ROOM_AUTO);
+            for (String k : new String[]{d.key, nameKey(d), vendorKey(d)}) {
+                if (k == null) continue;
+                if (rb.keys.add(k)) roomsDirty = true;
+                baseSeen.put(k, now);
+                int before = daysOf(k);
+                markDay(k);
+                if (daysOf(k) != before) roomsDirty = true;
+            }
+        }
+        if (rb != null) { rb.t = now; rebuildBaseline(); }
+    }
+
+    void toggleCollect() {
+        if (collecting()) { collectUntil = 0; saveRooms(); toast("자동 쌓기를 껐습니다."); render(System.currentTimeMillis()); return; }
+        if (mode == MODE_WATCH) { toast("감시 중에는 켤 수 없습니다. 감시를 멈춘 뒤 켜 주세요."); return; }
+        new AlertDialog.Builder(this)
+                .setTitle("방과 후 자동 쌓기")
+                .setMessage("학생이 없을 때만 켜 주세요.\n\n켜 둔 동안 보이는 와이파이·블루투스 신호가 기준에 계속 쌓입니다. 2시간 뒤 저절로 꺼집니다.\n\n여러 날 같은 주소로 보인 기기는 '상시 기기'(교사·학교 기기)로 보고 경고하지 않습니다. 교사 휴대폰의 블루투스는 주소가 계속 바뀌어 쌓아도 알아보지 못합니다.")
+                .setPositiveButton("켜기 (2시간)", (d, w) -> { collectUntil = System.currentTimeMillis() + 2 * 3600_000L; render(System.currentTimeMillis()); })
+                .setNegativeButton("취소", null).show();
+    }
     final HashMap<String, String> labels = new HashMap<>();   // 학교 장비에 붙인 이름 (주소 → 이름)
     final HashSet<String> sessionIgnored = new HashSet<>();   // 이번 시험에서만 무시
 
@@ -2528,7 +2591,9 @@ public class MainActivity extends Activity {
             }
             org.json.JSONObject s = new org.json.JSONObject();
             for (Map.Entry<String, Long> e : baseSeen.entrySet()) s.put(e.getKey(), e.getValue());
-            prefs.edit().putString("rooms", o.toString()).putString("baseSeen", s.toString()).apply();
+            org.json.JSONObject dj = new org.json.JSONObject();
+            for (Map.Entry<String, int[]> e : baseDays.entrySet()) dj.put(e.getKey(), e.getValue()[0] + "," + e.getValue()[1]);
+            prefs.edit().putString("rooms", o.toString()).putString("baseSeen", s.toString()).putString("baseDays", dj.toString()).apply();
             roomsDirty = false;
         } catch (Exception ignored) { }
     }
@@ -2559,6 +2624,11 @@ public class MainActivity extends Activity {
                 rb.t = now;
                 rb.keys.addAll(baseline);
             }
+        } catch (Exception ignored) { }
+        try {
+            org.json.JSONObject dj = new org.json.JSONObject(prefs.getString("baseDays", "{}"));
+            java.util.Iterator<String> di = dj.keys();
+            while (di.hasNext()) { String k = di.next(); String[] p2 = dj.getString(k).split(","); baseDays.put(k, new int[]{Integer.parseInt(p2[0]), Integer.parseInt(p2[1])}); }
         } catch (Exception ignored) { }
         // 30일 넘게 안 잡힌 항목 정리 (날짜가 없는 항목은 오늘부터 센다)
         for (Map.Entry<Integer, RoomBase> en : rooms.entrySet()) {
@@ -2616,6 +2686,7 @@ public class MainActivity extends Activity {
                 if (k == null) continue;
                 rb.keys.add(k);
                 baseSeen.put(k, now);
+                markDay(k);
             }
             if (d.wifi) {
                 ArrayList<Integer> l = e.getValue();
@@ -2642,7 +2713,7 @@ public class MainActivity extends Activity {
 
     String roomLabel(int code) {
         return code == ROOM_LEGACY ? "이전 버전 기준" : code == ROOM_IGNORED ? "예전에 무시한 기기"
-                : code == ROOM_SCHOOL ? "학교 장비 (확인됨)" : roomName(code);
+                : code == ROOM_SCHOOL ? "학교 장비 (확인됨)" : code == ROOM_AUTO ? "방과 후 자동 쌓기" : roomName(code);
     }
 
     static int realCount(java.util.Collection<String> keys) {
@@ -2652,7 +2723,12 @@ public class MainActivity extends Activity {
     }
 
     void renderBasePane(long now) {
-        baseHead.setText("누적 기준: 신호 " + baseCount() + "개 · " + rooms.size() + "곳\n30일 동안 한 번도 안 잡힌 항목은 자동으로 지워집니다.");
+        int multi = 0, single = 0;
+        for (String k : baseline) if (k.startsWith("W:") || k.startsWith("B:")) { if (daysOf(k) >= 2) multi++; else single++; }
+        baseHead.setText("누적 기준: 여러 날 확인된 상시 기기 " + multi + "개 · 하루만 본 기기 " + single + "개 · " + rooms.size() + "곳\n"
+                + "상시 기기(서로 다른 2일 이상 같은 주소)는 경고하지 않습니다. 30일 동안 안 잡힌 항목은 지워집니다.");
+        btnCollect.setText(collecting() ? "자동 쌓기 중 · " + Math.max(1, (collectUntil - System.currentTimeMillis()) / 60000) + "분 남음 (누르면 끄기)" : "방과 후 자동 쌓기 켜기 (2시간)");
+        styleBtn(btnCollect, collecting() ? ORANGE : NAVY2, collecting() ? NAVY : LIME);
         baseRoomText.setText(roomName(loc()) + (grade == 9 ? "" : patrol ? " 앞" : " 교실"));
         styleGradeButtons(gradeBtns2);
         if (surveying) {
@@ -2694,7 +2770,7 @@ public class MainActivity extends Activity {
                 see.setOnClickListener(v -> showSchoolList());
                 r.addView(see, new LinearLayout.LayoutParams(-2, dp(40)));
             }
-            if (code != ROOM_IGNORED && code != ROOM_SCHOOL) {
+            if (code > 0 || code == ROOM_LEGACY) {
                 Button mvB = btn("곳 바꾸기", NAVY, SKY);
                 mvB.setTextSize(13);
                 mvB.setOnClickListener(v -> askPlaceName(to -> moveRoom(code, to)));
@@ -3029,6 +3105,15 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams sblp = new LinearLayout.LayoutParams(-1, -2);
         sblp.topMargin = dp(8);
         basePane.addView(sbox, sblp);
+        btnCollect = btn("", NAVY2, LIME);
+        btnCollect.setTextSize(15);
+        btnCollect.setOnClickListener(v -> toggleCollect());
+        LinearLayout.LayoutParams cllp = new LinearLayout.LayoutParams(-1, dp(52));
+        cllp.topMargin = dp(10);
+        basePane.addView(btnCollect, cllp);
+        TextView clh = label("반 앞마다 누르기 번거로우면, 학생이 없을 때 이걸 켜고 학교를 돌아다니기만 하세요. 여러 날 하면 교사·학교 기기가 '상시 기기'로 쌓입니다.", 13, DIM, false);
+        clh.setPadding(dp(4), dp(6), dp(4), 0);
+        basePane.addView(clh);
         TextView rlh = label("반별 기준", 16, LIME, true);
         rlh.setPadding(dp(4), dp(16), 0, dp(6));
         basePane.addView(rlh);
