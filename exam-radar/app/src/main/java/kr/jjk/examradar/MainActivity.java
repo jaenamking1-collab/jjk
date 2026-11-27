@@ -73,13 +73,14 @@ public class MainActivity extends Activity {
 
     static class Dev {
         String key, name, kind;   // kind: 기기 종류 설명
-        boolean wifi, phoneLike;
+        boolean wifi, phoneLike, named;
         int manu = -1;            // 블루투스 제조사 번호
         int rssi;
         double ema = Double.NaN;
         long firstSeen, lastSeen;
         int hits;
         final ArrayList<double[]> hist = new ArrayList<>(); // [시각, ema]
+        final HashMap<Integer, Double> roomPeak = new HashMap<>(); // 순회: 교실별 가장 센 세기
     }
 
     final Map<String, Dev> devs = new HashMap<>();
@@ -89,6 +90,8 @@ public class MainActivity extends Activity {
     long baselineEnd;
     boolean wide = false, sound = false;
     String findKey = null;
+    boolean patrol = false;   // 복도 순회 모드
+    int room = 1;             // 순회: 지금 서 있는 교실 번호
     long lastWifiScanOk = 0, lastWifiResult = 0, bleStartedAt = 0;
     boolean wifiThrottled = false;
 
@@ -107,7 +110,9 @@ public class MainActivity extends Activity {
     TextView status, statusSub, baseInfo, tip, findName, findDist, findTrend, findRaw;
     View findBarFill;
     LinearLayout list;
-    Button btnBase, btnWatch, btnRange, btnSound, btnAck;
+    Button btnBase, btnWatch, btnRange, btnSound, btnAck, btnPatrol;
+    LinearLayout patrolBox;
+    TextView roomText, topText;
 
     // ───────────────────────── 생명주기 ─────────────────────────
 
@@ -121,6 +126,8 @@ public class MainActivity extends Activity {
         baseline.addAll(prefs.getStringSet("baseline", Collections.emptySet()));
         wide = prefs.getBoolean("wide", false);
         sound = prefs.getBoolean("sound", false);
+        patrol = prefs.getBoolean("patrol", false);
+        room = prefs.getInt("room", 1);
         wifi = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
         vib = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
         try { tone = new ToneGenerator(AudioManager.STREAM_MUSIC, 80); } catch (Exception ignored) { }
@@ -345,6 +352,7 @@ public class MainActivity extends Activity {
             if (m != null && m.size() > 0) manu = m.keyAt(0);
         }
         d.manu = manu;
+        if (nm != null && !nm.trim().isEmpty()) d.named = true;
         String maker = maker(manu);
         d.name = (nm != null && !nm.trim().isEmpty()) ? nm.trim() : (maker != null ? maker + " 기기" : "이름 없는 기기");
         d.phoneLike = manu == 0x004C || manu == 0x0075 || manu == 0x00E0;
@@ -396,14 +404,46 @@ public class MainActivity extends Activity {
         d.hist.add(new double[]{at, d.ema});
         while (d.hist.size() > 40) d.hist.remove(0);
         if (mode == MODE_BASELINE) baseline.add(d.key);
+        if (patrol && mode == MODE_WATCH) {
+            Double p = d.roomPeak.get(room);
+            if (p == null || d.ema > p) d.roomPeak.put(room, d.ema);
+        }
     }
 
     // ───────────────────────── 판단 ─────────────────────────
 
-    int wifiLimit() { return wide ? -88 : -75; }
-    int bleLimit() { return wide ? -85 : -72; }
+    // 순회 모드는 복도에서 벽 너머 교실을 봐야 하니 항상 넓게
+    int wifiLimit() { return (wide || patrol) ? -88 : -75; }
+    int bleLimit() { return (wide || patrol) ? -85 : -72; }
 
-    boolean isAlert(Dev d, long now) {
+    /** 순회: 이 기기 신호가 가장 셌던 교실 번호(없으면 -1) */
+    static int bestRoom(Dev d) {
+        int best = -1; double v = -999;
+        for (Map.Entry<Integer, Double> e : d.roomPeak.entrySet())
+            if (e.getValue() > v) { v = e.getValue(); best = e.getKey(); }
+        return best;
+    }
+
+    static String trendWord(Dev d) {
+        double tr = trend(d);
+        return tr >= 2.5 ? "▲ 가까워짐" : tr <= -2.5 ? "▼ 멀어짐" : "● 그대로";
+    }
+
+    boolean showUnknown = false; // 이름·제조사 없는 블루투스 신호도 보일지
+
+    /** 이름도 제조사도 없는 블루투스 신호: 비콘·가전·주소를 바꾸는 기기 조각이 대부분이라 기본은 숨김 */
+    static boolean noise(Dev d) { return !d.wifi && !d.named && maker(d.manu) == null; }
+
+    boolean isAlert(Dev d, long now) { return rawAlert(d, now) && (showUnknown || !noise(d)); }
+
+    /** 같은 이름(또는 같은 제조사의 이름 없는 기기)은 한 줄로 묶는다 */
+    static String groupKey(Dev d) {
+        if (d.wifi) return d.key;
+        if (d.named) return "N:" + d.name;
+        return "M:" + d.manu;
+    }
+
+    boolean rawAlert(Dev d, long now) {
         if (mode != MODE_WATCH || baseline.contains(d.key)) return false;
         if (now - d.lastSeen > GONE_MS) return false;
         if (d.wifi) return d.ema >= wifiLimit();
@@ -495,6 +535,24 @@ public class MainActivity extends Activity {
         mode = MODE_WATCH;
     }
 
+    void togglePatrol() {
+        patrol = !patrol;
+        prefs.edit().putBoolean("patrol", patrol).apply();
+        new AlertDialog.Builder(this)
+                .setTitle(patrol ? "복도 순회 모드" : "교실 고정 모드")
+                .setMessage(patrol
+                        ? "학생 입실 전에 복도 가운데에서 기준을 다시 잡아 주세요.\n\n시험 중에는 태블릿을 들고 걸으며, 교실 문 앞을 지날 때마다 '다음 교실'을 누르세요. 새 기기마다 신호가 가장 셌던 교실을 알려 드립니다."
+                        : "교실 가운데에 태블릿을 두는 방식입니다. 그 교실에서 기준을 다시 잡아 주세요.")
+                .setPositiveButton("지금 기준 잡기", (d, w) -> startBaseline())
+                .setNegativeButton("나중에", null).show();
+    }
+
+    void setRoom(int r) {
+        room = Math.max(1, Math.min(30, r));
+        prefs.edit().putInt("room", room).apply();
+        render(System.currentTimeMillis());
+    }
+
     void ignore(Dev d) {
         baseline.add(d.key);
         saveBaseline();
@@ -537,12 +595,20 @@ public class MainActivity extends Activity {
     void render(long now) {
         if (findKey != null) { renderFinder(now); return; }
         List<Dev> alerts = new ArrayList<>();
-        int baseSeen = 0;
+        int baseSeen = 0, hidden = 0;
         for (Dev d : devs.values()) {
+            if (!showUnknown && noise(d) && rawAlert(d, now)) hidden++;
             if (isAlert(d, now)) alerts.add(d);
             else if (baseline.contains(d.key) && now - d.lastSeen < GONE_MS) baseSeen++;
         }
         alerts.sort((a, b) -> Double.compare(b.ema, a.ema));
+        Map<String, Integer> gCount = new HashMap<>();
+        List<Dev> shown = new ArrayList<>();
+        for (Dev d : alerts) {
+            String g = groupKey(d);
+            Integer c = gCount.get(g);
+            if (c == null) { gCount.put(g, 1); shown.add(d); } else gCount.put(g, c + 1);
+        }
         int unacked = 0;
         for (Dev d : alerts) if (!acked.contains(d.key)) unacked++;
 
@@ -559,9 +625,10 @@ public class MainActivity extends Activity {
                 statusSub.setText("새로 나타난 기기가 없습니다.");
                 stopFlash();
             } else {
-                status.setText("새 기기 " + alerts.size() + "개");
+                status.setText("새 기기 " + shown.size() + "개");
                 status.setTextColor(WHITE);
-                statusSub.setText(unacked > 0 ? "목록에서 눌러 거리를 보며 찾으세요." : "확인함. 새로 생기면 다시 깜빡입니다.");
+                statusSub.setText(patrol ? "교실 문 앞을 지날 때마다 '다음 교실'을 누르세요. 가장 센 교실을 알려 드립니다."
+                        : unacked > 0 ? "목록에서 눌러 거리를 보며 찾으세요." : "확인함. 새로 생기면 다시 깜빡입니다.");
                 if (unacked > 0) {
                     startFlash();
                     if (now - lastVibe > 6000) { buzz(new long[]{0, 300, 150, 300}); lastVibe = now; }
@@ -580,6 +647,20 @@ public class MainActivity extends Activity {
         styleBtn(btnWatch, mode == MODE_WATCH ? NAVY2 : LIME, mode == MODE_WATCH ? WHITE : NAVY);
         btnRange.setText(wide ? "경고 범위: 넓게" : "경고 범위: 교실 안");
         btnSound.setText(sound ? "소리: 켬" : "소리: 끔 (진동만)");
+        btnPatrol.setText(patrol ? "복도 순회 모드 켜짐 (누르면 교실 고정으로)" : "복도 순회 모드로 바꾸기");
+        styleBtn(btnPatrol, patrol ? SKY : NAVY2, patrol ? NAVY : WHITE);
+        btnRange.setVisibility(patrol ? View.GONE : View.VISIBLE);
+        patrolBox.setVisibility(patrol ? View.VISIBLE : View.GONE);
+        if (patrol) {
+            roomText.setText(room + "반 앞");
+            Dev top = alerts.isEmpty() ? null : alerts.get(0);
+            if (top == null) { topText.setText("새 신호 없음"); topText.setTextColor(LIME); }
+            else {
+                topText.setText("가장 센 새 신호: " + top.name + "\n" + distText(meters(top)) + " · " + trendWord(top)
+                        + " · " + Math.round(top.ema) + " dBm");
+                topText.setTextColor(meters(top) < 4 ? ORANGE : WHITE);
+            }
+        }
 
         baseInfo.setText("기준 기기 " + baseline.size() + "개 저장됨 · 지금 보이는 기준 기기 " + baseSeen + "개");
         String t = "";
@@ -594,10 +675,17 @@ public class MainActivity extends Activity {
         if (mode == MODE_WATCH && alerts.isEmpty()) {
             list.addView(label("새 기기가 나타나면 여기에 뜹니다.", 15, DIM, false));
         }
-        for (Dev d : alerts) list.addView(row(d, now));
+        for (Dev d : shown) list.addView(row(d, now, gCount.get(groupKey(d))));
+        if (hidden > 0 || showUnknown) {
+            TextView hv = label(showUnknown ? "이름 없는 신호까지 모두 보는 중 (눌러서 다시 숨기기)"
+                    : "이름·제조사를 알 수 없는 블루투스 신호 " + hidden + "개는 숨겼습니다 (눌러서 보기)", 14, SKY, true);
+            hv.setPadding(dp(4), dp(10), dp(4), dp(10));
+            hv.setOnClickListener(v -> { showUnknown = !showUnknown; render(System.currentTimeMillis()); });
+            list.addView(hv);
+        }
     }
 
-    View row(Dev d, long now) {
+    View row(Dev d, long now, int count) {
         LinearLayout r = new LinearLayout(this);
         r.setOrientation(LinearLayout.HORIZONTAL);
         r.setGravity(Gravity.CENTER_VERTICAL);
@@ -617,9 +705,12 @@ public class MainActivity extends Activity {
         LinearLayout mid = new LinearLayout(this);
         mid.setOrientation(LinearLayout.VERTICAL);
         mid.setPadding(dp(12), 0, dp(8), 0);
-        mid.addView(label(d.name, 18, WHITE, true));
+        mid.addView(label(d.name + (count > 1 ? "  ×" + count : ""), 18, WHITE, true));
         long ago = (now - d.lastSeen) / 1000;
         mid.addView(label(d.kind + (ago > 5 ? " · " + ago + "초 전" : ""), 13, DIM, false));
+        int br = bestRoom(d);
+        if (patrol && br > 0)
+            mid.addView(label("가장 셌던 곳: " + br + "반 앞 (" + Math.round(d.roomPeak.get(br)) + " dBm)", 15, SKY, true));
         r.addView(mid, new LinearLayout.LayoutParams(0, -2, 1));
 
         double m = meters(d);
@@ -768,6 +859,43 @@ public class MainActivity extends Activity {
         r2.addView(btnSound, weighted(dp(46), dp(10)));
         main.addView(r2);
 
+        btnPatrol = btn("", NAVY2, WHITE);
+        btnPatrol.setTextSize(14);
+        btnPatrol.setOnClickListener(v -> togglePatrol());
+        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(-1, dp(46));
+        plp.topMargin = dp(10);
+        main.addView(btnPatrol, plp);
+
+        // 순회 칸: [◀] 3반 앞 [다음 교실 ▶] + 가장 센 새 신호
+        patrolBox = new LinearLayout(this);
+        patrolBox.setOrientation(LinearLayout.VERTICAL);
+        patrolBox.setPadding(dp(14), dp(12), dp(14), dp(12));
+        patrolBox.setBackground(round(NAVY2, 14, SKY));
+        LinearLayout rr = new LinearLayout(this);
+        rr.setGravity(Gravity.CENTER_VERTICAL);
+        Button prev = btn("◀", NAVY, WHITE);
+        prev.setTextSize(20);
+        prev.setOnClickListener(v -> setRoom(room - 1));
+        roomText = label("", 26, WHITE, true);
+        roomText.setGravity(Gravity.CENTER);
+        roomText.setOnLongClickListener(v -> { setRoom(1); return true; });
+        Button next = btn("다음 교실 ▶", SKY, NAVY);
+        next.setTextSize(18);
+        next.setOnClickListener(v -> setRoom(room + 1));
+        rr.addView(prev, new LinearLayout.LayoutParams(dp(64), dp(64)));
+        rr.addView(roomText, new LinearLayout.LayoutParams(0, -2, 1));
+        rr.addView(next, new LinearLayout.LayoutParams(dp(170), dp(64)));
+        patrolBox.addView(rr);
+        topText = label("", 17, WHITE, true);
+        topText.setPadding(0, dp(10), 0, 0);
+        patrolBox.addView(topText);
+        TextView ph = label("교실 번호를 길게 누르면 1반으로 돌아갑니다.", 12, DIM, false);
+        ph.setPadding(0, dp(6), 0, 0);
+        patrolBox.addView(ph);
+        LinearLayout.LayoutParams pblp = new LinearLayout.LayoutParams(-1, -2);
+        pblp.topMargin = dp(12);
+        main.addView(patrolBox, pblp);
+
         tip = label("", 14, NAVY, false);
         tip.setBackground(round(LIME, 12));
         tip.setPadding(dp(14), dp(10), dp(14), dp(10));
@@ -842,6 +970,10 @@ public class MainActivity extends Activity {
                         + "② 끝나면 저절로 감시가 시작됩니다. 새 신호가 가까이 나타나면 화면이 깜빡이고 진동합니다.\n\n"
                         + "③ 목록에서 항목을 누르면 거리 화면이 나옵니다. 태블릿을 들고 걸으며 ▲(가까워짐)가 뜨는 쪽으로 가세요.\n\n"
                         + "④ 괜찮은 기기면 '무시'를 누르면 다시 경고하지 않습니다.\n\n"
+                        + "복도 순회 모드\n"
+                        + "· 태블릿 한 대로 한 층을 살핍니다. 기준은 입실 전 복도 가운데에서 잡습니다.\n"
+                        + "· 걸으며 교실 문 앞마다 '다음 교실'을 누르면, 새 기기마다 '가장 셌던 곳: ○반 앞'이 뜹니다.\n"
+                        + "· 한 바퀴 돈 뒤 가장 센 교실 감독에게 알려 주세요.\n\n"
                         + "알아 둘 점\n"
                         + "· 잡히는 것: 핫스팟을 켠 폰, 블루투스를 켠 폰·이어폰·스마트워치\n"
                         + "· 안 잡히는 것: 비행기 모드·전원을 끈 폰, 핫스팟 없이 LTE만 쓰는 폰\n"
