@@ -917,6 +917,8 @@ public class MainActivity extends Activity {
             // 학교 와이파이 이름 전체 등록(고유 주소 공유기만. 임의 주소 핫스팟이 이름을 흉내 내면 계속 잡힌다)
             if (sc != null && sc.keys.contains("SN:" + d.name)) return true;
             if (sc != null) for (String k : sc.keys) if (k.startsWith("SP:") && d.name.startsWith(k.substring(3))) return true;
+            // 교실 무선 영상 공유기(NEXI)는 기본으로 뺀다(고유 주소일 때)
+            if (isDisplaySharer(d)) return true;
             // 기준 때 같은 이름과 같은 제조사의 공유기를 이미 봤다면 같은 학교 망으로 본다(두 단서가 함께 맞을 때만)
             String vk = vendorKey(d);
             if (baseline.contains("S:" + d.name) && vk != null && baseline.contains(vk)) return true;
@@ -929,6 +931,8 @@ public class MainActivity extends Activity {
 
     /** '확인 필요' 사유. null 이면 새 신호(경고) */
     String softReason(Dev d, long now) {
+        // 임의 주소인데 이름이 영상 공유기(NEXI)면 경고 대신 확인 필요(이름 흉내 가능성을 남겨 둠)
+        if (isDisplaySharer(d)) return "무선 영상 공유기(NEXI)로 보임";
         if (d.wifi && d.direct && !d.phoneLike) return "와이파이 다이렉트 · 프린터·TV·화면 공유기일 가능성";
         if (d.wifi && isRandomMac(d) && baseline.contains(d.key)) return "기준 때 있던 핫스팟(개인 기기일 수 있음)";
         String nk = nameKey(d);
@@ -1742,6 +1746,11 @@ public class MainActivity extends Activity {
     }
 
     boolean showGone = false, showRest = false;
+
+    /** 교실 무선 영상 공유기 이름(사용자 학교: NEXI). 와이파이·블루투스 모두 이름으로 본다. */
+    static boolean isDisplaySharer(Dev d) {
+        return d.name != null && d.name.trim().toUpperCase(Locale.ROOT).startsWith("NEXI");
+    }
 
     /** 사라진 신호의 '괜찮음': 아직 기기 정보가 남아 있으면 일반 처리와 같고, 없으면 등록/빼기만 */
     void handleGone(Rec r, String logKey) {
