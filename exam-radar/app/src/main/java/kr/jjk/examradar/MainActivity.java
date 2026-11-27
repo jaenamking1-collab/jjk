@@ -1558,8 +1558,14 @@ public class MainActivity extends Activity {
             Integer c = gCount.get(g);
             if (c == null) { gCount.put(g, 1); shown.add(d); } else gCount.put(g, c + 1);
         }
+        // 화면이 정신없지 않게: '확인할 신호'(개인 기기로 보이고 20초 넘게 머묾, 또는 가까이 오래 있음)만 위에 보이고 깜빡인다.
+        // 나머지 새 신호(멀거나 잠깐 스친 것)는 '그 밖의 새 신호'로 접는다.
+        List<Dev> imp = new ArrayList<>(), rest = new ArrayList<>();
+        for (Dev d : shown) (important(d, now) ? imp : rest).add(d);
+        HashSet<String> impG = new HashSet<>();
+        for (Dev d : imp) impG.add(groupKey(d));
         int unacked = 0;
-        for (Dev d : alerts) if (!acked.contains(d.key)) unacked++;
+        for (Dev d : alerts) if (impG.contains(groupKey(d)) && !acked.contains(d.key)) unacked++;
 
         // 검색 상태: 블루투스는 평소 1초에도 여러 번 들어온다. 와이파이는 제한 때문에 느리다.
         BluetoothAdapter adH = btAdapter();
@@ -1583,17 +1589,18 @@ public class MainActivity extends Activity {
             status.setTextColor(LIME);
             stopFlash();
         } else if (mode == MODE_WATCH) {
-            if (alerts.isEmpty()) {
+            if (imp.isEmpty()) {
                 // 아무것도 안 잡힌 것과 '기기가 없다'는 다르다: 검색이 멈췄으면 그렇다고 말한다
-                status.setText(healthy ? "새 신호 없음" : "검색 멈춤 · 확인 필요");
+                status.setText(healthy ? "확인할 신호 없음" : "검색 멈춤 · 확인 필요");
                 status.setTextColor(healthy ? LIME : ORANGE);
-                statusSub.setText(healthy ? "지금은 새 신호가 안 보입니다. 전원이나 무선을 끈 기기는 잡히지 않습니다."
-                        : "검색이 제대로 안 되고 있어 '새 신호 없음'을 믿으면 안 됩니다. 아래 상태줄을 보세요.");
+                statusSub.setText(!healthy ? "검색이 제대로 안 되고 있어 결과를 믿으면 안 됩니다. 아래 상태줄을 보세요."
+                        : rest.isEmpty() ? "지금은 새 신호가 안 보입니다. 전원이나 무선을 끈 기기는 잡히지 않습니다."
+                        : "멀거나 잠깐 잡힌 새 신호 " + rest.size() + "개는 아래에 접어 두었습니다. 신경 쓰지 않으셔도 됩니다.");
                 stopFlash();
             } else {
                 int phones = 0;
-                for (Dev d : shown) if (d.phoneLike) phones++;
-                status.setText("새 신호 " + shown.size() + "개" + (phones > 0 ? " · 휴대폰 의심 " + phones : ""));
+                for (Dev d : imp) if (d.phoneLike) phones++;
+                status.setText("확인할 신호 " + imp.size() + "개" + (phones > 0 ? " · 휴대폰 의심 " + phones : ""));
                 status.setTextColor(WHITE);
                 statusSub.setText(patrol ? "반 앞에 멈춰 '여기서 재기'를 누르면, 잰 곳 중 어디가 강한지 알려 드립니다."
                         : unacked > 0 ? "목록에서 눌러 거리를 보며 찾으세요." : "확인함. 새로 생기면 다시 깜빡입니다.");
@@ -1665,21 +1672,22 @@ public class MainActivity extends Activity {
 
         list.removeAllViews();
         List<Dev> wl = new ArrayList<>(), bl = new ArrayList<>();
-        for (Dev d : shown) (d.wifi ? wl : bl).add(d);
+        for (Dev d : imp) (d.wifi ? wl : bl).add(d);
         tabWifi.setText("와이파이 " + wl.size());
         tabBle.setText("블루투스 " + bl.size());
         styleBtn(tabWifi, tab == 1 ? SKY : NAVY2, tab == 1 ? NAVY : SKY);
         styleBtn(tabBle, tab == 2 ? LIME : NAVY2, tab == 2 ? NAVY : LIME);
         styleBtn(tabAll, tab == 0 ? WHITE : NAVY2, tab == 0 ? NAVY : WHITE);
-        if (tab != 2) {
-            if (tab == 0) list.addView(section("와이파이 핫스팟 " + wl.size() + "개", SKY));
-            if (wl.isEmpty()) list.addView(label("  새 와이파이 없음", 14, DIM, false));
-            for (Dev d : wl) list.addView(row(d, now, gCount.get(groupKey(d))));
-        }
-        if (tab != 1) {
-            if (tab == 0) list.addView(section("블루투스 " + bl.size() + "개", LIME));
-            if (bl.isEmpty()) list.addView(label("  새 블루투스 없음", 14, DIM, false));
-            for (Dev d : bl) list.addView(row(d, now, gCount.get(groupKey(d))));
+        if (imp.isEmpty()) list.addView(label("  확인할 신호가 없습니다.", 15, LIME, true));
+        if (tab != 2) for (Dev d : wl) list.addView(row(d, now, gCount.get(groupKey(d))));
+        if (tab != 1) for (Dev d : bl) list.addView(row(d, now, gCount.get(groupKey(d))));
+        // 그 밖의 새 신호: 멀거나 잠깐 잡힌 것(접어 둠)
+        List<Dev> restT = new ArrayList<>();
+        for (Dev d : rest) if (tab == 0 || (tab == 1) == d.wifi) restT.add(d);
+        if (!restT.isEmpty()) {
+            list.addView(foldHeader("그 밖의 새 신호 " + restT.size() + "개", "멀거나 잠깐 잡힌 것 · 가까이 오래 머물면 위로 올라옵니다", showRest, WHITE,
+                    v -> { showRest = !showRest; render(System.currentTimeMillis()); }));
+            if (showRest) for (Dev d : restT) list.addView(row(d, now, gCount.get(groupKey(d))));
         }
         // ── 확인 필요(경고 아님): 접어 두고 한 줄로 ──
         List<Dev> checks = new ArrayList<>();
@@ -1723,7 +1731,14 @@ public class MainActivity extends Activity {
         }
     }
 
-    boolean showGone = false;
+    boolean showGone = false, showRest = false;
+
+    /** '확인할 신호': 가까이 오래 있음(★), 또는 휴대폰·이어폰·워치로 보이며 20초 넘게 머물고 어느 정도 센 것 */
+    boolean important(Dev d, long now) {
+        if (nearStay(d, now) || (!d.wifi && noise(d) && closeAndStaying(d, now))) return true;
+        boolean personal = d.wifi ? d.phoneLike : d.rank >= 2;
+        return personal && now - d.firstSeen >= 20_000 && d.ema >= (patrol ? -82 : -72);
+    }
 
     /** 먼저 볼 것: 약 3m 안(블루투스 -65·와이파이 -60dBm 이상)으로 1분 넘게 계속 잡힘 */
     static boolean nearStay(Dev d, long now) {
