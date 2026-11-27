@@ -739,10 +739,27 @@ public class MainActivity extends Activity {
         return d.named ? "N:" + d.name : null;
     }
 
+    /**
+     * 학교 공유기는 제조사 고유 주소(앞 3바이트 = 제조사 번호)를 쓰고, 한 대가 2.4/5GHz·여러 이름으로 주소를 여러 개 낸다.
+     * 반면 휴대폰 핫스팟은 '임의 주소'(첫 바이트 두 번째 비트가 켜짐)를 쓴다.
+     * 그래서 기준에 있던 공유기와 제조사 번호가 같은 고유 주소는 같은 학교 장비로 본다.
+     */
+    static String vendorKey(Dev d) {
+        if (!d.wifi || d.key.length() < 10) return null;
+        String mac = d.key.substring(2).toLowerCase(Locale.ROOT);
+        try {
+            int b0 = Integer.parseInt(mac.substring(0, 2), 16);
+            if ((b0 & 0x02) != 0) return null; // 임의 주소(휴대폰 핫스팟 등)는 제외
+        } catch (Exception e) { return null; }
+        return "O:" + mac.substring(0, 8);
+    }
+
     void addBase(Dev d) {
         baseline.add(d.key);
         String nk = nameKey(d);
         if (nk != null) baseline.add(nk);
+        String vk = vendorKey(d);
+        if (vk != null) baseline.add(vk);
     }
 
     /** 기준 목록의 기기 수(이름 항목은 빼고 센다) */
@@ -751,7 +768,9 @@ public class MainActivity extends Activity {
     boolean inBase(Dev d) {
         if (baseline.contains(d.key)) return true;
         String nk = nameKey(d);
-        return nk != null && baseline.contains(nk);
+        if (nk != null && baseline.contains(nk)) return true;
+        String vk = vendorKey(d);
+        return vk != null && baseline.contains(vk);
     }
 
     void toggleWatch() {
