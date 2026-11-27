@@ -751,7 +751,7 @@ public class MainActivity extends Activity {
         long now = System.currentTimeMillis();
         for (Dev o : devs.values()) {
             if (o == nd || o.wifi || o.manu != nd.manu) continue;
-            if (!baseline.contains(o.key)) continue;
+            if (!baseline.contains(o.key) && !sessionIgnored.contains(o.key)) continue;
             // 같은 종류여야 한다(휴대폰↔휴대폰). 종류를 모르면 그대로 둔다.
             if (o.typeShort != null && nd.typeShort != null && !o.typeShort.equals(nd.typeShort)) continue;
             // 진짜 주소 바뀜은 옛 주소가 끊기는 '바로 그때' 새 주소가 나온다: 1.5~8초 사이만 인정.
@@ -760,7 +760,8 @@ public class MainActivity extends Activity {
             if (gap < 1_500 || gap > 8_000) continue;
             if (!Double.isNaN(o.ema) && Math.abs(o.ema - nd.rssi) <= 8) {
                 // 같은 기기라는 보장이 없으므로 기준에 넣지 않고, 이번 감시 동안만 '확인 필요'로 낮춘다
-                rotCand.add(nd.key);
+                // 시작 때 정리한 기기가 주소를 바꾼 것이면 계속 빼 주고, 기준 기기면 '확인 필요'로만 낮춘다
+                if (sessionIgnored.contains(o.key)) sessionIgnored.add(nd.key); else rotCand.add(nd.key);
                 return;
             }
         }
@@ -1123,20 +1124,40 @@ public class MainActivity extends Activity {
 
     void toggleWatch() {
         if (mode == MODE_BASELINE || surveying) return;
-        if (mode == MODE_WATCH) { mode = MODE_IDLE; stopFlash(); saveLog(); return; }
-        if (baseline.isEmpty()) { toast("먼저 '기준' 탭에서 기준을 재 주세요."); setPage(1); return; }
-        if (!hasPerms()) { askPermissions(); return; }
-        if (!log.isEmpty()) {
-            new AlertDialog.Builder(this)
-                    .setTitle("감시 시작")
-                    .setMessage("지난 감시 기록이 " + log.size() + "건 있습니다. 이어서 쌓을까요, 비우고 새로 시작할까요?\n(비우기 전에 '기록' 탭에서 저장할 수 있습니다)")
-                    .setPositiveButton("새로 시작", (d, w) -> { log.clear(); watchStart = System.currentTimeMillis(); saveLog(); mode = MODE_WATCH; rotCand.clear(); sessionIgnored.clear(); })
-                    .setNegativeButton("이어서", (d, w) -> { if (watchStart == 0) watchStart = System.currentTimeMillis(); mode = MODE_WATCH; rotCand.clear(); })
-                    .show();
+        if (mode == MODE_WATCH) {
+            mode = MODE_IDLE; stopFlash(); saveLog();
+            prefs.edit().putLong("watchStoppedAt", System.currentTimeMillis()).apply();
             return;
         }
-        mode = MODE_WATCH; rotCand.clear(); sessionIgnored.clear();
-        watchStart = System.currentTimeMillis();
+        if (baseline.isEmpty()) { toast("먼저 '기준' 탭에서 기준을 재 주세요."); setPage(1); return; }
+        if (!hasPerms()) { askPermissions(); return; }
+        long now = System.currentTimeMillis();
+        long stopped = prefs.getLong("watchStoppedAt", 0);
+        // 멈춘 지 30분 안이면 같은 시험으로 보고 그대로 이어 간다(묻지 않음)
+        if (!log.isEmpty() && stopped > 0 && now - stopped < 30 * 60_000L) {
+            mode = MODE_WATCH; rotCand.clear();
+            toast("30분 안에 다시 켜서 지난 감시에 이어서 기록합니다.");
+            return;
+        }
+        String logNote = log.isEmpty() ? "" : "\n\n지난 감시 기록(새 신호 " + log.size() + "건)은 비워집니다. 필요하면 먼저 '기록' 탭에서 저장하세요. 기준은 그대로입니다.";
+        new AlertDialog.Builder(this)
+                .setTitle("감시 시작")
+                .setMessage("학생이 들어오기 전인가요?\n\n· 입실 전: 지금 주변에 보이는 신호(선생님 폰·주변 기기)를 이번 감시에서 빼고 시작합니다.\n· 학생이 이미 있으면 '그냥 시작'을 고르세요(학생 기기까지 빠지면 안 되니까요)." + logNote)
+                .setPositiveButton("입실 전 · 주변 정리하고 시작", (d, w) -> beginWatch(true))
+                .setNeutralButton("그냥 시작", (d, w) -> beginWatch(false))
+                .setNegativeButton("취소", null).show();
+    }
+
+    void beginWatch(boolean settle) {
+        long now = System.currentTimeMillis();
+        log.clear(); rotCand.clear(); sessionIgnored.clear();
+        int n = 0;
+        if (settle) for (Dev o : devs.values()) if (now - o.lastSeen < 20_000) { sessionIgnored.add(o.key); n++; }
+        watchStart = now;
+        saveLog();
+        mode = MODE_WATCH;
+        if (settle) toast("지금 보이는 신호 " + n + "개를 이번 감시에서 뺐습니다.");
+        render(now);
     }
 
     // ───────────────────────── 기록·통계·내보내기 ─────────────────────────
