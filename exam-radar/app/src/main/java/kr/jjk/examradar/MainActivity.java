@@ -797,8 +797,11 @@ public class MainActivity extends Activity {
 
     /** 경고에서 빼 주는 것은 '주소가 정확히 같은' 기준뿐. 단 기준에 있던 임의 주소 와이파이(누군가의 핫스팟)는 빼 주지 않는다. */
     boolean exempt(Dev d) {
+        if (sessionIgnored.contains(d.key)) return true;          // 이번 시험에서만 무시
+        RoomBase sc = rooms.get(ROOM_SCHOOL);
+        if (sc != null && sc.keys.contains(d.key)) return true;  // 사람이 확인한 학교 장비
         RoomBase ig = rooms.get(ROOM_IGNORED);
-        if (ig != null && ig.keys.contains(d.key)) return true; // 사람이 '무시'를 누른 것
+        if (ig != null && ig.keys.contains(d.key)) return true; // 예전 버전에서 '무시'를 누른 것
         if (!baseline.contains(d.key)) return false;
         return !(d.wifi && isRandomMac(d));
     }
@@ -1016,12 +1019,12 @@ public class MainActivity extends Activity {
             new AlertDialog.Builder(this)
                     .setTitle("감시 시작")
                     .setMessage("지난 감시 기록이 " + log.size() + "건 있습니다. 이어서 쌓을까요, 비우고 새로 시작할까요?\n(비우기 전에 '기록' 탭에서 저장할 수 있습니다)")
-                    .setPositiveButton("새로 시작", (d, w) -> { log.clear(); watchStart = System.currentTimeMillis(); saveLog(); mode = MODE_WATCH; rotCand.clear(); })
+                    .setPositiveButton("새로 시작", (d, w) -> { log.clear(); watchStart = System.currentTimeMillis(); saveLog(); mode = MODE_WATCH; rotCand.clear(); sessionIgnored.clear(); })
                     .setNegativeButton("이어서", (d, w) -> { if (watchStart == 0) watchStart = System.currentTimeMillis(); mode = MODE_WATCH; rotCand.clear(); })
                     .show();
             return;
         }
-        mode = MODE_WATCH; rotCand.clear();
+        mode = MODE_WATCH; rotCand.clear(); sessionIgnored.clear();
         watchStart = System.currentTimeMillis();
     }
 
@@ -1049,6 +1052,7 @@ public class MainActivity extends Activity {
         o.put("log", new org.json.JSONArray(prefs.getString("log", "[]")));
         o.put("watchStart", watchStart);
         o.put("places", new org.json.JSONArray(places));
+        o.put("labels", new org.json.JSONObject(labels));
         org.json.JSONObject s = new org.json.JSONObject();
         s.put("patrol", patrol); s.put("wide", wide); s.put("sound", sound); s.put("grade", grade); s.put("room", room);
         o.put("settings", s);
@@ -1119,6 +1123,8 @@ public class MainActivity extends Activity {
                     if (fp != null) { java.util.Iterator<String> fi = fp.keys(); while (fi.hasNext()) { String f = fi.next(); rb.fp.put(f, fp.getDouble(f)); } }
                 }
             }
+            org.json.JSONObject lbs = o.optJSONObject("labels");
+            if (lbs != null) { java.util.Iterator<String> li = lbs.keys(); while (li.hasNext()) { String k = li.next(); labels.put(k, lbs.getString(k)); } saveLabels(); }
             org.json.JSONObject bs = o.optJSONObject("baseSeen");
             if (bs != null) { java.util.Iterator<String> it = bs.keys(); while (it.hasNext()) { String k = it.next(); Long t = baseSeen.get(k); long v = bs.getLong(k); if (t == null || v > t) baseSeen.put(k, v); } }
             org.json.JSONObject s = o.optJSONObject("settings");
@@ -1607,12 +1613,12 @@ public class MainActivity extends Activity {
         right.addView(label(zone(m), 12, DIM, false));
         r.addView(right);
 
-        Button ig = btn("무시", NAVY, DIM);
-        ig.setTextSize(13);
-        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(-2, dp(40));
+        Button ig = btn("처리", NAVY, SKY);
+        ig.setTextSize(14);
+        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(-2, dp(44));
         ilp.leftMargin = dp(10);
         ig.setLayoutParams(ilp);
-        ig.setOnClickListener(v -> ignore(d));
+        ig.setOnClickListener(v -> handle(d));
         r.addView(ig);
 
         r.setOnClickListener(v -> openFinder(d.key));
@@ -1776,7 +1782,101 @@ public class MainActivity extends Activity {
         final HashSet<String> keys = new HashSet<>();
         final HashMap<String, Double> fp = new HashMap<>();
     }
-    static final int ROOM_LEGACY = 0, ROOM_IGNORED = -1;
+    static final int ROOM_LEGACY = 0, ROOM_IGNORED = -1, ROOM_SCHOOL = -2;
+    final HashMap<String, String> labels = new HashMap<>();   // 학교 장비에 붙인 이름 (주소 → 이름)
+    final HashSet<String> sessionIgnored = new HashSet<>();   // 이번 시험에서만 무시
+
+    void saveLabels() { prefs.edit().putString("labels", new org.json.JSONObject(labels).toString()).apply(); }
+
+    /** 같은 공유기의 다른 주소(2.4/5GHz 등): 고유 주소이고 앞 5바이트가 같은 와이파이 */
+    List<Dev> siblings(Dev d) {
+        List<Dev> out = new ArrayList<>();
+        if (!d.wifi || isRandomMac(d) || d.key.length() < 16) return out;
+        String p = d.key.substring(0, 16).toLowerCase(Locale.ROOT);
+        for (Dev o : devs.values())
+            if (o != d && o.wifi && !isRandomMac(o) && o.key.toLowerCase(Locale.ROOT).startsWith(p)) out.add(o);
+        return out;
+    }
+
+    /** '처리' 버튼: 학교 장비로 등록(계속 면제) / 이번만 무시 */
+    void handle(Dev d) {
+        String g = groupKey(d);
+        List<Dev> grp = new ArrayList<>();
+        for (Dev o : devs.values()) if (groupKey(o).equals(g)) grp.add(o);
+        if (!grp.contains(d)) grp.add(d);
+        new AlertDialog.Builder(this)
+                .setTitle(d.name)
+                .setItems(new String[]{
+                        "학교 장비로 등록 (공유기·무선 영상 공유기 등, 앞으로 계속 경고 안 함)",
+                        "이번 시험에서만 무시",
+                        "취소"}, (dl, w) -> {
+                    if (w == 0) askSchoolName(d, grp);
+                    else if (w == 1) {
+                        for (Dev o : grp) sessionIgnored.add(o.key);
+                        Rec r = log.get(g);
+                        if (r != null) { r.ignored = true; saveLog(); }
+                        if (d.key.equals(findKey)) closeFinder();
+                        render(System.currentTimeMillis());
+                    }
+                }).show();
+    }
+
+    void askSchoolName(Dev d, List<Dev> grp) {
+        android.widget.EditText et = new android.widget.EditText(this);
+        et.setHint("예: 3층 공유기, 2-3 무선 영상 공유기");
+        et.setSingleLine(true);
+        et.setText(d.name);
+        List<Dev> sib = siblings(d);
+        new AlertDialog.Builder(this)
+                .setTitle("학교 장비 이름")
+                .setMessage(sib.isEmpty() ? "알아보기 쉬운 이름을 붙여 두세요." : "같은 공유기의 다른 주소 " + sib.size() + "개도 함께 등록합니다.")
+                .setView(et)
+                .setPositiveButton("등록", (dl, w) -> {
+                    String nm = et.getText().toString().trim();
+                    if (nm.isEmpty()) nm = d.name;
+                    RoomBase sc = roomOf(ROOM_SCHOOL);
+                    sc.t = System.currentTimeMillis();
+                    List<Dev> all = new ArrayList<>(grp);
+                    all.addAll(sib);
+                    for (Dev o : all) { sc.keys.add(o.key); labels.put(o.key, nm); baseSeen.put(o.key, sc.t); }
+                    rebuildBaseline(); saveRooms(); saveLabels();
+                    Rec r = log.get(groupKey(d));
+                    if (r != null) { r.ignored = true; saveLog(); }
+                    toast("'" + nm + "' 학교 장비로 등록했습니다 (주소 " + all.size() + "개).");
+                    if (d.key.equals(findKey)) closeFinder();
+                    render(System.currentTimeMillis());
+                })
+                .setNegativeButton("취소", null).show();
+    }
+
+    /** 기준 탭: 학교 장비 목록 보기·빼기 */
+    void showSchoolList() {
+        RoomBase sc = rooms.get(ROOM_SCHOOL);
+        if (sc == null || sc.keys.isEmpty()) { toast("등록된 학교 장비가 없습니다."); return; }
+        // 이름별로 묶어 보여 준다
+        java.util.TreeMap<String, List<String>> byName = new java.util.TreeMap<>();
+        for (String k : sc.keys) {
+            String nm = labels.containsKey(k) ? labels.get(k) : k;
+            List<String> l = byName.get(nm);
+            if (l == null) { l = new ArrayList<>(); byName.put(nm, l); }
+            l.add(k);
+        }
+        final List<String> names = new ArrayList<>(byName.keySet());
+        String[] items = new String[names.size()];
+        for (int i = 0; i < names.size(); i++) items[i] = names.get(i) + "  (주소 " + byName.get(names.get(i)).size() + "개)";
+        new AlertDialog.Builder(this).setTitle("학교 장비 (누르면 뺄 수 있음)")
+                .setItems(items, (dl, w) -> new AlertDialog.Builder(this)
+                        .setTitle(names.get(w))
+                        .setMessage("학교 장비에서 뺄까요? 빼면 다시 경고 대상이 됩니다.")
+                        .setPositiveButton("빼기", (d2, w2) -> {
+                            for (String k : byName.get(names.get(w))) { sc.keys.remove(k); labels.remove(k); }
+                            if (sc.keys.isEmpty()) rooms.remove(ROOM_SCHOOL);
+                            rebuildBaseline(); saveRooms(); saveLabels();
+                            render(System.currentTimeMillis());
+                        })
+                        .setNegativeButton("취소", null).show())
+                .setNegativeButton("닫기", null).show();
+    }
     static final long KEEP_MS = 30L * 24 * 3600 * 1000; // 30일 동안 안 잡히면 지움
     final java.util.TreeMap<Integer, RoomBase> rooms = new java.util.TreeMap<>();
     final HashMap<String, Long> baseSeen = new HashMap<>();
@@ -1840,9 +1940,15 @@ public class MainActivity extends Activity {
             }
         } catch (Exception ignored) { }
         // 30일 넘게 안 잡힌 항목 정리 (날짜가 없는 항목은 오늘부터 센다)
-        for (RoomBase rb : rooms.values()) {
-            rb.keys.removeIf(k -> { Long t = baseSeen.get(k); if (t == null) { baseSeen.put(k, now); return false; } return now - t > KEEP_MS; });
+        for (Map.Entry<Integer, RoomBase> en : rooms.entrySet()) {
+            if (en.getKey() == ROOM_SCHOOL) continue; // 사람이 확인한 학교 장비는 자동으로 지우지 않는다
+            en.getValue().keys.removeIf(k -> { Long t = baseSeen.get(k); if (t == null) { baseSeen.put(k, now); return false; } return now - t > KEEP_MS; });
         }
+        try {
+            org.json.JSONObject lb = new org.json.JSONObject(prefs.getString("labels", "{}"));
+            java.util.Iterator<String> li = lb.keys();
+            while (li.hasNext()) { String k = li.next(); labels.put(k, lb.getString(k)); }
+        } catch (Exception ignored) { }
         rooms.values().removeIf(rb -> rb.keys.isEmpty());
         rebuildBaseline();
         saveRooms();
@@ -1905,7 +2011,8 @@ public class MainActivity extends Activity {
     }
 
     String roomLabel(int code) {
-        return code == ROOM_LEGACY ? "이전 버전 기준" : code == ROOM_IGNORED ? "직접 무시한 기기" : roomName(code);
+        return code == ROOM_LEGACY ? "이전 버전 기준" : code == ROOM_IGNORED ? "예전에 무시한 기기"
+                : code == ROOM_SCHOOL ? "학교 장비 (확인됨)" : roomName(code);
     }
 
     static int realCount(java.util.Collection<String> keys) {
@@ -1951,7 +2058,13 @@ public class MainActivity extends Activity {
                     prefs.edit().putInt("grade", grade).putInt("room", room).apply(); startSurvey(true); });
                 r.addView(again, new LinearLayout.LayoutParams(-2, dp(40)));
             }
-            if (code != ROOM_IGNORED) {
+            if (code == ROOM_SCHOOL) {
+                Button see = btn("목록 보기", NAVY, LIME);
+                see.setTextSize(13);
+                see.setOnClickListener(v -> showSchoolList());
+                r.addView(see, new LinearLayout.LayoutParams(-2, dp(40)));
+            }
+            if (code != ROOM_IGNORED && code != ROOM_SCHOOL) {
                 Button mvB = btn("곳 바꾸기", NAVY, SKY);
                 mvB.setTextSize(13);
                 mvB.setOnClickListener(v -> askPlaceName(to -> moveRoom(code, to)));
@@ -2388,8 +2501,8 @@ public class MainActivity extends Activity {
         findView.addView(findRaw, new LinearLayout.LayoutParams(-1, -2));
         View sp = new View(this);
         findView.addView(sp, new LinearLayout.LayoutParams(1, 0, 1));
-        Button ign = btn("이 기기는 괜찮음 (무시하기)", NAVY2, WHITE);
-        ign.setOnClickListener(v -> { Dev d = devs.get(findKey); if (d != null) ignore(d); });
+        Button ign = btn("괜찮은 기기 (학교 장비 / 이번만 무시)", NAVY2, WHITE);
+        ign.setOnClickListener(v -> { Dev d = devs.get(findKey); if (d != null) handle(d); });
         findView.addView(ign, new LinearLayout.LayoutParams(-1, dp(52)));
         root.addView(findView, new FrameLayout.LayoutParams(-1, -1));
 
