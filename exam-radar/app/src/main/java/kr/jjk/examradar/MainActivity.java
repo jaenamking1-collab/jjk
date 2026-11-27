@@ -63,7 +63,7 @@ import java.util.Set;
 
 /**
  * 시험감독 레이더 (베타)
- * 1) 기준 잡기: 빈 교실에서 30초 동안 보이는 와이파이·블루투스 신호를 '원래 있던 것'으로 저장
+ * 1) 기준 잡기: 빈 교실에서 1분 동안 보이는 와이파이·블루투스 신호를 '원래 있던 것'으로 저장
  * 2) 감시: 기준에 없던 신호가 가까이 나타나면 화면이 깜빡이고 진동
  * 3) 찾기: 항목을 누르면 대략 거리와 가까워짐/멀어짐을 실시간으로 표시
  */
@@ -74,7 +74,7 @@ public class MainActivity extends Activity {
             ORANGE = 0xFFFF4C02, SKY = 0xFF60A5FA, DIM = 0xFF8FA3C7;
 
     static final int MODE_IDLE = 0, MODE_BASELINE = 1, MODE_WATCH = 2;
-    static final int BASELINE_SECONDS = 30;
+    static final int BASELINE_SECONDS = 60;
     static final long GONE_MS = 45_000;      // 이만큼 안 보이면 사라진 것으로
     static final int REQ_PERM = 7;
 
@@ -622,7 +622,8 @@ public class MainActivity extends Activity {
             long now = System.currentTimeMillis();
             // 안드로이드 9(또는 검색 제한이 켜진 기기)는 2분에 4번만 검색된다.
             // 4초마다 쏘면 앞 16초에 다 쓰고 1분 40초를 기다리게 되니 30초 간격으로 고르게 나눈다.
-            long gap = (Build.VERSION.SDK_INT == 28 || wifiThrottled) ? 30_000 : 4_000;
+            // 기준 잡는 1분 동안은 15초 간격(4번)으로 나눠야 제한이 있어도 4번 모두 검색된다
+            long gap = mode == MODE_BASELINE ? 15_000 : (Build.VERSION.SDK_INT == 28 || wifiThrottled) ? 30_000 : 4_000;
             if (now - lastKick >= gap) { lastKick = now; kickWifiScan(); }
             // 안드로이드는 30분 넘게 돈 블루투스 검색을 느리게 만든다 → 20분마다 다시 시작
             if (ble != null && now - bleStartedAt > 20 * 60_000L) { stopBle(); startBle(); }
@@ -641,7 +642,7 @@ public class MainActivity extends Activity {
         if (!hasPerms()) { askPermissions(); return; }
         new AlertDialog.Builder(this)
                 .setTitle("기준 잡기")
-                .setMessage("학생이 들어오기 전, 빈 교실에서 해 주세요.\n\n30초 동안 지금 보이는 신호를 모두 '원래 있던 것'으로 저장합니다. 이전 기준은 지워집니다.\n\n감독관 본인 휴대폰은 이때 켜 두면 경고에서 빠집니다.")
+                .setMessage("학생이 들어오기 전, 빈 교실에서 해 주세요.\n\n1분 동안 지금 보이는 신호를 모두 '원래 있던 것'으로 저장합니다. 이전 기준은 지워집니다.\n\n감독관 본인 휴대폰은 이때 켜 두면 경고에서 빠집니다.")
                 .setPositiveButton("시작", (d, w) -> {
                     baseline.clear(); acked.clear(); devs.clear();
                     mode = MODE_BASELINE;
@@ -1176,7 +1177,7 @@ public class MainActivity extends Activity {
         main.addView(statusCard, sclp);
 
         LinearLayout r1 = hrow(dp(12));
-        btnBase = btn("① 기준 잡기 (30초)", NAVY2, WHITE);
+        btnBase = btn("① 기준 잡기 (1분)", NAVY2, WHITE);
         btnBase.setOnClickListener(v -> startBaseline());
         btnWatch = btn("② 감시 시작", LIME, NAVY);
         btnWatch.setOnClickListener(v -> toggleWatch());
@@ -1321,7 +1322,7 @@ public class MainActivity extends Activity {
     void showHelp() {
         new AlertDialog.Builder(this)
                 .setTitle("사용법")
-                .setMessage("① 학생 입실 전, 빈 교실에서 '기준 잡기'를 누릅니다(30초). 학교 공유기, 옆 반 기기, 감독관 폰이 '원래 있던 것'으로 저장됩니다.\n\n"
+                .setMessage("① 학생 입실 전, 빈 교실에서 '기준 잡기'를 누릅니다(1분). 학교 공유기, 옆 반 기기, 감독관 폰이 '원래 있던 것'으로 저장됩니다.\n\n"
                         + "② 끝나면 저절로 감시가 시작됩니다. 새 신호가 가까이 나타나면 화면이 깜빡이고 진동합니다.\n\n"
                         + "③ 목록에서 항목을 누르면 거리 화면이 나옵니다. 태블릿을 들고 걸으며 ▲(가까워짐)가 뜨는 쪽으로 가세요.\n\n"
                         + "④ 괜찮은 기기면 '무시'를 누르면 다시 경고하지 않습니다.\n\n"
