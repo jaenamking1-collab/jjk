@@ -1,0 +1,26 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'kr.jjk.examradar'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'kr.jjk.examradar'
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName '0.1-beta'
+    }
+    signingConfigs {
+        release {
+            // 열쇠 파일은 공개 저장소에 두지 않는다(claude-memory 비공개 저장소에 보관)
+            storeFile file(System.getenv('EXAM_RADAR_KEYSTORE') ?: 'missing.jks')
+            storePassword System.getenv('EXAM_RADAR_KEYPASS') ?: ''
+            keyAlias 'examradar'
+            keyPassword System.getenv('EXAM_RADAR_KEYPASS') ?: ''
+        }
+    }
+    buildTypes {
+        release { minifyEnabled false; signingConfig signingConfigs.release }
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+}
