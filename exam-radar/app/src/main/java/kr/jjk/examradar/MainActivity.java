@@ -95,7 +95,7 @@ public class MainActivity extends Activity {
     final Set<String> baseline = new HashSet<>();
     final Set<String> acked = new HashSet<>();   // 경고 확인을 누른 새 기기
     int mode = MODE_IDLE;
-    long baselineEnd;
+    long baselineEnd, baselineStart;
     boolean wide = false, sound = false;
     String findKey = null;
     boolean patrol = false;   // 복도 순회 모드
@@ -731,12 +731,16 @@ public class MainActivity extends Activity {
     void startBaseline() {
         if (!hasPerms()) { askPermissions(); return; }
         new AlertDialog.Builder(this)
-                .setTitle("기준 잡기")
-                .setMessage("학생이 들어오기 전, 빈 교실에서 해 주세요.\n\n1분 동안 지금 보이는 신호를 모두 '원래 있던 것'으로 저장합니다. 이전 기준은 지워집니다.\n\n감독관 본인 휴대폰은 이때 켜 두면 경고에서 빠집니다.")
+                .setTitle(patrol ? "기준 잡기 · 복도 순회" : "기준 잡기 · 교실 한 곳")
+                .setMessage(patrol
+                        ? "학생이 들어오기 전에 해 주세요.\n\n감시할 복도를 처음부터 끝까지 천천히 한 번 걸어 주세요(최소 1분). 걷는 동안 보이는 신호를 모두 '원래 있던 것'으로 저장합니다.\n\n다 걸었으면 '기준 잡기 끝'을 누르세요. 층이 여러 개면 그 층들을 모두 걸은 뒤 누르세요.\n\n한 자리에 서서 잡으면 복도 끝 쪽 학교 공유기가 나중에 새 기기로 뜹니다."
+                        : "학생이 들어오기 전, 감시할 그 교실 가운데에서 해 주세요.\n\n1분 동안 이 교실에서 보이는 신호를 '원래 있던 것'으로 저장합니다. 다른 교실로 옮기면 거기서 다시 잡아야 합니다.\n\n감독관 본인 휴대폰은 이때 켜 두면 경고에서 빠집니다.")
                 .setPositiveButton("시작", (d, w) -> {
                     baseline.clear(); acked.clear(); devs.clear();
                     mode = MODE_BASELINE;
-                    baselineEnd = System.currentTimeMillis() + BASELINE_SECONDS * 1000L;
+                    baselineStart = System.currentTimeMillis();
+                    // 순회는 사람이 '끝'을 누를 때까지, 교실 한 곳은 1분
+                    baselineEnd = patrol ? Long.MAX_VALUE : baselineStart + BASELINE_SECONDS * 1000L;
                     stopBle(); startBle(); kickWifiScan();
                     render(System.currentTimeMillis());
                 })
@@ -953,7 +957,7 @@ public class MainActivity extends Activity {
         new AlertDialog.Builder(this)
                 .setTitle(patrol ? "복도 순회 모드" : "교실 고정 모드")
                 .setMessage(patrol
-                        ? "학생 입실 전에 복도 가운데에서 기준을 다시 잡아 주세요.\n\n시험 중에는 태블릿을 들고 걸으며, 교실 문 앞을 지날 때마다 '다음 교실'을 누르세요. 새 기기마다 신호가 가장 셌던 교실을 알려 드립니다."
+                        ? "학생 입실 전에 복도를 끝까지 한 번 걸으며 기준을 다시 잡아 주세요.\n\n시험 중에는 반 앞마다 멈춰 '여기서 재기'를 누르세요. 새 기기마다 가장 센 반을 알려 드립니다."
                         : "교실 가운데에 태블릿을 두는 방식입니다. 그 교실에서 기준을 다시 잡아 주세요.")
                 .setPositiveButton("지금 기준 잡기", (d, w) -> startBaseline())
                 .setNegativeButton("나중에", null).show();
@@ -1030,10 +1034,17 @@ public class MainActivity extends Activity {
         for (Dev d : alerts) if (!acked.contains(d.key)) unacked++;
 
         if (mode == MODE_BASELINE) {
-            long left = Math.max(0, (baselineEnd - now + 999) / 1000);
-            status.setText("기준 잡는 중 · " + left + "초");
+            if (patrol) {
+                long el = (now - baselineStart) / 1000;
+                status.setText("기준 잡는 중 · " + el + "초째");
+                statusSub.setText("복도를 끝까지 천천히 걸어 주세요. 지금까지 신호 " + baseCount() + "개를 기억했습니다."
+                        + (el < 60 ? " (최소 1분)" : " 다 걸었으면 '기준 잡기 끝'을 누르세요."));
+            } else {
+                long left = Math.max(0, (baselineEnd - now + 999) / 1000);
+                status.setText("기준 잡는 중 · " + left + "초");
+                statusSub.setText("이 교실에서 보이는 신호 " + baseCount() + "개를 기억하고 있습니다. 태블릿을 교실 가운데쯤 두세요.");
+            }
             status.setTextColor(LIME);
-            statusSub.setText("지금 보이는 신호 " + baseCount() + "개를 기억하고 있습니다. 태블릿을 교실 가운데쯤 두세요.");
             stopFlash();
         } else if (mode == MODE_WATCH) {
             if (alerts.isEmpty()) {
@@ -1059,7 +1070,16 @@ public class MainActivity extends Activity {
             stopFlash();
         }
         btnAck.setVisibility(mode == MODE_WATCH && unacked > 0 ? View.VISIBLE : View.GONE);
-        btnBase.setEnabled(mode != MODE_BASELINE);
+        if (mode == MODE_BASELINE && patrol) {
+            boolean ok = now - baselineStart >= 60_000;
+            btnBase.setText(ok ? "기준 잡기 끝" : "걷는 중… (1분 뒤 끝내기)");
+            btnBase.setEnabled(ok);
+            styleBtn(btnBase, ok ? ORANGE : NAVY2, WHITE);
+        } else {
+            btnBase.setText(patrol ? "① 기준 잡기 (복도 한 바퀴)" : "① 기준 잡기 (이 교실, 1분)");
+            btnBase.setEnabled(mode != MODE_BASELINE);
+            styleBtn(btnBase, NAVY2, WHITE);
+        }
         btnWatch.setText(mode == MODE_WATCH ? "감시 멈춤" : "감시 시작");
         styleBtn(btnWatch, mode == MODE_WATCH ? NAVY2 : LIME, mode == MODE_WATCH ? WHITE : NAVY);
         btnRange.setText(wide ? "경고 범위: 넓게" : "경고 범위: 교실 안");
@@ -1401,7 +1421,7 @@ public class MainActivity extends Activity {
 
         LinearLayout r1 = hrow(dp(12));
         btnBase = btn("① 기준 잡기 (1분)", NAVY2, WHITE);
-        btnBase.setOnClickListener(v -> startBaseline());
+        btnBase.setOnClickListener(v -> { if (mode == MODE_BASELINE) finishBaseline(); else startBaseline(); });
         btnWatch = btn("② 감시 시작", LIME, NAVY);
         btnWatch.setOnClickListener(v -> toggleWatch());
         r1.addView(btnBase, weighted(dp(56), 0));
@@ -1583,7 +1603,8 @@ public class MainActivity extends Activity {
                         + "③ 목록에서 항목을 누르면 거리 화면이 나옵니다. 태블릿을 들고 걸으며 ▲(가까워짐)가 뜨는 쪽으로 가세요.\n\n"
                         + "④ 괜찮은 기기면 '무시'를 누르면 다시 경고하지 않습니다.\n\n"
                         + "복도 순회 모드\n"
-                        + "· 태블릿 한 대로 한 층을 살핍니다. 기준은 입실 전 복도 가운데에서 잡습니다.\n"
+                        + "· 태블릿 한 대로 한 층을 살핍니다. 기준은 입실 전 복도를 끝까지 한 번 걸으며 잡고, 다 걸었으면 '기준 잡기 끝'을 누릅니다.\n"
+                        + "· '1분 기준'은 교실 고정 모드(태블릿을 한 교실에 두는 방식)에서만 씁니다.\n"
                         + "· 교실 문 앞(가운데)에 멈춰 '여기서 재기'를 누르고 가만히 서 있습니다. 신호가 충분히 모이면(5~15초) 다음 반으로 자동으로 넘어갑니다.\n"
                         + "· '무시'를 누른 기기는 목록에서 사라지고 다시 경고하지 않습니다(기록에는 '무시'로 남습니다). 새 기준을 잡으면 초기화됩니다.\n"
                         + "· 층을 옮기면 위의 학년 버튼을 누르세요(1반부터 다시 셉니다).\n"
