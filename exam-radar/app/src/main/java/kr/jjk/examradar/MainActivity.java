@@ -1649,13 +1649,10 @@ public class MainActivity extends Activity {
                 btnMeasure.setEnabled(true);
                 styleBtn(btnMeasure, SKY, NAVY);
             }
-            Dev top = alerts.isEmpty() ? null : alerts.get(0);
-            if (top == null) { topText.setText("새 신호 없음"); topText.setTextColor(LIME); }
-            else {
-                topText.setText("가장 센 새 신호: " + top.name + "\n" + distText(meters(top)) + " · " + trendWord(top)
-                        + " · " + Math.round(top.ema) + " dBm");
-                topText.setTextColor(meters(top) < 4 ? ORANGE : WHITE);
-            }
+            // 순회 칸에는 '언제 누르는지'만 짧게(신호 내용은 아래 카드에)
+            topText.setText(imp.isEmpty() ? "확인할 신호가 없으면 누르지 않아도 됩니다."
+                    : "확인할 신호가 있을 때 반 앞마다 눌러 어느 반인지 찾습니다.");
+            topText.setTextColor(DIM);
         }
 
         baseInfo.setText("● 블루투스 " + (bleOk ? "정상" : !btOn ? "꺼짐" : "멈춤")
@@ -1679,8 +1676,8 @@ public class MainActivity extends Activity {
         styleBtn(tabBle, tab == 2 ? LIME : NAVY2, tab == 2 ? NAVY : LIME);
         styleBtn(tabAll, tab == 0 ? WHITE : NAVY2, tab == 0 ? NAVY : WHITE);
         if (imp.isEmpty()) list.addView(label("  확인할 신호가 없습니다.", 15, LIME, true));
-        if (tab != 2) for (Dev d : wl) list.addView(row(d, now, gCount.get(groupKey(d))));
-        if (tab != 1) for (Dev d : bl) list.addView(row(d, now, gCount.get(groupKey(d))));
+        if (tab != 2) for (Dev d : wl) list.addView(card(d, now));
+        if (tab != 1) for (Dev d : bl) list.addView(card(d, now));
         // 그 밖의 새 신호: 멀거나 잠깐 잡힌 것(접어 둠)
         List<Dev> restT = new ArrayList<>();
         for (Dev d : rest) if (tab == 0 || (tab == 1) == d.wifi) restT.add(d);
@@ -1804,6 +1801,70 @@ public class MainActivity extends Activity {
         return t;
     }
 
+    /** 사람 말로 된 기기 이름: "휴대폰 의심 · 안드로이드", "이어폰 (에어팟 등)", "휴대폰 핫스팟 'Galaxy A34'" */
+    static String plainTitle(Dev d) {
+        if (d.wifi) return d.phoneLike ? "휴대폰 핫스팟 '" + d.name + "'" : "와이파이 '" + d.name + "'";
+        String base;
+        if (d.rank == 3) base = "휴대폰 의심";
+        else if ("이어폰".equals(d.typeShort)) base = "무선 이어폰 의심";
+        else if ("시계·밴드".equals(d.typeShort)) base = "스마트워치·밴드 의심";
+        else if (d.typeShort != null) base = d.typeShort;
+        else base = "종류 모를 블루투스 기기";
+        String extra = d.named ? " '" + d.name + "'" : d.typeShort != null && !base.contains(d.typeShort) ? "" : "";
+        String maker = maker(d.manu);
+        if (!d.named && maker != null && !base.contains(maker)) extra = " · " + maker;
+        if (!d.named && "안드로이드".equals(d.typeShort)) { base = "휴대폰·태블릿 의심"; extra = " · 안드로이드"; }
+        if (!d.named && "삼성 기기".equals(d.typeShort)) { base = "삼성 휴대폰·이어폰·워치 중 하나"; extra = ""; }
+        return base + extra;
+    }
+
+    /** 거리에 맞춘 '할 일' 한 줄 */
+    String todo(Dev d, double m) {
+        if (m < 2) return "할 일: 태블릿 바로 근처입니다. 주변 자리·가방을 보세요. 감독관 본인 기기면 '괜찮음'.";
+        if (m < 8) return "할 일: 같은 교실 안일 가능성이 큽니다. '찾기'를 눌러 숫자가 커지는 쪽으로 가세요.";
+        return patrol ? "할 일: 멀리 있습니다. 반 앞마다 '여기서 재기'를 눌러 어느 반인지 먼저 찾으세요."
+                : "할 일: 멀리 있습니다(복도·옆 반일 수 있음). 가까워지면 다시 알려 드립니다.";
+    }
+
+    /** '확인할 신호' 카드: 무엇 / 얼마나 가까이 / 할 일 / [찾기] [괜찮음] */
+    View card(Dev d, long now) {
+        double rssi = d.wifi ? d.ema : stableRssi(d, now);
+        double m = metersOf(d, rssi);
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setPadding(dp(16), dp(14), dp(16), dp(14));
+        c.setBackground(round(NAVY2, 16, acked.contains(d.key) ? SKY : ORANGE));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.bottomMargin = dp(12);
+        c.setLayoutParams(lp);
+
+        c.addView(label(plainTitle(d), 20, d.phoneLike ? ORANGE : WHITE, true));
+        LinearLayout dl = new LinearLayout(this);
+        dl.setGravity(Gravity.BOTTOM);
+        dl.addView(label(fineDist(m), 30, m < 2 ? ORANGE : m < 8 ? LIME : WHITE, true));
+        TextView z = label("  " + zone(m) + (nearStay(d, now) ? " · ★ " + Math.max(1, (now - d.firstSeen) / 60000) + "분째 머묾" : ""), 15, DIM, false);
+        z.setPadding(0, 0, 0, dp(4));
+        dl.addView(z);
+        c.addView(dl);
+        String vd = patrol ? verdict(d) : null;
+        if (vd != null) c.addView(label(vd, 15, vd.contains("뚜렷") ? ORANGE : SKY, true));
+        TextView td = label(todo(d, m), 15, WHITE, false);
+        td.setPadding(0, dp(6), 0, dp(10));
+        c.addView(td);
+
+        LinearLayout bs = new LinearLayout(this);
+        Button find = btn("찾기", LIME, NAVY);
+        find.setTextSize(17);
+        find.setOnClickListener(v -> openFinder(d.key));
+        Button ok = btn("괜찮음", NAVY, WHITE);
+        ok.setTextSize(15);
+        ok.setOnClickListener(v -> handle(d));
+        bs.addView(find, weighted(dp(52), 0));
+        bs.addView(ok, weighted(dp(52), dp(10)));
+        c.addView(bs);
+        return c;
+    }
+
     View row(Dev d, long now, int count) {
         LinearLayout r = new LinearLayout(this);
         r.setOrientation(LinearLayout.HORIZONTAL);
@@ -1826,7 +1887,7 @@ public class MainActivity extends Activity {
         LinearLayout mid = new LinearLayout(this);
         mid.setOrientation(LinearLayout.VERTICAL);
         mid.setPadding(dp(12), 0, dp(8), 0);
-        mid.addView(label(d.name + (count > 1 ? "  ×" + count : ""), 18, WHITE, true));
+        mid.addView(label(plainTitle(d), 17, WHITE, true));
         long ago = (now - d.lastSeen) / 1000;
         mid.addView(label(d.kind + (ago > 5 ? " · " + ago + "초 전" : ""), 13, DIM, false));
         if (nearStay(d, now)) mid.addView(label("★ 가까이 오래 있음 · 먼저 확인", 15, ORANGE, true));
