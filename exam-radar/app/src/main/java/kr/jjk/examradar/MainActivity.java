@@ -162,6 +162,16 @@ public class MainActivity extends Activity {
         else registerReceiver(installRx, inf);
         askPermissions();
         checkUpdate(false);
+        Intent in0 = getIntent();
+        if (in0 != null && (Intent.ACTION_VIEW.equals(in0.getAction()) || Intent.ACTION_SEND.equals(in0.getAction()))) handleIncoming(in0);
+        else if (rooms.isEmpty() && !prefs.getBoolean("askedImport", false)) {
+            prefs.edit().putBoolean("askedImport", true).apply();
+            new AlertDialog.Builder(this)
+                    .setTitle("다른 태블릿에서 쓰던 자료가 있나요?")
+                    .setMessage("쓰던 태블릿의 '기준' 탭 → '다른 태블릿으로 보내기'로 받은 파일이 있으면 바로 가져올 수 있습니다. 반별 기준·기록·설정이 한 번에 옮겨집니다.")
+                    .setPositiveButton("가져오기", (d, w) -> pickImport())
+                    .setNegativeButton("처음 쓰는 것", null).show();
+        }
     }
 
     // ───────────────────────── 앱 안 업데이트 ─────────────────────────
@@ -631,7 +641,8 @@ public class MainActivity extends Activity {
 
     /** 순회 판정: 가장 센 교실과 두 번째 교실의 차이로 '확실/가능성 높음/애매'를 붙인다 */
     static String verdict(Dev d) {
-        Map<Integer, Double> m = d.roomMed.isEmpty() ? d.roomPeak : d.roomMed;
+        // 반 앞에서 '여기서 재기'로 잰 값이 있을 때만 판정한다(걸으며 스친 값은 헷갈려서 안 보여 줌)
+        Map<Integer, Double> m = d.roomMed;
         if (m.isEmpty()) return null;
         int b1 = -1, b2 = -1; double v1 = -999, v2 = -999;
         for (Map.Entry<Integer, Double> e : m.entrySet()) {
@@ -639,7 +650,7 @@ public class MainActivity extends Activity {
             if (v > v1) { b2 = b1; v2 = v1; b1 = e.getKey(); v1 = v; }
             else if (v > v2) { b2 = e.getKey(); v2 = v; }
         }
-        String src = d.roomMed.isEmpty() ? " · 걸으며 본 값" : "";
+        String src = "";
         if (b2 < 0) return "가장 센 곳: " + roomName(b1) + " 앞 (옆 반도 재야 확실해집니다)" + src;
         double diff = v1 - v2;
         String c = diff >= 6 ? "확실" : diff >= 3 ? "가능성 높음" : "애매 · " + roomName(b1) + "과 " + roomName(b2) + " 다시 재기";
@@ -655,7 +666,7 @@ public class MainActivity extends Activity {
     /** 순회: 이 기기 신호가 가장 셌던 교실 번호(없으면 -1) */
     static int bestRoom(Dev d) {
         int best = -1; double v = -999;
-        for (Map.Entry<Integer, Double> e : (d.roomMed.isEmpty() ? d.roomPeak : d.roomMed).entrySet())
+        for (Map.Entry<Integer, Double> e : d.roomMed.entrySet())
             if (e.getValue() > v) { v = e.getValue(); best = e.getKey(); }
         return best;
     }
@@ -879,7 +890,127 @@ public class MainActivity extends Activity {
     }
     final java.util.LinkedHashMap<String, Rec> log = new java.util.LinkedHashMap<>();
     long watchStart = 0;
-    static final int REQ_SAVE = 9;
+    static final int REQ_SAVE = 9, REQ_IMPORT = 10;
+
+    // ───────────────────────── 다른 태블릿으로 자료 옮기기 ─────────────────────────
+
+    /** 기준(반별)·마지막 본 날·감시 기록·설정을 파일 하나로 */
+    String exportJson() throws Exception {
+        saveRooms(); saveLog();
+        org.json.JSONObject o = new org.json.JSONObject();
+        o.put("app", "exam-radar");
+        o.put("v", 1);
+        o.put("at", System.currentTimeMillis());
+        o.put("rooms", new org.json.JSONObject(prefs.getString("rooms", "{}")));
+        o.put("baseSeen", new org.json.JSONObject(prefs.getString("baseSeen", "{}")));
+        o.put("log", new org.json.JSONArray(prefs.getString("log", "[]")));
+        o.put("watchStart", watchStart);
+        org.json.JSONObject s = new org.json.JSONObject();
+        s.put("patrol", patrol); s.put("wide", wide); s.put("sound", sound); s.put("grade", grade); s.put("room", room);
+        o.put("settings", s);
+        return o.toString();
+    }
+
+    void sendToOther() {
+        try {
+            java.io.File dir = new java.io.File(getCacheDir(), "share");
+            dir.mkdirs();
+            String name = "시험감독레이더_자료_" + new java.text.SimpleDateFormat("MMdd_HHmm", Locale.KOREA).format(new java.util.Date()) + ".json";
+            java.io.File f = new java.io.File(dir, name);
+            try (OutputStream o = new java.io.FileOutputStream(f)) { o.write(exportJson().getBytes("UTF-8")); }
+            android.net.Uri u = android.net.Uri.parse("content://" + FileShare.AUTH + "/" + android.net.Uri.encode(name));
+            Intent i = new Intent(Intent.ACTION_SEND);
+            i.setType("application/json");
+            i.putExtra(Intent.EXTRA_STREAM, u);
+            i.setClipData(android.content.ClipData.newRawUri(name, u));
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(Intent.createChooser(i, "다른 태블릿으로 보내기 (Quick Share 추천)"));
+        } catch (Exception e) { toast("자료 파일을 만들지 못했습니다."); }
+    }
+
+    void pickImport() {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("*/*");
+        try { startActivityForResult(i, REQ_IMPORT); } catch (Exception e) { toast("파일 고르는 화면을 열 수 없습니다."); }
+    }
+
+    /** 받은 파일을 열면(또는 고르면) 합칠지 묻는다 */
+    void confirmImport(android.net.Uri u) {
+        final org.json.JSONObject o;
+        try (InputStream in = getContentResolver().openInputStream(u)) {
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            byte[] b = new byte[8192]; int r;
+            while ((r = in.read(b)) > 0) bo.write(b, 0, r);
+            o = new org.json.JSONObject(bo.toString("UTF-8"));
+            if (!"exam-radar".equals(o.optString("app"))) throw new Exception();
+        } catch (Exception e) { toast("시험감독 레이더 자료 파일이 아닙니다."); return; }
+        int n = o.optJSONObject("rooms") == null ? 0 : o.optJSONObject("rooms").length();
+        new AlertDialog.Builder(this)
+                .setTitle("자료 가져오기")
+                .setMessage("반별 기준 " + n + "곳과 감시 기록, 설정을 가져옵니다.\n\n'합치기'는 이 태블릿에 이미 있는 기준을 지우지 않고 더합니다.")
+                .setPositiveButton("합치기", (d, w) -> applyImport(o, false))
+                .setNeutralButton("덮어쓰기", (d, w) -> applyImport(o, true))
+                .setNegativeButton("취소", null).show();
+    }
+
+    void applyImport(org.json.JSONObject o, boolean replace) {
+        try {
+            if (replace) { rooms.clear(); baseSeen.clear(); log.clear(); }
+            org.json.JSONObject rs = o.optJSONObject("rooms");
+            if (rs != null) {
+                java.util.Iterator<String> it = rs.keys();
+                while (it.hasNext()) {
+                    String code = it.next();
+                    org.json.JSONObject r = rs.getJSONObject(code);
+                    RoomBase rb = roomOf(Integer.parseInt(code));
+                    rb.t = Math.max(rb.t, r.optLong("t"));
+                    org.json.JSONArray ka = r.optJSONArray("k");
+                    if (ka != null) for (int i = 0; i < ka.length(); i++) rb.keys.add(ka.getString(i));
+                    org.json.JSONObject fp = r.optJSONObject("fp");
+                    if (fp != null) { java.util.Iterator<String> fi = fp.keys(); while (fi.hasNext()) { String f = fi.next(); rb.fp.put(f, fp.getDouble(f)); } }
+                }
+            }
+            org.json.JSONObject bs = o.optJSONObject("baseSeen");
+            if (bs != null) { java.util.Iterator<String> it = bs.keys(); while (it.hasNext()) { String k = it.next(); Long t = baseSeen.get(k); long v = bs.getLong(k); if (t == null || v > t) baseSeen.put(k, v); } }
+            org.json.JSONObject s = o.optJSONObject("settings");
+            if (s != null) {
+                patrol = s.optBoolean("patrol", patrol); wide = s.optBoolean("wide", wide); sound = s.optBoolean("sound", sound);
+                grade = s.optInt("grade", grade); room = s.optInt("room", room);
+                prefs.edit().putBoolean("patrol", patrol).putBoolean("wide", wide).putBoolean("sound", sound)
+                        .putInt("grade", grade).putInt("room", room).apply();
+            }
+            if (replace || log.isEmpty()) {
+                prefs.edit().putString("log", o.optJSONArray("log") == null ? "[]" : o.optJSONArray("log").toString())
+                        .putLong("watchStart", o.optLong("watchStart", 0)).apply();
+                log.clear();
+                loadLog();
+            }
+            rebuildBaseline();
+            saveRooms();
+            prefs.edit().putBoolean("askedImport", true).apply();
+            toast("가져왔습니다. 기준 " + baseCount() + "개, " + rooms.size() + "곳.");
+            setPage(1);
+        } catch (Exception e) { toast("가져오지 못했습니다."); }
+    }
+
+    /** 받은 파일을 눌러 이 앱으로 열었을 때 */
+    void handleIncoming(Intent it) {
+        if (it == null) return;
+        android.net.Uri u = null;
+        if (Intent.ACTION_VIEW.equals(it.getAction())) u = it.getData();
+        else if (Intent.ACTION_SEND.equals(it.getAction())) {
+            @SuppressWarnings("deprecation") android.net.Uri s = it.getParcelableExtra(Intent.EXTRA_STREAM);
+            u = s;
+        }
+        if (u != null) confirmImport(u);
+    }
+
+    @Override
+    protected void onNewIntent(Intent it) {
+        super.onNewIntent(it);
+        handleIncoming(it);
+    }
 
     void logAlert(Dev d, long now) {
         String k = groupKey(d);
@@ -1004,6 +1135,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int code, int res, Intent data) {
         super.onActivityResult(code, res, data);
+        if (code == REQ_IMPORT && res == RESULT_OK && data != null && data.getData() != null) { confirmImport(data.getData()); return; }
         if (code != REQ_SAVE || res != RESULT_OK || data == null || data.getData() == null) return;
         try (OutputStream o = getContentResolver().openOutputStream(data.getData())) {
             o.write(csv().getBytes("UTF-8"));
@@ -1812,6 +1944,22 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams calp = new LinearLayout.LayoutParams(-1, dp(46));
         calp.topMargin = dp(12);
         basePane.addView(clearAll, calp);
+        TextView mvH = label("다른 태블릿과 자료 옮기기", 16, SKY, true);
+        mvH.setPadding(dp(4), dp(18), 0, dp(6));
+        basePane.addView(mvH);
+        LinearLayout mv = hrow(0);
+        Button sendB = btn("다른 태블릿으로 보내기", SKY, NAVY);
+        sendB.setTextSize(14);
+        sendB.setOnClickListener(v -> sendToOther());
+        Button getB = btn("받은 자료 가져오기", NAVY2, SKY);
+        getB.setTextSize(14);
+        getB.setOnClickListener(v -> pickImport());
+        mv.addView(sendB, weighted(dp(50), 0));
+        mv.addView(getB, weighted(dp(50), dp(8)));
+        basePane.addView(mv);
+        TextView mvt = label("보내기를 누르고 'Quick Share'로 옆 태블릿을 고르면 됩니다. 받은 태블릿에서 알림을 눌러 파일을 열거나 '받은 자료 가져오기'를 누르세요. 반별 기준·기록·설정이 한 번에 옮겨집니다.", 13, DIM, false);
+        mvt.setPadding(dp(4), dp(6), dp(4), 0);
+        basePane.addView(mvt);
         TextView setH = label("설정", 16, SKY, true);
         setH.setPadding(dp(4), dp(18), 0, dp(6));
         basePane.addView(setH);
