@@ -787,7 +787,7 @@ public class MainActivity extends Activity {
             Double p = d.roomPeak.get(loc());
             if (p == null || d.ema > p) d.roomPeak.put(loc(), d.ema);
         }
-        if (dirScanning && d.key.equals(findKey)) {
+        if (dirScanning && (d.key.equals(findKey) || (findGroup != null && groupKey(d).equals(findGroup)))) {
             int b = ((int) (azimuth / 30)) % 12;
             binSum[b] += rssi; binN[b]++;
         }
@@ -2024,6 +2024,8 @@ public class MainActivity extends Activity {
 
     void openFinder(String key) {
         findKey = key;
+        Dev fd0 = devs.get(key);
+        findGroup = fd0 == null ? null : groupKey(fd0);
         findPeak = -999;
         findShow = Double.NaN;
         findTrack.clear();
@@ -2484,13 +2486,42 @@ public class MainActivity extends Activity {
         return Math.max(0.1, Math.min(30, Math.pow(10, (ref - rssi) / (10 * n))));
     }
 
+    /**
+     * 찾는 대상은 '주소 하나'가 아니라 '같은 묶음'(같은 이름, 또는 같은 제조사·종류의 이름 없는 기기)이다.
+     * 주소를 자주 바꾸는 기기(구글·삼성 찾기 신호 등)를 따라가려고. 묶음 중 가장 최근에 들어온 주소를 대표로 쓴다.
+     */
+    Dev findTarget() {
+        Dev best = devs.get(findKey);
+        if (best == null || findGroup == null) return best;
+        for (Dev o : devs.values())
+            if (groupKey(o).equals(findGroup) && o.lastSeen > best.lastSeen) best = o;
+        return best;
+    }
+
+    /** 묶음 전체의 최근 2초(모자라면 4초) 원본 값 상위 20% */
+    double stableGroup(Dev rep, long now) {
+        if (rep.wifi || findGroup == null) return rep.wifi ? rep.ema : stableRssi(rep, now);
+        ArrayList<Integer> v = new ArrayList<>();
+        for (int win : new int[]{2000, 4000}) {
+            v.clear();
+            for (Dev o : devs.values()) if (groupKey(o).equals(findGroup))
+                for (long[] s : o.raw) if (now - s[0] <= win) v.add((int) s[1]);
+            if (v.size() >= 3) break;
+        }
+        if (v.isEmpty()) return rep.ema;
+        Collections.sort(v);
+        return v.get(Math.min(v.size() - 1, (int) Math.floor(v.size() * 0.8)));
+    }
+
+    String findGroup = null;
+
     void renderFinder(long now) {
-        Dev d = devs.get(findKey);
+        Dev d = findTarget();
         if (d == null) { closeFinder(); return; }
-        findName.setText(d.name + "\n신호 점수 (0~100, 클수록 가깝습니다)");
+        findName.setText(plainTitle(d) + "\n신호 점수 (0~100, 클수록 가깝습니다)");
         long ago = (now - d.lastSeen) / 1000;
         // 블루투스는 흔들림이 커서 '최근 2초 원본 값 중 위쪽(상위 20%)'을 쓰고, 화면 값은 한 번 더 천천히 따라가게 한다
-        double st = d.wifi ? d.ema : stableRssi(d, now);
+        double st = stableGroup(d, now);
         findShow = Double.isNaN(findShow) ? st : findShow + Math.max(-3, Math.min(3, (st - findShow) * 0.35));
         findTrack.add(new double[]{now, findShow});
         while (!findTrack.isEmpty() && now - findTrack.get(0)[0] > 6000) findTrack.remove(0);
