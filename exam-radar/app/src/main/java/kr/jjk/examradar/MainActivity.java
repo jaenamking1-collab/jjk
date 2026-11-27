@@ -1701,7 +1701,11 @@ public class MainActivity extends Activity {
         }
         // ── 사라진 신호: 감시 중 잡혔다가 끊긴 새 신호(감독관이 다가가자 끈 경우 등) ──
         List<Rec> goneList = new ArrayList<>();
-        for (Rec r : log.values()) if (r.goneAt > 0 && now - r.goneAt < 30 * 60_000L && !r.ignored) goneList.add(r);
+        final Map<Rec, String> goneKey = new HashMap<>();
+        for (Map.Entry<String, Rec> en : log.entrySet()) {
+            Rec r = en.getValue();
+            if (r.goneAt > 0 && now - r.goneAt < 30 * 60_000L && !r.ignored) { goneList.add(r); goneKey.put(r, en.getKey()); }
+        }
         goneList.sort((a, b) -> Long.compare(b.goneAt, a.goneAt));
         if (!goneList.isEmpty()) {
             int off = 0;
@@ -1721,6 +1725,15 @@ public class MainActivity extends Activity {
                 g.addView(label((r.wifi ? "와이파이 · " : "블루투스 · ") + r.name, 16, WHITE, true));
                 g.addView(label(hm(r.goneAt) + "에 끊김" + (r.room > 0 ? " · " + roomName(r.room) + " 쪽에서 강했음" : "")
                         + (likelyOff ? "\n그 근처에 다시 가서 안 잡히면 끈 것, 다시 잡히면 거리 때문입니다." : ""), 13, DIM, false));
+                // 우리 학교·아래층 다른 학교 신호처럼 괜찮은 것은 여기서 바로 뺄 수 있게
+                Button okG = btn("괜찮음 (학교 장비 / 목록에서 빼기)", NAVY, WHITE);
+                okG.setTextSize(14);
+                final Rec rr = r;
+                final String rk = goneKey.get(r);
+                okG.setOnClickListener(v -> handleGone(rr, rk));
+                LinearLayout.LayoutParams oglp = new LinearLayout.LayoutParams(-1, dp(44));
+                oglp.topMargin = dp(8);
+                g.addView(okG, oglp);
                 LinearLayout.LayoutParams glp2 = new LinearLayout.LayoutParams(-1, -2);
                 glp2.bottomMargin = dp(8);
                 list.addView(g, glp2);
@@ -1729,6 +1742,31 @@ public class MainActivity extends Activity {
     }
 
     boolean showGone = false, showRest = false;
+
+    /** 사라진 신호의 '괜찮음': 아직 기기 정보가 남아 있으면 일반 처리와 같고, 없으면 등록/빼기만 */
+    void handleGone(Rec r, String logKey) {
+        Dev d = r.cur;
+        if (d == null && logKey != null) d = devs.get(logKey);
+        if (d != null) { handle(d); r.ignored = true; saveLog(); render(System.currentTimeMillis()); return; }
+        final boolean wifiKey = logKey != null && logKey.startsWith("W:");
+        List<String> items = new ArrayList<>();
+        if (wifiKey) items.add("학교 장비로 등록 (우리 학교·아래층 학교 공유기 등, 다음부터 경고 안 함)");
+        items.add("목록에서만 빼기");
+        items.add("취소");
+        new AlertDialog.Builder(this).setTitle(r.name)
+                .setItems(items.toArray(new String[0]), (dl, w0) -> {
+                    int w = wifiKey ? w0 : w0 + 1;
+                    if (w == 0) {
+                        RoomBase sc = roomOf(ROOM_SCHOOL);
+                        sc.t = System.currentTimeMillis();
+                        sc.keys.add(logKey);
+                        labels.put(logKey, r.name);
+                        rebuildBaseline(); saveRooms(); saveLabels();
+                        toast("'" + r.name + "' 학교 장비로 등록했습니다.");
+                    }
+                    if (w <= 1) { r.ignored = true; saveLog(); render(System.currentTimeMillis()); }
+                }).show();
+    }
 
     /** '확인할 신호': 가까이 오래 있음(★), 또는 휴대폰·이어폰·워치로 보이며 20초 넘게 머물고 어느 정도 센 것 */
     boolean important(Dev d, long now) {
