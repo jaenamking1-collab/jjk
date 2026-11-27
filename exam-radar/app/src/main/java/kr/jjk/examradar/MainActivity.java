@@ -916,6 +916,7 @@ public class MainActivity extends Activity {
         if (d.wifi && !isRandomMac(d)) {
             // 학교 와이파이 이름 전체 등록(고유 주소 공유기만. 임의 주소 핫스팟이 이름을 흉내 내면 계속 잡힌다)
             if (sc != null && sc.keys.contains("SN:" + d.name)) return true;
+            if (sc != null) for (String k : sc.keys) if (k.startsWith("SP:") && d.name.startsWith(k.substring(3))) return true;
             // 기준 때 같은 이름과 같은 제조사의 공유기를 이미 봤다면 같은 학교 망으로 본다(두 단서가 함께 맞을 때만)
             String vk = vendorKey(d);
             if (baseline.contains("S:" + d.name) && vk != null && baseline.contains(vk)) return true;
@@ -2016,6 +2017,23 @@ public class MainActivity extends Activity {
         return out;
     }
 
+    /** 교실마다 번호만 다른 학교 와이파이 이름(G18_003, G18_004…)에서 공통 앞부분을 뽑는다. 뒤가 숫자가 아니면 null */
+    static String prefixOf(String name) {
+        String p = name.replaceAll("[0-9]+$", "");
+        if (p.equals(name) || p.length() < 2) return null;
+        return p;
+    }
+
+    void addSchoolSsid(String kind, String text) {
+        RoomBase sc = roomOf(ROOM_SCHOOL);
+        sc.t = System.currentTimeMillis();
+        sc.keys.add(kind + text);
+        labels.put(kind + text, kind.equals("SP:") ? "학교 와이파이 '" + text + "…' 로 시작하는 공유기 전부" : "학교 와이파이 '" + text + "' (모든 공유기)");
+        rebuildBaseline(); saveRooms(); saveLabels();
+        toast("학교 공유기 '" + text + (kind.equals("SP:") ? "…'" : "'") + "를 모두 뺐습니다. 흉내 낸 휴대폰 핫스팟은 계속 잡힙니다.");
+        render(System.currentTimeMillis());
+    }
+
     /** '처리' 버튼: 학교 장비로 등록(계속 면제) / 이번만 무시 */
     void handle(Dev d) {
         String g = groupKey(d);
@@ -2024,8 +2042,10 @@ public class MainActivity extends Activity {
         if (!grp.contains(d)) grp.add(d);
         // 고유 주소 와이파이(학교 공유기)는 '같은 이름 전부'를 한 번에 등록할 수 있게 맨 위에 둔다
         final boolean ssidOpt = d.wifi && !isRandomMac(d) && !d.name.equals("(이름 숨김)");
+        final String pf = ssidOpt ? prefixOf(d.name) : null;
         List<String> items = new ArrayList<>();
-        if (ssidOpt) items.add("'" + d.name + "' 이름의 학교 공유기 전부 학교 장비로 (모든 교실 한 번에)");
+        if (ssidOpt) items.add(pf != null ? "'" + pf + "'로 시작하는 학교 공유기 전부 학교 장비로 (모든 교실 한 번에)"
+                : "'" + d.name + "' 이름의 학교 공유기 전부 학교 장비로 (모든 교실 한 번에)");
         items.add("학교 장비로 등록 (이 기기만 · 공유기·무선 영상 공유기 등)");
         items.add("이번 시험에서만 무시");
         items.add("취소");
@@ -2034,13 +2054,21 @@ public class MainActivity extends Activity {
                 .setItems(items.toArray(new String[0]), (dl, w0) -> {
                     int w = ssidOpt ? w0 - 1 : w0;
                     if (w == -1) {
-                        RoomBase sc = roomOf(ROOM_SCHOOL);
-                        sc.t = System.currentTimeMillis();
-                        sc.keys.add("SN:" + d.name);
-                        labels.put("SN:" + d.name, "학교 와이파이 '" + d.name + "' (모든 공유기)");
-                        rebuildBaseline(); saveRooms(); saveLabels();
-                        toast("'" + d.name + "' 학교 공유기를 모두 뺐습니다. 같은 이름의 휴대폰 핫스팟은 계속 잡힙니다.");
-                        render(System.currentTimeMillis());
+                        if (pf == null) { addSchoolSsid("SN:", d.name); return; }
+                        // 앞부분을 확인·수정하고 등록(예: G18_003 → G18_)
+                        android.widget.EditText et = new android.widget.EditText(this);
+                        et.setSingleLine(true);
+                        et.setText(pf);
+                        new AlertDialog.Builder(this)
+                                .setTitle("이 글자로 시작하는 학교 공유기 전부")
+                                .setMessage("예: '" + pf + "' → " + d.name + " 같은 교실 공유기가 모두 빠집니다.\n같은 이름을 흉내 낸 휴대폰 핫스팟(임의 주소)은 계속 잡힙니다.")
+                                .setView(et)
+                                .setPositiveButton("등록", (a, b) -> {
+                                    String p = et.getText().toString();
+                                    if (p.trim().length() < 2) { toast("두 글자 이상 넣어 주세요."); return; }
+                                    addSchoolSsid("SP:", p);
+                                })
+                                .setNegativeButton("취소", null).show();
                         return;
                     }
                     if (w == 0) {
