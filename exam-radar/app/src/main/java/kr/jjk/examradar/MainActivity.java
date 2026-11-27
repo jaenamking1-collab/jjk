@@ -612,11 +612,15 @@ public class MainActivity extends Activity {
     // ───────────────────────── 1초마다 ─────────────────────────
 
     int tickN = 0;
+    long lastKick = 0;
     final Runnable tick = new Runnable() {
         @Override public void run() {
             tickN++;
             long now = System.currentTimeMillis();
-            if (tickN % 4 == 1) kickWifiScan();
+            // 안드로이드 9(또는 검색 제한이 켜진 기기)는 2분에 4번만 검색된다.
+            // 4초마다 쏘면 앞 16초에 다 쓰고 1분 40초를 기다리게 되니 30초 간격으로 고르게 나눈다.
+            long gap = (Build.VERSION.SDK_INT == 28 || wifiThrottled) ? 30_000 : 4_000;
+            if (now - lastKick >= gap) { lastKick = now; kickWifiScan(); }
             // 안드로이드는 30분 넘게 돈 블루투스 검색을 느리게 만든다 → 20분마다 다시 시작
             if (ble != null && now - bleStartedAt > 20 * 60_000L) { stopBle(); startBle(); }
             if (ble == null && hasPerms() && tickN % 5 == 0) startBle();
@@ -790,7 +794,7 @@ public class MainActivity extends Activity {
 
         baseInfo.setText("기준 기기 " + baseline.size() + "개 저장됨 · 지금 보이는 기준 기기 " + baseSeen + "개");
         String t = "";
-        if (wifiThrottled && now - lastWifiScanOk > 20_000)
+        if (Build.VERSION.SDK_INT >= 29 && wifiThrottled && now - lastWifiScanOk > 40_000)
             t = "와이파이 검색이 느립니다. 설정 → 개발자 옵션 → 'Wi-Fi 검색 제한'을 끄면 4초마다 갱신됩니다.";
         else if (lastWifiResult > 0 && now - lastWifiResult > 60_000)
             t = "1분 넘게 와이파이 결과가 없습니다. 와이파이 스위치와 위치가 켜져 있는지 보세요.";
@@ -914,7 +918,9 @@ public class MainActivity extends Activity {
         }
         findRaw.setText(zone(m) + " · 신호 " + Math.round(d.ema) + " dBm · " + d.kind
                 + "\n태블릿을 들고 천천히 걸어 보세요. 숫자보다 ▲▼ 방향을 믿는 게 정확합니다."
-                + (d.wifi ? "\n와이파이는 4초마다 갱신되어 조금 늦게 반응합니다." : ""));
+                + (d.wifi ? (Build.VERSION.SDK_INT == 28 || wifiThrottled
+                        ? "\n와이파이는 30초마다 갱신됩니다. 블루투스보다 천천히 움직이세요."
+                        : "\n와이파이는 4초마다 갱신되어 조금 늦게 반응합니다.") : ""));
         // 막대: -95(0%) ~ -35(100%)
         double pct = Math.max(0.03, Math.min(1, (d.ema + 95) / 60.0));
         View parent = (View) findBarFill.getParent();
