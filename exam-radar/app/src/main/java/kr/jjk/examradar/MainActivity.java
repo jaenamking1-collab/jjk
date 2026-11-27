@@ -916,7 +916,10 @@ public class MainActivity extends Activity {
         if (d.wifi && !isRandomMac(d)) {
             // 학교 와이파이 이름 전체 등록(고유 주소 공유기만. 임의 주소 핫스팟이 이름을 흉내 내면 계속 잡힌다)
             if (sc != null && sc.keys.contains("SN:" + d.name)) return true;
-            if (sc != null) for (String k : sc.keys) if (k.startsWith("SP:") && d.name.startsWith(k.substring(3))) return true;
+            if (sc != null) for (String k : sc.keys) {
+                if (k.startsWith("SP:") && d.name.startsWith(k.substring(3))) return true;
+                if (k.startsWith("SD:") && matchesDigits(d.name, k.substring(3))) return true;
+            }
             // 교실 무선 영상 공유기(NEXI)는 기본으로 뺀다(고유 주소일 때)
             if (isDisplaySharer(d)) return true;
             // 기준 때 같은 이름과 같은 제조사의 공유기를 이미 봤다면 같은 학교 망으로 본다(두 단서가 함께 맞을 때만)
@@ -2145,17 +2148,25 @@ public class MainActivity extends Activity {
     /** 교실마다 번호만 다른 학교 와이파이 이름(G18_003, G18_004…)에서 공통 앞부분을 뽑는다. 뒤가 숫자가 아니면 null */
     static String prefixOf(String name) {
         String p = name.replaceAll("[0-9]+$", "");
-        if (p.equals(name) || p.length() < 2) return null;
+        if (p.equals(name) || p.isEmpty()) return null; // 'G003' → 'G' 도 허용(뒤가 숫자뿐일 때만 맞추므로 Galaxy 등은 안 걸림)
         return p;
+    }
+
+    /** 'SD:앞부분' 규칙: 이름이 '앞부분 + 숫자만'일 때 맞음 (G → G001·G003, G18_ → G18_003) */
+    static boolean matchesDigits(String name, String prefix) {
+        if (!name.startsWith(prefix)) return false;
+        String rest = name.substring(prefix.length());
+        return !rest.isEmpty() && rest.matches("[0-9]+");
     }
 
     void addSchoolSsid(String kind, String text) {
         RoomBase sc = roomOf(ROOM_SCHOOL);
         sc.t = System.currentTimeMillis();
         sc.keys.add(kind + text);
-        labels.put(kind + text, kind.equals("SP:") ? "학교 와이파이 '" + text + "…' 로 시작하는 공유기 전부" : "학교 와이파이 '" + text + "' (모든 공유기)");
+        boolean pre = kind.equals("SP:") || kind.equals("SD:");
+        labels.put(kind + text, pre ? "학교 와이파이 '" + text + "' + 번호 (" + text + "001, " + text + "003 …) 전부" : "학교 와이파이 '" + text + "' (모든 공유기)");
         rebuildBaseline(); saveRooms(); saveLabels();
-        toast("학교 공유기 '" + text + (kind.equals("SP:") ? "…'" : "'") + "를 모두 뺐습니다. 흉내 낸 휴대폰 핫스팟은 계속 잡힙니다.");
+        toast("공유기 '" + text + (pre ? "+번호'" : "'") + "를 모두 뺐습니다. 흉내 낸 휴대폰 핫스팟은 계속 잡힙니다.");
         render(System.currentTimeMillis());
     }
 
@@ -2169,7 +2180,7 @@ public class MainActivity extends Activity {
         final boolean ssidOpt = d.wifi && !isRandomMac(d) && !d.name.equals("(이름 숨김)");
         final String pf = ssidOpt ? prefixOf(d.name) : null;
         List<String> items = new ArrayList<>();
-        if (ssidOpt) items.add(pf != null ? "'" + pf + "'로 시작하는 학교 공유기 전부 학교 장비로 (모든 교실 한 번에)"
+        if (ssidOpt) items.add(pf != null ? "'" + pf + "' + 번호인 공유기 전부 학교 장비로 (" + d.name + " 등, 우리·옆 학교)"
                 : "'" + d.name + "' 이름의 학교 공유기 전부 학교 장비로 (모든 교실 한 번에)");
         items.add("학교 장비로 등록 (이 기기만 · 공유기·무선 영상 공유기 등)");
         items.add("이번 시험에서만 무시");
@@ -2185,13 +2196,13 @@ public class MainActivity extends Activity {
                         et.setSingleLine(true);
                         et.setText(pf);
                         new AlertDialog.Builder(this)
-                                .setTitle("이 글자로 시작하는 학교 공유기 전부")
-                                .setMessage("예: '" + pf + "' → " + d.name + " 같은 교실 공유기가 모두 빠집니다.\n같은 이름을 흉내 낸 휴대폰 핫스팟(임의 주소)은 계속 잡힙니다.")
+                                .setTitle("이 글자 + 번호인 공유기 전부")
+                                .setMessage("'" + pf + "' 뒤에 숫자만 붙은 이름(" + d.name + " 등)이 모두 빠집니다. 우리 학교든 옆 학교든 같습니다.\n'" + pf + "'로 시작해도 뒤에 글자가 붙은 것(예: Galaxy…)과 휴대폰 핫스팟(임의 주소)은 계속 잡힙니다.")
                                 .setView(et)
                                 .setPositiveButton("등록", (a, b) -> {
                                     String p = et.getText().toString();
-                                    if (p.trim().length() < 2) { toast("두 글자 이상 넣어 주세요."); return; }
-                                    addSchoolSsid("SP:", p);
+                                    if (p.trim().isEmpty()) { toast("앞부분을 넣어 주세요."); return; }
+                                    addSchoolSsid("SD:", p);
                                 })
                                 .setNegativeButton("취소", null).show();
                         return;
