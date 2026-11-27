@@ -93,6 +93,7 @@ public class MainActivity extends Activity {
         long firstSeen, lastSeen;
         int hits;
         final ArrayList<double[]> hist = new ArrayList<>(); // [시각, ema]
+        final ArrayList<long[]> raw = new ArrayList<>();    // [시각, 원본 세기] 최근 5초
         final HashMap<Integer, Double> roomPeak = new HashMap<>(); // 순회: 교실별 가장 센 세기
         final HashMap<Integer, Double> roomMed = new HashMap<>();  // 순회: 멈춰서 잰 교실별 중앙값
         final HashMap<Integer, Integer> roomCnt = new HashMap<>(); // 그 곳을 몇 번 쟀나
@@ -770,7 +771,9 @@ public class MainActivity extends Activity {
     void feed(Dev d, int rssi, long at) {
         d.rssi = rssi;
         // 찾는 중인 기기는 더 빨리 따라가게(반응 우선), 나머지는 차분하게(흔들림 줄이기)
-        double a = d.key.equals(findKey) ? 0.55 : 0.4;
+        double a = 0.4;
+        d.raw.add(new long[]{at, rssi});
+        while (!d.raw.isEmpty() && at - d.raw.get(0)[0] > 5000) d.raw.remove(0);
         d.ema = Double.isNaN(d.ema) ? rssi : d.ema * (1 - a) + rssi * a;
         d.lastSeen = Math.max(d.lastSeen, at);
         d.hits++;
@@ -1900,9 +1903,10 @@ public class MainActivity extends Activity {
     }
 
     String peakLine(Dev d) {
-        if (d.ema > findPeak) findPeak = d.ema;
-        double gap = findPeak - d.ema;
-        return "최고 " + Math.round(findPeak) + " · 지금 " + Math.round(d.ema) + " dBm  →  "
+        double cur = Double.isNaN(findShow) ? d.ema : findShow;
+        if (cur > findPeak) findPeak = cur;
+        double gap = findPeak - cur;
+        return "최고 " + Math.round(findPeak) + " · 지금 " + Math.round(cur) + " dBm  →  "
                 + (gap <= 2 ? "가장 가까웠던 지점 근처입니다" : "최고점보다 " + Math.round(gap) + "dB 약함, 왔던 쪽으로 돌아가 보세요") + "\n";
     }
 
@@ -1919,6 +1923,8 @@ public class MainActivity extends Activity {
     void openFinder(String key) {
         findKey = key;
         findPeak = -999;
+        findShow = Double.NaN;
+        findTrack.clear();
         bestAz = Double.NaN;
         prevAz = Double.NaN;
         dirScanning = false;
@@ -2300,19 +2306,49 @@ public class MainActivity extends Activity {
         startActivity(Intent.createChooser(i, "기록 보내기"));
     }
 
+    double findShow = Double.NaN;                      // 찾기 화면에 보여 주는 다듬은 세기
+    final ArrayList<double[]> findTrack = new ArrayList<>(); // [시각, 다듬은 세기]
+
+    /** 최근 2초(모자라면 4초) 원본 값 중 상위 20% 지점. 반사로 순간 약해지는 값을 버린다. */
+    static double stableRssi(Dev d, long now) {
+        ArrayList<Integer> v = new ArrayList<>();
+        for (long[] s : d.raw) if (now - s[0] <= 2000) v.add((int) s[1]);
+        if (v.size() < 3) { v.clear(); for (long[] s : d.raw) if (now - s[0] <= 4000) v.add((int) s[1]); }
+        if (v.isEmpty()) return d.ema;
+        Collections.sort(v);
+        return v.get(Math.min(v.size() - 1, (int) Math.floor(v.size() * 0.8)));
+    }
+
+    double avgTrack(long now, long fromAgo, long toAgo) {
+        double s = 0; int n = 0;
+        for (double[] p : findTrack) { long age = now - (long) p[0]; if (age >= fromAgo && age <= toAgo) { s += p[1]; n++; } }
+        return n == 0 ? Double.NaN : s / n;
+    }
+
+    static double metersOf(Dev d, double rssi) {
+        double ref = d.wifi ? -40 : (d.txPower >= -30 && d.txPower <= 20 ? d.txPower - 41 : -59);
+        double n = d.wifi ? 2.7 : 2.2;
+        return Math.max(0.1, Math.min(30, Math.pow(10, (ref - rssi) / (10 * n))));
+    }
+
     void renderFinder(long now) {
         Dev d = devs.get(findKey);
         if (d == null) { closeFinder(); return; }
         findName.setText(d.name + "\n신호 점수 (0~100, 클수록 가깝습니다)");
         long ago = (now - d.lastSeen) / 1000;
-        double m = meters(d);
+        // 블루투스는 흔들림이 커서 '최근 2초 원본 값 중 위쪽(상위 20%)'을 쓰고, 화면 값은 한 번 더 천천히 따라가게 한다
+        double st = d.wifi ? d.ema : stableRssi(d, now);
+        findShow = Double.isNaN(findShow) ? st : findShow + Math.max(-3, Math.min(3, (st - findShow) * 0.35));
+        findTrack.add(new double[]{now, findShow});
+        while (!findTrack.isEmpty() && now - findTrack.get(0)[0] > 6000) findTrack.remove(0);
+        double m = metersOf(d, findShow);
         if (isGone(d, now)) {
             findDist.setText("—");
             findDist.setTextColor(DIM);
             findTrend.setText("최근 미수신 · 마지막으로 잡힌 지 " + ago + "초\n기기를 껐거나, 가려졌거나, 잠깐 안 잡힌 것일 수 있습니다.");
             findTrend.setTextColor(DIM);
         } else {
-            int sc = score(d.ema);
+            int sc = score(findShow);
             findDist.setText(String.valueOf(sc));
             findDist.setTextColor(sc >= 80 ? ORANGE : sc >= 55 ? LIME : WHITE);
             String dist = "거리 추정 " + fineDist(m) + "  ·  ";
@@ -2323,9 +2359,10 @@ public class MainActivity extends Activity {
                 if (hs < 2 || now - d.lastSeen > 15_000) dir = 9;
                 else { double df = d.hist.get(hs - 1)[1] - d.hist.get(hs - 2)[1]; dir = df >= 2 ? 1 : df <= -2 ? -1 : 0; }
             } else {
-                // 블루투스: 짧은 구간(1.5초)과 긴 구간(3초)이 같은 쪽일 때만 방향 표시(작은 흔들림을 이동으로 오해하지 않게)
-                double q = quickTrend(d), l = trend(d);
-                dir = (q >= 1.5 && l >= 1) ? 1 : (q <= -1.5 && l <= -1) ? -1 : 0;
+                // 블루투스: 최근 1초 평균과 2~3초 전 평균을 비교(2dB 넘게 차이 날 때만 방향 표시)
+                double recent = avgTrack(now, 0, 1000), before = avgTrack(now, 2000, 3000);
+                if (Double.isNaN(recent) || Double.isNaN(before)) dir = 0;
+                else { double df = recent - before; dir = df >= 2 ? 1 : df <= -2 ? -1 : 0; }
             }
             if (dir == 1) { findTrend.setText(dist + "▲ 가까워지는 중"); findTrend.setTextColor(LIME); }
             else if (dir == -1) { findTrend.setText(dist + "▼ 멀어지는 중"); findTrend.setTextColor(ORANGE); }
@@ -2348,7 +2385,7 @@ public class MainActivity extends Activity {
                         ? "\n와이파이는 30초마다 갱신됩니다. 블루투스보다 천천히 움직이세요."
                         : "\n와이파이는 4초마다 갱신되어 조금 늦게 반응합니다.") : ""));
         // 막대: -95(0%) ~ -35(100%)
-        double pct = Math.max(0.03, Math.min(1, (d.ema + 95) / 60.0));
+        double pct = Math.max(0.03, Math.min(1, ((Double.isNaN(findShow) ? d.ema : findShow) + 95) / 60.0));
         View parent = (View) findBarFill.getParent();
         int w = parent.getWidth();
         if (w > 0) {
