@@ -913,6 +913,13 @@ public class MainActivity extends Activity {
         if (sessionIgnored.contains(d.key)) return true;          // 이번 시험에서만 무시
         RoomBase sc = rooms.get(ROOM_SCHOOL);
         if (sc != null && sc.keys.contains(d.key)) return true;  // 사람이 확인한 학교 장비
+        if (d.wifi && !isRandomMac(d)) {
+            // 학교 와이파이 이름 전체 등록(고유 주소 공유기만. 임의 주소 핫스팟이 이름을 흉내 내면 계속 잡힌다)
+            if (sc != null && sc.keys.contains("SN:" + d.name)) return true;
+            // 기준 때 같은 이름과 같은 제조사의 공유기를 이미 봤다면 같은 학교 망으로 본다(두 단서가 함께 맞을 때만)
+            String vk = vendorKey(d);
+            if (baseline.contains("S:" + d.name) && vk != null && baseline.contains(vk)) return true;
+        }
         RoomBase ig = rooms.get(ROOM_IGNORED);
         if (ig != null && ig.keys.contains(d.key)) return true; // 예전 버전에서 '무시'를 누른 것
         if (!baseline.contains(d.key)) return false;
@@ -1615,6 +1622,7 @@ public class MainActivity extends Activity {
         }
         btnWatch.setText(mode == MODE_WATCH ? "감시 멈춤" : "감시 시작");
         styleBtn(btnWatch, mode == MODE_WATCH ? NAVY2 : LIME, mode == MODE_WATCH ? WHITE : NAVY);
+        if (mode == MODE_WATCH) { btnWatch.setBackground(round(NAVY2, 14, WHITE)); btnWatch.setText("■ 감시 멈춤"); }
         btnRange.setText(wide ? "경고 범위: 넓게" : "경고 범위: 교실 안");
         btnSound.setText(sound ? "소리: 켬" : "소리: 끔 (진동만)");
         btnPatrol.setText(patrol ? "복도 순회 모드 켜짐 (누르면 교실 고정으로)" : "복도 순회 모드로 바꾸기");
@@ -2014,12 +2022,27 @@ public class MainActivity extends Activity {
         List<Dev> grp = new ArrayList<>();
         for (Dev o : devs.values()) if (groupKey(o).equals(g)) grp.add(o);
         if (!grp.contains(d)) grp.add(d);
+        // 고유 주소 와이파이(학교 공유기)는 '같은 이름 전부'를 한 번에 등록할 수 있게 맨 위에 둔다
+        final boolean ssidOpt = d.wifi && !isRandomMac(d) && !d.name.equals("(이름 숨김)");
+        List<String> items = new ArrayList<>();
+        if (ssidOpt) items.add("'" + d.name + "' 이름의 학교 공유기 전부 학교 장비로 (모든 교실 한 번에)");
+        items.add("학교 장비로 등록 (이 기기만 · 공유기·무선 영상 공유기 등)");
+        items.add("이번 시험에서만 무시");
+        items.add("취소");
         new AlertDialog.Builder(this)
                 .setTitle(d.name)
-                .setItems(new String[]{
-                        "학교 장비로 등록 (공유기·무선 영상 공유기 등, 앞으로 계속 경고 안 함)",
-                        "이번 시험에서만 무시",
-                        "취소"}, (dl, w) -> {
+                .setItems(items.toArray(new String[0]), (dl, w0) -> {
+                    int w = ssidOpt ? w0 - 1 : w0;
+                    if (w == -1) {
+                        RoomBase sc = roomOf(ROOM_SCHOOL);
+                        sc.t = System.currentTimeMillis();
+                        sc.keys.add("SN:" + d.name);
+                        labels.put("SN:" + d.name, "학교 와이파이 '" + d.name + "' (모든 공유기)");
+                        rebuildBaseline(); saveRooms(); saveLabels();
+                        toast("'" + d.name + "' 학교 공유기를 모두 뺐습니다. 같은 이름의 휴대폰 핫스팟은 계속 잡힙니다.");
+                        render(System.currentTimeMillis());
+                        return;
+                    }
                     if (w == 0) {
                         // 휴대폰·이어폰 등 개인 기기는 블루투스 주소가 바뀌어 등록해도 소용없고, 학생 기기를 놓칠 위험만 생긴다
                         boolean personal = d.wifi ? (d.phoneLike && !d.direct) : (d.rank >= 2 || (d.typeShort == null && d.manu >= 0));
