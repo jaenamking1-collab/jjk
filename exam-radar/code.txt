@@ -2290,6 +2290,7 @@ public class MainActivity extends Activity {
         acked.add(key);
         shell.setVisibility(View.GONE);
         findView.setVisibility(View.VISIBLE);
+        findScroll.setVisibility(View.VISIBLE);
         stopFlash();
         renderFinder(System.currentTimeMillis());
     }
@@ -2300,13 +2301,14 @@ public class MainActivity extends Activity {
         h.removeCallbacks(fastFind);
         if (sm != null) sm.unregisterListener(rotL);
         findView.setVisibility(View.GONE);
+        findScroll.setVisibility(View.GONE);
         shell.setVisibility(View.VISIBLE);
     }
 
     // ───────────────────────── 탭 · 누적 기준 ─────────────────────────
 
     LinearLayout shell, basePane, logPane, roomList;
-    ScrollView baseScroll, logScroll;
+    ScrollView baseScroll, logScroll, mainScroll, findScroll;
     TextView baseHead, baseRoomText, logText;
     Button btnSurvey;
     final Button[] pageBtns = new Button[3];
@@ -2315,7 +2317,7 @@ public class MainActivity extends Activity {
 
     void setPage(int p) {
         page = p;
-        main.setVisibility(p == 0 ? View.VISIBLE : View.GONE);
+        mainScroll.setVisibility(p == 0 ? View.VISIBLE : View.GONE);
         baseScroll.setVisibility(p == 1 ? View.VISIBLE : View.GONE);
         logScroll.setVisibility(p == 2 ? View.VISIBLE : View.GONE);
         for (int i = 0; i < 3; i++) styleBtn(pageBtns[i], i == p ? WHITE : NAVY2, i == p ? NAVY : WHITE);
@@ -3169,7 +3171,6 @@ public class MainActivity extends Activity {
         main.addView(tabs);
         View gapV = new View(this);
         main.addView(gapV, new LinearLayout.LayoutParams(1, dp(10)));
-        ScrollView sv = new ScrollView(this);
         LinearLayout listWrap = new LinearLayout(this);
         listWrap.setOrientation(LinearLayout.VERTICAL);
         // 확인할 신호 카드는 따로 두고 자리를 고정한다(매초 다시 만들지 않음 → 누르려던 버튼이 움직이지 않게)
@@ -3179,19 +3180,22 @@ public class MainActivity extends Activity {
         list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         listWrap.addView(list);
-        sv.addView(listWrap);
-        main.addView(sv, new LinearLayout.LayoutParams(-1, 0, 1));
+        main.addView(listWrap, new LinearLayout.LayoutParams(-1, -2));
 
-        baseInfo = label("", 13, DIM, false);
-        baseInfo.setPadding(0, dp(8), 0, 0);
-        main.addView(baseInfo);
-        shell.addView(main, new LinearLayout.LayoutParams(-1, 0, 1));
+        // 감시 화면 전체를 스크롤되게(휴대폰처럼 화면이 짧으면 목록이 잘리던 문제)
+        mainScroll = new ScrollView(this);
+        mainScroll.addView(main);
+        shell.addView(mainScroll, new LinearLayout.LayoutParams(-1, 0, 1));
         baseScroll = new ScrollView(this);
         baseScroll.addView(basePane);
         shell.addView(baseScroll, new LinearLayout.LayoutParams(-1, 0, 1));
         logScroll = new ScrollView(this);
         logScroll.addView(logPane);
         shell.addView(logScroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        // 검색 상태줄은 화면 맨 아래에 고정(어느 탭에서나 보이게)
+        baseInfo = label("", 13, DIM, false);
+        baseInfo.setPadding(0, dp(8), 0, 0);
+        shell.addView(baseInfo);
         root.addView(shell, new FrameLayout.LayoutParams(-1, -1));
         setPage(page);
 
@@ -3207,7 +3211,8 @@ public class MainActivity extends Activity {
         findName.setPadding(0, dp(24), 0, 0);
         findName.setGravity(Gravity.CENTER);
         findView.addView(findName, new LinearLayout.LayoutParams(-1, -2));
-        findDist = label("", 96, LIME, true);
+        // 휴대폰(가로 600dp 미만)은 큰 숫자를 조금 줄인다
+        findDist = label("", getResources().getConfiguration().smallestScreenWidthDp < 600 ? 72 : 96, LIME, true);
         findDist.setGravity(Gravity.CENTER);
         findView.addView(findDist, new LinearLayout.LayoutParams(-1, -2));
         findTrend = label("", 28, WHITE, true);
@@ -3244,11 +3249,15 @@ public class MainActivity extends Activity {
         findRaw.setGravity(Gravity.CENTER);
         findView.addView(findRaw, new LinearLayout.LayoutParams(-1, -2));
         View sp = new View(this);
-        findView.addView(sp, new LinearLayout.LayoutParams(1, 0, 1));
+        findView.addView(sp, new LinearLayout.LayoutParams(1, dp(16)));
         Button ign = btn("괜찮은 기기 (학교 장비 / 이번만 무시)", NAVY2, WHITE);
         ign.setOnClickListener(v -> { Dev d = devs.get(findKey); if (d != null) handle(d); });
         findView.addView(ign, new LinearLayout.LayoutParams(-1, dp(52)));
-        root.addView(findView, new FrameLayout.LayoutParams(-1, -1));
+        // 찾기 화면도 스크롤되게(휴대폰처럼 화면이 짧을 때 아래 버튼이 잘리지 않게)
+        findScroll = new ScrollView(this);
+        findScroll.addView(findView);
+        findScroll.setVisibility(View.GONE);
+        root.addView(findScroll, new FrameLayout.LayoutParams(-1, -1));
 
         setContentView(root);
     }
