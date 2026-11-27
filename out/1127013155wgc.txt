@@ -1,0 +1,6 @@
+url: https://script.google.com/macros/s/AKfycbwJS1Fd-sDCVKPLJEpEWZmPQEKAOR9pG7y-nPKZOYty65j3ArOmlDzNX2WFqiGNF_s/exec?action=getDistribution&source=rise
+at: 2026-11-27 10:32:30
+status: 200
+type: application/json; charset=utf-8
+final: https://script.googleusercontent.com/macros/echo?user_content_key=AUkAhnQMxC7Cl1HlZK1cB4AvDJPphSJ2xrOn06AbUXMPKXJSQ8Z803ZJFagn3lYVcUb2sdmBSq5JUjPvDhn8CfNedSZBUn18Vyyxy3Z0wILD-dm0AzEstJP1w1dwhBGH1mNka_rXEaqrPy9XWw8t7b2VlN5BAvDznkPMir0e8KAkyiYtpwh-D45_zGromvGc2K6qtnnhZafTo4nDogidTKOVc1lS3ScerptrQWyhYcYRwFQW5v0e8zBKast20LJP4D_fXP-vwpZwsFWFhFcQrm9FA9_wNJGQdh9hKlVvrgCixDhI9fZA-yDyxCAufSoNXJ6dgaKfOk0g&lib=MSn32RNkOmXgJmX_ppTvguKlsN7pzXVW1
+bytes: 11746
