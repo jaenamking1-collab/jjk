@@ -80,7 +80,7 @@ public class MainActivity extends Activity {
 
     static class Dev {
         String key, name, kind;   // kind: 기기 종류 설명
-        boolean wifi, phoneLike, named;
+        boolean wifi, phoneLike, named, direct;
         boolean gone;             // 와이파이: 최근 검색에 두 번 연속 안 나옴(꺼짐)
         int miss;
         int lastLoc;              // 마지막으로 잡혔을 때 감독관이 서 있던 곳(순회)
@@ -385,7 +385,12 @@ public class MainActivity extends Activity {
         if (hasPerms()) startScanning();
         h.removeCallbacks(tick);
         h.post(tick);
+        // 앱으로 돌아올 때도 새 버전 확인(10분에 한 번까지)
+        long t = System.currentTimeMillis();
+        if (t - lastUpdCheck > 10 * 60_000L) { lastUpdCheck = t; checkUpdate(false); }
     }
+
+    long lastUpdCheck = System.currentTimeMillis();
 
     @Override
     protected void onPause() {
@@ -541,8 +546,11 @@ public class MainActivity extends Activity {
             if (seenAt <= d.lastSeen) continue; // 같은 결과를 두 번 세지 않음
             String ssid = ssidOf(r);
             d.name = ssid.isEmpty() ? "(이름 숨김)" : ssid;
-            d.phoneLike = looksLikePhone(ssid, r);
-            d.kind = (d.phoneLike ? "휴대폰 핫스팟 의심 · " : "와이파이 · ") + (r.frequency >= 5900 ? "6GHz" : r.frequency >= 4900 ? "5GHz" : "2.4GHz");
+            // 와이파이 다이렉트(DIRECT-…)는 프린터·TV·화면 공유기가 대부분. 이름에 휴대폰 단서가 있을 때만 휴대폰으로 본다.
+            d.direct = ssid.startsWith("DIRECT-");
+            d.phoneLike = d.direct ? ssid.toLowerCase(Locale.ROOT).matches(".*(galaxy|iphone|phone|sm-|redmi|pixel|android).*")
+                    : looksLikePhone(ssid, r);
+            d.kind = (d.phoneLike ? "휴대폰 핫스팟 의심 · " : d.direct ? "와이파이 다이렉트(프린터·TV·화면 공유 등) · " : "와이파이 · ") + (r.frequency >= 5900 ? "6GHz" : r.frequency >= 4900 ? "5GHz" : "2.4GHz");
             feed(d, r.level, seenAt);
             lastWifiResult = now;
         }
@@ -744,9 +752,13 @@ public class MainActivity extends Activity {
         for (Dev o : devs.values()) {
             if (o == nd || o.wifi || o.manu != nd.manu) continue;
             if (!baseline.contains(o.key)) continue;
+            // 같은 종류여야 한다(휴대폰↔휴대폰). 종류를 모르면 그대로 둔다.
+            if (o.typeShort != null && nd.typeShort != null && !o.typeShort.equals(nd.typeShort)) continue;
+            // 진짜 주소 바뀜은 옛 주소가 끊기는 '바로 그때' 새 주소가 나온다: 1.5~8초 사이만 인정.
+            // (블루투스를 껐다 켜면 보통 8초 넘게 걸려 새 신호로 경고된다. 2026-11-27 실험에서 2분 기준으로는 껐다 켠 갤럭시가 묻혔다)
             long gap = now - o.lastSeen;
-            if (gap < 2_000 || gap > 120_000) continue;
-            if (!Double.isNaN(o.ema) && Math.abs(o.ema - nd.rssi) <= 12) {
+            if (gap < 1_500 || gap > 8_000) continue;
+            if (!Double.isNaN(o.ema) && Math.abs(o.ema - nd.rssi) <= 8) {
                 // 같은 기기라는 보장이 없으므로 기준에 넣지 않고, 이번 감시 동안만 '확인 필요'로 낮춘다
                 rotCand.add(nd.key);
                 return;
@@ -905,6 +917,7 @@ public class MainActivity extends Activity {
 
     /** '확인 필요' 사유. null 이면 새 신호(경고) */
     String softReason(Dev d, long now) {
+        if (d.wifi && d.direct && !d.phoneLike) return "와이파이 다이렉트 · 프린터·TV·화면 공유기일 가능성";
         if (d.wifi && isRandomMac(d) && baseline.contains(d.key)) return "기준 때 있던 핫스팟(개인 기기일 수 있음)";
         String nk = nameKey(d);
         if (nk != null && baseline.contains(nk)) return "이름만 기준과 같음 · 주소는 처음 봄";
@@ -2530,7 +2543,7 @@ public class MainActivity extends Activity {
         topText = label("", 17, WHITE, true);
         topText.setPadding(0, dp(10), 0, 0);
         patrolBox.addView(topText);
-        TextView ph = label("교실 번호를 길게 누르면 1반으로 돌아갑니다.", 12, DIM, false);
+        TextView ph = label("반을 옮길 때 ▶ 또는 '여기서 재기'를 눌러야 반별 판정이 맞습니다.", 12, DIM, false);
         ph.setPadding(0, dp(6), 0, 0);
         patrolBox.addView(ph);
         LinearLayout.LayoutParams pblp = new LinearLayout.LayoutParams(-1, -2);
