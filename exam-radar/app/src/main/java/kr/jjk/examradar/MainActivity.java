@@ -88,6 +88,7 @@ public class MainActivity extends Activity {
         int hits;
         final ArrayList<double[]> hist = new ArrayList<>(); // [시각, ema]
         final HashMap<Integer, Double> roomPeak = new HashMap<>(); // 순회: 교실별 가장 센 세기
+        final HashMap<Integer, Double> roomMed = new HashMap<>();  // 순회: 멈춰서 잰 교실별 중앙값
     }
 
     final Map<String, Dev> devs = new HashMap<>();
@@ -119,6 +120,7 @@ public class MainActivity extends Activity {
     LinearLayout list;
     Button btnBase, btnWatch, btnRange, btnSound, btnAck, btnPatrol, btnUpdate;
     LinearLayout patrolBox;
+    Button btnMeasure;
     TextView roomText, topText;
     Button tabWifi, tabBle, tabAll;
     int tab = 0; // 0 전체(두 칸으로 나눔), 1 와이파이만, 2 블루투스만
@@ -135,7 +137,7 @@ public class MainActivity extends Activity {
         baseline.addAll(prefs.getStringSet("baseline", Collections.emptySet()));
         wide = prefs.getBoolean("wide", false);
         sound = prefs.getBoolean("sound", false);
-        patrol = prefs.getBoolean("patrol", false);
+        patrol = prefs.getBoolean("patrol", true); // 주로 복도 순회로 쓴다(사용자)
         room = prefs.getInt("room", 1);
         loadLog();
         wifi = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
@@ -536,6 +538,65 @@ public class MainActivity extends Activity {
             Double p = d.roomPeak.get(room);
             if (p == null || d.ema > p) d.roomPeak.put(room, d.ema);
         }
+        if (measuring) {
+            ArrayList<Integer> l = mbuf.get(d.key);
+            if (l == null) { l = new ArrayList<>(); mbuf.put(d.key, l); }
+            l.add(rssi);
+        }
+    }
+
+    // ───────────────────────── 순회: 멈춰서 재기 ─────────────────────────
+
+    static final int MEASURE_MS = 8000;
+    boolean measuring = false;
+    long measureEnd = 0;
+    final Map<String, ArrayList<Integer>> mbuf = new HashMap<>();
+
+    void startMeasure() {
+        if (mode != MODE_WATCH) { toast("먼저 기준을 잡고 감시를 시작해 주세요."); return; }
+        if (measuring) return;
+        mbuf.clear();
+        measuring = true;
+        measureEnd = System.currentTimeMillis() + MEASURE_MS;
+        kickWifiScan();
+        render(System.currentTimeMillis());
+    }
+
+    /** 8초 동안 모은 값의 '가운데 값'(중앙값)을 그 교실 값으로 쓴다. 순간적으로 튀는 값에 덜 흔들린다. */
+    void finishMeasure() {
+        measuring = false;
+        int n = 0;
+        for (Map.Entry<String, ArrayList<Integer>> e : mbuf.entrySet()) {
+            Dev d = devs.get(e.getKey());
+            ArrayList<Integer> l = e.getValue();
+            if (d == null || l.isEmpty() || (!d.wifi && l.size() < 2)) continue;
+            Collections.sort(l);
+            double med = l.size() % 2 == 1 ? l.get(l.size() / 2) : (l.get(l.size() / 2 - 1) + l.get(l.size() / 2)) / 2.0;
+            d.roomMed.put(room, med);
+            n++;
+        }
+        mbuf.clear();
+        buzz(new long[]{0, 80});
+        if (sound && tone != null) tone.startTone(ToneGenerator.TONE_PROP_ACK, 150);
+        toast(room + "반 앞 측정 끝 (신호 " + n + "개). 다음 교실로 넘어갑니다.");
+        setRoom(room + 1);
+    }
+
+    /** 순회 판정: 가장 센 교실과 두 번째 교실의 차이로 '확실/가능성 높음/애매'를 붙인다 */
+    static String verdict(Dev d) {
+        Map<Integer, Double> m = d.roomMed.isEmpty() ? d.roomPeak : d.roomMed;
+        if (m.isEmpty()) return null;
+        int b1 = -1, b2 = -1; double v1 = -999, v2 = -999;
+        for (Map.Entry<Integer, Double> e : m.entrySet()) {
+            double v = e.getValue();
+            if (v > v1) { b2 = b1; v2 = v1; b1 = e.getKey(); v1 = v; }
+            else if (v > v2) { b2 = e.getKey(); v2 = v; }
+        }
+        String src = d.roomMed.isEmpty() ? " · 걸으며 본 값" : "";
+        if (b2 < 0) return "가장 센 곳: " + b1 + "반 앞 (옆 교실도 재야 확실해집니다)" + src;
+        double diff = v1 - v2;
+        String c = diff >= 6 ? "확실" : diff >= 3 ? "가능성 높음" : "애매 · " + b1 + "반과 " + b2 + "반 다시 재기";
+        return "가장 센 곳: " + b1 + "반 앞 (" + c + ", " + b2 + "반보다 " + Math.round(diff) + "dB 셈)" + src;
     }
 
     // ───────────────────────── 판단 ─────────────────────────
@@ -547,7 +608,7 @@ public class MainActivity extends Activity {
     /** 순회: 이 기기 신호가 가장 셌던 교실 번호(없으면 -1) */
     static int bestRoom(Dev d) {
         int best = -1; double v = -999;
-        for (Map.Entry<Integer, Double> e : d.roomPeak.entrySet())
+        for (Map.Entry<Integer, Double> e : (d.roomMed.isEmpty() ? d.roomPeak : d.roomMed).entrySet())
             if (e.getValue() > v) { v = e.getValue(); best = e.getKey(); }
         return best;
     }
@@ -632,6 +693,7 @@ public class MainActivity extends Activity {
             if (ble != null && now - bleStartedAt > 20 * 60_000L) { stopBle(); startBle(); }
             if (ble == null && hasPerms() && tickN % 5 == 0) startBle();
             if (mode == MODE_BASELINE && now >= baselineEnd) finishBaseline();
+            if (measuring && now >= measureEnd) finishMeasure();
             // 오래 안 보인 항목 정리
             devs.values().removeIf(d -> now - d.lastSeen > 10 * 60_000L);
             render(now);
@@ -935,7 +997,7 @@ public class MainActivity extends Activity {
             } else {
                 status.setText("새 기기 " + shown.size() + "개");
                 status.setTextColor(WHITE);
-                statusSub.setText(patrol ? "교실 문 앞을 지날 때마다 '다음 교실'을 누르세요. 가장 센 교실을 알려 드립니다."
+                statusSub.setText(patrol ? "교실 문 앞에 멈춰 '여기서 재기'를 누르세요. 다 재면 어느 교실인지 '확실/애매'로 알려 드립니다."
                         : unacked > 0 ? "목록에서 눌러 거리를 보며 찾으세요." : "확인함. 새로 생기면 다시 깜빡입니다.");
                 if (unacked > 0) {
                     startFlash();
@@ -961,6 +1023,15 @@ public class MainActivity extends Activity {
         patrolBox.setVisibility(patrol ? View.VISIBLE : View.GONE);
         if (patrol) {
             roomText.setText(room + "반 앞");
+            if (measuring) {
+                btnMeasure.setText("재는 중 " + Math.max(1, (measureEnd - now + 999) / 1000) + "초 · 가만히 서 계세요");
+                btnMeasure.setEnabled(false);
+                styleBtn(btnMeasure, LIME, NAVY);
+            } else {
+                btnMeasure.setText("여기서 재기 (8초)");
+                btnMeasure.setEnabled(true);
+                styleBtn(btnMeasure, SKY, NAVY);
+            }
             Dev top = alerts.isEmpty() ? null : alerts.get(0);
             if (top == null) { topText.setText("새 신호 없음"); topText.setTextColor(LIME); }
             else {
@@ -1035,9 +1106,8 @@ public class MainActivity extends Activity {
         mid.addView(label(d.name + (count > 1 ? "  ×" + count : ""), 18, WHITE, true));
         long ago = (now - d.lastSeen) / 1000;
         mid.addView(label(d.kind + (ago > 5 ? " · " + ago + "초 전" : ""), 13, DIM, false));
-        int br = bestRoom(d);
-        if (patrol && br > 0)
-            mid.addView(label("가장 셌던 곳: " + br + "반 앞 (" + Math.round(d.roomPeak.get(br)) + " dBm)", 15, SKY, true));
+        String vd = patrol ? verdict(d) : null;
+        if (vd != null) mid.addView(label(vd, 15, vd.contains("확실") ? ORANGE : SKY, true));
         r.addView(mid, new LinearLayout.LayoutParams(0, -2, 1));
 
         double m = meters(d);
@@ -1219,13 +1289,19 @@ public class MainActivity extends Activity {
         roomText = label("", 26, WHITE, true);
         roomText.setGravity(Gravity.CENTER);
         roomText.setOnLongClickListener(v -> { setRoom(1); return true; });
-        Button next = btn("다음 교실 ▶", SKY, NAVY);
-        next.setTextSize(18);
+        Button next = btn("▶", NAVY, WHITE);
+        next.setTextSize(20);
         next.setOnClickListener(v -> setRoom(room + 1));
         rr.addView(prev, new LinearLayout.LayoutParams(dp(64), dp(64)));
         rr.addView(roomText, new LinearLayout.LayoutParams(0, -2, 1));
-        rr.addView(next, new LinearLayout.LayoutParams(dp(170), dp(64)));
+        rr.addView(next, new LinearLayout.LayoutParams(dp(64), dp(64)));
         patrolBox.addView(rr);
+        btnMeasure = btn("", SKY, NAVY);
+        btnMeasure.setTextSize(20);
+        btnMeasure.setOnClickListener(v -> startMeasure());
+        LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(-1, dp(68));
+        mlp.topMargin = dp(10);
+        patrolBox.addView(btnMeasure, mlp);
         topText = label("", 17, WHITE, true);
         topText.setPadding(0, dp(10), 0, 0);
         patrolBox.addView(topText);
@@ -1331,7 +1407,9 @@ public class MainActivity extends Activity {
                         + "④ 괜찮은 기기면 '무시'를 누르면 다시 경고하지 않습니다.\n\n"
                         + "복도 순회 모드\n"
                         + "· 태블릿 한 대로 한 층을 살핍니다. 기준은 입실 전 복도 가운데에서 잡습니다.\n"
-                        + "· 걸으며 교실 문 앞마다 '다음 교실'을 누르면, 새 기기마다 '가장 셌던 곳: ○반 앞'이 뜹니다.\n"
+                        + "· 교실 문 앞(가운데)에 멈춰 '여기서 재기'를 누르고 8초 가만히 서 있습니다. 끝나면 다음 교실로 자동으로 넘어갑니다.\n"
+                        + "· 새 기기마다 '가장 센 곳: ○반 앞 (확실/가능성 높음/애매)'이 뜹니다. 애매하면 그 두 교실 앞에서 다시 재세요.\n"
+                        + "· 매번 같은 높이·같은 방향으로 들고 재야 정확합니다(몸이 신호를 가립니다).\n"
                         + "· 한 바퀴 돈 뒤 가장 센 교실 감독에게 알려 주세요.\n\n"
                         + "알아 둘 점\n"
                         + "· 잡히는 것: 핫스팟을 켠 폰, 블루투스를 켠 폰·이어폰·스마트워치\n"
