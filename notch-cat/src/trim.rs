@@ -234,7 +234,41 @@ pub fn cuts(sig: &[(f64, Vec<u8>)]) -> Vec<f64> {
             _ => found.push((t, d[i])),
         }
     }
-    found.into_iter().map(|f| f.0).filter(|t| *t > 0.3).collect()
+    let mut at: Vec<f64> = found.into_iter().map(|f| f.0).collect();
+    // 겹쳐 넘어가는 전환(디졸브·페이드)은 장마다 조금씩만 바뀌어 위에서 안 잡힌다:
+    // 앞뒤가 크게 다른데 가운데 장이 둘의 반반 섞임이면 그 가운데를 친다(운전·흔들림은 섞임이 아니라 안 걸린다).
+    let mean = |a: &[u8], b: &[u8]| a.iter().zip(b).map(|(x, y)| x.abs_diff(*y) as f32).sum::<f32>() / a.len().max(1) as f32;
+    let mut mix: Vec<f64> = Vec::new(); // 섞임이 보인 가운데 때
+    for span in [6usize, 10, 16, 20] {
+        for i in 0..sig.len().saturating_sub(span) {
+            let (a, b, m) = (&sig[i].1, &sig[i + span].1, &sig[i + span / 2].1);
+            let ab = mean(a, b);
+            if ab < 20.0 {
+                continue;
+            }
+            let res = a.iter().zip(b).zip(m).map(|((x, y), z)| ((*x as f32 + *y as f32) / 2.0 - *z as f32).abs()).sum::<f32>() / a.len().max(1) as f32;
+            if res < ab * 0.25 {
+                mix.push(sig[i + span / 2].0);
+            }
+        }
+    }
+    mix.sort_by(f64::total_cmp);
+    let mut runs: Vec<(f64, f64)> = Vec::new(); // 이어진 섞임 구간 (처음, 마지막)
+    for t in mix {
+        match runs.last_mut() {
+            Some(run) if t - run.0 < 2.5 && t - run.1 < 0.35 => run.1 = t,
+            _ => runs.push((t, t)),
+        }
+    }
+    for (first, last) in runs {
+        let t = (first + last) / 2.0; // 전환의 한가운데
+        if at.iter().all(|c| (c - t).abs() >= 1.0) {
+            at.push(t);
+        }
+    }
+    at.sort_by(f64::total_cmp);
+    at.retain(|t| *t > 0.3);
+    at
 }
 
 /// 표본에서 찾은 때를 장 단위로 맞춘다: 그 앞 0.2초 안에서 크게(가장 큰 변화의 절반 이상) 바뀐 첫 장.
@@ -674,6 +708,18 @@ mod scene_tests {
         let steps = [(1.9, 10), (1.933, 12), (1.967, 900), (2.0, 15), (2.033, 11), (2.067, 9)];
         assert_eq!(super::exact(&[2.067], &steps), vec![1.967]);
         assert_eq!(super::exact(&[5.0], &steps), vec![5.0]);
+    }
+
+    #[test]
+    fn dissolve_is_one_scene_in_its_middle() {
+        // 2초 그대로 → 1.6초 동안 겹쳐 넘어감 → 2초 그대로 (3302 교통안전 영상의 인트로 전환 꼴)
+        // 장마다 6쯤만 바뀌어(실제 영상은 5~9) 뚝 끊기는 곳 찾기로는 안 잡힌다
+        let mut v = vec![60u8; 20];
+        v.extend((1..16).map(|k| 60 + (100 * k / 16) as u8));
+        v.extend([160u8; 20]);
+        let c = run(&v);
+        assert_eq!(c.len(), 1, "{c:?}");
+        assert!((c[0] - 2.8).abs() <= 0.5, "{c:?}");
     }
 
     #[test]
