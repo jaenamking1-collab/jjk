@@ -83,6 +83,7 @@ public class MainActivity extends Activity {
         boolean wifi, phoneLike, named;
         boolean gone;             // 와이파이: 최근 검색에 두 번 연속 안 나옴(꺼짐)
         int miss;
+        int lastLoc;              // 마지막으로 잡혔을 때 감독관이 서 있던 곳(순회)
         int manu = -1;            // 블루투스 제조사 번호
         int rssi;
         int txPower = 127;        // 블루투스가 알려 주는 송신 세기(127 = 모름)
@@ -667,6 +668,7 @@ public class MainActivity extends Activity {
         d.hits++;
         d.gone = false;
         d.miss = 0;
+        d.lastLoc = loc();
         d.hist.add(new double[]{at, d.ema});
         while (d.hist.size() > 40) d.hist.remove(0);
         if (mode == MODE_BASELINE) addBase(d);
@@ -1033,6 +1035,10 @@ public class MainActivity extends Activity {
     static class Rec {
         String name, kind; boolean wifi, phone, ignored;
         long first, last, goneAt; double peak = -999; int room = -1;
+        int goneKind;        // 1 갑자기 끊김(끈 듯) · 2 약해지다 끊김(멀어진 듯) · 0 불분명
+        int flick;           // 끊겼다 다시 잡힌 횟수
+        double goneLast;     // 끊기기 직전 세기
+        transient Dev cur;
     }
     final java.util.LinkedHashMap<String, Rec> log = new java.util.LinkedHashMap<>();
     long watchStart = 0;
@@ -1186,6 +1192,7 @@ public class MainActivity extends Activity {
                 o.put("g", en.getKey());
                 o.put("n", r.name); o.put("k", r.kind); o.put("w", r.wifi); o.put("p", r.phone); o.put("i", r.ignored);
                 o.put("f", r.first); o.put("l", r.last); o.put("pk", r.peak); o.put("r", r.room); o.put("x", r.goneAt);
+                o.put("gk", r.goneKind); o.put("fl", r.flick); o.put("gl", r.goneLast);
                 a.put(o);
             }
             prefs.edit().putString("log", a.toString()).putLong("watchStart", watchStart).apply();
@@ -1202,6 +1209,7 @@ public class MainActivity extends Activity {
                 r.name = o.optString("n"); r.kind = o.optString("k"); r.wifi = o.optBoolean("w"); r.phone = o.optBoolean("p");
                 r.ignored = o.optBoolean("i"); r.first = o.optLong("f"); r.last = o.optLong("l");
                 r.peak = o.optDouble("pk", -999); r.room = o.optInt("r", -1); r.goneAt = o.optLong("x", 0);
+                r.goneKind = o.optInt("gk", 0); r.flick = o.optInt("fl", 0); r.goneLast = o.optDouble("gl", -999);
                 // 0.15 이전 기록의 반 정보는 실제로 재지 않고 '선택된 반'이 들어간 것이라 한 번 비운다
                 if (!prefs.getBoolean("logRoomFix1", false)) r.room = -1;
                 log.put(o.optString("g", (r.wifi ? "W" : "B") + i), r);
@@ -1251,7 +1259,7 @@ public class MainActivity extends Activity {
 
     String csv() {
         StringBuilder s = new StringBuilder("﻿");
-        s.append("번호,처음 본 시각,마지막 본 시각,머문 시간(분),종류,이름,설명,가장 센 세기(dBm),가장 셌던 곳,처리,끊긴 시각\n");
+        s.append("번호,처음 본 시각,마지막 본 시각,머문 시간(분),종류,이름,설명,가장 센 세기(dBm),가장 셌던 곳,처리,끊긴 시각,끊긴 모양\n");
         int n = 0;
         java.text.SimpleDateFormat f = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.KOREA);
         for (Rec r : log.values()) {
@@ -1263,7 +1271,8 @@ public class MainActivity extends Activity {
                     .append(Math.round(r.peak)).append(',')
                     .append(r.room > 0 ? roomName(r.room) + " 앞" : "").append(',')
                     .append(r.ignored ? "무시" : "").append(',')
-                    .append(r.goneAt > 0 ? f.format(new java.util.Date(r.goneAt)) : "").append('\n');
+                    .append(r.goneAt > 0 ? f.format(new java.util.Date(r.goneAt)) : "").append(',')
+                    .append(r.goneAt > 0 || r.flick > 0 ? q(goneWord(r)) : "").append('\n');
         }
         return s.toString();
     }
@@ -1386,8 +1395,10 @@ public class MainActivity extends Activity {
             if (mode == MODE_WATCH) {
                 Rec rr = log.get(groupKey(d));
                 if (rr != null) {
-                    if (isGone(d, now)) { if (rr.goneAt == 0) rr.goneAt = d.lastSeen; }
-                    else rr.goneAt = 0;
+                    if (isGone(d, now)) {
+                        if (rr.goneAt == 0) { rr.goneAt = d.lastSeen; rr.goneKind = goneKind(d); rr.goneLast = d.ema; }
+                    } else if (rr.goneAt > 0) { rr.goneAt = 0; rr.flick++; } // 끊겼다가 다시 잡힘
+                    rr.cur = d;
                 }
             }
             if (isAlert(d, now)) { alerts.add(d); logAlert(d, now); }
@@ -1538,13 +1549,23 @@ public class MainActivity extends Activity {
         for (Rec r : log.values()) if (r.goneAt > 0 && now - r.goneAt < 30 * 60_000L && !r.ignored) goneList.add(r);
         goneList.sort((a, b) -> Long.compare(b.goneAt, a.goneAt));
         if (!goneList.isEmpty()) {
-            list.addView(foldHeader("사라진 신호 " + goneList.size() + "개", "잡혔다가 끊김 · 기기를 끈 것일 수 있음", showGone, ORANGE,
+            int off = 0;
+            for (Rec r : goneList) if (r.goneKind == 1 && r.flick < 2) off++;
+            list.addView(foldHeader("사라진 신호 " + goneList.size() + "개" + (off > 0 ? " · 끈 것 같음 " + off + "개" : ""),
+                    "잡혔다가 끊김 · 끊긴 모양으로 '끈 듯/멀어진 듯'을 구분", showGone || off > 0, ORANGE,
                     v -> { showGone = !showGone; render(System.currentTimeMillis()); }));
-            if (showGone) for (Rec r : goneList) {
-                TextView g = label((r.wifi ? "와이파이 · " : "블루투스 · ") + r.name + "\n" + hm(r.goneAt) + "에 끊김"
-                        + (r.room > 0 ? " · " + roomName(r.room) + " 쪽에서 강했음" : "") , 15, WHITE, false);
+            // '끈 것 같음'이 있으면 펼쳐서 보여 준다(놓치지 않게)
+            if (showGone || off > 0) for (Rec r : goneList) {
+                if (!showGone && !(r.goneKind == 1 && r.flick < 2)) continue;
+                boolean likelyOff = r.goneKind == 1 && r.flick < 2;
+                LinearLayout g = new LinearLayout(this);
+                g.setOrientation(LinearLayout.VERTICAL);
                 g.setPadding(dp(14), dp(10), dp(14), dp(10));
-                g.setBackground(round(NAVY2, 12));
+                g.setBackground(round(NAVY2, 12, likelyOff ? ORANGE : NAVY2));
+                g.addView(label(goneWord(r), 15, likelyOff ? ORANGE : SKY, true));
+                g.addView(label((r.wifi ? "와이파이 · " : "블루투스 · ") + r.name, 16, WHITE, true));
+                g.addView(label(hm(r.goneAt) + "에 끊김" + (r.room > 0 ? " · " + roomName(r.room) + " 쪽에서 강했음" : "")
+                        + (likelyOff ? "\n그 근처에 다시 가서 안 잡히면 끈 것, 다시 잡히면 거리 때문입니다." : ""), 13, DIM, false));
                 LinearLayout.LayoutParams glp2 = new LinearLayout.LayoutParams(-1, -2);
                 glp2.bottomMargin = dp(8);
                 list.addView(g, glp2);
@@ -1553,6 +1574,33 @@ public class MainActivity extends Activity {
     }
 
     boolean showGone = false;
+
+    /**
+     * 끊긴 모양 판정.
+     * 끈 듯: 끊기기 직전 세기가 잡히는 한계보다 12dB 넘게 강했고, 그 전 6초 동안 크게 약해지지 않았다.
+     * 멀어진 듯: 직전 세기가 한계 근처(8dB 안)이거나, 6초 동안 6dB 넘게 약해지고 있었다.
+     */
+    int goneKind(Dev d) {
+        // 순회 중 마지막으로 잡힌 뒤 감독관이 다른 반으로 옮겼으면 거리 때문일 가능성이 크다
+        if (patrol && d.lastLoc != 0 && d.lastLoc != loc()) return 3;
+        double lim = d.wifi ? wifiLimit() : bleLimit();
+        double last = d.ema;
+        double prevMax = last;
+        for (double[] p : d.hist) if (d.lastSeen - p[0] <= 6000) prevMax = Math.max(prevMax, p[1]);
+        double drop = prevMax - last;
+        if (last - lim < 8 || drop > 6) return 2;
+        // 와이파이는 갱신이 느려 걷기만 해도 '갑자기'처럼 보일 수 있어 더 엄격하게(한계보다 18dB 이상 강했을 때만)
+        if (last - lim >= (d.wifi ? 18 : 12) && drop <= 4) return 1;
+        return 0;
+    }
+
+    static String goneWord(Rec r) {
+        if (r.flick >= 2) return "끊겼다 잡혔다 " + r.flick + "번 · 경계 거리(멀어서 그럴 가능성)";
+        if (r.goneKind == 1) return "세게 잡히다 갑자기 끊김 · 끈 것 같음";
+        if (r.goneKind == 2) return "약해지다 끊김 · 멀어진 것 같음";
+        if (r.goneKind == 3) return "감독관이 다른 반으로 옮긴 뒤 끊김 · 거리 때문일 가능성";
+        return "끊김 · 이유 불분명";
+    }
 
     /** 접는 칸 머리: "확인 필요 3개  ▼ 펼치기" + 한 줄 설명 */
     View foldHeader(String title, String sub, boolean open, int color, View.OnClickListener click) {
