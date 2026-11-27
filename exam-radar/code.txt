@@ -559,9 +559,10 @@ public class MainActivity extends Activity {
             d.name = ssid.isEmpty() ? "(이름 숨김)" : ssid;
             // 와이파이 다이렉트(DIRECT-…)는 프린터·TV·화면 공유기가 대부분. 이름에 휴대폰 단서가 있을 때만 휴대폰으로 본다.
             d.direct = ssid.startsWith("DIRECT-");
-            d.phoneLike = d.direct ? ssid.toLowerCase(Locale.ROOT).matches(".*(galaxy|iphone|phone|sm-|redmi|pixel|android).*")
-                    : looksLikePhone(ssid, r);
-            d.kind = (d.phoneLike ? "휴대폰 핫스팟 의심 · " : d.direct ? "와이파이 다이렉트(프린터·TV·화면 공유 등) · " : "와이파이 · ") + (r.frequency >= 5900 ? "6GHz" : r.frequency >= 4900 ? "5GHz" : "2.4GHz");
+            boolean school = schoolSsid(ssid);
+            d.phoneLike = !school && (d.direct ? ssid.toLowerCase(Locale.ROOT).matches(".*(galaxy|iphone|phone|sm-|redmi|pixel|android).*")
+                    : looksLikePhone(ssid, r));
+            d.kind = (school ? "학교 와이파이 · " : d.phoneLike ? "휴대폰 핫스팟 의심 · " : d.direct ? "와이파이 다이렉트(프린터·TV·화면 공유 등) · " : "와이파이 · ") + (r.frequency >= 5900 ? "6GHz" : r.frequency >= 4900 ? "5GHz" : "2.4GHz");
             feed(d, r.level, seenAt);
             lastWifiResult = now;
         }
@@ -950,22 +951,32 @@ public class MainActivity extends Activity {
     final HashSet<String> rotCand = new HashSet<>(); // 이번 감시 동안 '주소 바뀐 기준 기기 후보'
 
     /** 경고에서 빼 주는 것은 '주소가 정확히 같은' 기준뿐. 단 기준에 있던 임의 주소 와이파이(누군가의 핫스팟)는 빼 주지 않는다. */
+    /** 학교(우리·옆 학교) 와이파이 이름인가: 기본 'G18_'+번호(스쿨넷) + 직접 등록한 이름 규칙 */
+    boolean schoolSsid(String name) {
+        if (name == null) return false;
+        if (matchesDigits(name, "G18_")) return true;
+        RoomBase sc = rooms.get(ROOM_SCHOOL);
+        if (sc == null) return false;
+        if (sc.keys.contains("SN:" + name)) return true;
+        for (String k : sc.keys) {
+            if (k.startsWith("SP:") && name.startsWith(k.substring(3))) return true;
+            if (k.startsWith("SD:") && matchesDigits(name, k.substring(3))) return true;
+        }
+        return false;
+    }
+
     boolean exempt(Dev d) {
         if (sessionIgnored.contains(d.key)) return true;          // 이번 시험에서만 무시
         RoomBase sc = rooms.get(ROOM_SCHOOL);
         if (sc != null && sc.keys.contains(d.key)) return true;  // 사람이 확인한 학교 장비
         // 학생이 없는 시간에 서로 다른 2일 이상 같은 주소로 보인 기기 = 상시 기기(임의 주소 핫스팟도 포함)
         if (baseline.contains(d.key) && daysOf(d.key) >= 2) return true;
-        if (d.wifi && !isRandomMac(d)) {
-            // 학교 와이파이 이름 전체 등록(고유 주소 공유기만. 임의 주소 핫스팟이 이름을 흉내 내면 계속 잡힌다)
-            if (sc != null && sc.keys.contains("SN:" + d.name)) return true;
-            if (sc != null) for (String k : sc.keys) {
-                if (k.startsWith("SP:") && d.name.startsWith(k.substring(3))) return true;
-                if (k.startsWith("SD:") && matchesDigits(d.name, k.substring(3))) return true;
-            }
+        if (d.wifi) {
+            // 학교 와이파이 이름 규칙(스쿨넷 G18_+번호 기본, 직접 등록한 G003 등).
+            // 학교 공유기도 이름을 여러 개 낼 때 '임의 주소' 표시를 쓰므로 주소 종류와 상관없이 적용한다(2026-11-27 실측: G18_003)
+            if (schoolSsid(d.name)) return true;
             // 교실 무선 영상 공유기(NEXI)는 기본으로 뺀다(고유 주소일 때)
-            if (isDisplaySharer(d)) return true;
-            // (이름+제조사가 기준과 같으면 자동 면제하던 규칙은 없앴다: 학생 공유기가 빠질 수 있음. 학교 망은 이름+번호 규칙으로)
+            if (!isRandomMac(d) && isDisplaySharer(d)) return true;
         }
         RoomBase ig = rooms.get(ROOM_IGNORED);
         if (ig != null && ig.keys.contains(d.key)) return true; // 예전 버전에서 '무시'를 누른 것
