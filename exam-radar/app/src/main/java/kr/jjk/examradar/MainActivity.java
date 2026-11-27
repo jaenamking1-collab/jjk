@@ -951,10 +951,11 @@ public class MainActivity extends Activity {
     final HashSet<String> rotCand = new HashSet<>(); // 이번 감시 동안 '주소 바뀐 기준 기기 후보'
 
     /** 경고에서 빼 주는 것은 '주소가 정확히 같은' 기준뿐. 단 기준에 있던 임의 주소 와이파이(누군가의 핫스팟)는 빼 주지 않는다. */
-    /** 학교(우리·옆 학교) 와이파이 이름인가: 기본 'G18_'+번호(스쿨넷) + 직접 등록한 이름 규칙 */
+    /** 학교(우리·옆 학교) 와이파이 이름인가: 기본 'G+숫자(_숫자)'(스쿨넷) + 직접 등록한 이름 규칙 */
     boolean schoolSsid(String name) {
         if (name == null) return false;
-        if (matchesDigits(name, "G18_")) return true;
+        // 기본: 'G + 숫자' 또는 'G + 숫자 + _ + 숫자' (G18_003, G58_012 스쿨넷, 옆 학교 G003). Galaxy 처럼 뒤에 글자가 붙으면 안 맞는다.
+        if (name.matches("G[0-9]+(_[0-9]+)?")) return true;
         RoomBase sc = rooms.get(ROOM_SCHOOL);
         if (sc == null) return false;
         if (sc.keys.contains("SN:" + name)) return true;
