@@ -113,6 +113,8 @@ public class MainActivity extends Activity {
     Button btnBase, btnWatch, btnRange, btnSound, btnAck, btnPatrol;
     LinearLayout patrolBox;
     TextView roomText, topText;
+    Button tabWifi, tabBle, tabAll;
+    int tab = 0; // 0 전체(두 칸으로 나눔), 1 와이파이만, 2 블루투스만
 
     // ───────────────────────── 생명주기 ─────────────────────────
 
@@ -672,17 +674,36 @@ public class MainActivity extends Activity {
         tip.setVisibility(t.isEmpty() ? View.GONE : View.VISIBLE);
 
         list.removeAllViews();
-        if (mode == MODE_WATCH && alerts.isEmpty()) {
-            list.addView(label("새 기기가 나타나면 여기에 뜹니다.", 15, DIM, false));
+        List<Dev> wl = new ArrayList<>(), bl = new ArrayList<>();
+        for (Dev d : shown) (d.wifi ? wl : bl).add(d);
+        tabWifi.setText("와이파이 " + wl.size());
+        tabBle.setText("블루투스 " + bl.size());
+        styleBtn(tabWifi, tab == 1 ? SKY : NAVY2, tab == 1 ? NAVY : SKY);
+        styleBtn(tabBle, tab == 2 ? LIME : NAVY2, tab == 2 ? NAVY : LIME);
+        styleBtn(tabAll, tab == 0 ? WHITE : NAVY2, tab == 0 ? NAVY : WHITE);
+        if (tab != 2) {
+            if (tab == 0) list.addView(section("와이파이 핫스팟 " + wl.size() + "개", SKY));
+            if (wl.isEmpty()) list.addView(label("  새 와이파이 없음", 14, DIM, false));
+            for (Dev d : wl) list.addView(row(d, now, gCount.get(groupKey(d))));
         }
-        for (Dev d : shown) list.addView(row(d, now, gCount.get(groupKey(d))));
-        if (hidden > 0 || showUnknown) {
+        if (tab != 1) {
+            if (tab == 0) list.addView(section("블루투스 " + bl.size() + "개", LIME));
+            if (bl.isEmpty()) list.addView(label("  새 블루투스 없음", 14, DIM, false));
+            for (Dev d : bl) list.addView(row(d, now, gCount.get(groupKey(d))));
+        }
+        if (tab != 1 && (hidden > 0 || showUnknown)) {
             TextView hv = label(showUnknown ? "이름 없는 신호까지 모두 보는 중 (눌러서 다시 숨기기)"
                     : "이름·제조사를 알 수 없는 블루투스 신호 " + hidden + "개는 숨겼습니다 (눌러서 보기)", 14, SKY, true);
             hv.setPadding(dp(4), dp(10), dp(4), dp(10));
             hv.setOnClickListener(v -> { showUnknown = !showUnknown; render(System.currentTimeMillis()); });
             list.addView(hv);
         }
+    }
+
+    View section(String title, int color) {
+        TextView t = label(title, 16, color, true);
+        t.setPadding(dp(4), dp(14), 0, dp(8));
+        return t;
     }
 
     View row(Dev d, long now, int count) {
@@ -903,9 +924,21 @@ public class MainActivity extends Activity {
         tlp.topMargin = dp(12);
         main.addView(tip, tlp);
 
-        TextView lh = label("새로 나타난 기기", 16, WHITE, true);
-        lh.setPadding(0, dp(18), 0, dp(8));
-        main.addView(lh);
+        // 목록 탭: 와이파이 / 블루투스 / 전체
+        LinearLayout tabs = hrow(dp(18));
+        tabWifi = btn("", NAVY2, WHITE);
+        tabBle = btn("", NAVY2, WHITE);
+        tabAll = btn("전체", NAVY2, WHITE);
+        for (Button tb : new Button[]{tabWifi, tabBle, tabAll}) tb.setTextSize(15);
+        tabWifi.setOnClickListener(v -> { tab = 1; render(System.currentTimeMillis()); });
+        tabBle.setOnClickListener(v -> { tab = 2; render(System.currentTimeMillis()); });
+        tabAll.setOnClickListener(v -> { tab = 0; render(System.currentTimeMillis()); });
+        tabs.addView(tabWifi, weighted(dp(48), 0));
+        tabs.addView(tabBle, weighted(dp(48), dp(8)));
+        tabs.addView(tabAll, weighted(dp(48), dp(8)));
+        main.addView(tabs);
+        View gapV = new View(this);
+        main.addView(gapV, new LinearLayout.LayoutParams(1, dp(10)));
         ScrollView sv = new ScrollView(this);
         list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
