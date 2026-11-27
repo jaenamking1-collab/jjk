@@ -820,7 +820,7 @@ public class MainActivity extends Activity {
             if (p == null || d.ema > p) d.roomPeak.put(loc(), d.ema);
         }
         if (dirScanning && (d.key.equals(findKey) || (findGroup != null && groupKey(d).equals(findGroup)))) {
-            int b = ((int) (azimuth / 30)) % 12;
+            int b = ((int) (azimuth / 45)) % 8;
             binSum[b] += rssi; binN[b]++;
         }
         if (d.wifi) lastWifiFresh = Math.max(lastWifiFresh, at);
@@ -2209,8 +2209,8 @@ public class MainActivity extends Activity {
     float azimuth = 0;
     boolean dirScanning = false;
     long dirEnd = 0;
-    final double[] binSum = new double[12];
-    final int[] binN = new int[12];
+    final double[] binSum = new double[8];
+    final int[] binN = new int[8];
     double bestAz = Double.NaN;
     TextView arrow, dirText;
     Button btnDir;
@@ -2232,6 +2232,40 @@ public class MainActivity extends Activity {
     }
 
     /** 몸이 등 뒤 신호를 가리는 것을 이용: 태블릿을 가슴 앞에 들고 한 바퀴 돌면 가장 센 쪽이 기기 방향 */
+    // ── 자리 비교 ──
+    Button btnSpot;
+    TextView spotText;
+    boolean spotting = false;
+    long spotStart = 0, spotEnd = 0;
+    final ArrayList<Double> spots = new ArrayList<>();
+
+    void startSpot() {
+        if (spotting) return;
+        Dev t = devs.get(findKey);
+        if (t != null && t.wifi && wifiGap() >= 30_000) { toast("이 기기는 와이파이 갱신이 30초라 자리 비교가 어렵습니다."); return; }
+        spotting = true;
+        spotStart = System.currentTimeMillis();
+        spotEnd = spotStart + (t != null && t.wifi ? 9000 : 3000);
+    }
+
+    void finishSpot(Dev d, long now) {
+        spotting = false;
+        ArrayList<Integer> v = new ArrayList<>();
+        if (d.wifi) { for (double[] p : d.hist) if (p[0] >= spotStart - 4000) v.add((int) Math.round(p[1])); }
+        else for (long[] r0 : d.raw) if (r0[0] >= spotStart && r0[0] <= now) v.add((int) r0[1]);
+        if (v.isEmpty()) { spotText.setText("이 자리에서 신호를 못 받았습니다. 다시 재 주세요."); return; }
+        Collections.sort(v);
+        double med = v.get(v.size() / 2);
+        spots.add(med);
+        int n = spots.size();
+        if (n == 1) { spotText.setText("1번 자리: 신호 " + score(med) + "\n한두 걸음 옮겨서 다시 재세요."); return; }
+        double prev = spots.get(n - 2), diff = med - prev;
+        String verdict = diff >= 3 ? "▲ 이쪽이 더 가깝습니다" : diff <= -3 ? "▼ 앞 자리가 더 가까웠습니다. 되돌아가 다른 방향으로" : "● 비슷합니다(차이 3 미만). 더 크게 옮겨 보세요";
+        spotText.setText(n + "번 자리: 신호 " + score(med) + " (앞 자리 " + score(prev) + ", " + (diff >= 0 ? "+" : "") + Math.round(diff) + "dB)\n" + verdict);
+        spotText.setTextColor(diff >= 3 ? LIME : diff <= -3 ? ORANGE : WHITE);
+        buzz(new long[]{0, 60});
+    }
+
     double prevAz = Double.NaN; // 첫 바퀴 결과(두 번 같아야 화살표를 보여 준다)
 
     void startDir() {
@@ -2242,42 +2276,49 @@ public class MainActivity extends Activity {
         bestAz = Double.NaN;
         arrow.setVisibility(View.INVISIBLE);
         dirScanning = true;
-        dirEnd = System.currentTimeMillis() + 12_000;
+        dirEnd = System.currentTimeMillis() + 20_000;
         kickWifiScan();
     }
 
     void finishDir() {
         dirScanning = false;
+        // 폰은 1초에 1번 안팎만 신호를 내서, 20초 한 바퀴에 8칸(45도) 중 6칸 이상·칸마다 2번이면 통과
         int covered = 0, best = -1; double bv = -999;
-        for (int i = 0; i < 12; i++) {
-            if (binN[i] < 3) continue; // 칸마다 3번 이상 잡혀야 센다
+        for (int i = 0; i < 8; i++) {
+            if (binN[i] < 2) continue;
             covered++;
             double avg = binSum[i] / binN[i];
             if (avg > bv) { bv = avg; best = i; }
         }
-        if (covered < 10 || best < 0) { // 12칸 중 10칸 이상 채워야(실제로 한 바퀴 돈 것)
-            dirText.setText("한 바퀴를 다 돌지 못했거나 신호가 적었습니다. 더 천천히 다시 돌아 주세요.");
+        if (covered < 6 || best < 0) {
+            dirText.setText("신호가 적었습니다(" + covered + "/8칸). 조금 더 천천히, 20초 동안 한 바퀴 돌아 주세요.");
             return;
         }
-        double az = best * 30 + 15;
-        // 반사·몸 가림 때문에 한 번 결과는 틀릴 수 있다: 두 바퀴가 60도 안으로 같을 때만 화살표
+        double az = best * 45 + 22.5;
         if (Double.isNaN(prevAz)) {
+            // 첫 바퀴: 참고용 화살표를 바로 보여 주고, 한 번 더 돌면 확인한다
             prevAz = az;
-            dirText.setText("한 바퀴 끝. 같은 자리에서 한 번 더 돌아 주세요. 두 번 결과가 같아야 화살표를 보여 드립니다.");
+            bestAz = az;
+            arrow.setVisibility(View.VISIBLE);
+            arrow.setAlpha(0.45f);
+            dirText.setText("참고용 방향입니다(1번 돎). 같은 자리에서 한 번 더 돌면 확인해 드립니다.");
             buzz(new long[]{0, 60});
             return;
         }
         double diff = Math.abs(((az - prevAz) % 360 + 540) % 360 - 180);
         if (diff > 60) {
             prevAz = az;
-            dirText.setText("두 번의 방향이 다릅니다(반사가 심한 곳). 몇 걸음 옮겨 다시 돌거나, 신호 점수가 커지는 쪽으로 걸어 보세요.");
+            bestAz = az;
+            arrow.setAlpha(0.45f);
+            dirText.setText("두 번의 방향이 달랐습니다(반사가 심한 곳). 화살표는 참고만 하고, 아래 '이 자리 재기'로 비교해 보세요.");
             return;
         }
         bestAz = Math.toDegrees(Math.atan2(Math.sin(Math.toRadians(az)) + Math.sin(Math.toRadians(prevAz)),
                 Math.cos(Math.toRadians(az)) + Math.cos(Math.toRadians(prevAz))));
         prevAz = Double.NaN;
         arrow.setVisibility(View.VISIBLE);
-        dirText.setText("두 번 같은 방향이 나왔습니다. 화살표 쪽으로 몇 걸음 간 뒤 다시 확인하세요(대략적인 방향입니다).");
+        arrow.setAlpha(1f);
+        dirText.setText("두 번 같은 방향이 나왔습니다(확인됨). 화살표 쪽으로 몇 걸음 간 뒤 '이 자리 재기'로 비교하세요.");
         buzz(new long[]{0, 80, 60, 80});
     }
 
@@ -2313,6 +2354,10 @@ public class MainActivity extends Activity {
         findGroup = fd0 == null ? null : groupKey(fd0);
         findPeak = -999;
         findShow = Double.NaN;
+        spots.clear(); spotting = false;
+        if (spotText != null) { spotText.setText("멈춰서 3초 재고, 한두 걸음 옮겨서 또 재면 어느 쪽이 가까운지 알려 드립니다."); spotText.setTextColor(DIM); }
+        if (btnSpot != null) { btnSpot.setEnabled(true); btnSpot.setText("이 자리에서 3초 재기 (앞 자리와 비교)"); }
+        if (arrow != null) arrow.setAlpha(1f);
         findTrack.clear();
         findBucket = 0; findLastWifi = 0; findNote = "";
         bestAz = Double.NaN;
@@ -3051,11 +3096,19 @@ public class MainActivity extends Activity {
     void renderFinder(long now) {
         Dev d = findTarget();
         if (d == null) { closeFinder(); return; }
-        findName.setText(plainTitle(d) + "\n신호 점수 (0~100, 클수록 가깝습니다)");
         long ago = (now - d.lastSeen) / 1000;
         updateFindFilter(d, now);
         if (Double.isNaN(findShow)) findShow = d.ema;
         double m = metersOf(d, findShow);
+        int lv = score(findShow);
+        // 출렁이는 숫자보다 말로 된 구간을 먼저 보여 준다
+        String level = lv >= 75 ? "아주 가깝다" : lv >= 60 ? "가깝다" : lv >= 45 ? "중간" : lv >= 30 ? "조금 멀다" : "멀다";
+        findName.setText(plainTitle(d) + "\n지금: " + level + "  (아래 숫자는 신호 점수, 클수록 가까움)");
+        if (spotting) {
+            btnSpot.setText("재는 중… 가만히 계세요");
+            btnSpot.setEnabled(false);
+            if (now >= spotEnd) { finishSpot(d, now); btnSpot.setEnabled(true); btnSpot.setText("다음 자리에서 3초 재기 (앞 자리와 비교)"); }
+        }
         if (isGone(d, now)) {
             findDist.setText("—");
             findDist.setTextColor(DIM);
@@ -3088,7 +3141,7 @@ public class MainActivity extends Activity {
                 btnDir.setText("도는 중 " + Math.max(1, (dirEnd - now + 999) / 1000) + "초 · 천천히 한 바퀴");
                 btnDir.setEnabled(false);
             } else {
-                btnDir.setText(Double.isNaN(prevAz) ? "방향 찾기 (제자리에서 한 바퀴, 12초)" : "한 번 더 돌기 (확인용)");
+                btnDir.setText(Double.isNaN(prevAz) ? "방향 찾기 (제자리에서 천천히 한 바퀴, 20초)" : "한 번 더 돌기 (확인용)");
                 btnDir.setEnabled(true);
             }
             btnDir.setVisibility(d.wifi ? View.GONE : View.VISIBLE);
@@ -3461,11 +3514,22 @@ public class MainActivity extends Activity {
         dirText = label("", 14, WHITE, false);
         dirText.setGravity(Gravity.CENTER);
         findView.addView(dirText, new LinearLayout.LayoutParams(-1, -2));
-        btnDir = btn("방향 찾기 (제자리에서 한 바퀴, 12초)", SKY, NAVY);
+        btnDir = btn("방향 찾기 (제자리에서 천천히 한 바퀴, 20초)", SKY, NAVY);
         btnDir.setOnClickListener(v -> startDir());
         LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(-1, dp(54));
         dlp.topMargin = dp(8);
         findView.addView(btnDir, dlp);
+        // 자리 비교: 멈춰서 3초 재고, 옮겨서 또 재면 앞 자리와 비교(걸으면서 보는 숫자보다 덜 흔들림)
+        btnSpot = btn("이 자리에서 3초 재기 (앞 자리와 비교)", LIME, NAVY);
+        btnSpot.setTextSize(16);
+        btnSpot.setOnClickListener(v -> startSpot());
+        LinearLayout.LayoutParams splp = new LinearLayout.LayoutParams(-1, dp(56));
+        splp.topMargin = dp(8);
+        findView.addView(btnSpot, splp);
+        spotText = label("", 16, WHITE, true);
+        spotText.setGravity(Gravity.CENTER);
+        spotText.setPadding(0, dp(6), 0, 0);
+        findView.addView(spotText, new LinearLayout.LayoutParams(-1, -2));
         FrameLayout bar = new FrameLayout(this);
         bar.setBackground(round(NAVY2, 12));
         LinearLayout.LayoutParams barLp = new LinearLayout.LayoutParams(-1, dp(28));
