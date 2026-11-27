@@ -220,7 +220,7 @@ public class MainActivity extends Activity {
     TextView status, statusSub, baseInfo, tip, findName, findDist, findTrend, findRaw;
     View findBarFill;
     LinearLayout list;
-    Button btnBase, btnWatch, btnRange, btnSound, btnAck, btnPatrol, btnUpdate;
+    Button btnBase, btnWatch, btnRange, btnSound, btnAck, btnPatrol, btnUpdate, btnClearAll;
     LinearLayout patrolBox;
     final Button[] gradeBtns = new Button[4];
     Button btnMeasure;
@@ -1602,6 +1602,7 @@ public class MainActivity extends Activity {
             stopFlash();
         }
         btnAck.setVisibility(mode == MODE_WATCH && unacked > 0 ? View.VISIBLE : View.GONE);
+        btnClearAll.setVisibility(mode == MODE_WATCH && shown.size() >= 2 ? View.VISIBLE : View.GONE);
         if (mode == MODE_BASELINE && patrol) {
             boolean ok = now - baselineStart >= 60_000;
             btnBase.setText(ok ? "기준 잡기 끝" : "걷는 중… (1분 뒤 끝내기)");
@@ -1996,7 +1997,17 @@ public class MainActivity extends Activity {
                         "학교 장비로 등록 (공유기·무선 영상 공유기 등, 앞으로 계속 경고 안 함)",
                         "이번 시험에서만 무시",
                         "취소"}, (dl, w) -> {
-                    if (w == 0) askSchoolName(d, grp);
+                    if (w == 0) {
+                        // 휴대폰·이어폰 등 개인 기기는 블루투스 주소가 바뀌어 등록해도 소용없고, 학생 기기를 놓칠 위험만 생긴다
+                        boolean personal = d.wifi ? (d.phoneLike && !d.direct) : (d.rank >= 2 || (d.typeShort == null && d.manu >= 0));
+                        if (personal) new AlertDialog.Builder(this)
+                                .setTitle("개인 기기로 보입니다")
+                                .setMessage("휴대폰·이어폰·워치는 블루투스 주소가 15분쯤마다 바뀌어 학교 장비로 등록해도 곧 다시 뜹니다.\n'이번 시험에서만 무시'를 추천합니다.")
+                                .setPositiveButton("이번만 무시", (a, b) -> { for (Dev o : grp) sessionIgnored.add(o.key); render(System.currentTimeMillis()); })
+                                .setNeutralButton("그래도 등록", (a, b) -> askSchoolName(d, grp))
+                                .setNegativeButton("취소", null).show();
+                        else askSchoolName(d, grp);
+                    }
                     else if (w == 1) {
                         for (Dev o : grp) sessionIgnored.add(o.key);
                         Rec r = log.get(g);
@@ -2424,6 +2435,24 @@ public class MainActivity extends Activity {
         btnAck.setLayoutParams(alp);
         btnAck.setOnClickListener(v -> ackAll());
         statusCard.addView(btnAck);
+        btnClearAll = btn("지금 뜬 것 모두 이번만 무시", NAVY, WHITE);
+        btnClearAll.setTextSize(14);
+        LinearLayout.LayoutParams calp2 = new LinearLayout.LayoutParams(-1, dp(44));
+        calp2.topMargin = dp(8);
+        btnClearAll.setLayoutParams(calp2);
+        btnClearAll.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("모두 이번만 무시")
+                .setMessage("지금 새 신호와 확인 필요에 떠 있는 것을 이번 감시에서 모두 뺍니다. 학생이 이미 있으면 학생 기기도 빠지니 입실 전에만 쓰세요.")
+                .setPositiveButton("모두 빼기", (d, w) -> {
+                    long now = System.currentTimeMillis();
+                    int n = 0;
+                    for (Dev o : devs.values()) if (rawAlert(o, now)) { sessionIgnored.add(o.key); n++; }
+                    stopFlash();
+                    toast(n + "개를 이번 감시에서 뺐습니다.");
+                    render(now);
+                })
+                .setNegativeButton("취소", null).show());
+        statusCard.addView(btnClearAll);
         LinearLayout.LayoutParams sclp = new LinearLayout.LayoutParams(-1, -2);
         sclp.topMargin = dp(14);
         main.addView(statusCard, sclp);
