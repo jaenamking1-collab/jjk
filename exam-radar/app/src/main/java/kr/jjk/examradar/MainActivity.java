@@ -83,6 +83,7 @@ public class MainActivity extends Activity {
         boolean wifi, phoneLike, named;
         int manu = -1;            // 블루투스 제조사 번호
         int rssi;
+        int txPower = 127;        // 블루투스가 알려 주는 송신 세기(127 = 모름)
         double ema = Double.NaN;
         long firstSeen, lastSeen;
         int hits;
@@ -149,6 +150,7 @@ public class MainActivity extends Activity {
         room = prefs.getInt("room", 1);
         grade = prefs.getInt("grade", 1);
         loadLog();
+        loadRooms();
         wifi = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
         vib = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
         try { tone = new ToneGenerator(AudioManager.STREAM_MUSIC, 80); } catch (Exception ignored) { }
@@ -496,6 +498,9 @@ public class MainActivity extends Activity {
         d.name = (nm != null && !nm.trim().isEmpty()) ? nm.trim() : (maker != null ? maker + " 기기" : "이름 없는 기기");
         d.phoneLike = manu == 0x004C || manu == 0x0075 || manu == 0x00E0;
         d.kind = "블루투스" + (maker != null ? " · " + maker : "");
+        int tx = r.getTxPower();
+        if (tx != ScanResult.TX_POWER_NOT_PRESENT) d.txPower = tx;
+        else if (rec != null && rec.getTxPowerLevel() != Integer.MIN_VALUE) d.txPower = rec.getTxPowerLevel();
         feed(d, r.getRssi(), now);
         if (fresh && mode == MODE_WATCH) absorbRotation(d);
     }
@@ -537,7 +542,9 @@ public class MainActivity extends Activity {
 
     void feed(Dev d, int rssi, long at) {
         d.rssi = rssi;
-        d.ema = Double.isNaN(d.ema) ? rssi : d.ema * 0.6 + rssi * 0.4;
+        // 찾는 중인 기기는 더 빨리 따라가게(반응 우선), 나머지는 차분하게(흔들림 줄이기)
+        double a = d.key.equals(findKey) ? 0.55 : 0.4;
+        d.ema = Double.isNaN(d.ema) ? rssi : d.ema * (1 - a) + rssi * a;
         d.lastSeen = Math.max(d.lastSeen, at);
         d.hits++;
         d.hist.add(new double[]{at, d.ema});
@@ -551,7 +558,7 @@ public class MainActivity extends Activity {
             int b = ((int) (azimuth / 30)) % 12;
             binSum[b] += rssi; binN[b]++;
         }
-        if (measuring) {
+        if (measuring || surveying) {
             ArrayList<Integer> l = mbuf.get(d.key);
             if (l == null) { l = new ArrayList<>(); mbuf.put(d.key, l); }
             l.add(rssi);
@@ -670,10 +677,25 @@ public class MainActivity extends Activity {
 
     /** 신호 세기로 대략 거리(m). 실내에서는 2~3배 오차가 흔하다. */
     static double meters(Dev d) {
-        double ref = d.wifi ? -40 : -60;   // 1m 에서의 대략 세기
+        // 1m 에서의 대략 세기. 블루투스가 송신 세기를 알려 주면 그걸로 맞춘다(1m ≈ 송신 세기 - 41)
+        double ref = d.wifi ? -40 : (d.txPower >= -30 && d.txPower <= 20 ? d.txPower - 41 : -59);
         double n = d.wifi ? 2.7 : 2.2;     // 실내 감쇠
         double m = Math.pow(10, (ref - d.ema) / (10 * n));
-        return Math.max(0.3, Math.min(30, m));
+        return Math.max(0.1, Math.min(30, m));
+    }
+
+    /** 찾기 화면용 점수: -100dBm=0 ~ -30dBm=100. 숫자가 클수록 가깝다. 거리보다 세밀하게 움직인다. */
+    static int score(double ema) { return (int) Math.max(0, Math.min(100, Math.round((ema + 100) * 100 / 70))); }
+
+    /** 짧은 구간(1.5초) 변화: 찾을 때는 빨리 반응해야 한다 */
+    static double quickTrend(Dev d) {
+        if (d.hist.size() < 2) return 0;
+        double[] last = d.hist.get(d.hist.size() - 1);
+        for (int i = d.hist.size() - 2; i >= 0; i--) {
+            double[] p = d.hist.get(i);
+            if (last[0] - p[0] >= 1500) return last[1] - p[1];
+        }
+        return last[1] - d.hist.get(0)[1];
     }
 
     static String distText(double m) {
@@ -708,11 +730,13 @@ public class MainActivity extends Activity {
         @Override public void run() {
             tickN++;
             if (tickN % 15 == 0 && mode == MODE_WATCH) saveLog();
+            if (tickN % 60 == 0 && roomsDirty) saveRooms();
+            if (surveying && System.currentTimeMillis() >= surveyEnd) finishSurvey();
             long now = System.currentTimeMillis();
             // 안드로이드 9(또는 검색 제한이 켜진 기기)는 2분에 4번만 검색된다.
             // 4초마다 쏘면 앞 16초에 다 쓰고 1분 40초를 기다리게 되니 30초 간격으로 고르게 나눈다.
             // 기준 잡는 1분 동안은 15초 간격(4번)으로 나눠야 제한이 있어도 4번 모두 검색된다
-            long gap = mode == MODE_BASELINE ? 15_000 : (Build.VERSION.SDK_INT == 28 || wifiThrottled) ? 30_000 : 4_000;
+            long gap = (mode == MODE_BASELINE || surveying) ? 6_000 : (Build.VERSION.SDK_INT == 28 || wifiThrottled) ? 30_000 : 4_000;
             if (now - lastKick >= gap) { lastKick = now; kickWifiScan(); }
             // 안드로이드는 30분 넘게 돈 블루투스 검색을 느리게 만든다 → 20분마다 다시 시작
             if (ble != null && now - bleStartedAt > 20 * 60_000L) { stopBle(); startBle(); }
@@ -802,13 +826,27 @@ public class MainActivity extends Activity {
         return vk != null && baseline.contains(vk);
     }
 
+    void baseSeen(String key, long now) {
+        Long t = baseSeen.get(key);
+        if (t == null || now - t > 3600_000L) { baseSeen.put(key, now); roomsDirty = true; }
+    }
+
     void toggleWatch() {
-        if (mode == MODE_BASELINE) return;
+        if (mode == MODE_BASELINE || surveying) return;
         if (mode == MODE_WATCH) { mode = MODE_IDLE; stopFlash(); saveLog(); return; }
-        if (baseline.isEmpty()) { startBaseline(); return; }
+        if (baseline.isEmpty()) { toast("먼저 '기준' 탭에서 기준을 재 주세요."); setPage(1); return; }
         if (!hasPerms()) { askPermissions(); return; }
+        if (!log.isEmpty()) {
+            new AlertDialog.Builder(this)
+                    .setTitle("감시 시작")
+                    .setMessage("지난 감시 기록이 " + log.size() + "건 있습니다. 이어서 쌓을까요, 비우고 새로 시작할까요?\n(비우기 전에 '기록' 탭에서 저장할 수 있습니다)")
+                    .setPositiveButton("새로 시작", (d, w) -> { log.clear(); watchStart = System.currentTimeMillis(); saveLog(); mode = MODE_WATCH; })
+                    .setNegativeButton("이어서", (d, w) -> { if (watchStart == 0) watchStart = System.currentTimeMillis(); mode = MODE_WATCH; })
+                    .show();
+            return;
+        }
         mode = MODE_WATCH;
-        if (watchStart == 0) watchStart = System.currentTimeMillis();
+        watchStart = System.currentTimeMillis();
     }
 
     // ───────────────────────── 기록·통계·내보내기 ─────────────────────────
@@ -959,7 +997,7 @@ public class MainActivity extends Activity {
                 .setMessage(patrol
                         ? "학생 입실 전에 복도를 끝까지 한 번 걸으며 기준을 다시 잡아 주세요.\n\n시험 중에는 반 앞마다 멈춰 '여기서 재기'를 누르세요. 새 기기마다 가장 센 반을 알려 드립니다."
                         : "교실 가운데에 태블릿을 두는 방식입니다. 그 교실에서 기준을 다시 잡아 주세요.")
-                .setPositiveButton("지금 기준 잡기", (d, w) -> startBaseline())
+                .setPositiveButton("기준 탭으로", (d, w) -> setPage(1))
                 .setNegativeButton("나중에", null).show();
     }
 
@@ -986,7 +1024,14 @@ public class MainActivity extends Activity {
         stopFlash();
     }
 
-    void saveBaseline() { prefs.edit().putStringSet("baseline", new HashSet<>(baseline)).apply(); }
+    /** 무시 등으로 기준에 새로 들어간 열쇠는 '직접 무시한 기기' 칸에 넣어 저장한다 */
+    void saveBaseline() {
+        HashSet<String> known = new HashSet<>();
+        for (RoomBase rb : rooms.values()) known.addAll(rb.keys);
+        long now = System.currentTimeMillis();
+        for (String k : baseline) if (!known.contains(k)) { RoomBase ig = roomOf(ROOM_IGNORED); ig.keys.add(k); ig.t = now; baseSeen.put(k, now); }
+        saveRooms();
+    }
 
     void buzz(long[] pattern) {
         if (vib == null || !vib.hasVibrator()) return;
@@ -1015,12 +1060,18 @@ public class MainActivity extends Activity {
 
     void render(long now) {
         if (findKey != null) { renderFinder(now); return; }
+        if (page == 1) renderBasePane(now);
+        if (page == 2) logText.setText(summary());
         List<Dev> alerts = new ArrayList<>();
         int baseSeen = 0, hidden = 0;
         for (Dev d : devs.values()) {
             if (!showUnknown && noise(d) && rawAlert(d, now) && !closeAndStaying(d, now)) hidden++;
             if (isAlert(d, now)) { alerts.add(d); logAlert(d, now); }
-            else if (baseline.contains(d.key) && now - d.lastSeen < GONE_MS) baseSeen++;
+            else if (baseline.contains(d.key) && now - d.lastSeen < GONE_MS) {
+                baseSeen++;
+                // 기준 기기가 다시 보이면 '마지막으로 본 날'을 갱신해 30일 정리에서 살린다
+                if (now - d.lastSeen < 5000) { baseSeen(d.key, now); }
+            }
         }
         alerts.sort((a, b) -> Double.compare(b.ema, a.ema));
         Map<String, Integer> gCount = new HashMap<>();
@@ -1260,7 +1311,8 @@ public class MainActivity extends Activity {
 
     /** 가까이에서는 0.5m 단위로 보여 준다(그래도 신호 세기 기반이라 대략값) */
     static String fineDist(double m) {
-        if (m < 0.5) return "0.5m 안";
+        if (m < 0.2) return "약 20cm 안";
+        if (m < 1) return "약 " + Math.round(m * 10) * 10 + "cm";
         if (m < 3) return String.format(Locale.KOREA, "약 %.1fm", Math.round(m * 2) / 2.0);
         return distText(m);
     }
@@ -1294,7 +1346,7 @@ public class MainActivity extends Activity {
         h.removeCallbacks(fastFind);
         h.post(fastFind);
         acked.add(key);
-        main.setVisibility(View.GONE);
+        shell.setVisibility(View.GONE);
         findView.setVisibility(View.VISIBLE);
         stopFlash();
         renderFinder(System.currentTimeMillis());
@@ -1306,13 +1358,244 @@ public class MainActivity extends Activity {
         h.removeCallbacks(fastFind);
         if (sm != null) sm.unregisterListener(rotL);
         findView.setVisibility(View.GONE);
-        main.setVisibility(View.VISIBLE);
+        shell.setVisibility(View.VISIBLE);
+    }
+
+    // ───────────────────────── 탭 · 누적 기준 ─────────────────────────
+
+    LinearLayout shell, basePane, logPane, roomList;
+    ScrollView baseScroll, logScroll;
+    TextView baseHead, baseRoomText, logText;
+    Button btnSurvey;
+    final Button[] pageBtns = new Button[3];
+    final Button[] gradeBtns2 = new Button[3];
+    int page = 0; // 0 감시, 1 기준, 2 기록
+
+    void setPage(int p) {
+        page = p;
+        main.setVisibility(p == 0 ? View.VISIBLE : View.GONE);
+        baseScroll.setVisibility(p == 1 ? View.VISIBLE : View.GONE);
+        logScroll.setVisibility(p == 2 ? View.VISIBLE : View.GONE);
+        for (int i = 0; i < 3; i++) styleBtn(pageBtns[i], i == p ? WHITE : NAVY2, i == p ? NAVY : WHITE);
+        render(System.currentTimeMillis());
+    }
+
+    /** 반 하나의 기준: 잰 시각, 그때 본 신호 열쇠들, 와이파이 지문(다음 단계 자동 위치용) */
+    static class RoomBase {
+        long t;
+        final HashSet<String> keys = new HashSet<>();
+        final HashMap<String, Double> fp = new HashMap<>();
+    }
+    static final int ROOM_LEGACY = 0, ROOM_IGNORED = -1;
+    static final long KEEP_MS = 30L * 24 * 3600 * 1000; // 30일 동안 안 잡히면 지움
+    final java.util.TreeMap<Integer, RoomBase> rooms = new java.util.TreeMap<>();
+    final HashMap<String, Long> baseSeen = new HashMap<>();
+    boolean roomsDirty = false;
+
+    void rebuildBaseline() {
+        baseline.clear();
+        for (RoomBase rb : rooms.values()) baseline.addAll(rb.keys);
+    }
+
+    RoomBase roomOf(int code) {
+        RoomBase rb = rooms.get(code);
+        if (rb == null) { rb = new RoomBase(); rooms.put(code, rb); }
+        return rb;
+    }
+
+    void saveRooms() {
+        try {
+            org.json.JSONObject o = new org.json.JSONObject();
+            for (Map.Entry<Integer, RoomBase> e : rooms.entrySet()) {
+                org.json.JSONObject r = new org.json.JSONObject();
+                r.put("t", e.getValue().t);
+                r.put("k", new org.json.JSONArray(e.getValue().keys));
+                org.json.JSONObject fp = new org.json.JSONObject();
+                for (Map.Entry<String, Double> f : e.getValue().fp.entrySet()) fp.put(f.getKey(), f.getValue());
+                r.put("fp", fp);
+                o.put(String.valueOf(e.getKey()), r);
+            }
+            org.json.JSONObject s = new org.json.JSONObject();
+            for (Map.Entry<String, Long> e : baseSeen.entrySet()) s.put(e.getKey(), e.getValue());
+            prefs.edit().putString("rooms", o.toString()).putString("baseSeen", s.toString()).apply();
+            roomsDirty = false;
+        } catch (Exception ignored) { }
+    }
+
+    void loadRooms() {
+        long now = System.currentTimeMillis();
+        try {
+            org.json.JSONObject s = new org.json.JSONObject(prefs.getString("baseSeen", "{}"));
+            java.util.Iterator<String> it = s.keys();
+            while (it.hasNext()) { String k = it.next(); baseSeen.put(k, s.getLong(k)); }
+            String raw = prefs.getString("rooms", null);
+            if (raw != null) {
+                org.json.JSONObject o = new org.json.JSONObject(raw);
+                java.util.Iterator<String> rk = o.keys();
+                while (rk.hasNext()) {
+                    String code = rk.next();
+                    org.json.JSONObject r = o.getJSONObject(code);
+                    RoomBase rb = roomOf(Integer.parseInt(code));
+                    rb.t = r.optLong("t");
+                    org.json.JSONArray ka = r.optJSONArray("k");
+                    if (ka != null) for (int i = 0; i < ka.length(); i++) rb.keys.add(ka.getString(i));
+                    org.json.JSONObject fp = r.optJSONObject("fp");
+                    if (fp != null) { java.util.Iterator<String> fi = fp.keys(); while (fi.hasNext()) { String f = fi.next(); rb.fp.put(f, fp.getDouble(f)); } }
+                }
+            } else if (!baseline.isEmpty()) {
+                // 예전 버전 기준은 '이전 기준'으로 옮긴다
+                RoomBase rb = roomOf(ROOM_LEGACY);
+                rb.t = now;
+                rb.keys.addAll(baseline);
+            }
+        } catch (Exception ignored) { }
+        // 30일 넘게 안 잡힌 항목 정리 (날짜가 없는 항목은 오늘부터 센다)
+        for (RoomBase rb : rooms.values()) {
+            rb.keys.removeIf(k -> { Long t = baseSeen.get(k); if (t == null) { baseSeen.put(k, now); return false; } return now - t > KEEP_MS; });
+        }
+        rooms.values().removeIf(rb -> rb.keys.isEmpty());
+        rebuildBaseline();
+        saveRooms();
+    }
+
+    // 기준 재기(누적): 순회는 반 앞 20초, 교실 고정은 교실 가운데 60초
+    boolean surveying = false;
+    long surveyEnd = 0, surveyStart = 0;
+    int surveyCode = 0;
+
+    void startSurvey(boolean replace) {
+        if (!hasPerms()) { askPermissions(); return; }
+        if (surveying || measuring) return;
+        if (mode == MODE_WATCH) { toast("감시 중에는 기준을 잴 수 없습니다. 감시를 멈춘 뒤 재 주세요."); return; }
+        surveyCode = loc();
+        if (replace) { rooms.remove(surveyCode); rebuildBaseline(); }
+        mbuf.clear();
+        surveying = true;
+        surveyStart = System.currentTimeMillis();
+        surveyEnd = surveyStart + (patrol ? 20_000 : 60_000);
+        stopBle(); startBle(); kickWifiScan();
+        render(surveyStart);
+    }
+
+    void finishSurvey() {
+        surveying = false;
+        long now = System.currentTimeMillis();
+        RoomBase rb = roomOf(surveyCode);
+        rb.t = now;
+        int n = 0;
+        for (Map.Entry<String, ArrayList<Integer>> e : mbuf.entrySet()) {
+            Dev d = devs.get(e.getKey());
+            if (d == null || e.getValue().isEmpty()) continue;
+            for (String k : new String[]{d.key, nameKey(d), vendorKey(d)}) {
+                if (k == null) continue;
+                rb.keys.add(k);
+                baseSeen.put(k, now);
+            }
+            if (d.wifi) {
+                ArrayList<Integer> l = e.getValue();
+                Collections.sort(l);
+                rb.fp.put(d.key, (double) l.get(l.size() / 2));
+            }
+            n++;
+        }
+        mbuf.clear();
+        if (rb.keys.isEmpty()) rooms.remove(surveyCode);
+        rebuildBaseline();
+        saveRooms();
+        buzz(new long[]{0, 80});
+        toast(roomName(surveyCode) + " 기준 " + n + "개 저장" + (patrol ? ". 다음 반으로 넘어갑니다." : "."));
+        if (patrol) setRoom(room + 1); else render(now);
+    }
+
+    void removeRoom(int code) {
+        rooms.remove(code);
+        rebuildBaseline();
+        saveRooms();
+        render(System.currentTimeMillis());
+    }
+
+    String roomLabel(int code) {
+        return code == ROOM_LEGACY ? "이전 버전 기준" : code == ROOM_IGNORED ? "직접 무시한 기기" : roomName(code);
+    }
+
+    static int realCount(java.util.Collection<String> keys) {
+        int n = 0;
+        for (String k : keys) if (k.startsWith("W:") || k.startsWith("B:")) n++;
+        return n;
+    }
+
+    void renderBasePane(long now) {
+        baseHead.setText("누적 기준: 신호 " + baseCount() + "개 · " + rooms.size() + "곳\n30일 동안 한 번도 안 잡힌 항목은 자동으로 지워집니다.");
+        baseRoomText.setText(roomName(loc()) + (patrol ? " 앞" : " 교실"));
+        for (int i = 0; i < 3; i++) styleBtn(gradeBtns2[i], grade == i + 1 ? WHITE : NAVY, grade == i + 1 ? NAVY : WHITE);
+        if (surveying) {
+            btnSurvey.setText("재는 중 " + Math.max(1, (surveyEnd - now + 999) / 1000) + "초 · 가만히 서 계세요");
+            btnSurvey.setEnabled(false);
+            styleBtn(btnSurvey, SKY, NAVY);
+        } else {
+            RoomBase cur = rooms.get(loc());
+            btnSurvey.setText((cur == null ? "여기서 기준 재기" : "여기서 기준 더하기") + (patrol ? " (20초)" : " (1분)"));
+            btnSurvey.setEnabled(true);
+            styleBtn(btnSurvey, LIME, NAVY);
+        }
+        roomList.removeAllViews();
+        if (rooms.isEmpty()) roomList.addView(label("아직 잰 곳이 없습니다. 위에서 학년·반을 고르고 '여기서 기준 재기'를 누르세요.", 14, DIM, false));
+        java.text.SimpleDateFormat f = new java.text.SimpleDateFormat("M/d HH:mm", Locale.KOREA);
+        for (Map.Entry<Integer, RoomBase> e : rooms.entrySet()) {
+            final int code = e.getKey();
+            LinearLayout r = new LinearLayout(this);
+            r.setGravity(Gravity.CENTER_VERTICAL);
+            r.setPadding(dp(12), dp(10), dp(12), dp(10));
+            r.setBackground(round(NAVY2, 12));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+            lp.bottomMargin = dp(8);
+            LinearLayout mid = new LinearLayout(this);
+            mid.setOrientation(LinearLayout.VERTICAL);
+            mid.addView(label(roomLabel(code), 17, WHITE, true));
+            mid.addView(label("신호 " + realCount(e.getValue().keys) + "개 · " + f.format(new java.util.Date(e.getValue().t)), 13, DIM, false));
+            r.addView(mid, new LinearLayout.LayoutParams(0, -2, 1));
+            if (code > 0) {
+                Button again = btn("다시 재기", NAVY, LIME);
+                again.setTextSize(13);
+                again.setOnClickListener(v -> { grade = code / 100; room = code % 100;
+                    prefs.edit().putInt("grade", grade).putInt("room", room).apply(); startSurvey(true); });
+                r.addView(again, new LinearLayout.LayoutParams(-2, dp(40)));
+            }
+            Button del = btn("지우기", NAVY, ORANGE);
+            del.setTextSize(13);
+            del.setOnClickListener(v -> new AlertDialog.Builder(this)
+                    .setTitle(roomLabel(code) + " 기준 지우기")
+                    .setMessage("이 곳에서 잰 기준만 지웁니다. 다른 반에서도 잡힌 신호는 그대로 남습니다.")
+                    .setPositiveButton("지우기", (d, w) -> removeRoom(code))
+                    .setNegativeButton("취소", null).show());
+            LinearLayout.LayoutParams dlp2 = new LinearLayout.LayoutParams(-2, dp(40));
+            dlp2.leftMargin = dp(8);
+            r.addView(del, dlp2);
+            roomList.addView(r, lp);
+        }
+    }
+
+    void saveCsv() {
+        saveLog();
+        Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("text/csv");
+        i.putExtra(Intent.EXTRA_TITLE, "시험감독기록_" + new java.text.SimpleDateFormat("yyyyMMdd_HHmm", Locale.KOREA).format(new java.util.Date()) + ".csv");
+        try { startActivityForResult(i, REQ_SAVE); } catch (Exception e) { toast("파일 저장 화면을 열 수 없습니다."); }
+    }
+
+    void shareSummary() {
+        Intent i = new Intent(Intent.ACTION_SEND);
+        i.setType("text/plain");
+        i.putExtra(Intent.EXTRA_SUBJECT, "시험감독 레이더 기록");
+        i.putExtra(Intent.EXTRA_TEXT, summary());
+        startActivity(Intent.createChooser(i, "기록 보내기"));
     }
 
     void renderFinder(long now) {
         Dev d = devs.get(findKey);
         if (d == null) { closeFinder(); return; }
-        findName.setText(d.name);
+        findName.setText(d.name + "\n신호 점수 (0~100, 클수록 가깝습니다)");
         long ago = (now - d.lastSeen) / 1000;
         double m = meters(d);
         if (ago > 15) {
@@ -1321,12 +1604,14 @@ public class MainActivity extends Activity {
             findTrend.setText(ago + "초째 안 보입니다. 핫스팟·블루투스를 껐을 수 있습니다.");
             findTrend.setTextColor(DIM);
         } else {
-            findDist.setText(fineDist(m));
-            findDist.setTextColor(m < 1.5 ? ORANGE : m < 4 ? LIME : WHITE);
-            double tr = trend(d);
-            if (tr >= 2.5) { findTrend.setText("▲ 가까워지는 중"); findTrend.setTextColor(LIME); }
-            else if (tr <= -2.5) { findTrend.setText("▼ 멀어지는 중"); findTrend.setTextColor(ORANGE); }
-            else { findTrend.setText("● 그대로"); findTrend.setTextColor(WHITE); }
+            int sc = score(d.ema);
+            findDist.setText(String.valueOf(sc));
+            findDist.setTextColor(sc >= 80 ? ORANGE : sc >= 55 ? LIME : WHITE);
+            double tr = quickTrend(d);
+            String dist = fineDist(m) + "  ·  ";
+            if (tr >= 1.5) { findTrend.setText(dist + "▲ 가까워지는 중"); findTrend.setTextColor(LIME); }
+            else if (tr <= -1.5) { findTrend.setText(dist + "▼ 멀어지는 중"); findTrend.setTextColor(ORANGE); }
+            else { findTrend.setText(dist + "● 그대로"); findTrend.setTextColor(WHITE); }
         }
         if (btnDir != null) {
             if (dirScanning) {
@@ -1367,11 +1652,13 @@ public class MainActivity extends Activity {
             return ins.consumeSystemWindowInsets();
         });
 
-        // ── 메인 ──
-        main = new LinearLayout(this);
-        main.setOrientation(LinearLayout.VERTICAL);
+        // ── 겉틀: 제목 + 업데이트 + [감시|기준|기록] 탭 + 각 화면 ──
+        shell = new LinearLayout(this);
+        shell.setOrientation(LinearLayout.VERTICAL);
         int g = dp(18);
-        main.setPadding(g, g, g, g);
+        shell.setPadding(g, g, g, g);
+        main = new LinearLayout(this);   // 감시 화면
+        main.setOrientation(LinearLayout.VERTICAL);
 
         LinearLayout top = new LinearLayout(this);
         top.setGravity(Gravity.CENTER_VERTICAL);
@@ -1391,14 +1678,24 @@ public class MainActivity extends Activity {
         help.setPadding(dp(10), dp(8), dp(4), dp(8));
         help.setOnClickListener(v -> showHelp());
         top.addView(help);
-        main.addView(top);
+        shell.addView(top);
 
         btnUpdate = btn("", SKY, NAVY);
         btnUpdate.setVisibility(View.GONE);
         btnUpdate.setOnClickListener(v -> doUpdate());
         LinearLayout.LayoutParams ulp = new LinearLayout.LayoutParams(-1, dp(50));
         ulp.topMargin = dp(10);
-        main.addView(btnUpdate, ulp);
+        shell.addView(btnUpdate, ulp);
+
+        LinearLayout pt = hrow(dp(12));
+        for (int pi = 0; pi < 3; pi++) {
+            final int pp = pi;
+            pageBtns[pi] = btn(new String[]{"감시", "기준", "기록"}[pi], NAVY2, WHITE);
+            pageBtns[pi].setTextSize(17);
+            pageBtns[pi].setOnClickListener(v -> setPage(pp));
+            pt.addView(pageBtns[pi], weighted(dp(52), pi == 0 ? 0 : dp(8)));
+        }
+        shell.addView(pt);
 
         statusCard = new LinearLayout(this);
         statusCard.setOrientation(LinearLayout.VERTICAL);
@@ -1420,13 +1717,82 @@ public class MainActivity extends Activity {
         main.addView(statusCard, sclp);
 
         LinearLayout r1 = hrow(dp(12));
-        btnBase = btn("① 기준 잡기 (1분)", NAVY2, WHITE);
-        btnBase.setOnClickListener(v -> { if (mode == MODE_BASELINE) finishBaseline(); else startBaseline(); });
-        btnWatch = btn("② 감시 시작", LIME, NAVY);
+        btnBase = btn("", NAVY2, WHITE); // (예전 '기준 잡기' 버튼: 이제 기준 탭으로 옮김, 화면에는 안 붙임)
+        btnWatch = btn("감시 시작", LIME, NAVY);
         btnWatch.setOnClickListener(v -> toggleWatch());
-        r1.addView(btnBase, weighted(dp(56), 0));
-        r1.addView(btnWatch, weighted(dp(56), dp(10)));
+        r1.addView(btnWatch, weighted(dp(60), 0));
         main.addView(r1);
+
+        // ── 기준 화면 ──
+        basePane = new LinearLayout(this);
+        basePane.setOrientation(LinearLayout.VERTICAL);
+        baseHead = label("", 15, WHITE, false);
+        baseHead.setPadding(0, dp(14), 0, dp(4));
+        basePane.addView(baseHead);
+        LinearLayout sbox = new LinearLayout(this);
+        sbox.setOrientation(LinearLayout.VERTICAL);
+        sbox.setPadding(dp(14), dp(12), dp(14), dp(12));
+        sbox.setBackground(round(NAVY2, 14, LIME));
+        LinearLayout sr = new LinearLayout(this);
+        sr.setGravity(Gravity.CENTER_VERTICAL);
+        Button sprev = btn("◀", NAVY, WHITE);
+        sprev.setTextSize(20);
+        sprev.setOnClickListener(v -> setRoom(room - 1));
+        baseRoomText = label("", 26, WHITE, true);
+        baseRoomText.setGravity(Gravity.CENTER);
+        Button snext = btn("▶", NAVY, WHITE);
+        snext.setTextSize(20);
+        snext.setOnClickListener(v -> setRoom(room + 1));
+        sr.addView(sprev, new LinearLayout.LayoutParams(dp(64), dp(64)));
+        sr.addView(baseRoomText, new LinearLayout.LayoutParams(0, -2, 1));
+        sr.addView(snext, new LinearLayout.LayoutParams(dp(64), dp(64)));
+        sbox.addView(sr);
+        LinearLayout sg = new LinearLayout(this);
+        for (int gi = 0; gi < 3; gi++) {
+            final int gg = gi + 1;
+            gradeBtns2[gi] = btn(gg + "학년", NAVY, WHITE);
+            gradeBtns2[gi].setTextSize(16);
+            gradeBtns2[gi].setOnClickListener(v -> {
+                grade = gg; room = 1;
+                prefs.edit().putInt("grade", grade).putInt("room", room).apply();
+                render(System.currentTimeMillis());
+            });
+            sg.addView(gradeBtns2[gi], weighted(dp(46), gi == 0 ? 0 : dp(8)));
+        }
+        LinearLayout.LayoutParams sglp = new LinearLayout.LayoutParams(-1, -2);
+        sglp.topMargin = dp(8);
+        sbox.addView(sg, sglp);
+        btnSurvey = btn("", LIME, NAVY);
+        btnSurvey.setTextSize(19);
+        btnSurvey.setOnClickListener(v -> startSurvey(false));
+        LinearLayout.LayoutParams svlp = new LinearLayout.LayoutParams(-1, dp(66));
+        svlp.topMargin = dp(10);
+        sbox.addView(btnSurvey, svlp);
+        TextView sh = label("학생이 없을 때(방과 후 등) 반 앞마다 재면 기준에 계속 더해집니다. 여러 날 반복할수록 정확해집니다.", 13, DIM, false);
+        sh.setPadding(0, dp(8), 0, 0);
+        sbox.addView(sh);
+        LinearLayout.LayoutParams sblp = new LinearLayout.LayoutParams(-1, -2);
+        sblp.topMargin = dp(8);
+        basePane.addView(sbox, sblp);
+        TextView rlh = label("반별 기준", 16, LIME, true);
+        rlh.setPadding(dp(4), dp(16), 0, dp(6));
+        basePane.addView(rlh);
+        roomList = new LinearLayout(this);
+        roomList.setOrientation(LinearLayout.VERTICAL);
+        basePane.addView(roomList);
+        Button clearAll = btn("기준 전체 지우기", NAVY2, ORANGE);
+        clearAll.setTextSize(14);
+        clearAll.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("기준 전체 지우기")
+                .setMessage("쌓아 둔 모든 반의 기준과 무시 목록을 지웁니다. 되돌릴 수 없습니다.")
+                .setPositiveButton("지우기", (d, w) -> { rooms.clear(); baseSeen.clear(); rebuildBaseline(); saveRooms(); render(System.currentTimeMillis()); })
+                .setNegativeButton("취소", null).show());
+        LinearLayout.LayoutParams calp = new LinearLayout.LayoutParams(-1, dp(46));
+        calp.topMargin = dp(12);
+        basePane.addView(clearAll, calp);
+        TextView setH = label("설정", 16, SKY, true);
+        setH.setPadding(dp(4), dp(18), 0, dp(6));
+        basePane.addView(setH);
 
         LinearLayout r2 = hrow(dp(10));
         btnRange = btn("", NAVY2, WHITE);
@@ -1437,14 +1803,14 @@ public class MainActivity extends Activity {
         btnSound.setOnClickListener(v -> { sound = !sound; prefs.edit().putBoolean("sound", sound).apply(); });
         r2.addView(btnRange, weighted(dp(46), 0));
         r2.addView(btnSound, weighted(dp(46), dp(10)));
-        main.addView(r2);
+        basePane.addView(r2);
 
         btnPatrol = btn("", NAVY2, WHITE);
         btnPatrol.setTextSize(14);
         btnPatrol.setOnClickListener(v -> togglePatrol());
         LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(-1, dp(46));
         plp.topMargin = dp(10);
-        main.addView(btnPatrol, plp);
+        basePane.addView(btnPatrol, plp);
 
         // 순회 칸: [◀] 3반 앞 [다음 교실 ▶] + 가장 센 새 신호
         patrolBox = new LinearLayout(this);
@@ -1497,12 +1863,30 @@ public class MainActivity extends Activity {
         pblp.topMargin = dp(12);
         main.addView(patrolBox, pblp);
 
-        Button stats = btn("감시 기록 보기 · 내보내기", NAVY2, LIME);
-        stats.setTextSize(14);
-        stats.setOnClickListener(v -> showStats());
-        LinearLayout.LayoutParams stlp = new LinearLayout.LayoutParams(-1, dp(46));
-        stlp.topMargin = dp(10);
-        main.addView(stats, stlp);
+        // ── 기록 화면 ──
+        logPane = new LinearLayout(this);
+        logPane.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout lb = hrow(dp(14));
+        Button saveB = btn("파일로 저장 (엑셀)", LIME, NAVY);
+        saveB.setTextSize(15);
+        saveB.setOnClickListener(v -> saveCsv());
+        Button shareB = btn("공유", NAVY2, WHITE);
+        shareB.setTextSize(15);
+        shareB.setOnClickListener(v -> shareSummary());
+        lb.addView(saveB, weighted(dp(50), 0));
+        lb.addView(shareB, weighted(dp(50), dp(8)));
+        logPane.addView(lb);
+        logText = label("", 16, WHITE, false);
+        logText.setPadding(dp(4), dp(14), dp(4), dp(14));
+        logPane.addView(logText);
+        Button newLog = btn("기록 비우고 새로 시작", NAVY2, ORANGE);
+        newLog.setTextSize(14);
+        newLog.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("기록 비우기")
+                .setMessage("지금까지의 감시 기록을 지웁니다. 필요하면 먼저 파일로 저장하세요.")
+                .setPositiveButton("비우기", (d, w) -> { log.clear(); watchStart = mode == MODE_WATCH ? System.currentTimeMillis() : 0; saveLog(); render(System.currentTimeMillis()); })
+                .setNegativeButton("취소", null).show());
+        logPane.addView(newLog, new LinearLayout.LayoutParams(-1, dp(46)));
 
         tip = label("", 14, NAVY, false);
         tip.setBackground(round(LIME, 12));
@@ -1535,7 +1919,15 @@ public class MainActivity extends Activity {
         baseInfo = label("", 13, DIM, false);
         baseInfo.setPadding(0, dp(8), 0, 0);
         main.addView(baseInfo);
-        root.addView(main, new FrameLayout.LayoutParams(-1, -1));
+        shell.addView(main, new LinearLayout.LayoutParams(-1, 0, 1));
+        baseScroll = new ScrollView(this);
+        baseScroll.addView(basePane);
+        shell.addView(baseScroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        logScroll = new ScrollView(this);
+        logScroll.addView(logPane);
+        shell.addView(logScroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        root.addView(shell, new FrameLayout.LayoutParams(-1, -1));
+        setPage(page);
 
         // ── 찾기 화면 ──
         findView = new LinearLayout(this);
