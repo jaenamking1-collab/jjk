@@ -2306,6 +2306,15 @@ public class MainActivity extends Activity {
     long surveyEnd = 0, surveyStart = 0;
     int surveyCode = 0;
 
+    /**
+     * 기준 재는 시간: 와이파이 검색이 4초마다 되면(쓰로틀링 꺼짐) 순회 20초로 5번쯤 검색돼 충분하다.
+     * 2분에 4번 제한(안드로이드 9, 쓰로틀링 켜짐)이면 20초에 1~2번뿐이라 60초로 늘린다. 교실 고정은 60초.
+     */
+    long surveyMs() {
+        boolean slow = Build.VERSION.SDK_INT == 28 || wifiThrottled;
+        return patrol && !slow ? 20_000 : 60_000;
+    }
+
     void startSurvey(boolean replace) {
         if (!hasPerms()) { askPermissions(); return; }
         if (surveying || measuring) return;
@@ -2315,7 +2324,7 @@ public class MainActivity extends Activity {
         mbuf.clear();
         surveying = true;
         surveyStart = System.currentTimeMillis();
-        surveyEnd = surveyStart + (patrol ? 20_000 : 60_000);
+        surveyEnd = surveyStart + surveyMs();
         stopBle(); startBle(); kickWifiScan();
         render(surveyStart);
     }
@@ -2378,7 +2387,7 @@ public class MainActivity extends Activity {
             styleBtn(btnSurvey, SKY, NAVY);
         } else {
             RoomBase cur = rooms.get(loc());
-            btnSurvey.setText((cur == null ? "여기서 기준 재기" : "여기서 기준 더하기") + (patrol ? " (20초)" : " (1분)"));
+            btnSurvey.setText((cur == null ? "여기서 기준 재기" : "여기서 기준 더하기") + " (" + (surveyMs() / 1000) + "초)");
             btnSurvey.setEnabled(true);
             styleBtn(btnSurvey, LIME, NAVY);
         }
