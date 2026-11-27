@@ -249,6 +249,7 @@ public class MainActivity extends Activity {
         loadLog();
         loadPlaces();
         loadRooms();
+        for (String z : prefs.getString("quietZones", "").split(",")) if (!z.isEmpty()) try { quietZones.add(Integer.parseInt(z)); } catch (Exception ignored) { }
         wifi = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
         vib = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
         try { tone = new ToneGenerator(AudioManager.STREAM_MUSIC, 80); } catch (Exception ignored) { }
@@ -859,6 +860,10 @@ public class MainActivity extends Activity {
         // 누른 그 순간의 반으로 고정(재는 중에 ▶를 눌러도 결과는 이 반에 저장). 실제로 서 있는 곳도 이 반으로 확정.
         measureLoc = loc();
         confirmedLoc = measureLoc;
+        // 자체 점검: 누른 곳(확정 위치)과 와이파이 위치 추정이 맞았는지 센다
+        long tn = System.currentTimeMillis();
+        String ck = estFresh(tn, 10_000) ? (estLoc == measureLoc ? "locHit" : "locMiss") : "locUnsure";
+        prefs.edit().putInt(ck, prefs.getInt(ck, 0) + 1).apply();
         measureStart = System.currentTimeMillis();
         measureEnd = measureStart + MEASURE_MS;
         kickWifiScan();
@@ -1212,7 +1217,7 @@ public class MainActivity extends Activity {
 
     void beginWatch(boolean settle) {
         long now = System.currentTimeMillis();
-        log.clear(); rotCand.clear(); sessionIgnored.clear(); ackedG.clear(); impSeen.clear();
+        log.clear(); rotCand.clear(); sessionIgnored.clear(); ackedG.clear(); impSeen.clear(); notifiedG.clear(); impFirst.clear();
         // 새 감시에서는 반 판정 이력도 처음부터
         for (Dev o : devs.values()) { o.roomMed.clear(); o.roomCnt.clear(); o.roomShort.clear(); o.roomPeak.clear(); }
         int n = 0;
@@ -1322,6 +1327,12 @@ public class MainActivity extends Activity {
                     if (ka != null) for (int i = 0; i < ka.length(); i++) rb.keys.add(ka.getString(i));
                     org.json.JSONObject fp = r.optJSONObject("fp");
                     if (fp != null) { java.util.Iterator<String> fi = fp.keys(); while (fi.hasNext()) { String f = fi.next(); rb.fp.put(f, fp.getDouble(f)); } }
+                    org.json.JSONArray sca = r.optJSONArray("sc");
+                    if (sca != null) for (int si = 0; si < sca.length(); si++) {
+                        org.json.JSONObject vj = sca.getJSONObject(si); HashMap<String, Double> v = new HashMap<>();
+                        java.util.Iterator<String> vi = vj.keys(); while (vi.hasNext()) { String f = vi.next(); v.put(f, vj.getDouble(f)); }
+                        rb.scans.add(v);
+                    }
                 }
             }
             org.json.JSONObject lbs = o.optJSONObject("labels");
@@ -1596,6 +1607,7 @@ public class MainActivity extends Activity {
 
     void detect(long now) {
         collectStep(now);
+        estimateLoc(now);
         for (Dev d : devs.values()) {
             if (mode == MODE_WATCH) {
                 Rec rr = log.get(groupKey(d));
@@ -1689,8 +1701,7 @@ public class MainActivity extends Activity {
                         : unacked > 0 ? "목록에서 눌러 거리를 보며 찾으세요." : "확인함. 새로 생기면 다시 깜빡입니다.");
                 if (unacked > 0) {
                     startFlash();
-                    if (now - lastVibe > 6000) { buzz(new long[]{0, 300, 150, 300}); lastVibe = now; }
-                    if (sound && tone != null && now - lastBeep > 6000) { tone.startTone(ToneGenerator.TONE_PROP_BEEP2, 300); lastBeep = now; }
+                    notifyNew(imp, now);
                 } else stopFlash();
             }
         } else {
@@ -1734,8 +1745,8 @@ public class MainActivity extends Activity {
                 styleBtn(btnMeasure, SKY, NAVY);
             }
             // 순회 칸에는 '언제 누르는지'만 짧게(신호 내용은 아래 카드에)
-            topText.setText(imp.isEmpty() ? "확인할 신호가 없으면 누르지 않아도 됩니다."
-                    : "확인할 신호가 있을 때 반 앞마다 눌러 어느 반인지 찾습니다.");
+            topText.setText(locLine(now) + "\n" + (imp.isEmpty() ? "확인할 신호가 없으면 누르지 않아도 됩니다."
+                    : "확인할 신호가 있을 때 반 앞마다 눌러 어느 반인지 찾습니다."));
             topText.setTextColor(DIM);
         }
 
@@ -2338,10 +2349,90 @@ public class MainActivity extends Activity {
     }
 
     /** 반 하나의 기준: 잰 시각, 그때 본 신호 열쇠들, 와이파이 지문(다음 단계 자동 위치용) */
+    // ───────────────────────── 알림 묶기 · 위치 추정 · 소리 늦춤 구역 ─────────────────────────
+
+    final HashSet<String> notifiedG = new HashSet<>();       // 이미 울린 묶음
+    final HashMap<String, Long> impFirst = new HashMap<>();  // 묶음이 처음 '확인할 신호'가 된 때
+
+    /**
+     * 새 확인할 신호 알림(진동·소리)은 10초에 한 번으로 묶는다. 아주 강한 새 신호(-65 이상)는 바로.
+     * 소리 늦춤 구역(교무실 등) 근처로 위치가 확실하면 5초 늦춘다. 카드·기록·깜빡임은 그대로.
+     */
+    void notifyNew(List<Dev> imp, long now) {
+        long delay = zoneQuiet(now) ? 5000 : 0;
+        boolean strong = false;
+        List<String> pend = new ArrayList<>();
+        for (Dev d : imp) {
+            String g = groupKey(d);
+            if (ackedG.contains(g) || notifiedG.contains(g)) continue;
+            Long f = impFirst.get(g);
+            if (f == null) { f = now; impFirst.put(g, now); }
+            if (now - f < delay) continue;
+            pend.add(g);
+            if (!d.wifi && recentMed(d, now) >= -65) strong = true;
+        }
+        if (!pend.isEmpty() && (strong || now - lastVibe >= 10_000)) {
+            buzz(new long[]{0, 300, 150, 300});
+            if (sound && tone != null) tone.startTone(ToneGenerator.TONE_PROP_BEEP2, 300);
+            lastVibe = now; lastBeep = now;
+            notifiedG.addAll(pend);
+        } else if (pend.isEmpty() && now - lastVibe >= 30_000) {
+            // 확인 안 한 카드가 남아 있으면 30초마다 짧게 한 번
+            buzz(new long[]{0, 120});
+            lastVibe = now;
+        }
+    }
+
+    // 위치 추정(와이파이 지문). 경고 판단에는 쓰지 않고 표시·소리 늦춤·자체 점검에만 쓴다.
+    int estLoc = -1;            // -1 = 불확실
+    long estAt = 0;             // 추정에 쓴 검색 결과 시각
+    final HashSet<Integer> quietZones = new HashSet<>();
+
+    void estimateLoc(long now) {
+        if (lastBatch == 0) { estLoc = -1; return; }
+        HashMap<String, Double> cur = new HashMap<>();
+        for (Dev d : devs.values()) if (d.wifi && !isRandomMac(d) && d.lastSeen >= lastBatch - 1500) cur.put(d.key, (double) d.rssi);
+        int best = -1; double bs = 1e9, second = 1e9, bestAvg = 99, bestMatch = 0; int bestCommon = 0;
+        for (Map.Entry<Integer, RoomBase> e : rooms.entrySet()) {
+            int code = e.getKey();
+            if (code <= 0 || e.getValue().fp.isEmpty()) continue;
+            HashMap<String, Double> fp = e.getValue().fp;
+            int common = 0, strongAll = 0, strongBoth = 0; double sum = 0;
+            HashSet<String> keys = new HashSet<>(fp.keySet()); keys.addAll(cur.keySet());
+            for (String k : keys) {
+                Double a = fp.get(k), b = cur.get(k);
+                boolean strongK = (a != null && a >= -75) || (b != null && b >= -75);
+                if (strongK) strongAll++;
+                if (a != null && b != null) { common++; sum += Math.abs(a - b); if (strongK) strongBoth++; }
+            }
+            if (common < 3) continue;
+            double avg = sum / common, match = strongAll == 0 ? 0 : (double) strongBoth / strongAll;
+            double score = avg + (1 - match) * 12; // 강한 공유기가 안 맞으면 벌점
+            if (score < bs) { second = bs; bs = score; best = code; bestAvg = avg; bestMatch = match; bestCommon = common; }
+            else if (score < second) second = score;
+        }
+        estAt = lastBatch;
+        boolean ok = best > 0 && bestCommon >= 3 && bestMatch >= 0.6 && bestAvg <= 6 && (second - bs >= 3);
+        estLoc = ok ? best : -1;
+    }
+
+    boolean estFresh(long now, long ms) { return estLoc > 0 && now - estAt <= ms; }
+
+    /** 소리 늦춤: 검색이 빠른 기기에서만, 위치가 확실하고 6초 안의 결과일 때 */
+    boolean zoneQuiet(long now) { return wifiGap() < 30_000 && estFresh(now, 6000) && quietZones.contains(estLoc); }
+
+    String locLine(long now) {
+        if (lastBatch == 0) return "위치 추정: 와이파이 검색 기다리는 중";
+        long ago = Math.max(0, (now - estAt) / 1000);
+        if (estLoc <= 0) return "위치 추정: 불확실 (" + ago + "초 전 검색)";
+        return "위치 추정: " + roomName(estLoc) + (estLoc >= 900 ? "" : " 앞") + " (" + ago + "초 전)" + (quietZones.contains(estLoc) ? " · 소리 늦춤 구역" : "");
+    }
+
     static class RoomBase {
         long t;
         final HashSet<String> keys = new HashSet<>();
         final HashMap<String, Double> fp = new HashMap<>();
+        final ArrayList<HashMap<String, Double>> scans = new ArrayList<>(); // 잰 회차별 학교 공유기 세기(최대 10회)
     }
     static final int ROOM_LEGACY = 0, ROOM_IGNORED = -1, ROOM_SCHOOL = -2, ROOM_AUTO = -3;
 
@@ -2587,6 +2678,9 @@ public class MainActivity extends Activity {
                 org.json.JSONObject fp = new org.json.JSONObject();
                 for (Map.Entry<String, Double> f : e.getValue().fp.entrySet()) fp.put(f.getKey(), f.getValue());
                 r.put("fp", fp);
+                org.json.JSONArray sca = new org.json.JSONArray();
+                for (HashMap<String, Double> v : e.getValue().scans) sca.put(new org.json.JSONObject(v));
+                r.put("sc", sca);
                 o.put(String.valueOf(e.getKey()), r);
             }
             org.json.JSONObject s = new org.json.JSONObject();
@@ -2617,6 +2711,12 @@ public class MainActivity extends Activity {
                     if (ka != null) for (int i = 0; i < ka.length(); i++) rb.keys.add(ka.getString(i));
                     org.json.JSONObject fp = r.optJSONObject("fp");
                     if (fp != null) { java.util.Iterator<String> fi = fp.keys(); while (fi.hasNext()) { String f = fi.next(); rb.fp.put(f, fp.getDouble(f)); } }
+                    org.json.JSONArray sca = r.optJSONArray("sc");
+                    if (sca != null) for (int si = 0; si < sca.length(); si++) {
+                        org.json.JSONObject vj = sca.getJSONObject(si); HashMap<String, Double> v = new HashMap<>();
+                        java.util.Iterator<String> vi = vj.keys(); while (vi.hasNext()) { String f = vi.next(); v.put(f, vj.getDouble(f)); }
+                        rb.scans.add(v);
+                    }
                 }
             } else if (!baseline.isEmpty()) {
                 // 예전 버전 기준은 '이전 기준'으로 옮긴다
@@ -2679,6 +2779,7 @@ public class MainActivity extends Activity {
         RoomBase rb = roomOf(surveyCode);
         rb.t = now;
         int n = 0;
+        HashMap<String, Double> scanVec = new HashMap<>();
         for (Map.Entry<String, ArrayList<Integer>> e : mbuf.entrySet()) {
             Dev d = devs.get(e.getKey());
             if (d == null || e.getValue().isEmpty()) continue;
@@ -2688,12 +2789,28 @@ public class MainActivity extends Activity {
                 baseSeen.put(k, now);
                 markDay(k);
             }
-            if (d.wifi) {
+            if (d.wifi && !isRandomMac(d)) { // 지문은 고정된 학교 공유기(고유 주소)만
                 ArrayList<Integer> l = e.getValue();
                 Collections.sort(l);
-                rb.fp.put(d.key, (double) l.get(l.size() / 2));
+                scanVec.put(d.key, (double) l.get(l.size() / 2));
             }
             n++;
+        }
+        if (!scanVec.isEmpty()) {
+            rb.scans.add(scanVec);
+            while (rb.scans.size() > 10) rb.scans.remove(0);
+            // 대표 지문 = 회차별 값의 중앙값(이번에 안 보인 옛 공유기 값이 남아 있지 않게 회차 기준으로 다시 계산)
+            rb.fp.clear();
+            HashMap<String, ArrayList<Double>> all = new HashMap<>();
+            for (HashMap<String, Double> v : rb.scans) for (Map.Entry<String, Double> f : v.entrySet()) {
+                ArrayList<Double> l2 = all.get(f.getKey()); if (l2 == null) { l2 = new ArrayList<>(); all.put(f.getKey(), l2); } l2.add(f.getValue());
+            }
+            for (Map.Entry<String, ArrayList<Double>> f : all.entrySet()) {
+                // 절반 넘는 회차에서 보인 공유기만
+                if (f.getValue().size() * 2 < rb.scans.size()) continue;
+                Collections.sort(f.getValue());
+                rb.fp.put(f.getKey(), f.getValue().get(f.getValue().size() / 2));
+            }
         }
         mbuf.clear();
         if (rb.keys.isEmpty()) rooms.remove(surveyCode);
@@ -2726,7 +2843,8 @@ public class MainActivity extends Activity {
         int multi = 0, single = 0;
         for (String k : baseline) if (k.startsWith("W:") || k.startsWith("B:")) { if (daysOf(k) >= 2) multi++; else single++; }
         baseHead.setText("누적 기준: 여러 날 확인된 상시 기기 " + multi + "개 · 하루만 본 기기 " + single + "개 · " + rooms.size() + "곳\n"
-                + "상시 기기(서로 다른 2일 이상 같은 주소)는 경고하지 않습니다. 30일 동안 안 잡힌 항목은 지워집니다.");
+                + "상시 기기(서로 다른 2일 이상 같은 주소)는 경고하지 않습니다. 30일 동안 안 잡힌 항목은 지워집니다.\n"
+                + "위치 추정 점검('여기서 재기' 때): 맞음 " + prefs.getInt("locHit", 0) + " · 틀림 " + prefs.getInt("locMiss", 0) + " · 불확실 " + prefs.getInt("locUnsure", 0));
         btnCollect.setText(collecting() ? "자동 쌓기 중 · " + Math.max(1, (collectUntil - System.currentTimeMillis()) / 60000) + "분 남음 (누르면 끄기)" : "방과 후 자동 쌓기 켜기 (2시간)");
         styleBtn(btnCollect, collecting() ? ORANGE : NAVY2, collecting() ? NAVY : LIME);
         baseRoomText.setText(roomName(loc()) + (grade == 9 ? "" : patrol ? " 앞" : " 교실"));
@@ -2763,6 +2881,20 @@ public class MainActivity extends Activity {
                 again.setOnClickListener(v -> { grade = code / 100; room = code % 100;
                     prefs.edit().putInt("grade", grade).putInt("room", room).apply(); startSurvey(true); });
                 r.addView(again, new LinearLayout.LayoutParams(-2, dp(40)));
+            }
+            if (code >= 900) {
+                boolean q = quietZones.contains(code);
+                Button qz = btn(q ? "소리 늦춤 켜짐" : "소리 늦춤 구역", q ? ORANGE : NAVY, q ? NAVY : WHITE);
+                qz.setTextSize(13);
+                qz.setOnClickListener(v -> {
+                    if (quietZones.contains(code)) quietZones.remove(code); else quietZones.add(code);
+                    StringBuilder sb = new StringBuilder();
+                    for (int z : quietZones) sb.append(z).append(',');
+                    prefs.edit().putString("quietZones", sb.toString()).apply();
+                    toast(quietZones.contains(code) ? roomLabel(code) + " 근처에서는 알림을 5초 늦춥니다(카드·기록은 그대로)." : "소리 늦춤을 껐습니다.");
+                    render(System.currentTimeMillis());
+                });
+                r.addView(qz, new LinearLayout.LayoutParams(-2, dp(40)));
             }
             if (code == ROOM_SCHOOL) {
                 Button see = btn("목록 보기", NAVY, LIME);
