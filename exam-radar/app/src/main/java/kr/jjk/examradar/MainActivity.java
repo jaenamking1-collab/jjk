@@ -5,6 +5,13 @@ import android.animation.ArgbEvaluator;
 import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.PendingIntent;
+import android.content.pm.PackageInstaller;
+import android.widget.Toast;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothManager;
 import android.bluetooth.le.BluetoothLeScanner;
@@ -110,7 +117,7 @@ public class MainActivity extends Activity {
     TextView status, statusSub, baseInfo, tip, findName, findDist, findTrend, findRaw;
     View findBarFill;
     LinearLayout list;
-    Button btnBase, btnWatch, btnRange, btnSound, btnAck, btnPatrol;
+    Button btnBase, btnWatch, btnRange, btnSound, btnAck, btnPatrol, btnUpdate;
     LinearLayout patrolBox;
     TextView roomText, topText;
     Button tabWifi, tabBle, tabAll;
@@ -134,8 +141,124 @@ public class MainActivity extends Activity {
         vib = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
         try { tone = new ToneGenerator(AudioManager.STREAM_MUSIC, 80); } catch (Exception ignored) { }
         buildUi();
+        IntentFilter inf = new IntentFilter(ACTION_INSTALL);
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(installRx, inf, Context.RECEIVER_NOT_EXPORTED);
+        else registerReceiver(installRx, inf);
         askPermissions();
+        checkUpdate(false);
     }
+
+    // ───────────────────────── 앱 안 업데이트 ─────────────────────────
+
+    static final String UPD_BASE = "https://jaenamking1-collab.github.io/jjk/exam-radar/";
+    static final String ACTION_INSTALL = "kr.jjk.examradar.INSTALL_RESULT";
+    int remoteCode = 0;
+    String remoteName = "";
+
+    @SuppressWarnings("deprecation")
+    int myCode() {
+        try { return getPackageManager().getPackageInfo(getPackageName(), 0).versionCode; } catch (Exception e) { return 0; }
+    }
+
+    String myName() {
+        try { return getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (Exception e) { return "?"; }
+    }
+
+    static HttpURLConnection open(String u) throws Exception {
+        HttpURLConnection c = (HttpURLConnection) new URL(u).openConnection();
+        c.setConnectTimeout(8000);
+        c.setReadTimeout(20000);
+        c.setUseCaches(false);
+        return c;
+    }
+
+    /** 인터넷이 있으면 새 버전이 있는지 본다. 시험장에서 인터넷이 없어도 앱은 그대로 돈다. */
+    void checkUpdate(boolean manual) {
+        new Thread(() -> {
+            try {
+                HttpURLConnection c = open(UPD_BASE + "version.json?t=" + System.currentTimeMillis());
+                StringBuilder sb = new StringBuilder();
+                try (InputStream in = c.getInputStream()) {
+                    byte[] b = new byte[4096]; int r;
+                    while ((r = in.read(b)) > 0) sb.append(new String(b, 0, r, "UTF-8"));
+                }
+                org.json.JSONObject j = new org.json.JSONObject(sb.toString());
+                int code = j.getInt("versionCode");
+                String name = j.optString("versionName", "");
+                runOnUiThread(() -> {
+                    remoteCode = code; remoteName = name;
+                    if (code > myCode()) {
+                        btnUpdate.setVisibility(View.VISIBLE);
+                        btnUpdate.setEnabled(true);
+                        btnUpdate.setText("새 버전 " + name + " 업데이트");
+                    } else {
+                        btnUpdate.setVisibility(View.GONE);
+                        if (manual) toast("최신 버전입니다 (" + myName() + ")");
+                    }
+                });
+            } catch (Exception e) {
+                if (manual) runOnUiThread(() -> toast("인터넷에 연결되어 있지 않아 확인하지 못했습니다."));
+            }
+        }).start();
+    }
+
+    void doUpdate() {
+        if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
+            new AlertDialog.Builder(this)
+                    .setTitle("한 번만 허용해 주세요")
+                    .setMessage("이 앱이 스스로 업데이트하려면 '이 출처 허용'을 켜야 합니다.\n다음 화면에서 켠 뒤 뒤로 돌아와 업데이트를 다시 누르세요.")
+                    .setPositiveButton("허용하러 가기", (d, w) -> startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                            android.net.Uri.parse("package:" + getPackageName()))))
+                    .setNegativeButton("나중에", null).show();
+            return;
+        }
+        btnUpdate.setEnabled(false);
+        btnUpdate.setText("받는 중…");
+        new Thread(() -> {
+            try {
+                PackageInstaller pi = getPackageManager().getPackageInstaller();
+                int id = pi.createSession(new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL));
+                try (PackageInstaller.Session s = pi.openSession(id)) {
+                    HttpURLConnection c = open(UPD_BASE + "exam-radar-beta.apk?t=" + System.currentTimeMillis());
+                    long len = c.getContentLengthLong();
+                    try (InputStream in = c.getInputStream(); OutputStream out = s.openWrite("app.apk", 0, len > 0 ? len : -1)) {
+                        byte[] b = new byte[65536]; int r; long tot = 0;
+                        while ((r = in.read(b)) > 0) {
+                            out.write(b, 0, r); tot += r;
+                            if (len > 0) { final int pct = (int) (tot * 100 / len); runOnUiThread(() -> btnUpdate.setText("받는 중 " + pct + "%")); }
+                        }
+                        s.fsync(out);
+                    }
+                    Intent i = new Intent(ACTION_INSTALL).setPackage(getPackageName());
+                    int fl = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0);
+                    s.commit(PendingIntent.getBroadcast(this, 1, i, fl).getIntentSender());
+                }
+                runOnUiThread(() -> btnUpdate.setText("설치 확인 창을 기다리는 중…"));
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    btnUpdate.setEnabled(true);
+                    btnUpdate.setText("업데이트 다시 시도");
+                    toast("받지 못했습니다. 와이파이 연결을 확인해 주세요.");
+                });
+            }
+        }).start();
+    }
+
+    final BroadcastReceiver installRx = new BroadcastReceiver() {
+        @Override public void onReceive(Context c, Intent i) {
+            int st = i.getIntExtra(PackageInstaller.EXTRA_STATUS, -99);
+            if (st == PackageInstaller.STATUS_PENDING_USER_ACTION) {
+                @SuppressWarnings("deprecation") Intent confirm = i.getParcelableExtra(Intent.EXTRA_INTENT);
+                if (confirm != null) { confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); startActivity(confirm); }
+            } else if (st != PackageInstaller.STATUS_SUCCESS) {
+                btnUpdate.setEnabled(true);
+                btnUpdate.setText("업데이트 다시 시도");
+                toast("설치되지 않았습니다. 다시 눌러 주세요.");
+            }
+        }
+    };
+
+    void toast(String s) { Toast.makeText(this, s, Toast.LENGTH_LONG).show(); }
 
     @Override
     protected void onResume() {
@@ -157,6 +280,7 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         super.onDestroy();
         if (tone != null) tone.release();
+        try { unregisterReceiver(installRx); } catch (Exception ignored) { }
     }
 
     @Override
@@ -834,12 +958,23 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(-2, -2);
         blp.leftMargin = dp(8);
         top.addView(beta, blp);
+        TextView ver = label("v" + myName(), 13, SKY, false);
+        ver.setPadding(dp(10), dp(8), dp(4), dp(8));
+        ver.setOnClickListener(v -> checkUpdate(true));
+        top.addView(ver);
         top.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
         TextView help = label("사용법", 14, SKY, true);
         help.setPadding(dp(10), dp(8), dp(4), dp(8));
         help.setOnClickListener(v -> showHelp());
         top.addView(help);
         main.addView(top);
+
+        btnUpdate = btn("", SKY, NAVY);
+        btnUpdate.setVisibility(View.GONE);
+        btnUpdate.setOnClickListener(v -> doUpdate());
+        LinearLayout.LayoutParams ulp = new LinearLayout.LayoutParams(-1, dp(50));
+        ulp.topMargin = dp(10);
+        main.addView(btnUpdate, ulp);
 
         statusCard = new LinearLayout(this);
         statusCard.setOrientation(LinearLayout.VERTICAL);
