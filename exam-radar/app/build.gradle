@@ -7,8 +7,8 @@ android {
         applicationId 'kr.jjk.examradar'
         minSdk 26
         targetSdk 35
-        versionCode 40
-        versionName '0.40-beta'
+        versionCode 41
+        versionName '0.41-beta'
     }
     signingConfigs {
         release {

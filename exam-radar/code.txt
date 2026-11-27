@@ -562,7 +562,7 @@ public class MainActivity extends Activity {
             boolean school = schoolSsid(ssid);
             d.phoneLike = !school && (d.direct ? ssid.toLowerCase(Locale.ROOT).matches(".*(galaxy|iphone|phone|sm-|redmi|pixel|android).*")
                     : looksLikePhone(ssid, r));
-            d.kind = (school ? "학교 와이파이 · " : d.phoneLike ? "휴대폰 핫스팟 의심 · " : d.direct ? "와이파이 다이렉트(프린터·TV·화면 공유 등) · " : "와이파이 · ") + (r.frequency >= 5900 ? "6GHz" : r.frequency >= 4900 ? "5GHz" : "2.4GHz");
+            d.kind = (school ? "스쿨넷(학교 와이파이) · " : d.phoneLike ? "휴대폰 핫스팟 의심 · " : d.direct ? "와이파이 다이렉트(프린터·TV·화면 공유 등) · " : "와이파이 · ") + (r.frequency >= 5900 ? "6GHz" : r.frequency >= 4900 ? "5GHz" : "2.4GHz");
             feed(d, r.level, seenAt);
             lastWifiResult = now;
         }
@@ -1991,7 +1991,8 @@ public class MainActivity extends Activity {
 
     /** 사람 말로 된 기기 이름: "휴대폰 의심 · 안드로이드", "이어폰 (에어팟 등)", "휴대폰 핫스팟 'Galaxy A34'" */
     static String plainTitle(Dev d) {
-        if (d.wifi) return d.phoneLike ? "휴대폰 핫스팟 '" + d.name + "'" : "와이파이 '" + d.name + "'";
+        if (d.wifi) return d.kind != null && d.kind.startsWith("스쿨넷") ? "스쿨넷 '" + d.name + "'"
+                : d.phoneLike ? "휴대폰 핫스팟 '" + d.name + "'" : "와이파이 '" + d.name + "'";
         String base;
         if (d.rank == 3) base = "휴대폰 의심";
         else if ("이어폰".equals(d.typeShort)) base = "무선 이어폰 의심";
