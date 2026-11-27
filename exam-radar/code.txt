@@ -2746,7 +2746,13 @@ public class MainActivity extends Activity {
         // 30일 넘게 안 잡힌 항목 정리 (날짜가 없는 항목은 오늘부터 센다)
         for (Map.Entry<Integer, RoomBase> en : rooms.entrySet()) {
             if (en.getKey() == ROOM_SCHOOL) continue; // 사람이 확인한 학교 장비는 자동으로 지우지 않는다
-            en.getValue().keys.removeIf(k -> { Long t = baseSeen.get(k); if (t == null) { baseSeen.put(k, now); return false; } return now - t > KEEP_MS; });
+            en.getValue().keys.removeIf(k -> {
+                Long t = baseSeen.get(k);
+                if (t == null) { baseSeen.put(k, now); return false; }
+                // 블루투스 주소가 하루만 보이고 3일 동안 안 나오면 '주소가 바뀐 흔적'으로 보고 지운다(폰 한 대가 하루에 수십 개를 남김)
+                if (k.startsWith("B:") && daysOf(k) <= 1 && now - t > 3L * 24 * 3600 * 1000) return true;
+                return now - t > KEEP_MS;
+            });
         }
         try {
             org.json.JSONObject lb = new org.json.JSONObject(prefs.getString("labels", "{}"));
