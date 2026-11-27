@@ -1541,11 +1541,8 @@ public class MainActivity extends Activity {
                 if (now - d.lastSeen < 5000) { baseSeen(d.key, now); }
             }
         }
-        // 휴대폰 → 이어폰·시계 → 나머지 순, 같은 종류 안에서는 센 순
-        alerts.sort((a, b) -> {
-            int ra = a.wifi ? (a.phoneLike ? 3 : 2) : a.rank, rb = b.wifi ? (b.phoneLike ? 3 : 2) : b.rank;
-            return ra != rb ? Integer.compare(rb, ra) : Double.compare(b.ema, a.ema);
-        });
+        // '가까이 오래 있음' → 휴대폰 → 이어폰·시계 → 나머지 순, 같은 칸 안에서는 센 순
+        alerts.sort((a, b) -> priorityCmp(a, b, now));
         Map<String, Integer> gCount = new HashMap<>();
         List<Dev> shown = new ArrayList<>();
         for (Dev d : alerts) {
@@ -1678,11 +1675,15 @@ public class MainActivity extends Activity {
         // ── 확인 필요(경고 아님): 접어 두고 한 줄로 ──
         List<Dev> checks = new ArrayList<>();
         for (Dev d : devs.values()) if (isCheck(d, now) && (tab == 0 || (tab == 1) == d.wifi)) checks.add(d);
-        checks.sort((a, b) -> Double.compare(b.ema, a.ema));
+        checks.sort((a, b) -> priorityCmp(a, b, now));
         if (!checks.isEmpty()) {
-            list.addView(foldHeader("확인 필요 " + checks.size() + "개", "경고 아님 · 학교 장비와 비슷하거나 정보가 적은 신호", showUnknown, SKY,
+            int stars = 0;
+            for (Dev d : checks) if (nearStay(d, now)) stars++;
+            list.addView(foldHeader("확인 필요 " + checks.size() + "개" + (stars > 0 ? " · ★ 먼저 볼 것 " + stars + "개" : ""),
+                    "경고 아님 · ★ 붙은 것(가까이 오래 있음)만 먼저 보세요", showUnknown, SKY,
                     v -> { showUnknown = !showUnknown; render(System.currentTimeMillis()); }));
-            if (showUnknown) for (Dev d : checks) list.addView(row(d, now, 1));
+            // 접혀 있어도 ★ 붙은 것은 보여 준다(놓치지 않게)
+            for (Dev d : checks) if (showUnknown || nearStay(d, now)) list.addView(row(d, now, 1));
         }
         // ── 사라진 신호: 감시 중 잡혔다가 끊긴 새 신호(감독관이 다가가자 끈 경우 등) ──
         List<Rec> goneList = new ArrayList<>();
@@ -1714,6 +1715,21 @@ public class MainActivity extends Activity {
     }
 
     boolean showGone = false;
+
+    /** 먼저 볼 것: 약 3m 안(블루투스 -65·와이파이 -60dBm 이상)으로 1분 넘게 계속 잡힘 */
+    static boolean nearStay(Dev d, long now) {
+        return d.ema >= (d.wifi ? -60 : -65) && now - d.firstSeen >= 60_000 && now - d.lastSeen < 10_000;
+    }
+
+    static int prio(Dev d, long now) {
+        int r = d.wifi ? (d.phoneLike ? 3 : 2) : d.rank;
+        return (nearStay(d, now) ? 10 : 0) + r;
+    }
+
+    static int priorityCmp(Dev a, Dev b, long now) {
+        int pa = prio(a, now), pb = prio(b, now);
+        return pa != pb ? Integer.compare(pb, pa) : Double.compare(b.ema, a.ema);
+    }
 
     /**
      * 끊긴 모양 판정.
@@ -1789,6 +1805,7 @@ public class MainActivity extends Activity {
         mid.addView(label(d.name + (count > 1 ? "  ×" + count : ""), 18, WHITE, true));
         long ago = (now - d.lastSeen) / 1000;
         mid.addView(label(d.kind + (ago > 5 ? " · " + ago + "초 전" : ""), 13, DIM, false));
+        if (nearStay(d, now)) mid.addView(label("★ 가까이 오래 있음 · 먼저 확인", 15, ORANGE, true));
         String why = softReason(d, now);
         if (why != null) mid.addView(label(why, 14, SKY, false));
         String vd = patrol ? verdict(d) : null;
