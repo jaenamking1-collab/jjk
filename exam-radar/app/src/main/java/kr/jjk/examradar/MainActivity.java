@@ -81,6 +81,8 @@ public class MainActivity extends Activity {
     static class Dev {
         String key, name, kind;   // kind: 기기 종류 설명
         boolean wifi, phoneLike, named;
+        boolean gone;             // 와이파이: 최근 검색에 두 번 연속 안 나옴(꺼짐)
+        int miss;
         int manu = -1;            // 블루투스 제조사 번호
         int rssi;
         int txPower = 127;        // 블루투스가 알려 주는 송신 세기(127 = 모름)
@@ -414,6 +416,17 @@ public class MainActivity extends Activity {
         if (rs == null) return;
         long nowUs = SystemClock.elapsedRealtime() * 1000L;
         long now = System.currentTimeMillis();
+        long newest = 0;
+        for (android.net.wifi.ScanResult r : rs) newest = Math.max(newest, now - (nowUs - r.timestamp) / 1000L);
+        // 새 검색 결과가 왔는데 거기에 두 번 연속 안 나온 와이파이는 꺼진 것으로 본다.
+        // (한 번만 빠진 건 일부 채널만 훑은 검색일 수 있어서 한 번 더 본다)
+        if (newest > lastBatch + 1000) {
+            lastBatch = newest;
+            for (Dev d : devs.values()) {
+                if (!d.wifi) continue;
+                if (newest - d.lastSeen > 5000) { d.miss++; if (d.miss >= 2) d.gone = true; }
+            }
+        }
         for (android.net.wifi.ScanResult r : rs) {
             if (nowUs - r.timestamp > 40_000_000L) continue; // 40초보다 오래된 결과는 버림
             String key = "W:" + r.BSSID;
@@ -547,6 +560,8 @@ public class MainActivity extends Activity {
         d.ema = Double.isNaN(d.ema) ? rssi : d.ema * (1 - a) + rssi * a;
         d.lastSeen = Math.max(d.lastSeen, at);
         d.hits++;
+        d.gone = false;
+        d.miss = 0;
         d.hist.add(new double[]{at, d.ema});
         while (d.hist.size() > 40) d.hist.remove(0);
         if (mode == MODE_BASELINE) addBase(d);
@@ -667,9 +682,15 @@ public class MainActivity extends Activity {
         return "M:" + d.manu;
     }
 
+    /** 꺼진 기기: 와이파이는 최근 검색에 안 나오면, 블루투스는 8초 동안 소식이 없으면(평소 1초에 여러 번 옴) */
+    static boolean isGone(Dev d, long now) {
+        if (d.wifi) return d.gone || now - d.lastSeen > GONE_MS;
+        return now - d.lastSeen > 8000;
+    }
+
     boolean rawAlert(Dev d, long now) {
         if (mode != MODE_WATCH || inBase(d)) return false;
-        if (now - d.lastSeen > GONE_MS) return false;
+        if (isGone(d, now)) return false;
         if (d.wifi) return d.ema >= wifiLimit();
         // 블루투스는 3번 이상, 3초 이상 보이고 가까울 때만 (스쳐 가는 신호 거르기)
         return d.hits >= 3 && now - d.firstSeen >= 3_000 && d.ema >= bleLimit();
@@ -725,6 +746,7 @@ public class MainActivity extends Activity {
     // ───────────────────────── 1초마다 ─────────────────────────
 
     int tickN = 0;
+    long lastBatch = 0;
     long lastKick = 0;
     final Runnable tick = new Runnable() {
         @Override public void run() {
@@ -1598,8 +1620,8 @@ public class MainActivity extends Activity {
         findName.setText(d.name + "\n신호 점수 (0~100, 클수록 가깝습니다)");
         long ago = (now - d.lastSeen) / 1000;
         double m = meters(d);
-        if (ago > 15) {
-            findDist.setText("신호 없음");
+        if (isGone(d, now)) {
+            findDist.setText("꺼짐");
             findDist.setTextColor(DIM);
             findTrend.setText(ago + "초째 안 보입니다. 핫스팟·블루투스를 껐을 수 있습니다.");
             findTrend.setTextColor(DIM);
